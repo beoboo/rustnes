@@ -1,5 +1,7 @@
 use crate::instruction::Instruction;
+use crate::op_code::OpCode;
 
+#[derive(Debug)]
 pub struct InstructionsMap {}
 
 impl InstructionsMap {
@@ -7,8 +9,12 @@ impl InstructionsMap {
         InstructionsMap {}
     }
 
-    fn find(&self, op_code: u8) -> Instruction {
-        Instruction::new(op_code, "BRK")
+    pub fn find(&self, op_code: u8) -> Instruction {
+        match &op_code {
+            0x00 => { println!("here"); Instruction::new(OpCode::BRK, "BRK") }
+            0xA9 => { println!("here"); Instruction::new(OpCode::LDA, "LDA") }
+            _ => panic!(format!("Invalid op code: {:x?}", op_code))
+        }
     }
 }
 

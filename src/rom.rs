@@ -1,5 +1,3 @@
-use std::error;
-use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 use std::str;
@@ -66,11 +64,11 @@ impl Rom {
 mod tests {
     use std::fs;
     use std::fs::File;
+    use std::path::Path;
 
     use hamcrest2::prelude::*;
 
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn read_header() {
