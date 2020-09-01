@@ -1,3 +1,4 @@
+use crate::bus::BusImpl;
 use crate::cpu::Cpu;
 use crate::rom::Rom;
 use crate::instructions_map::InstructionsMap;
@@ -8,6 +9,7 @@ use crate::op_code::OpCode;
 #[macro_use]
 extern crate hamcrest2;
 
+mod bus;
 mod cpu;
 mod rom;
 mod instructions_map;

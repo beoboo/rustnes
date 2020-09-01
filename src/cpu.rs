@@ -1,9 +1,8 @@
 use crate::instructions_map::InstructionsMap;
 use crate::op_code::OpCode;
-use std::io::Read;
 
 #[allow(non_snake_case)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CpuStatus {
     C: bool, // Carry
     Z: bool, // Zero
@@ -12,11 +11,11 @@ pub struct CpuStatus {
     B: bool, // Break
     U: bool, // Unused
     V: bool, // Overflow
-    S: bool, // Sign
+    N: bool, // Negative
 }
 
 #[allow(non_snake_case)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Cpu {
     A: u8, // Accumulator
     X: u8, // X register
@@ -41,7 +40,7 @@ impl Cpu {
                 B: false,
                 U: false,
                 V: false,
-                S: false,
+                N: false,
             },
             instructions_map: InstructionsMap::new(),
         }
@@ -51,27 +50,52 @@ impl Cpu {
         let op_code = program[self.PC];
 
         let instruction = self.instructions_map.find(op_code);
+        let mut cycles = instruction.cycles;
+
         self.PC += 1;
 
-        match instruction.op_code {
+        cycles += match instruction.op_code {
+            OpCode::ADC => self.adc(program),
             OpCode::LDA => self.lda(program),
-            _ => panic!(format!("Unexpected op code: {}", op_code))
+            _ => panic!(format!("Unexpected op code: {:x?}", op_code))
         };
 
+        cycles
+    }
+
+    fn adc(&mut self, program: &[u8]) -> u8 {
+        let operand = program[self.PC];
+        self.PC += 1;
+        self.A += operand;
         0
     }
 
-    fn lda(&mut self, program: &[u8]) {
+    fn lda(&mut self, program: &[u8]) -> u8 {
         let operand = program[self.PC];
         self.PC += 1;
         self.A = operand;
+        self.status.Z = operand == 0x00;
+        self.status.N = (operand & 0x80) == 0x80;
+
+        0
     }
 }
 
 #[cfg(test)]
 mod tests {
     use hamcrest2::prelude::*;
+
     use super::*;
+
+    // struct MockBus {
+    //
+    // }
+    //
+    // impl Bus for MockBus {
+    //     fn read(address: u16) -> u8 {
+    //
+    //     }
+    // }
 
     #[test]
     fn ctor() {
@@ -84,14 +108,45 @@ mod tests {
     }
 
     #[test]
-    fn process_single_instruction() {
+    fn process_adc() {
+        let mut cpu = Cpu::new();
+        cpu.A = 1;
+
+        assert_registers(&cpu, &[0x69, 0x01], 2, 0, 0, 2, "zncv", 2);
+        // assert_registers(&cpu, &[0x69, 0xFF], 2, 0, 0, 2, "znCv", 2);
+    }
+
+    #[test]
+    fn process_lda() {
         let mut cpu = Cpu::new();
 
-        cpu.process(&[0xA9, 0x01]);
+        assert_registers(&cpu, &[0xA9, 0x00], 0x00, 0, 0, 2, "Zn", 2);
+        assert_registers(&cpu, &[0xA9, 0x01], 0x01, 0, 0, 2, "zn", 2);
+        assert_registers(&cpu, &[0xA9, 0xFF], 0xFF, 0, 0, 2, "zN", 2);
+    }
 
-        assert_that!(cpu.PC, eq(2));
-        assert_that!(cpu.A, eq(1));
-        assert_status(cpu.status, "zn");
+    // #[test]
+    // fn process_sta() {
+    //     let mut bus = Bus::new(0x0000, 0x02ff);
+    //     let mut cpu = Cpu::new(&mut bus);
+    //     cpu.A = 1;
+    //
+    //     assert_registers(&cpu, &[0x8D, 0x00, 0x02], 1, 0, 0, 2, "zn", 1);
+    //     assert_bus(&bus, 0x2000, 0x01);
+    // }
+
+    fn assert_registers(cpu: &Cpu, program: &[u8], a: u8, x: u8, y: u8, pc: usize, status: &str, expected_cycles: u8) {
+        println!("{:x?}", program);
+        let mut cpu = &mut cpu.clone();
+
+        let cycles = cpu.process(program);
+
+        assert_that!(cpu.A, eq(a));
+        assert_that!(cpu.X, eq(x));
+        assert_that!(cpu.Y, eq(y));
+        assert_that!(cpu.PC, eq(pc));
+        assert_status(cpu.status.clone(), status);
+        assert_that!(cycles, geq(expected_cycles));
     }
 
     fn assert_status(status: CpuStatus, flags: &str) {
@@ -104,13 +159,14 @@ mod tests {
                 'B' | 'b' => assert_flag(status.B, flag),
                 'U' | 'u' => assert_flag(status.U, flag),
                 'V' | 'v' => assert_flag(status.V, flag),
-                'S' | 's' => assert_flag(status.S, flag),
-                _ => {}
+                'N' | 'n' => assert_flag(status.N, flag),
+                _ => panic!(format!("Undefined flag: {}", flag))
             }
         }
     }
 
     fn assert_flag(status: bool, flag: char) {
+        println!("{}: {}", flag, status);
         assert_that!(status, is(flag.is_uppercase()));
     }
 }
