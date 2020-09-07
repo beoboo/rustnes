@@ -132,11 +132,12 @@ mod tests {
         let cpu = build_cpu(1, 0, 0, 0, "");
 
         assert_registers(&cpu, &[0x69, 0x01], 2, 0, 0, 2, "zncv", 2);
-        assert_registers(&cpu, &[0x69, 0xFF], 0, 0, 0, 2, "znCV", 2);
+        assert_registers(&cpu, &[0x69, 0xFF], 0, 0, 0, 2, "ZnCV", 2);
 
         let cpu = build_cpu(1, 0, 0, 0, "C");
 
         assert_registers(&cpu, &[0x69, 0x01], 3, 0, 0, 2, "zncv", 2);
+        assert_registers(&cpu, &[0x69, 0xFF], 1, 0, 0, 2, "znCV", 2);
     }
 
     #[test]
