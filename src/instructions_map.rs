@@ -9,11 +9,13 @@ impl InstructionsMap {
         InstructionsMap {}
     }
 
-    pub fn find(&self, op_code: u8) -> Instruction {
+    pub fn find(&self, op_code: OpCode) -> Instruction {
         match &op_code {
-            0x00 => Instruction::new(OpCode::BRK, "BRK", 1),
-            0x69 => Instruction::new(OpCode::ADC, "ADC", 2),
-            0xA9 => Instruction::new(OpCode::LDA, "LDA", 2),
+            OpCode::BRK => Instruction::new(OpCode::BRK, "BRK", 1),
+            OpCode::ADC => Instruction::new(OpCode::ADC, "ADC", 2),
+            OpCode::CLC => Instruction::new(OpCode::CLC, "CLC", 1),
+            OpCode::LDA => Instruction::new(OpCode::LDA, "LDA", 2),
+            OpCode::SEC => Instruction::new(OpCode::SEC, "SEC", 1),
             _ => panic!(format!("Invalid op code: {:x?}", op_code))
         }
     }
@@ -28,7 +30,7 @@ mod tests {
     #[test]
     fn find_instruction() {
         let map = InstructionsMap::new();
-        let instruction = map.find(0x00);
+        let instruction = map.find(OpCode::BRK);
 
         assert_that!(instruction, type_of::<Instruction>());
     }
