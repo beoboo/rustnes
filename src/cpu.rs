@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn process_lda() {
-        let mut cpu = Cpu::new();
+        let cpu = Cpu::new();
 
         assert_registers(&cpu, &[0xA9, 0x00], 0x00, 0, 0, 2, "Zn", 2);
         assert_registers(&cpu, &[0xA9, 0x01], 0x01, 0, 0, 2, "zn", 2);
@@ -137,7 +137,7 @@ mod tests {
 
     fn assert_registers(cpu: &Cpu, program: &[u8], a: u8, x: u8, y: u8, pc: usize, status: &str, expected_cycles: u8) {
         println!("{:x?}", program);
-        let mut cpu = &mut cpu.clone();
+        let cpu = &mut cpu.clone();
 
         let cycles = cpu.process(program);
 

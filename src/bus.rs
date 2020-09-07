@@ -38,4 +38,12 @@ mod tests {
 
         assert_that!(bus.read(0x0000), eq(0));
     }
+
+    #[test]
+    fn test_write() {
+        let mut bus = BusImpl::new(16);
+        bus.write(0x0001, 0x01);
+
+        assert_that!(bus.read(0x0001), eq(0x01));
+    }
 }
