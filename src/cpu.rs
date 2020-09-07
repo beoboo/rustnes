@@ -1,7 +1,8 @@
 use crate::instructions_map::InstructionsMap;
 use crate::op_code::OpCode;
+use crate::types::*;
 
-fn bool_to_u16(flag: bool) -> u16 {
+fn bool_to_word(flag: bool) -> Word {
     if flag { 1 } else { 0 }
 }
 
@@ -28,11 +29,11 @@ pub struct CpuStatus {
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct Cpu {
-    A: u8,
+    A: Byte,
     // Accumulator
-    X: u8,
+    X: Byte,
     // X register
-    Y: u8,
+    Y: Byte,
     // Y register
     PC: usize,
     // Program counter
@@ -62,7 +63,7 @@ impl Cpu {
         }
     }
 
-    pub fn process(&mut self, program: &[u8]) -> u8 {
+    pub fn process(&mut self, program: &[Byte]) -> usize {
         let op_code = program[self.PC];
 
         let instruction = self.instructions_map.find(op_code);
@@ -79,18 +80,21 @@ impl Cpu {
         cycles
     }
 
-    fn adc(&mut self, program: &[u8]) -> u8 {
+    fn adc(&mut self, program: &[Byte]) -> usize {
         let operand = program[self.PC];
-        let computed = self.A as u16 + operand as u16 + bool_to_u16(self.status.C);
+        let computed = self.A as Word + operand as Word + bool_to_word(self.status.C);
+        let acc = self.A;
+
         self.PC += 1;
-        self.status.V = !((self.A ^ operand) & 0x80) != 0 && (((operand as u16) ^ computed) & 0x80) != 0;
-        self.A = computed as u8;
+        self.A = computed as Byte;
+        self.status.Z = self.A == 0x00;
+        self.status.V = !((acc ^ operand) & 0x80) != 0 && (((operand as Word) ^ computed) & 0x80) != 0;
         self.status.C = computed > 0xFF;
 
         0
     }
 
-    fn lda(&mut self, program: &[u8]) -> u8 {
+    fn lda(&mut self, program: &[Byte]) -> usize {
         let operand = program[self.PC];
         self.PC += 1;
         self.A = operand;
@@ -112,7 +116,7 @@ mod tests {
     // }
     //
     // impl Bus for MockBus {
-    //     fn read(address: u16) -> u8 {
+    //     fn read(address: Word) -> Byte {
     //
     //     }
     // }
@@ -159,7 +163,7 @@ mod tests {
     //     assert_bus(&bus, 0x2000, 0x01);
     // }
 
-    fn build_cpu(a: u8, x: u8, y: u8, pc: usize, status: &str) -> Cpu {
+    fn build_cpu(a: Byte, x: Byte, y: Byte, pc: usize, status: &str) -> Cpu {
         let mut cpu = Cpu::new();
 
         cpu.A = a;
@@ -188,7 +192,7 @@ mod tests {
         flags.contains(flag)
     }
 
-    fn assert_registers(cpu: &Cpu, program: &[u8], a: u8, x: u8, y: u8, pc: usize, expected_status: &str, expected_cycles: u8) {
+    fn assert_registers(cpu: &Cpu, program: &[Byte], a: Byte, x: Byte, y: Byte, pc: usize, expected_status: &str, expected_cycles: usize) {
         println!("Program: {:x?}", program);
         let cpu = &mut cpu.clone();
 

@@ -3,11 +3,11 @@ use crate::op_code::OpCode;
 pub struct Instruction {
     pub op_code: OpCode,
     pub name: String,
-    pub cycles: u8,
+    pub cycles: usize,
 }
 
 impl Instruction {
-    pub fn new(op_code: OpCode, name: &str, cycles: u8) -> Instruction {
+    pub fn new(op_code: OpCode, name: &str, cycles: usize) -> Instruction {
         Instruction {
             op_code,
             name: name.to_string(),
