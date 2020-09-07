@@ -1,6 +1,7 @@
 use crate::cpu::Cpu;
 
 #[cfg(test)]
+#[macro_use]
 extern crate hamcrest2;
 
 mod bus;

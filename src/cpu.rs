@@ -1,27 +1,43 @@
 use crate::instructions_map::InstructionsMap;
 use crate::op_code::OpCode;
 
+fn bool_to_u16(flag: bool) -> u16 {
+    if flag { 1 } else { 0 }
+}
+
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct CpuStatus {
-    C: bool, // Carry
-    Z: bool, // Zero
-    I: bool, // Enable/Disable Interrupts
-    D: bool, // Decimal Mode
-    B: bool, // Break
-    U: bool, // Unused
-    V: bool, // Overflow
+    C: bool,
+    // Carry
+    Z: bool,
+    // Zero
+    I: bool,
+    // Enable/Disable Interrupts
+    D: bool,
+    // Decimal Mode
+    B: bool,
+    // Break
+    U: bool,
+    // Unused
+    V: bool,
+    // Overflow
     N: bool, // Negative
 }
 
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct Cpu {
-    A: u8, // Accumulator
-    X: u8, // X register
-    Y: u8, // Y register
-    PC: usize, // Program counter
-    status: CpuStatus, // Status
+    A: u8,
+    // Accumulator
+    X: u8,
+    // X register
+    Y: u8,
+    // Y register
+    PC: usize,
+    // Program counter
+    status: CpuStatus,
+    // Status
     instructions_map: InstructionsMap,
 }
 
@@ -65,8 +81,12 @@ impl Cpu {
 
     fn adc(&mut self, program: &[u8]) -> u8 {
         let operand = program[self.PC];
+        let computed = self.A as u16 + operand as u16 + bool_to_u16(self.status.C);
         self.PC += 1;
-        self.A += operand;
+        self.status.V = !((self.A ^ operand) & 0x80) != 0 && (((operand as u16) ^ computed) & 0x80) != 0;
+        self.A = computed as u8;
+        self.status.C = computed > 0xFF;
+
         0
     }
 
@@ -87,7 +107,7 @@ mod tests {
 
     use super::*;
 
-    // struct MockBus {
+// struct MockBus {
     //
     // }
     //
@@ -109,16 +129,19 @@ mod tests {
 
     #[test]
     fn process_adc() {
-        let mut cpu = Cpu::new();
-        cpu.A = 1;
+        let cpu = build_cpu(1, 0, 0, 0, "");
 
         assert_registers(&cpu, &[0x69, 0x01], 2, 0, 0, 2, "zncv", 2);
-        // assert_registers(&cpu, &[0x69, 0xFF], 2, 0, 0, 2, "znCv", 2);
+        assert_registers(&cpu, &[0x69, 0xFF], 0, 0, 0, 2, "znCV", 2);
+
+        let cpu = build_cpu(1, 0, 0, 0, "C");
+
+        assert_registers(&cpu, &[0x69, 0x01], 3, 0, 0, 2, "zncv", 2);
     }
 
     #[test]
     fn process_lda() {
-        let cpu = Cpu::new();
+        let cpu = build_cpu(0, 0, 0, 0, "");
 
         assert_registers(&cpu, &[0xA9, 0x00], 0x00, 0, 0, 2, "Zn", 2);
         assert_registers(&cpu, &[0xA9, 0x01], 0x01, 0, 0, 2, "zn", 2);
@@ -135,8 +158,37 @@ mod tests {
     //     assert_bus(&bus, 0x2000, 0x01);
     // }
 
-    fn assert_registers(cpu: &Cpu, program: &[u8], a: u8, x: u8, y: u8, pc: usize, status: &str, expected_cycles: u8) {
-        println!("{:x?}", program);
+    fn build_cpu(a: u8, x: u8, y: u8, pc: usize, status: &str) -> Cpu {
+        let mut cpu = Cpu::new();
+
+        cpu.A = a;
+        cpu.X = x;
+        cpu.Y = y;
+        cpu.PC = pc;
+        cpu.status = build_status(status);
+
+        cpu
+    }
+
+    fn build_status(flags: &str) -> CpuStatus {
+        CpuStatus {
+            C: build_status_flag(flags, 'C'),
+            Z: build_status_flag(flags, 'Z'),
+            I: build_status_flag(flags, 'I'),
+            D: build_status_flag(flags, 'D'),
+            B: build_status_flag(flags, 'B'),
+            U: build_status_flag(flags, 'U'),
+            V: build_status_flag(flags, 'V'),
+            N: build_status_flag(flags, 'N'),
+        }
+    }
+
+    fn build_status_flag(flags: &str, flag: char) -> bool {
+        flags.contains(flag)
+    }
+
+    fn assert_registers(cpu: &Cpu, program: &[u8], a: u8, x: u8, y: u8, pc: usize, expected_status: &str, expected_cycles: u8) {
+        println!("Program: {:x?}", program);
         let cpu = &mut cpu.clone();
 
         let cycles = cpu.process(program);
@@ -145,7 +197,7 @@ mod tests {
         assert_that!(cpu.X, eq(x));
         assert_that!(cpu.Y, eq(y));
         assert_that!(cpu.PC, eq(pc));
-        assert_status(cpu.status.clone(), status);
+        assert_status(cpu.status.clone(), expected_status);
         assert_that!(cycles, geq(expected_cycles));
     }
 
