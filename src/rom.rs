@@ -4,9 +4,9 @@ use std::str;
 
 #[derive(Debug)]
 pub struct RomHeader {
-    nes: String,
-    prg_rom_size: usize,
-    chr_rom_size: usize,
+    pub nes: String,
+    pub prg_rom_size: usize,
+    pub chr_rom_size: usize,
 }
 
 impl RomHeader {

@@ -23,9 +23,12 @@ impl BusImpl {
 
 impl Bus for BusImpl {
     fn read(&self, address: u16) -> u8 {
+        let address = address as usize;
+
         match address {
-            0x0000..=16 => self.ram[address as usize],
-            0x8000..=0xFFFF => self.rom.prg_rom[address as usize - 0x8000],
+            0x0000..=16 => self.ram[address],
+            0x8000..=0xFFFF if address - 0x8000 > self.rom.prg_rom.len() => self.rom.prg_rom[address - 0xC000],
+            0x8000..=0xFFFF  => self.rom.prg_rom[address - 0x8000],
             _ => panic!(format!("Not mapped address: {:#6X}", address))
 
         }
