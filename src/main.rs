@@ -5,12 +5,17 @@ use crate::cpu::Cpu;
 extern crate hamcrest2;
 
 mod assembler;
+mod addressing;
 mod bus;
 mod cpu;
-mod rom;
+mod error;
 mod instructions_map;
 mod instruction;
+mod lexer;
 mod op_code;
+mod parser;
+mod rom;
+mod token;
 mod types;
 
 fn main() {
