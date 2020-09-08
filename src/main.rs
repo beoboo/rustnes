@@ -4,6 +4,7 @@ use crate::cpu::Cpu;
 #[macro_use]
 extern crate hamcrest2;
 
+mod assembler;
 mod bus;
 mod cpu;
 mod rom;

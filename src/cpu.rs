@@ -322,16 +322,6 @@ mod tests {
         assert_status_flags(&cpu, &[0x58, 0x78], 0, 0, 0, "I");
     }
 
-    // #[test]
-    // fn process_sta() {
-    //     let mut bus = Bus::new(0x0000, 0x02ff);
-    //     let mut cpu = Cpu::new(&mut bus);
-    //     cpu.A = 1;
-    //
-    //     assert_registers(&cpu, &[0x8D, 0x00, 0x02], 1, 0, 0, 2, "zn", 1);
-    //     assert_bus(&bus, 0x2000, 0x01);
-    // }
-
     fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {
         let mut cpu = Cpu::new();
 
