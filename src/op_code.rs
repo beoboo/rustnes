@@ -1,15 +1,13 @@
-use num_enum::{IntoPrimitive, TryFromPrimitive};
-
-#[repr(u8)]
-#[derive(Debug, Clone, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum OpCode {
     ADC,
     BRK,
     CLC,
+    CLI,
     JMP,
     LDA,
     NOP,
     SBC,
     SEC,
-    Unknown,
+    SEI,
 }

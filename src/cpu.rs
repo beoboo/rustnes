@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use crate::instructions_map::InstructionsMap;
 use crate::op_code::OpCode;
 use crate::types::*;
@@ -12,36 +10,37 @@ fn bool_to_byte(flag: bool) -> Byte {
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct CpuStatus {
-    C: bool,
     // Carry
-    Z: bool,
+    C: bool,
     // Zero
-    I: bool,
+    Z: bool,
     // Enable/Disable Interrupts
-    D: bool,
+    I: bool,
     // Decimal Mode
-    B: bool,
+    D: bool,
     // Break
-    U: bool,
+    B: bool,
     // Unused
-    V: bool,
+    U: bool,
     // Overflow
-    N: bool, // Negative
+    V: bool,
+    // Negative
+    N: bool,
 }
 
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct Cpu {
-    A: Byte,
     // Accumulator
-    X: Byte,
+    A: Byte,
     // X register
-    Y: Byte,
+    X: Byte,
     // Y register
-    PC: Word,
+    Y: Byte,
     // Program counter
-    status: CpuStatus,
+    PC: Word,
     // Status
+    status: CpuStatus,
     instructions_map: InstructionsMap,
 }
 
@@ -67,7 +66,7 @@ impl Cpu {
     }
 
     pub fn process<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let op_id = bus.read(self.PC);
+        let op_id = bus.read_byte(self.PC);
 
         let instruction = self.instructions_map.find(op_id);
         let mut cycles = instruction.cycles;
@@ -79,10 +78,12 @@ impl Cpu {
         cycles += match instruction.op_code {
             OpCode::ADC => self.adc(bus),
             OpCode::CLC => self.clc(),
+            OpCode::CLI => self.cli(),
             OpCode::JMP => self.jmp(bus),
             OpCode::LDA => self.lda(bus),
             OpCode::SBC => self.sbc(bus),
             OpCode::SEC => self.sec(),
+            OpCode::SEI => self.sei(),
             OpCode::NOP => 0,
             op_code => panic!(format!("[Cpu::process] Unexpected op code: {:?}", op_code))
         };
@@ -91,7 +92,7 @@ impl Cpu {
     }
 
     fn adc<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let operand = bus.read(self.PC);
+        let operand = bus.read_byte(self.PC);
         let computed = self.A as Word + operand as Word + bool_to_byte(self.status.C) as Word;
         let acc = self.A;
 
@@ -113,18 +114,23 @@ impl Cpu {
         0
     }
 
-    fn jmp<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let low = bus.read(self.PC) as Word;
-        let high = bus.read(self.PC + 1) as Word;
-        println!("Jumping to 0x{:X?}{:X?}", high, low);
+    fn cli(&mut self) -> usize {
+        self.status.I = false;
 
-        self.PC = (high << 8) + low;
+        0
+    }
+
+    fn jmp<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
+        let address = bus.read_word(self.PC) as Word;
+        println!("Jumping to {:#06X}", address);
+
+        self.PC = address;
 
         0
     }
 
     fn lda<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let operand = bus.read(self.PC);
+        let operand = bus.read_byte(self.PC);
         self.PC += 1;
         self.A = operand;
         self.status.Z = operand == 0x00;
@@ -134,7 +140,7 @@ impl Cpu {
     }
 
     fn sbc<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let operand = bus.read(self.PC);
+        let operand = bus.read_byte(self.PC);
         let computed = self.A as SignedWord - operand as SignedWord - bool_to_byte(!self.status.C) as SignedWord;
         let acc = self.A;
 
@@ -152,6 +158,12 @@ impl Cpu {
 
     fn sec(&mut self) -> usize {
         self.status.C = true;
+
+        0
+    }
+
+    fn sei(&mut self) -> usize {
+        self.status.I = true;
 
         0
     }
@@ -179,11 +191,11 @@ mod tests {
     }
 
     impl BusTrait for MockBus {
-        fn read(&self, address: Word) -> Byte {
+        fn read_byte(&self, address: Word) -> Byte {
             self.data[address as usize]
         }
 
-        fn write(&mut self, address: u16, data: u8) {
+        fn write_byte(&mut self, address: u16, data: u8) {
             self.data[address as usize] = data;
         }
     }
@@ -203,7 +215,12 @@ mod tests {
         let rom = Rom::load("roms/nestest.nes", 16384, 8192);
         let mut cpu = build_cpu(0, 0, 0, 0, "");
         let bus = BusImpl::new(rom);
-        println!("FFFC: {:#X}, FFFD: {:#X}", bus.read(0xFFFC), bus.read(0xFFFD));
+
+        let start = bus.read_word(0xFFFC);
+        println!("Starting address: {:#06X}", start);
+
+        cpu.PC = start;
+        // println!("First op: {:#04X}", bus.read_byte(start));
 
         let cycles = process_bus(&mut cpu, &bus);
         assert_that!(cycles, geq(1234));
@@ -240,6 +257,21 @@ mod tests {
     }
 
     #[test]
+    fn process_cli() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_status_flags(&cpu, &[0x58], 0, 0, 0, "i");
+        assert_status_flags(&cpu, &[0x78, 0x58], 0, 0, 0, "i");
+    }
+
+    #[test]
+    fn process_jmp() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_registers(&cpu, &[0x4C, 0x03, 0x00], 0, 0, 0, 0x0003, "", 3);
+    }
+
+    #[test]
     fn process_lda() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
@@ -253,13 +285,6 @@ mod tests {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         assert_registers(&cpu, &[], 0, 0, 0, 0, "zncv", 0);
-    }
-
-    #[test]
-    fn process_jmp() {
-        let cpu = build_cpu(0, 0, 0, 0, "");
-
-        assert_registers(&cpu, &[0x4C, 0x03, 0x00], 0, 0, 0, 0x0003, "", 3);
     }
 
     #[test]
@@ -287,6 +312,14 @@ mod tests {
 
         assert_status_flags(&cpu, &[0x38], 0, 0, 0, "C");
         assert_status_flags(&cpu, &[0x18, 0x38], 0, 0, 0, "C");
+    }
+
+    #[test]
+    fn process_sei() {
+        let cpu = build_cpu(0, 0, 0, 0, "I");
+
+        assert_status_flags(&cpu, &[0x78], 0, 0, 0, "I");
+        assert_status_flags(&cpu, &[0x58, 0x78], 0, 0, 0, "I");
     }
 
     // #[test]
