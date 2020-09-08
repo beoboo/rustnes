@@ -66,20 +66,10 @@ impl Cpu {
         }
     }
 
-    fn read(&self, program: &[Byte], pos: Word) -> Byte {
-        program[pos as usize]
-    }
-
     pub fn process<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let next_op_code = bus.read(self.PC);
-        let op_code = OpCode::try_from(next_op_code);
+        let op_id = bus.read(self.PC);
 
-        let op_code = match op_code {
-            Ok(oc) => oc,
-            Err(_) => panic!(format!("Unexpected op code: {:#X?}", next_op_code))
-        };
-
-        let instruction = self.instructions_map.find(op_code);
+        let instruction = self.instructions_map.find(op_id);
         let mut cycles = instruction.cycles;
 
         self.PC += if instruction.op_code != OpCode::NOP { 1 } else { 0 };
@@ -94,7 +84,7 @@ impl Cpu {
             OpCode::SBC => self.sbc(bus),
             OpCode::SEC => self.sec(),
             OpCode::NOP => 0,
-            op_code => panic!(format!("Unexpected op code: {:#X?}", op_code))
+            op_code => panic!(format!("[Cpu::process] Unexpected op code: {:?}", op_code))
         };
 
         cycles
@@ -213,6 +203,7 @@ mod tests {
         let rom = Rom::load("roms/nestest.nes", 16384, 8192);
         let mut cpu = build_cpu(0, 0, 0, 0, "");
         let bus = BusImpl::new(rom);
+        println!("FFFC: {:#X}, FFFD: {:#X}", bus.read(0xFFFC), bus.read(0xFFFD));
 
         let cycles = process_bus(&mut cpu, &bus);
         assert_that!(cycles, geq(1234));
@@ -222,8 +213,8 @@ mod tests {
     fn process_adc() {
         let cpu = build_cpu(1, 0, 0, 0, "");
 
-        assert_registers(&cpu, &[OpCode::ADC as Byte, 0x01], 2, 0, 0, 2, "zncv", 2);
-        assert_registers(&cpu, &[OpCode::ADC as Byte, 0x01], 2, 0, 0, 2, "zncv", 2);
+        assert_registers(&cpu, &[0x69, 0x01], 2, 0, 0, 2, "zncv", 2);
+        assert_registers(&cpu, &[0x69, 0x01], 2, 0, 0, 2, "zncv", 2);
     }
 
     #[test]
@@ -231,30 +222,30 @@ mod tests {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         // 1 + 1 = 2, C = 0, V = 0
-        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::LDA as Byte, 0x01, OpCode::ADC as Byte, 0x01], 2, 0, 0, "zncv");
+        assert_status_flags(&cpu, &[0x18, 0xA9, 0x01, 0x69, 0x01], 2, 0, 0, "zncv");
         // 1 + -1 = 0, C = 1, V = 0
-        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::LDA as Byte, 0x01, OpCode::ADC as Byte, 0xFF], 0, 0, 0, "ZnCv");
+        assert_status_flags(&cpu, &[0x18, 0xA9, 0x01, 0x69, 0xFF], 0, 0, 0, "ZnCv");
         // 127 + 1 = 128 (-128), C = 0, V = 1
-        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::LDA as Byte, 0x7F, OpCode::ADC as Byte, 0x01], 128, 0, 0, "zNcV");
+        assert_status_flags(&cpu, &[0x18, 0xA9, 0x7F, 0x69, 0x01], 128, 0, 0, "zNcV");
         // -128 + -1 = -129 (127), C = 0, V = 1
-        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::LDA as Byte, 0x80, OpCode::ADC as Byte, 0xFF], 127, 0, 0, "znCV");
+        assert_status_flags(&cpu, &[0x18, 0xA9, 0x80, 0x69, 0xFF], 127, 0, 0, "znCV");
     }
 
     #[test]
     fn process_clc() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_status_flags(&cpu, &[OpCode::CLC as Byte], 0, 0, 0, "c");
-        assert_status_flags(&cpu, &[OpCode::SEC as Byte, OpCode::CLC as Byte], 0, 0, 0, "c");
+        assert_status_flags(&cpu, &[0x18], 0, 0, 0, "c");
+        assert_status_flags(&cpu, &[0x38, 0x18], 0, 0, 0, "c");
     }
 
     #[test]
     fn process_lda() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_registers(&cpu, &[OpCode::LDA as Byte, 0x00], 0x00, 0, 0, 2, "Zn", 2);
-        assert_registers(&cpu, &[OpCode::LDA as Byte, 0x01], 0x01, 0, 0, 2, "zn", 2);
-        assert_registers(&cpu, &[OpCode::LDA as Byte, 0xFF], 0xFF, 0, 0, 2, "zN", 2);
+        assert_registers(&cpu, &[0xA9, 0x00], 0x00, 0, 0, 2, "Zn", 2);
+        assert_registers(&cpu, &[0xA9, 0x01], 0x01, 0, 0, 2, "zn", 2);
+        assert_registers(&cpu, &[0xA9, 0xFF], 0xFF, 0, 0, 2, "zN", 2);
     }
 
     #[test]
@@ -268,14 +259,14 @@ mod tests {
     fn process_jmp() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_registers(&cpu, &[OpCode::JMP as Byte, 0x03, 0x00], 0, 0, 0, 0x0003, "", 3);
+        assert_registers(&cpu, &[0x4C, 0x03, 0x00], 0, 0, 0, 0x0003, "", 3);
     }
 
     #[test]
     fn process_sbc() {
         let cpu = build_cpu(1, 0, 0, 0, "C");
 
-        assert_registers(&cpu, &[OpCode::SBC as Byte, 0x01], 0, 0, 0, 2, "ZnCv", 2);
+        assert_registers(&cpu, &[0xE9, 0x01], 0, 0, 0, 2, "ZnCv", 2);
     }
 
     #[test]
@@ -283,19 +274,19 @@ mod tests {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         // 0 - 1 = -1 (255), C = 1, V = 1
-        assert_status_flags(&cpu, &[OpCode::SEC as Byte, OpCode::LDA as Byte, 0x00, OpCode::SBC as Byte, 0x01], 255, 0, 0, "zNcV");
+        assert_status_flags(&cpu, &[0x38, 0xA9, 0x00, 0xE9, 0x01], 255, 0, 0, "zNcV");
         // -128 - 1 = -129 (127), C = 1, V = 1
-        assert_status_flags(&cpu, &[OpCode::SEC as Byte, OpCode::LDA as Byte, 0x80, OpCode::SBC as Byte, 0x01], 127, 0, 0, "znCV");
+        assert_status_flags(&cpu, &[0x38, 0xA9, 0x80, 0xE9, 0x01], 127, 0, 0, "znCV");
         // 127 - -1 = 128 (-128), C = 0, V = 1
-        assert_status_flags(&cpu, &[OpCode::SEC as Byte, OpCode::LDA as Byte, 0x7F, OpCode::SBC as Byte, 0xFF], -128i8 as u8, 0, 0, "zNcV");
+        assert_status_flags(&cpu, &[0x38, 0xA9, 0x7F, 0xE9, 0xFF], -128i8 as u8, 0, 0, "zNcV");
     }
 
     #[test]
     fn process_sec() {
         let cpu = build_cpu(0, 0, 0, 0, "C");
 
-        assert_status_flags(&cpu, &[OpCode::SEC as Byte], 0, 0, 0, "C");
-        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::SEC as Byte], 0, 0, 0, "C");
+        assert_status_flags(&cpu, &[0x38], 0, 0, 0, "C");
+        assert_status_flags(&cpu, &[0x18, 0x38], 0, 0, 0, "C");
     }
 
     // #[test]
@@ -366,7 +357,7 @@ mod tests {
 
     fn process(cpu: &mut Cpu, program: &[Byte]) -> usize {
         let mut program = program.to_vec();
-        program.push(OpCode::NOP as Byte);
+        program.push(0xEA);
 
         let bus = MockBus::new(program);
 

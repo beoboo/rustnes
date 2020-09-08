@@ -1,5 +1,6 @@
 use crate::instruction::Instruction;
 use crate::op_code::OpCode;
+use crate::types::Byte;
 
 #[derive(Clone, Debug)]
 pub struct InstructionsMap {}
@@ -9,17 +10,17 @@ impl InstructionsMap {
         InstructionsMap {}
     }
 
-    pub fn find(&self, op_code: OpCode) -> Instruction {
-        match &op_code {
-            OpCode::BRK => Instruction::new(OpCode::BRK, "BRK", 1),
-            OpCode::ADC => Instruction::new(OpCode::ADC, "ADC", 2),
-            OpCode::CLC => Instruction::new(OpCode::CLC, "CLC", 1),
-            OpCode::JMP => Instruction::new(OpCode::JMP, "JMP", 3),
-            OpCode::LDA => Instruction::new(OpCode::LDA, "LDA", 2),
-            OpCode::NOP => Instruction::new(OpCode::NOP, "NOP", 0),
-            OpCode::SBC => Instruction::new(OpCode::SBC, "SBC", 2),
-            OpCode::SEC => Instruction::new(OpCode::SEC, "SEC", 1),
-            _ => panic!(format!("Unexpected op code: {:#X?}", op_code))
+    pub fn find(&self, op_id: Byte) -> Instruction {
+        match &op_id {
+            0x00 => Instruction::new(0x00, OpCode::BRK, "BRK", 1),
+            0x18 => Instruction::new(0x18, OpCode::CLC, "CLC", 1),
+            0x38 => Instruction::new(0x38, OpCode::SEC, "SEC", 1),
+            0x4C => Instruction::new(0x4C, OpCode::JMP, "JMP", 3),
+            0x69 => Instruction::new(0x69, OpCode::ADC, "ADC", 2),
+            0xA9 => Instruction::new(0xA9, OpCode::LDA, "LDA", 2),
+            0xEA => Instruction::new(0xEA, OpCode::NOP, "NOP", 0),
+            0xE9 => Instruction::new(0xE9, OpCode::SBC, "SBC", 2),
+            _ => panic!(format!("Unexpected op code: {:#04X}", op_id))
         }
     }
 }
@@ -33,7 +34,7 @@ mod tests {
     #[test]
     fn find_instruction() {
         let map = InstructionsMap::new();
-        let instruction = map.find(OpCode::BRK);
+        let instruction = map.find(0x00);
 
         assert_that!(instruction, type_of::<Instruction>());
     }
