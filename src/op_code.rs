@@ -7,6 +7,7 @@ pub enum OpCode {
     ADC = 0x69,
     CLC = 0x18,
     LDA = 0xA9,
+    SBC = 0xE9,
     SEC = 0x38,
     Unknown
 }

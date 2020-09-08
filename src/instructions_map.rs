@@ -15,6 +15,7 @@ impl InstructionsMap {
             OpCode::ADC => Instruction::new(OpCode::ADC, "ADC", 2),
             OpCode::CLC => Instruction::new(OpCode::CLC, "CLC", 1),
             OpCode::LDA => Instruction::new(OpCode::LDA, "LDA", 2),
+            OpCode::SBC => Instruction::new(OpCode::SBC, "SBC", 2),
             OpCode::SEC => Instruction::new(OpCode::SEC, "SEC", 1),
             _ => panic!(format!("Invalid op code: {:x?}", op_code))
         }

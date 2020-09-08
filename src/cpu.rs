@@ -3,7 +3,7 @@ use crate::op_code::OpCode;
 use crate::types::*;
 use std::convert::TryFrom;
 
-fn bool_to_word(flag: bool) -> Word {
+fn bool_to_byte(flag: bool) -> Byte {
     if flag { 1 } else { 0 }
 }
 
@@ -85,6 +85,7 @@ impl Cpu {
             OpCode::ADC => self.adc(program),
             OpCode::CLC => self.clc(),
             OpCode::LDA => self.lda(program),
+            OpCode::SBC => self.sbc(program),
             OpCode::SEC => self.sec(),
             op_code => panic!(format!("Unexpected op code: {:x?}", op_code))
         };
@@ -94,14 +95,17 @@ impl Cpu {
 
     fn adc(&mut self, program: &[Byte]) -> usize {
         let operand = program[self.PC];
-        let computed = self.A as Word + operand as Word + bool_to_word(self.status.C);
+        let computed = self.A as Word + operand as Word + bool_to_byte(self.status.C) as Word;
         let acc = self.A;
+
+        println!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
 
         self.PC += 1;
         self.A = computed as Byte;
         self.status.Z = self.A == 0x00;
-        self.status.V = !((acc ^ operand) & 0x80) != 0 && (((operand as Word) ^ computed) & 0x80) != 0;
+        self.status.V = (!((acc ^ operand) & 0x80) != 0) && (((acc ^ (computed as Byte)) & 0x80) != 0);
         self.status.C = computed > 0xFF;
+        self.status.N = (self.A & 0x80) == 0x80;
 
         0
     }
@@ -118,6 +122,23 @@ impl Cpu {
         self.A = operand;
         self.status.Z = operand == 0x00;
         self.status.N = (operand & 0x80) == 0x80;
+
+        0
+    }
+
+    fn sbc(&mut self, program: &[Byte]) -> usize {
+        let operand = program[self.PC];
+        let computed = self.A as SignedWord - operand as SignedWord - bool_to_byte(!self.status.C) as SignedWord;
+        let acc = self.A;
+
+        println!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
+
+        self.PC += 1;
+        self.A = computed as Byte;
+        self.status.Z = self.A == 0x00;
+        self.status.V = (!((acc ^ operand) & 0x80) != 0) && (((acc ^ (computed as Byte)) & 0x80) != 0);
+        self.status.C = computed >= 0;
+        self.status.N = (self.A & 0x80) == 0x80;
 
         0
     }
@@ -166,16 +187,22 @@ mod tests {
     fn process_adc_flags() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_status_flags(&cpu, &[OpCode::LDA as Byte, 0x01, OpCode::ADC as Byte, 0x01], 2, 0, 0, "zncv");
-        assert_status_flags(&cpu, &[OpCode::LDA as Byte, 0x01, OpCode::ADC as Byte, 0x01], 2, 0, 0, "zncv");
+        // 1 + 1 = 2, C = 0, V = 0
+        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::LDA as Byte, 0x01, OpCode::ADC as Byte, 0x01], 2, 0, 0, "zncv");
+        // 1 + -1 = 0, C = 1, V = 0
+        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::LDA as Byte, 0x01, OpCode::ADC as Byte, 0xFF], 0, 0, 0, "ZnCv");
+        // 127 + 1 = 128 (-128), C = 0, V = 1
+        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::LDA as Byte, 0x7F, OpCode::ADC as Byte, 0x01], 128, 0, 0, "zNcV");
+        // -128 + -1 = -129 (127), C = 0, V = 1
+        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::LDA as Byte, 0x80, OpCode::ADC as Byte, 0xFF], 127, 0, 0, "znCV");
     }
 
     #[test]
     fn process_clc() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_status_flags(&cpu, &[OpCode::CLC as Byte], 2, 0, 0, "c");
-        assert_status_flags(&cpu, &[OpCode::SEC as Byte, OpCode::CLC as Byte], 2, 0, 0, "c");
+        assert_status_flags(&cpu, &[OpCode::CLC as Byte], 0, 0, 0, "c");
+        assert_status_flags(&cpu, &[OpCode::SEC as Byte, OpCode::CLC as Byte], 0, 0, 0, "c");
     }
 
     #[test]
@@ -183,16 +210,35 @@ mod tests {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         assert_registers(&cpu, &[OpCode::LDA as Byte, 0x00], 0x00, 0, 0, 2, "Zn", 2);
-        // assert_registers(&cpu, &[OpCode::LDA as Byte, 0x01], 0x01, 0, 0, 2, "zn", 2);
-        // assert_registers(&cpu, &[OpCode::LDA as Byte, 0xFF], 0xFF, 0, 0, 2, "zN", 2);
+        assert_registers(&cpu, &[OpCode::LDA as Byte, 0x01], 0x01, 0, 0, 2, "zn", 2);
+        assert_registers(&cpu, &[OpCode::LDA as Byte, 0xFF], 0xFF, 0, 0, 2, "zN", 2);
+    }
+
+    #[test]
+    fn process_sbc() {
+        let cpu = build_cpu(1, 0, 0, 0, "C");
+
+        assert_registers(&cpu, &[OpCode::SBC as Byte, 0x01], 0, 0, 0, 2, "ZnCv", 2);
+    }
+
+    #[test]
+    fn process_sbc_flags() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        // 0 - 1 = -1 (255), C = 1, V = 1
+        assert_status_flags(&cpu, &[OpCode::SEC as Byte, OpCode::LDA as Byte, 0x00, OpCode::SBC as Byte, 0x01], 255, 0, 0, "zNcV");
+        // -128 - 1 = -129 (127), C = 1, V = 1
+        assert_status_flags(&cpu, &[OpCode::SEC as Byte, OpCode::LDA as Byte, 0x80, OpCode::SBC as Byte, 0x01], 127, 0, 0, "znCV");
+        // 127 - -1 = 128 (-128), C = 0, V = 1
+        assert_status_flags(&cpu, &[OpCode::SEC as Byte, OpCode::LDA as Byte, 0x7F, OpCode::SBC as Byte, 0xFF], -128i8 as u8, 0, 0, "zNcV");
     }
 
     #[test]
     fn process_sec() {
         let cpu = build_cpu(0, 0, 0, 0, "C");
 
-        assert_status_flags(&cpu, &[OpCode::SEC as Byte], 2, 0, 0, "C");
-        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::SEC as Byte], 2, 0, 0, "C");
+        assert_status_flags(&cpu, &[OpCode::SEC as Byte], 0, 0, 0, "C");
+        assert_status_flags(&cpu, &[OpCode::CLC as Byte, OpCode::SEC as Byte], 0, 0, 0, "C");
     }
 
     // #[test]
@@ -263,6 +309,9 @@ mod tests {
             cycles = cpu.process(program);
         }
 
+        assert_that!(cpu.A, eq(a));
+        assert_that!(cpu.X, eq(x));
+        assert_that!(cpu.Y, eq(y));
         assert_status(cpu.status.clone(), expected_status);
     }
 
