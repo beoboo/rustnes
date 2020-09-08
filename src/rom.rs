@@ -10,7 +10,15 @@ pub struct RomHeader {
 }
 
 impl RomHeader {
-    fn new(buffer: &[u8]) -> RomHeader {
+    fn new(prg_rom_size: usize, chr_rom_size: usize) -> RomHeader {
+        RomHeader {
+            nes: "NES".to_string(),
+            prg_rom_size,
+            chr_rom_size,
+        }
+    }
+
+    fn load(buffer: &[u8]) -> RomHeader {
         RomHeader {
             nes: String::from_utf8_lossy(&buffer[0..3]).to_string(),
             prg_rom_size: buffer[4] as usize,
@@ -19,30 +27,42 @@ impl RomHeader {
     }
 
     fn len(&self) -> usize {
-        8
+        16
     }
 }
 
 #[derive(Debug)]
 pub struct Rom {
-    header: RomHeader,
-    trainer: Vec<u8>,
-    prg_rom: Vec<u8>,
-    chr_rom: Vec<u8>,
+    pub header: RomHeader,
+    pub trainer: Vec<u8>,
+    pub prg_rom: Vec<u8>,
+    pub chr_rom: Vec<u8>,
 }
 
 impl Rom {
+    pub fn new(prg_rom: &[u8], chr_rom: &[u8]) -> Rom {
+        let header = RomHeader::new(prg_rom.len(), chr_rom.len());
+
+        Rom {
+            header,
+            trainer: vec![],
+            prg_rom: prg_rom.to_vec(),
+            chr_rom: chr_rom.to_vec(),
+        }
+    }
+
     pub fn load(filename: &str, prg_bank_size: usize, chr_bank_size: usize) -> Rom {
         let buffer = Rom::load_file(filename);
-        let header = RomHeader::new(&buffer[0..8]);
+        let header = RomHeader::load(&buffer[0..16]);
 
         let prg_rom_start = header.len();
+        println!("Header length: {}", header.len());
         let prg_rom_end = prg_rom_start + prg_bank_size * header.prg_rom_size;
         let chr_rom_start = prg_rom_end;
         let chr_rom_end = chr_rom_start + chr_bank_size * header.chr_rom_size;
 
         Rom {
-            header: header,
+            header,
             trainer: vec![],
             prg_rom: buffer[prg_rom_start..prg_rom_end].to_vec(),
             chr_rom: buffer[chr_rom_start..chr_rom_end].to_vec(),
@@ -74,17 +94,32 @@ mod tests {
     fn read_header() {
         make_dir("tmp");
         let filename = "tmp/rom.nes";
-        save_file(filename, &[0x4e, 0x45, 0x53, 0x1a, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00]);
+        save_file(filename, &[0x4e, 0x45, 0x53, 0x1a, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 
         let rom = Rom::load(filename, 1, 1);
 
-        assert_that!(rom.header.len(), eq(8));
+        assert_that!(rom.header.len(), eq(16));
         assert_that!(rom.header.nes, eq("NES"));
         assert_that!(rom.header.prg_rom_size, eq(1));
         assert_that!(rom.header.chr_rom_size, eq(1));
         assert_that!(rom.prg_rom.len(), eq(1));
         assert_that!(rom.chr_rom.len(), eq(1));
     }
+
+    #[test]
+    fn read_valid() {
+        let rom = Rom::load("roms/nestest.nes", 16384, 8192);
+
+        assert_that!(rom.header.len(), eq(16));
+        assert_that!(rom.header.nes, eq("NES"));
+        assert_that!(rom.header.prg_rom_size, eq(1));
+        assert_that!(rom.header.chr_rom_size, eq(1));
+        assert_that!(rom.prg_rom.len(), eq(16384));
+        assert_that!(rom.chr_rom.len(), eq(8192));
+        assert_that!(rom.prg_rom[0], eq(0x4C));
+    }
+
+
     //
     // #[test]
     // fn read_from_file() {

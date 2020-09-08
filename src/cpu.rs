@@ -1,7 +1,9 @@
+use std::convert::TryFrom;
+
 use crate::instructions_map::InstructionsMap;
 use crate::op_code::OpCode;
 use crate::types::*;
-use std::convert::TryFrom;
+use crate::bus::Bus as BusTrait;
 
 fn bool_to_byte(flag: bool) -> Byte {
     if flag { 1 } else { 0 }
@@ -36,7 +38,7 @@ pub struct Cpu {
     // X register
     Y: Byte,
     // Y register
-    PC: usize,
+    PC: Word,
     // Program counter
     status: CpuStatus,
     // Status
@@ -64,37 +66,42 @@ impl Cpu {
         }
     }
 
-    pub fn process(&mut self, program: &[Byte]) -> usize {
-        if self.PC >= program.len() {
-            return 0
-        }
+    fn read(&self, program: &[Byte], pos: Word) -> Byte {
+        program[pos as usize]
+    }
 
-        let op_code = OpCode::try_from(program[self.PC]);
+    pub fn process<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
+        let next_op_code = bus.read(self.PC);
+        let op_code = OpCode::try_from(next_op_code);
 
         let op_code = match op_code {
-            Ok(op_code) => op_code,
-            Err(e) => panic!(e)
+            Ok(oc) => oc,
+            Err(_) => panic!(format!("Unexpected op code: {:#X?}", next_op_code))
         };
 
         let instruction = self.instructions_map.find(op_code);
         let mut cycles = instruction.cycles;
 
-        self.PC += 1;
+        self.PC += if instruction.op_code != OpCode::NOP { 1 } else { 0 };
+
+        println!("Next op code: {:?}", instruction.op_code);
 
         cycles += match instruction.op_code {
-            OpCode::ADC => self.adc(program),
+            OpCode::ADC => self.adc(bus),
             OpCode::CLC => self.clc(),
-            OpCode::LDA => self.lda(program),
-            OpCode::SBC => self.sbc(program),
+            OpCode::JMP => self.jmp(bus),
+            OpCode::LDA => self.lda(bus),
+            OpCode::SBC => self.sbc(bus),
             OpCode::SEC => self.sec(),
-            op_code => panic!(format!("Unexpected op code: {:x?}", op_code))
+            OpCode::NOP => 0,
+            op_code => panic!(format!("Unexpected op code: {:#X?}", op_code))
         };
 
         cycles
     }
 
-    fn adc(&mut self, program: &[Byte]) -> usize {
-        let operand = program[self.PC];
+    fn adc<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
+        let operand = bus.read(self.PC);
         let computed = self.A as Word + operand as Word + bool_to_byte(self.status.C) as Word;
         let acc = self.A;
 
@@ -116,8 +123,18 @@ impl Cpu {
         0
     }
 
-    fn lda(&mut self, program: &[Byte]) -> usize {
-        let operand = program[self.PC];
+    fn jmp<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
+        let low = bus.read(self.PC) as Word;
+        let high = bus.read(self.PC + 1) as Word;
+        println!("Jumping to 0x{:X?}{:X?}", high, low);
+
+        self.PC = (high << 8) + low;
+
+        0
+    }
+
+    fn lda<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
+        let operand = bus.read(self.PC);
         self.PC += 1;
         self.A = operand;
         self.status.Z = operand == 0x00;
@@ -126,8 +143,8 @@ impl Cpu {
         0
     }
 
-    fn sbc(&mut self, program: &[Byte]) -> usize {
-        let operand = program[self.PC];
+    fn sbc<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
+        let operand = bus.read(self.PC);
         let computed = self.A as SignedWord - operand as SignedWord - bool_to_byte(!self.status.C) as SignedWord;
         let acc = self.A;
 
@@ -154,17 +171,32 @@ impl Cpu {
 mod tests {
     use hamcrest2::prelude::*;
 
-    use super::*;
+    use crate::rom::Rom;
 
-// struct MockBus {
-    //
-    // }
-    //
-    // impl Bus for MockBus {
-    //     fn read(address: Word) -> Byte {
-    //
-    //     }
-    // }
+    use super::*;
+    use crate::bus::BusImpl;
+
+    struct MockBus {
+        data: Vec<u8>,
+    }
+
+    impl MockBus {
+        fn new(data: Vec<u8>) -> MockBus {
+            MockBus {
+                data
+            }
+        }
+    }
+
+    impl BusTrait for MockBus {
+        fn read(&self, address: Word) -> Byte {
+            self.data[address as usize]
+        }
+
+        fn write(&mut self, address: u16, data: u8) {
+            self.data[address as usize] = data;
+        }
+    }
 
     #[test]
     fn ctor() {
@@ -177,9 +209,20 @@ mod tests {
     }
 
     #[test]
+    fn process_all() {
+        let rom = Rom::load("roms/nestest.nes", 16384, 8192);
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        let bus = BusImpl::new(rom);
+
+        let cycles = process_bus(&mut cpu, &bus);
+        assert_that!(cycles, geq(1234));
+    }
+
+    #[test]
     fn process_adc() {
         let cpu = build_cpu(1, 0, 0, 0, "");
 
+        assert_registers(&cpu, &[OpCode::ADC as Byte, 0x01], 2, 0, 0, 2, "zncv", 2);
         assert_registers(&cpu, &[OpCode::ADC as Byte, 0x01], 2, 0, 0, 2, "zncv", 2);
     }
 
@@ -212,6 +255,20 @@ mod tests {
         assert_registers(&cpu, &[OpCode::LDA as Byte, 0x00], 0x00, 0, 0, 2, "Zn", 2);
         assert_registers(&cpu, &[OpCode::LDA as Byte, 0x01], 0x01, 0, 0, 2, "zn", 2);
         assert_registers(&cpu, &[OpCode::LDA as Byte, 0xFF], 0xFF, 0, 0, 2, "zN", 2);
+    }
+
+    #[test]
+    fn process_nop() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_registers(&cpu, &[], 0, 0, 0, 0, "zncv", 0);
+    }
+
+    #[test]
+    fn process_jmp() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_registers(&cpu, &[OpCode::JMP as Byte, 0x03, 0x00], 0, 0, 0, 0x0003, "", 3);
     }
 
     #[test]
@@ -251,7 +308,7 @@ mod tests {
     //     assert_bus(&bus, 0x2000, 0x01);
     // }
 
-    fn build_cpu(a: Byte, x: Byte, y: Byte, pc: usize, status: &str) -> Cpu {
+    fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {
         let mut cpu = Cpu::new();
 
         cpu.A = a;
@@ -280,17 +337,12 @@ mod tests {
         flags.contains(flag)
     }
 
-    fn assert_registers(cpu: &Cpu, program: &[Byte], a: Byte, x: Byte, y: Byte, pc: usize, expected_status: &str, expected_cycles: usize) {
+    fn assert_registers(cpu: &Cpu, program: &[Byte], a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
         println!("Program: {:x?}", program);
         let cpu = &mut cpu.clone();
 
-        let mut cycles = cpu.process(program);
-        let mut total_cycles = cycles;
-
-        while cycles != 0 {
-            cycles = cpu.process(program);
-            total_cycles += cycles;
-        }
+        let total_cycles = process(cpu, program);
+        // let total_cycles = process(cpu, program);
 
         assert_that!(cpu.A, eq(a));
         assert_that!(cpu.X, eq(x));
@@ -304,15 +356,36 @@ mod tests {
         println!("Program: {:x?}", program);
         let cpu = &mut cpu.clone();
 
-        let mut cycles = cpu.process(program);
-        while cycles != 0 {
-            cycles = cpu.process(program);
-        }
+        process(cpu, program);
 
         assert_that!(cpu.A, eq(a));
         assert_that!(cpu.X, eq(x));
         assert_that!(cpu.Y, eq(y));
         assert_status(cpu.status.clone(), expected_status);
+    }
+
+    fn process(cpu: &mut Cpu, program: &[Byte]) -> usize {
+        let mut program = program.to_vec();
+        program.push(OpCode::NOP as Byte);
+
+        let bus = MockBus::new(program);
+
+        process_bus(cpu, &bus)
+    }
+
+    fn process_bus<Bus: BusTrait>(cpu: &mut Cpu, bus: &Bus) -> usize {
+        let mut cycles = cpu.process(bus);
+        let mut total_cycles = cycles;
+
+        while cycles != 0 {
+            println!("A: {:#04X}", cpu.A);
+            println!("X: {:#04X}", cpu.X);
+            println!("Y: {:#04X}", cpu.Y);
+            println!("PC: {:#06X}", cpu.PC);
+            cycles = cpu.process(bus);
+            total_cycles += cycles;
+        }
+        total_cycles
     }
 
     fn assert_status(status: CpuStatus, flags: &str) {

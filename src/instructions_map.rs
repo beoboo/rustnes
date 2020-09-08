@@ -14,10 +14,12 @@ impl InstructionsMap {
             OpCode::BRK => Instruction::new(OpCode::BRK, "BRK", 1),
             OpCode::ADC => Instruction::new(OpCode::ADC, "ADC", 2),
             OpCode::CLC => Instruction::new(OpCode::CLC, "CLC", 1),
+            OpCode::JMP => Instruction::new(OpCode::JMP, "JMP", 3),
             OpCode::LDA => Instruction::new(OpCode::LDA, "LDA", 2),
+            OpCode::NOP => Instruction::new(OpCode::NOP, "NOP", 0),
             OpCode::SBC => Instruction::new(OpCode::SBC, "SBC", 2),
             OpCode::SEC => Instruction::new(OpCode::SEC, "SEC", 1),
-            _ => panic!(format!("Invalid op code: {:x?}", op_code))
+            _ => panic!(format!("Unexpected op code: {:#X?}", op_code))
         }
     }
 }
