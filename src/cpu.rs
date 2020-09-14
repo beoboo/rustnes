@@ -177,6 +177,8 @@ mod tests {
 
     use super::*;
     use crate::bus::BusImpl;
+    // use crate::lexer::Lexer;
+    use crate::assembler::Assembler;
 
     struct MockBus {
         data: Vec<u8>,
@@ -230,8 +232,7 @@ mod tests {
     fn process_adc() {
         let cpu = build_cpu(1, 0, 0, 0, "");
 
-        assert_registers(&cpu, &[0x69, 0x01], 2, 0, 0, 2, "zncv", 2);
-        assert_registers(&cpu, &[0x69, 0x01], 2, 0, 0, 2, "zncv", 2);
+        assert_registers(&cpu, "ADC #1", 2, 0, 0, 2, "zncv", 2);
     }
 
     #[test]
@@ -268,30 +269,39 @@ mod tests {
     fn process_jmp() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_registers(&cpu, &[0x4C, 0x03, 0x00], 0, 0, 0, 0x0003, "", 3);
+        assert_registers_old(&cpu, &[0x4C, 0x03, 0x00], 0, 0, 0, 0x0003, "", 3);
     }
 
     #[test]
     fn process_lda() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_registers(&cpu, &[0xA9, 0x00], 0x00, 0, 0, 2, "Zn", 2);
-        assert_registers(&cpu, &[0xA9, 0x01], 0x01, 0, 0, 2, "zn", 2);
-        assert_registers(&cpu, &[0xA9, 0xFF], 0xFF, 0, 0, 2, "zN", 2);
+        assert_registers_old(&cpu, &[0xA9, 0x00], 0x00, 0, 0, 2, "Zn", 2);
+        assert_registers_old(&cpu, &[0xA9, 0x01], 0x01, 0, 0, 2, "zn", 2);
+        assert_registers_old(&cpu, &[0xA9, 0xFF], 0xFF, 0, 0, 2, "zN", 2);
+    }
+
+    #[test]
+    fn process_lda2() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_registers(&cpu, "LDA #00", 0x00, 0, 0, 2, "Zn", 2);
+        assert_registers(&cpu, "LDA #01", 0x01, 0, 0, 2, "zn", 2);
+        assert_registers(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN", 2);
     }
 
     #[test]
     fn process_nop() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_registers(&cpu, &[], 0, 0, 0, 0, "zncv", 0);
+        assert_registers_old(&cpu, &[], 0, 0, 0, 0, "zncv", 0);
     }
 
     #[test]
     fn process_sbc() {
         let cpu = build_cpu(1, 0, 0, 0, "C");
 
-        assert_registers(&cpu, &[0xE9, 0x01], 0, 0, 0, 2, "ZnCv", 2);
+        assert_registers_old(&cpu, &[0xE9, 0x01], 0, 0, 0, 2, "ZnCv", 2);
     }
 
     #[test]
@@ -351,7 +361,7 @@ mod tests {
         flags.contains(flag)
     }
 
-    fn assert_registers(cpu: &Cpu, program: &[Byte], a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
+    fn assert_registers_old(cpu: &Cpu, program: &[Byte], a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
         println!("Program: {:x?}", program);
         let cpu = &mut cpu.clone();
 
@@ -364,6 +374,26 @@ mod tests {
         assert_that!(cpu.PC, eq(pc));
         assert_status(cpu.status.clone(), expected_status);
         assert_that!(total_cycles, geq(expected_cycles));
+    }
+
+    fn assert_registers(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
+        // let assembler = Assembler::new();
+        // let lexer = Lexer::new();
+        // let tokens = lexer.lex(source).unwrap();
+        //
+        // let program = assembler.assemble(tokens).unwrap();
+        // println!("Program: {:x?}", program);
+        // let cpu = &mut cpu.clone();
+        //
+        // let total_cycles = process(cpu, program.as_slice());
+        // // let total_cycles = process(cpu, program);
+        //
+        // assert_that!(cpu.A, eq(a));
+        // assert_that!(cpu.X, eq(x));
+        // assert_that!(cpu.Y, eq(y));
+        // assert_that!(cpu.PC, eq(pc));
+        // assert_status(cpu.status.clone(), expected_status);
+        // assert_that!(total_cycles, geq(expected_cycles));
     }
 
     fn assert_status_flags(cpu: &Cpu, program: &[Byte], a: Byte, x: Byte, y: Byte, expected_status: &str) {

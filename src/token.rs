@@ -1,10 +1,10 @@
-use crate::types::Byte;
-use crate::addressing::Addressing;
+use crate::types::Word;
+use crate::addressing_mode::AddressingMode;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TokenType {
+    Address(AddressingMode, Word),
     Keyword(String),
-    ImmediateAddress(Byte),
     EOF,
 }
 

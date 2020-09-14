@@ -5,7 +5,7 @@ use crate::cpu::Cpu;
 extern crate hamcrest2;
 
 mod assembler;
-mod addressing;
+mod addressing_mode;
 mod bus;
 mod cpu;
 mod error;
