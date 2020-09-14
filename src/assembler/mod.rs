@@ -1,14 +1,14 @@
-mod instruction;
-mod addressing_mode_map;
-
 use std::iter::Peekable;
 use std::slice::Iter;
 
+use crate::addressing_mode::AddressingMode;
+use crate::assembler::addressing_mode_map::AddressingModeMap;
 use crate::error::{Error, report_stage_error};
 use crate::token::{Token, TokenType};
 use crate::types::{Byte, Word};
-use crate::addressing_mode::AddressingMode;
-use crate::assembler::addressing_mode_map::AddressingModeMap;
+
+mod instruction;
+mod addressing_mode_map;
 
 pub struct Assembler {
     map: AddressingModeMap
@@ -16,7 +16,7 @@ pub struct Assembler {
 
 #[derive(Clone, Debug)]
 pub struct Instructions {
-    data: Vec<Byte>
+    pub(crate) data: Vec<Byte>
 }
 
 impl Instructions {
@@ -34,7 +34,6 @@ impl Instructions {
         self.data.push(word as Byte);
         self.data.push((word >> 8) as Byte);
     }
-
 }
 
 type IterToken<'a> = Iter<'a, Token>;
@@ -71,22 +70,44 @@ impl Assembler {
     }
 
     fn keyword(&self, k: String, instructions: &mut Instructions, it: &mut PeekableToken) -> Result<(), Error> {
-        let instruction = self.map.find(k.as_str());
+        let instruction = self.map.find(k.as_str())?;
 
-        match k.as_str() {
-            "BRK" => instructions.push_byte(0x00),
-            // "LDA" => return push(instructions, it),
-            "LDA" => return lda(instructions, it),
-            "ADC" => return adc(instructions, it),
-            _ => return _report_error(format!("Undefined instruction: '{}'", k))
+        if instruction.implied {
+            instructions.push_byte(instruction.find(&AddressingMode::Implied).unwrap())
+        } else {
+            let address = advance(it)?;
+
+            match address.token_type {
+                TokenType::Address(mode, address) => {
+                    let op_code = instruction.find(&mode)?;
+
+                    match mode {
+                        AddressingMode::Absolute => {
+                            instructions.push_byte(op_code);
+                            instructions.push_word(address);
+                        }
+                        AddressingMode::Immediate => {
+                            instructions.push_byte(op_code);
+                            instructions.push_byte(address as Byte);
+                        }
+                        _ => return _report_error(format!("Invalid address mode: '{:?}'", mode))
+                    }
+                }
+                _ => return _report_error(format!("Expected address token: '{:?}'", address.token_type))
+            }
         }
+        //
+        // match k.as_str() {
+        //     "BRK" => instructions.push_byte(0x00),
+        //     // "LDA" => return push(instructions, it),
+        //     "LDA" => return lda(instructions, it),
+        //     "ADC" => return adc(instructions, it),
+        //     _ => return _report_error(format!("Undefined instruction: '{}'", k))
+        // }
 
         Ok(())
     }
-
 }
-
-
 
 fn lda(instructions: &mut Instructions, it: &mut PeekableToken) -> Result<(), Error> {
     let address = advance(it)?;
@@ -115,7 +136,7 @@ fn adc(instructions: &mut Instructions, it: &mut PeekableToken) -> Result<(), Er
             match mode {
                 AddressingMode::Absolute => {
                     instructions.push_byte(0x69);
-                    instructions.push_word(address);
+                    instructions.push_byte(address as Byte);
                 }
                 _ => return _report_error(format!("Invalid address mode: '{:?}'", mode))
             }
@@ -163,12 +184,12 @@ mod tests {
 
     #[test]
     fn assemble_adc() {
-        assert_assemble("ADC $1", &[0x69, 0x01, 0x00]);
+        assert_assemble("ADC #$1", &[0x69, 0x01]);
     }
 
     #[test]
     fn assemble_lda() {
-        assert_assemble("LDA $1", &[0xA9, 0x01, 0x00]);
+        assert_assemble("LDA #$1", &[0xA9, 0x01]);
     }
 
     fn assert_assemble(source: &str, expected: &[Byte]) {

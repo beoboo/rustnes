@@ -22,8 +22,15 @@ impl AddressingModeMap {
     pub fn new() -> AddressingModeMap {
         let mut map = Map::new();
 
-        insert(&mut map, "BRK", true, AddressingMode::Immediate, 0x00);
+        insert(&mut map, "BRK", true, AddressingMode::Implied, 0x00);
+        insert(&mut map, "CLC", true, AddressingMode::Implied, 0x18);
+        insert(&mut map, "SEC", true, AddressingMode::Implied, 0x38);
+        insert(&mut map, "CLI", true, AddressingMode::Implied, 0x58);
+        insert(&mut map, "SEI", true, AddressingMode::Implied, 0x78);
+        insert(&mut map, "JMP", false, AddressingMode::Absolute, 0x4C);
+        insert(&mut map, "ADC", false, AddressingMode::Immediate, 0x69);
         insert(&mut map, "LDA", false, AddressingMode::Immediate, 0xA9);
+        insert(&mut map, "SBC", false, AddressingMode::Immediate, 0xE9);
 
         AddressingModeMap {
             map

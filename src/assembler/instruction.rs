@@ -26,9 +26,9 @@ impl Instruction {
         self.modes.insert(addressing_mode, value);
     }
 
-    pub fn find(&self, addressing_mode: AddressingMode) -> Result<Byte, Error> {
-        if !self.modes.contains_key(&addressing_mode) {
-            return Err(Error::UnknownAddressingMode(self.op_code.to_string(), addressing_mode));
+    pub fn find(&self, addressing_mode: &AddressingMode) -> Result<Byte, Error> {
+        if !self.modes.contains_key(addressing_mode) {
+            return Err(Error::UnknownAddressingMode(self.op_code.to_string(), addressing_mode.clone()));
         }
 
         Ok(self.modes[&addressing_mode])
@@ -50,14 +50,14 @@ mod tests {
         instruction.add_mode(AddressingMode::Immediate, 0x00);
 
         assert_that!(instruction.implied, is(true));
-        assert_that!(instruction.find(AddressingMode::Immediate).unwrap(), equal_to(0x00));
+        assert_that!(instruction.find(&AddressingMode::Immediate).unwrap(), equal_to(0x00));
     }
 
     #[test]
     fn find_unknown_addressing_mode() {
         let instruction = Instruction::new("BRK", false);
 
-        let error = instruction.find(AddressingMode::Absolute).unwrap_err();
+        let error = instruction.find(&AddressingMode::Absolute).unwrap_err();
 
         assert_that!(error, equal_to(Error::UnknownAddressingMode("BRK".to_string(), AddressingMode::Absolute)));
     }

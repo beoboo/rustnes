@@ -4,6 +4,7 @@ pub enum AddressingMode {
     AbsoluteX,
     AbsoluteY,
     Immediate,
+    Implied,
     Indirect,
     IndirectX,
     IndirectY,
