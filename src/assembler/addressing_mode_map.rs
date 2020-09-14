@@ -30,6 +30,8 @@ impl AddressingModeMap {
         insert(&mut map, "JMP", false, AddressingMode::Absolute, 0x4C);
         insert(&mut map, "ADC", false, AddressingMode::Immediate, 0x69);
         insert(&mut map, "LDA", false, AddressingMode::Immediate, 0xA9);
+        insert(&mut map, "CLD", true, AddressingMode::Implied, 0xD8);
+        insert(&mut map, "SED", true, AddressingMode::Implied, 0xF8);
         insert(&mut map, "SBC", false, AddressingMode::Immediate, 0xE9);
 
         AddressingModeMap {

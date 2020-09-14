@@ -21,6 +21,8 @@ impl InstructionsMap {
             0x78 => Instruction::new(0x78, OpCode::SEI, 2),
             0xA9 => Instruction::new(0xA9, OpCode::LDA, 2),
             0xEA => Instruction::new(0xEA, OpCode::NOP, 0),
+            0xD8 => Instruction::new(0xD8, OpCode::CLD, 1),
+            0xF8 => Instruction::new(0xF8, OpCode::SED, 1),
             0xE9 => Instruction::new(0xE9, OpCode::SBC, 2),
             _ => panic!(format!("Unexpected op code: {:#04X}", op_id))
         }

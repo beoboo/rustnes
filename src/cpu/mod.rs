@@ -78,11 +78,13 @@ impl Cpu {
         cycles += match instruction.op_code {
             OpCode::ADC => self.adc(bus),
             OpCode::CLC => self.clc(),
+            OpCode::CLD => self.cld(),
             OpCode::CLI => self.cli(),
             OpCode::JMP => self.jmp(bus),
             OpCode::LDA => self.lda(bus),
             OpCode::SBC => self.sbc(bus),
             OpCode::SEC => self.sec(),
+            OpCode::SED => self.sed(),
             OpCode::SEI => self.sei(),
             OpCode::NOP => 0,
             op_code => panic!(format!("[Cpu::process] Unexpected op code: {:?}", op_code))
@@ -110,6 +112,12 @@ impl Cpu {
 
     fn clc(&mut self) -> usize {
         self.status.C = false;
+
+        0
+    }
+
+    fn cld(&mut self) -> usize {
+        self.status.D = false;
 
         0
     }
@@ -158,6 +166,12 @@ impl Cpu {
 
     fn sec(&mut self) -> usize {
         self.status.C = true;
+
+        0
+    }
+
+    fn sed(&mut self) -> usize {
+        self.status.D = true;
 
         0
     }
@@ -256,6 +270,14 @@ mod tests {
     }
 
     #[test]
+    fn process_cld() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_status_flags(&cpu, "CLD", 0, 0, 0, "d");
+        assert_status_flags(&cpu, "SED\nCLD", 0, 0, 0, "d");
+    }
+
+    #[test]
     fn process_cli() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
@@ -308,6 +330,14 @@ mod tests {
 
         assert_status_flags(&cpu, "SEC", 0, 0, 0, "C");
         assert_status_flags(&cpu, "CLC\nSEC", 0, 0, 0, "C");
+    }
+
+    #[test]
+    fn process_sed() {
+        let cpu = build_cpu(0, 0, 0, 0, "D");
+
+        assert_status_flags(&cpu, "SED", 0, 0, 0, "D");
+        assert_status_flags(&cpu, "CLD\nSED", 0, 0, 0, "D");
     }
 
     #[test]

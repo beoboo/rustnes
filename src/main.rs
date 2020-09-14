@@ -11,7 +11,6 @@ mod cpu;
 mod error;
 mod instructions_map;
 mod instruction;
-mod lexer;
 mod op_code;
 mod parser;
 mod rom;

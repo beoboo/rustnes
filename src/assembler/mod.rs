@@ -96,57 +96,10 @@ impl Assembler {
                 _ => return _report_error(format!("Expected address token: '{:?}'", address.token_type))
             }
         }
-        //
-        // match k.as_str() {
-        //     "BRK" => instructions.push_byte(0x00),
-        //     // "LDA" => return push(instructions, it),
-        //     "LDA" => return lda(instructions, it),
-        //     "ADC" => return adc(instructions, it),
-        //     _ => return _report_error(format!("Undefined instruction: '{}'", k))
-        // }
 
         Ok(())
     }
 }
-
-fn lda(instructions: &mut Instructions, it: &mut PeekableToken) -> Result<(), Error> {
-    let address = advance(it)?;
-
-    match address.token_type {
-        TokenType::Address(mode, address) => {
-            match mode {
-                AddressingMode::Absolute => {
-                    instructions.push_byte(0xA9);
-                    instructions.push_word(address);
-                }
-                _ => return _report_error(format!("Invalid address mode: '{:?}'", mode))
-            }
-        }
-        _ => return _report_error(format!("Expected address token: '{:?}'", address.token_type))
-    }
-
-    Ok(())
-}
-
-fn adc(instructions: &mut Instructions, it: &mut PeekableToken) -> Result<(), Error> {
-    let address = advance(it)?;
-
-    match address.token_type {
-        TokenType::Address(mode, address) => {
-            match mode {
-                AddressingMode::Absolute => {
-                    instructions.push_byte(0x69);
-                    instructions.push_byte(address as Byte);
-                }
-                _ => return _report_error(format!("Invalid address mode: '{:?}'", mode))
-            }
-        }
-        _ => return _report_error(format!("Expected address token: '{:?}'", address.token_type))
-    }
-
-    Ok(())
-}
-
 
 pub fn advance(it: &mut PeekableToken) -> Result<Token, Error> {
     match it.next() {
