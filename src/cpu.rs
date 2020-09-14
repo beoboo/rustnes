@@ -177,7 +177,7 @@ mod tests {
 
     use super::*;
     use crate::bus::BusImpl;
-    // use crate::lexer::Lexer;
+    use crate::parser::Parser;
     use crate::assembler::Assembler;
 
     struct MockBus {
@@ -377,23 +377,23 @@ mod tests {
     }
 
     fn assert_registers(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
-        // let assembler = Assembler::new();
-        // let lexer = Lexer::new();
-        // let tokens = lexer.lex(source).unwrap();
-        //
-        // let program = assembler.assemble(tokens).unwrap();
-        // println!("Program: {:x?}", program);
-        // let cpu = &mut cpu.clone();
-        //
-        // let total_cycles = process(cpu, program.as_slice());
-        // // let total_cycles = process(cpu, program);
-        //
-        // assert_that!(cpu.A, eq(a));
-        // assert_that!(cpu.X, eq(x));
-        // assert_that!(cpu.Y, eq(y));
-        // assert_that!(cpu.PC, eq(pc));
-        // assert_status(cpu.status.clone(), expected_status);
-        // assert_that!(total_cycles, geq(expected_cycles));
+        let assembler = Assembler::new();
+        let lexer = Lexer::new();
+        let tokens = lexer.lex(source).unwrap();
+
+        let program = assembler.assemble(tokens).unwrap();
+        println!("Program: {:x?}", program);
+        let cpu = &mut cpu.clone();
+
+        let total_cycles = process(cpu, program.as_slice());
+        // let total_cycles = process(cpu, program);
+
+        assert_that!(cpu.A, eq(a));
+        assert_that!(cpu.X, eq(x));
+        assert_that!(cpu.Y, eq(y));
+        assert_that!(cpu.PC, eq(pc));
+        assert_status(cpu.status.clone(), expected_status);
+        assert_that!(total_cycles, geq(expected_cycles));
     }
 
     fn assert_status_flags(cpu: &Cpu, program: &[Byte], a: Byte, x: Byte, y: Byte, expected_status: &str) {

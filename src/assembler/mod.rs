@@ -14,6 +14,7 @@ pub struct Assembler {
     map: AddressingModeMap
 }
 
+#[derive(Clone, Debug)]
 pub struct Instructions {
     data: Vec<Byte>
 }
