@@ -21,8 +21,4 @@ impl Token {
             line,
         }
     }
-
-    pub fn is_eof(&self) -> bool {
-        self.token_type == TokenType::EOF
-    }
 }

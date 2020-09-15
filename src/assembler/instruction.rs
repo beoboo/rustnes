@@ -40,8 +40,6 @@ impl Instruction {
 mod tests {
     use hamcrest2::prelude::*;
 
-    use crate::parser::Parser;
-
     use super::*;
 
     #[test]

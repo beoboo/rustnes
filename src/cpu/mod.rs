@@ -82,6 +82,7 @@ impl Cpu {
             OpCode::CLI => self.cli(),
             OpCode::JMP => self.jmp(bus),
             OpCode::LDA => self.lda(bus),
+            OpCode::LDX => self.ldx(bus),
             OpCode::SBC => self.sbc(bus),
             OpCode::SEC => self.sec(),
             OpCode::SED => self.sed(),
@@ -141,6 +142,16 @@ impl Cpu {
         let operand = bus.read_byte(self.PC);
         self.PC += 1;
         self.A = operand;
+        self.status.Z = operand == 0x00;
+        self.status.N = (operand & 0x80) == 0x80;
+
+        0
+    }
+
+    fn ldx<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
+        let operand = bus.read_byte(self.PC);
+        self.PC += 1;
+        self.X = operand;
         self.status.Z = operand == 0x00;
         self.status.N = (operand & 0x80) == 0x80;
 
@@ -299,6 +310,15 @@ mod tests {
         assert_instructions(&cpu, "LDA #0", 0x00, 0, 0, 2, "Zn", 2);
         assert_instructions(&cpu, "LDA #01", 0x01, 0, 0, 2, "zn", 2);
         assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN", 2);
+    }
+
+    #[test]
+    fn process_ldx() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_instructions(&cpu, "LDX #0", 0, 0x00, 0, 2, "Zn", 2);
+        assert_instructions(&cpu, "LDX #01", 0, 0x01, 0, 2, "zn", 2);
+        assert_instructions(&cpu, "LDX #255", 0, 0xFF, 0, 2, "zN", 2);
     }
 
     #[test]

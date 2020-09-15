@@ -7,6 +7,7 @@ pub enum OpCode {
     CLI,
     JMP,
     LDA,
+    LDX,
     NOP,
     SBC,
     SEC,

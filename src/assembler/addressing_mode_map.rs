@@ -13,7 +13,7 @@ pub struct AddressingModeMap {
 }
 
 pub fn insert(map: &mut Map, op_code: &str, implied: bool, addressing_mode: AddressingMode, value: Byte) {
-    let mut instruction = map.entry(op_code.to_string()).or_insert(Instruction::new(op_code, implied));
+    let instruction = map.entry(op_code.to_string()).or_insert(Instruction::new(op_code, implied));
 
     instruction.modes.insert(addressing_mode, value);
 }
@@ -22,17 +22,18 @@ impl AddressingModeMap {
     pub fn new() -> AddressingModeMap {
         let mut map = Map::new();
 
+        insert(&mut map, "ADC", false, AddressingMode::Immediate, 0x69);
         insert(&mut map, "BRK", true, AddressingMode::Implied, 0x00);
         insert(&mut map, "CLC", true, AddressingMode::Implied, 0x18);
-        insert(&mut map, "SEC", true, AddressingMode::Implied, 0x38);
-        insert(&mut map, "CLI", true, AddressingMode::Implied, 0x58);
-        insert(&mut map, "SEI", true, AddressingMode::Implied, 0x78);
-        insert(&mut map, "JMP", false, AddressingMode::Absolute, 0x4C);
-        insert(&mut map, "ADC", false, AddressingMode::Immediate, 0x69);
-        insert(&mut map, "LDA", false, AddressingMode::Immediate, 0xA9);
         insert(&mut map, "CLD", true, AddressingMode::Implied, 0xD8);
-        insert(&mut map, "SED", true, AddressingMode::Implied, 0xF8);
+        insert(&mut map, "CLI", true, AddressingMode::Implied, 0x58);
+        insert(&mut map, "JMP", false, AddressingMode::Absolute, 0x4C);
+        insert(&mut map, "LDA", false, AddressingMode::Immediate, 0xA9);
+        insert(&mut map, "LDX", false, AddressingMode::Immediate, 0xA2);
         insert(&mut map, "SBC", false, AddressingMode::Immediate, 0xE9);
+        insert(&mut map, "SEC", true, AddressingMode::Implied, 0x38);
+        insert(&mut map, "SED", true, AddressingMode::Implied, 0xF8);
+        insert(&mut map, "SEI", true, AddressingMode::Implied, 0x78);
 
         AddressingModeMap {
             map
@@ -52,8 +53,6 @@ impl AddressingModeMap {
 #[cfg(test)]
 mod tests {
     use hamcrest2::prelude::*;
-
-    use crate::parser::Parser;
 
     use super::*;
 
