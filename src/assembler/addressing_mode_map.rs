@@ -28,6 +28,7 @@ impl AddressingModeMap {
         insert(&mut map, "CLC", true, false, AddressingMode::Implied, 0x18);
         insert(&mut map, "CLD", true, false, AddressingMode::Implied, 0xD8);
         insert(&mut map, "CLI", true, false, AddressingMode::Implied, 0x58);
+        insert(&mut map, "DEX", true, false, AddressingMode::Implied, 0xCA);
         insert(&mut map, "JMP", false, false, AddressingMode::Absolute, 0x4C);
         insert(&mut map, "LDA", false, false, AddressingMode::Immediate, 0xA9);
         insert(&mut map, "LDA", false, false, AddressingMode::Absolute, 0xAD);

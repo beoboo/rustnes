@@ -96,6 +96,7 @@ impl Cpu {
             OpCode::CLC => self.clc(),
             OpCode::CLD => self.cld(),
             OpCode::CLI => self.cli(),
+            OpCode::DEX => self.dex(),
             OpCode::JMP => self.jmp(address),
             OpCode::LDA => self.lda(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDX => self.ldx(self.read_operand(address, bus, &instruction.addressing_mode)),
@@ -185,6 +186,16 @@ impl Cpu {
 
     fn cli(&mut self) -> usize {
         self.status.I = false;
+
+        0
+    }
+
+    fn dex(&mut self) -> usize {
+        let computed = self.X as SignedWord - 1;
+
+        self.X = computed as Byte;
+        self.status.Z = self.X == 0x00;
+        self.status.N = (self.X & 0x80) == 0x80;
 
         0
     }
@@ -420,6 +431,14 @@ mod tests {
 
         assert_status_flags(&cpu, "CLI", 0, 0, 0, "i");
         assert_status_flags(&cpu, "SEI\nCLI", 0, 0, 0, "i");
+    }
+
+    #[test]
+    fn process_dex() {
+        let cpu = build_cpu(0, 1, 0, 0, "");
+
+        assert_instructions(&cpu, "LDX #1\nDEX", 0, 0, 0, 0, 3, "Zn", 4);
+        assert_instructions(&cpu, "LDX #0\nDEX", 0, -1i8 as Byte, 0, 0, 3, "zN", 4);
     }
 
     #[test]
