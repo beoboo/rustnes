@@ -85,9 +85,9 @@ impl Cpu {
 
         self.PC += 1;
 
-        println!("Next op code: {:?}", instruction.op_code);
         // self.debug();
-
+        //
+        println!("Next instruction: {:?} {:?}", instruction.op_code, instruction.addressing_mode);
         let address = self.read_address(bus, &instruction.addressing_mode);
 
         cycles += match instruction.op_code {
@@ -98,17 +98,19 @@ impl Cpu {
             OpCode::CLI => self.cli(),
             OpCode::JMP => self.jmp(address),
             OpCode::LDA => self.lda(self.read_operand(address, bus, &instruction.addressing_mode)),
-            OpCode::LDX => self.ldx(address),
+            OpCode::LDX => self.ldx(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::LDY => self.ldy(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::SBC => self.sbc(address),
             OpCode::SEC => self.sec(),
             OpCode::SED => self.sed(),
             OpCode::SEI => self.sei(),
             OpCode::STA => self.sta(address, bus),
+            OpCode::STX => self.stx(address, bus),
             OpCode::TXS => self.txs(),
             OpCode::NOP => 0,
             op_code => panic!(format!("[Cpu::process] Unexpected op code: {:?}", op_code))
         };
-        // self.debug();
+        self.debug();
 
         cycles
     }
@@ -136,11 +138,13 @@ impl Cpu {
     }
 
     fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &Bus, addressing_mode: &AddressingMode) -> Byte {
-        match addressing_mode {
+        let operand = match addressing_mode {
             AddressingMode::Immediate => operand as Byte,
             AddressingMode::Absolute => bus.read_byte(operand),
             _ => panic!(format!("[Cpu::read_byte] Unexpected addressing mode: {:?}", addressing_mode)),
-        }
+        };
+        println!("Operand: {:#04X}", operand);
+        operand
     }
 
     fn adc(&mut self, operand: Word) -> usize {
@@ -201,10 +205,18 @@ impl Cpu {
         0
     }
 
-    fn ldx(&mut self, operand: Word) -> usize {
-        self.X = operand as Byte;
+    fn ldx(&mut self, operand: Byte) -> usize {
+        self.X = operand;
         self.status.Z = self.X == 0x00;
         self.status.N = (self.X & 0x80) == 0x80;
+
+        0
+    }
+
+    fn ldy(&mut self, operand: Byte) -> usize {
+        self.Y = operand;
+        self.status.Z = self.Y == 0x00;
+        self.status.N = (self.Y & 0x80) == 0x80;
 
         0
     }
@@ -248,6 +260,12 @@ impl Cpu {
         0
     }
 
+    fn stx<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus) -> usize {
+        bus.write_byte(address, self.X);
+
+        0
+    }
+
     fn txs(&mut self) -> usize {
         self.SP = self.X;
 
@@ -257,9 +275,9 @@ impl Cpu {
     fn debug(&self) {
         println!("A: {:#04X}", self.A);
         println!("X: {:#04X}", self.X);
-        println!("Y: {:#04X}", self.X);
-        println!("SP: {}", self.SP);
-        println!("PC: {}", self.PC);
+        println!("Y: {:#04X}", self.Y);
+        println!("SP: {:#04X}", self.SP);
+        println!("PC: {:#06X}", self.PC);
         self.debug_status();
     }
 
@@ -431,6 +449,15 @@ mod tests {
     }
 
     #[test]
+    fn process_ldy() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_instructions(&cpu, "LDY #0", 0, 0, 0x00, 0, 2, "Zn", 2);
+        assert_instructions(&cpu, "LDY #01", 0, 0, 0x01, 0, 2, "zn", 2);
+        assert_instructions(&cpu, "LDY #255", 0, 0, 0xFF, 0, 2, "zN", 2);
+    }
+
+    #[test]
     fn process_nop() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
@@ -482,6 +509,22 @@ mod tests {
         let mut cpu = build_cpu(0, 0, 0, 0, "");
 
         let program = _build_program("LDA #1\nSTA $1234");
+
+        let mut program = program.data;
+        program.push(0xEA);
+
+        let mut bus = MockBus::new(program);
+
+        process_bus(&mut cpu, &mut bus);
+
+        assert_that!(bus.read_byte(0x1234), equal_to(0x01))
+    }
+
+    #[test]
+    fn process_stx() {
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+
+        let program = _build_program("LDX #1\nSTX $1234");
 
         let mut program = program.data;
         program.push(0xEA);

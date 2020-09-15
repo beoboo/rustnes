@@ -10,7 +10,12 @@ impl Ppu {
     }
 
     pub fn read(&self, address: Word) -> Byte {
-        0x00
+        println!("Raading from PPU address: {}", address);
+        0xFF
+    }
+
+    pub fn write(&mut self, address: Word, data: Byte) {
+        println!("Writing to PPU address: {}", address);
     }
 }
 
@@ -24,6 +29,6 @@ mod tests {
     fn test_read_byte() {
         let ppu = Ppu::new();
 
-        assert_that!(ppu.read(0x0000), eq(0));
+        assert_that!(ppu.read(0x0000), eq(0xFF));
     }
 }

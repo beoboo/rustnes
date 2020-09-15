@@ -9,11 +9,13 @@ pub enum OpCode {
     JMP,
     LDA,
     LDX,
+    LDY,
     NOP,
     SBC,
     SEC,
     SED,
     SEI,
     STA,
+    STX,
     TXS,
 }
