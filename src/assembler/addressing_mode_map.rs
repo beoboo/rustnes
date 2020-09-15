@@ -29,11 +29,13 @@ impl AddressingModeMap {
         insert(&mut map, "CLI", true, AddressingMode::Implied, 0x58);
         insert(&mut map, "JMP", false, AddressingMode::Absolute, 0x4C);
         insert(&mut map, "LDA", false, AddressingMode::Immediate, 0xA9);
+        insert(&mut map, "LDA", false, AddressingMode::Absolute, 0xAD);
         insert(&mut map, "LDX", false, AddressingMode::Immediate, 0xA2);
         insert(&mut map, "SBC", false, AddressingMode::Immediate, 0xE9);
         insert(&mut map, "SEC", true, AddressingMode::Implied, 0x38);
         insert(&mut map, "SED", true, AddressingMode::Implied, 0xF8);
         insert(&mut map, "SEI", true, AddressingMode::Implied, 0x78);
+        insert(&mut map, "STA", false, AddressingMode::Absolute, 0x8D);
         insert(&mut map, "TXS", true, AddressingMode::Implied, 0x9A);
 
         AddressingModeMap {

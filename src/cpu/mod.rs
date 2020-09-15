@@ -1,7 +1,8 @@
+use crate::addressing_mode::AddressingMode;
+use crate::bus::Bus as BusTrait;
 use crate::instructions_map::InstructionsMap;
 use crate::op_code::OpCode;
 use crate::types::*;
-use crate::bus::Bus as BusTrait;
 
 fn bool_to_byte(flag: bool) -> Byte {
     if flag { 1 } else { 0 }
@@ -68,28 +69,35 @@ impl Cpu {
         }
     }
 
-    pub fn process<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
+    pub fn process<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
         let op_id = bus.read_byte(self.PC);
 
         let instruction = self.instructions_map.find(op_id);
         let mut cycles = instruction.cycles;
 
-        self.PC += if instruction.op_code != OpCode::NOP { 1 } else { 0 };
+        if instruction.op_code == OpCode::NOP {
+            return 0;
+        }
+
+        self.PC += 1;
 
         println!("Next op code: {:?}", instruction.op_code);
 
+        let operand = self.read_address(bus, &instruction.addressing_mode);
+
         cycles += match instruction.op_code {
-            OpCode::ADC => self.adc(bus),
+            OpCode::ADC => self.adc(operand),
             OpCode::CLC => self.clc(),
             OpCode::CLD => self.cld(),
             OpCode::CLI => self.cli(),
-            OpCode::JMP => self.jmp(bus),
-            OpCode::LDA => self.lda(bus),
-            OpCode::LDX => self.ldx(bus),
-            OpCode::SBC => self.sbc(bus),
+            OpCode::JMP => self.jmp(operand),
+            OpCode::LDA => self.lda(self.read_operand(operand, bus, &instruction.addressing_mode)),
+            OpCode::LDX => self.ldx(operand),
+            OpCode::SBC => self.sbc(operand),
             OpCode::SEC => self.sec(),
             OpCode::SED => self.sed(),
             OpCode::SEI => self.sei(),
+            OpCode::STA => self.sta(operand, bus),
             OpCode::TXS => self.txs(),
             OpCode::NOP => 0,
             op_code => panic!(format!("[Cpu::process] Unexpected op code: {:?}", op_code))
@@ -98,17 +106,40 @@ impl Cpu {
         cycles
     }
 
-    fn adc<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let operand = bus.read_byte(self.PC);
-        let computed = self.A as Word + operand as Word + bool_to_byte(self.status.C) as Word;
+    fn read_address<Bus: BusTrait>(&mut self, bus: &Bus, addressing_mode: &AddressingMode) -> Word {
+        match addressing_mode {
+            AddressingMode::Implied => 0,
+            AddressingMode::Immediate => {
+                let operand = bus.read_byte(self.PC);
+                self.PC += 1;
+                operand as Word
+            }
+            AddressingMode::Absolute => {
+                let address = bus.read_word(self.PC);
+                self.PC += 2;
+                address
+            }
+            _ => panic!(format!("[Cpu::read_byte] Unexpected addressing mode: {:?}", addressing_mode))
+        }
+    }
+
+    fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &Bus, addressing_mode: &AddressingMode) -> Byte {
+        match addressing_mode {
+            AddressingMode::Immediate => operand as Byte,
+            AddressingMode::Absolute => bus.read_byte(operand),
+            _ => panic!(format!("[Cpu::read_byte] Unexpected addressing mode: {:?}", addressing_mode)),
+        }
+    }
+
+    fn adc(&mut self, operand: Word) -> usize {
+        let computed = self.A as Word + operand + bool_to_byte(self.status.C) as Word;
         let acc = self.A;
 
         println!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
 
-        self.PC += 1;
         self.A = computed as Byte;
         self.status.Z = self.A == 0x00;
-        self.status.V = (!((acc ^ operand) & 0x80) != 0) && (((acc ^ (computed as Byte)) & 0x80) != 0);
+        self.status.V = (!((acc ^ operand as Byte) & 0x80) != 0) && (((acc ^ (computed as Byte)) & 0x80) != 0);
         self.status.C = computed > 0xFF;
         self.status.N = (self.A & 0x80) == 0x80;
 
@@ -133,8 +164,7 @@ impl Cpu {
         0
     }
 
-    fn jmp<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let address = bus.read_word(self.PC) as Word;
+    fn jmp(&mut self, address: Word) -> usize {
         println!("Jumping to {:#06X}", address);
 
         self.PC = address;
@@ -142,37 +172,31 @@ impl Cpu {
         0
     }
 
-    fn lda<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let operand = bus.read_byte(self.PC);
-        self.PC += 1;
+    fn lda(&mut self, operand: Byte) -> usize {
         self.A = operand;
-        self.status.Z = operand == 0x00;
-        self.status.N = (operand & 0x80) == 0x80;
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A & 0x80) == 0x80;
 
         0
     }
 
-    fn ldx<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let operand = bus.read_byte(self.PC);
-        self.PC += 1;
-        self.X = operand;
-        self.status.Z = operand == 0x00;
-        self.status.N = (operand & 0x80) == 0x80;
+    fn ldx(&mut self, operand: Word) -> usize {
+        self.X = operand as Byte;
+        self.status.Z = self.X == 0x00;
+        self.status.N = (self.X & 0x80) == 0x80;
 
         0
     }
 
-    fn sbc<Bus: BusTrait>(&mut self, bus: &Bus) -> usize {
-        let operand = bus.read_byte(self.PC);
+    fn sbc(&mut self, operand: Word) -> usize {
         let computed = self.A as SignedWord - operand as SignedWord - bool_to_byte(!self.status.C) as SignedWord;
         let acc = self.A;
 
         println!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
 
-        self.PC += 1;
         self.A = computed as Byte;
         self.status.Z = self.A == 0x00;
-        self.status.V = (!((acc ^ operand) & 0x80) != 0) && (((acc ^ (computed as Byte)) & 0x80) != 0);
+        self.status.V = (!((acc ^ operand as Byte) & 0x80) != 0) && (((acc ^ (computed as Byte)) & 0x80) != 0);
         self.status.C = computed >= 0;
         self.status.N = (self.A & 0x80) == 0x80;
 
@@ -197,6 +221,12 @@ impl Cpu {
         0
     }
 
+    fn sta<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus) -> usize {
+        bus.write_byte(address, self.A);
+
+        0
+    }
+
     fn txs(&mut self) -> usize {
         self.SP = self.X;
 
@@ -208,32 +238,46 @@ impl Cpu {
 mod tests {
     use hamcrest2::prelude::*;
 
+    use crate::assembler::{Assembler, Instructions};
+    use crate::bus::BusImpl;
+    use crate::parser::Parser;
     use crate::rom::Rom;
 
     use super::*;
-    use crate::bus::BusImpl;
-    use crate::parser::Parser;
-    use crate::assembler::{Assembler, Instructions};
 
     struct MockBus {
+        program: Vec<u8>,
         data: Vec<u8>,
     }
 
     impl MockBus {
-        fn new(data: Vec<u8>) -> MockBus {
+        fn new(program: Vec<u8>) -> MockBus {
+            let data = vec![0; 0xFFFF - 0x0FFF];
+
             MockBus {
-                data
+                program,
+                data,
             }
         }
     }
 
     impl BusTrait for MockBus {
         fn read_byte(&self, address: Word) -> Byte {
-            self.data[address as usize]
+            println!("Reading from {:#X}", address);
+
+            match address {
+                0..=0x0FFF => self.program[address as usize],
+                _ => self.data[address as usize]
+            }
         }
 
-        fn write_byte(&mut self, address: u16, data: u8) {
-            self.data[address as usize] = data;
+        fn write_byte(&mut self, address: Word, data: Byte) {
+            println!("Writing to {:#X}", address);
+
+            match address {
+                0..=0x0FFF => self.program[address as usize] = data,
+                _ => self.data[address as usize] = data
+            }
         }
     }
 
@@ -251,7 +295,7 @@ mod tests {
     fn process_all() {
         let rom = Rom::load("roms/nestest.nes", 16384, 8192);
         let mut cpu = build_cpu(0, 0, 0, 0, "");
-        let bus = BusImpl::new(rom);
+        let mut bus = BusImpl::new(rom);
 
         let start = bus.read_word(0xFFFC);
         println!("Starting address: {:#06X}", start);
@@ -259,7 +303,7 @@ mod tests {
         cpu.PC = start;
         // println!("First op: {:#04X}", bus.read_byte(start));
 
-        let cycles = process_bus(&mut cpu, &bus);
+        let cycles = process_bus(&mut cpu, &mut bus);
         assert_that!(cycles, geq(1234));
     }
 
@@ -320,6 +364,7 @@ mod tests {
         assert_instructions(&cpu, "LDA #0", 0x00, 0, 0, 0, 2, "Zn", 2);
         assert_instructions(&cpu, "LDA #01", 0x01, 0, 0, 0, 2, "zn", 2);
         assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 0, 2, "zN", 2);
+        assert_instructions(&cpu, "LDA #$FF\nSTA $1234\nLDA $1234", 0xFF, 0, 0, 0, 8, "zN", 9);
     }
 
     #[test]
@@ -379,6 +424,22 @@ mod tests {
     }
 
     #[test]
+    fn process_sta() {
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+
+        let program = _build_program("LDA #1\nSTA $1234");
+
+        let mut program = program.data;
+        program.push(0xEA);
+
+        let mut bus = MockBus::new(program);
+
+        process_bus(&mut cpu, &mut bus);
+
+        assert_that!(bus.read_byte(0x1234), equal_to(0x01))
+    }
+
+    #[test]
     fn process_txs() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
@@ -416,11 +477,9 @@ mod tests {
     }
 
     fn assert_instructions(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, sp: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
-        let program = _build_program(source);
-
         let cpu = &mut cpu.clone();
 
-        let total_cycles = process(cpu, program.data.as_slice());
+        let total_cycles = process(cpu, source);
         println!("Cycles: {}", total_cycles);
         // let total_cycles = process(cpu, program);
 
@@ -439,11 +498,9 @@ mod tests {
     }
 
     fn assert_status_flags(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, expected_status: &str) {
-        let program = _build_program(source);
-
         let cpu = &mut cpu.clone();
 
-        process(cpu, program.data.as_slice());
+        process(cpu, source);
 
         assert_that!(cpu.A, eq(a));
         assert_that!(cpu.X, eq(x));
@@ -462,16 +519,18 @@ mod tests {
         program
     }
 
-    fn process(cpu: &mut Cpu, program: &[Byte]) -> usize {
-        let mut program = program.to_vec();
+    fn process(cpu: &mut Cpu, source: &str) -> usize {
+        let program = _build_program(source);
+
+        let mut program = program.data;
         program.push(0xEA);
 
-        let bus = MockBus::new(program);
+        let mut bus = MockBus::new(program);
 
-        process_bus(cpu, &bus)
+        process_bus(cpu, &mut bus)
     }
 
-    fn process_bus<Bus: BusTrait>(cpu: &mut Cpu, bus: &Bus) -> usize {
+    fn process_bus<Bus: BusTrait>(cpu: &mut Cpu, bus: &mut Bus) -> usize {
         let mut cycles = cpu.process(bus);
         let mut total_cycles = cycles;
 

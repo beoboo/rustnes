@@ -13,5 +13,6 @@ pub enum OpCode {
     SEC,
     SED,
     SEI,
+    STA,
     TXS,
 }

@@ -36,8 +36,7 @@ impl Bus for BusImpl {
             0x0000..=16 => self.ram[address],
             0x8000..=0xFFFF if address - 0x8000 > self.rom.prg_rom.len() => self.rom.prg_rom[address - 0xC000],
             0x8000..=0xFFFF  => self.rom.prg_rom[address - 0x8000],
-            _ => panic!(format!("Not mapped address: {:#6X}", address))
-
+            _ => panic!(format!("[Bus::read_byte] Not mapped address: {:#6X}", address))
         }
     }
 
@@ -45,8 +44,7 @@ impl Bus for BusImpl {
         match address {
             0x0000..=16 => self.ram[address as usize] = data,
             0x8000..=0xFFFF => self.rom.prg_rom[address as usize - 0x8000] = data,
-            _ => panic!(format!("Not mapped address: {:#6X}", address))
-
+            _ => panic!(format!("[Bus::write_byte] Not mapped address: {:#6X}", address))
         }
     }
 }
