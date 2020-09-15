@@ -10,14 +10,16 @@ type AddressingModes = HashMap<AddressingMode, Byte>;
 pub struct Instruction {
     pub op_code: String,
     pub implied: bool,
+    pub relative: bool,
     pub modes: AddressingModes,
 }
 
 impl Instruction {
-    pub fn new(op_code: &str, implied: bool) -> Instruction {
+    pub fn new(op_code: &str, implied: bool, relative: bool) -> Instruction {
         Instruction {
             op_code: op_code.to_string(),
             implied,
+            relative,
             modes: AddressingModes::new(),
         }
     }
@@ -44,16 +46,17 @@ mod tests {
 
     #[test]
     fn find_brk() {
-        let mut instruction = Instruction::new("BRK", true);
+        let mut instruction = Instruction::new("BRK", true, false);
         instruction.add_mode(AddressingMode::Immediate, 0x00);
 
         assert_that!(instruction.implied, is(true));
+        assert_that!(instruction.relative, is(false));
         assert_that!(instruction.find(&AddressingMode::Immediate).unwrap(), equal_to(0x00));
     }
 
     #[test]
     fn find_unknown_addressing_mode() {
-        let instruction = Instruction::new("BRK", false);
+        let instruction = Instruction::new("BRK", false, true);
 
         let error = instruction.find(&AddressingMode::Absolute).unwrap_err();
 

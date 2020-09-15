@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn test_read_byte() {
         let rom = Rom::new(&[0x01], &[]);
-        let mut bus = _build_bus(rom);
+        let bus = _build_bus(rom);
 
         assert_that!(bus.read_byte(0x0000), eq(0));
         assert_that!(bus.read_byte(0x8000), eq(1));
@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn test_read_word() {
         let rom = Rom::new(&[0x01, 0x02], &[]);
-        let mut bus = _build_bus(rom);
+        let bus = _build_bus(rom);
 
         assert_that!(bus.read_word(0x8000), eq(0x0201));
     }

@@ -1,8 +1,11 @@
 use crate::addressing_mode::AddressingMode;
 use crate::bus::Bus as BusTrait;
-use crate::instructions_map::InstructionsMap;
+use crate::cpu::instructions_map::InstructionsMap;
 use crate::op_code::OpCode;
 use crate::types::*;
+
+mod instruction;
+mod instructions_map;
 
 fn bool_to_byte(flag: bool) -> Byte {
     if flag { 1 } else { 0 }
@@ -76,48 +79,57 @@ impl Cpu {
         let mut cycles = instruction.cycles;
 
         if instruction.op_code == OpCode::NOP {
+            println!("NOP, exiting!");
             return 0;
         }
 
         self.PC += 1;
 
         println!("Next op code: {:?}", instruction.op_code);
+        // self.debug();
 
-        let operand = self.read_address(bus, &instruction.addressing_mode);
+        let address = self.read_address(bus, &instruction.addressing_mode);
 
         cycles += match instruction.op_code {
-            OpCode::ADC => self.adc(operand),
+            OpCode::ADC => self.adc(address),
+            OpCode::BPL => self.bpl(address),
             OpCode::CLC => self.clc(),
             OpCode::CLD => self.cld(),
             OpCode::CLI => self.cli(),
-            OpCode::JMP => self.jmp(operand),
-            OpCode::LDA => self.lda(self.read_operand(operand, bus, &instruction.addressing_mode)),
-            OpCode::LDX => self.ldx(operand),
-            OpCode::SBC => self.sbc(operand),
+            OpCode::JMP => self.jmp(address),
+            OpCode::LDA => self.lda(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::LDX => self.ldx(address),
+            OpCode::SBC => self.sbc(address),
             OpCode::SEC => self.sec(),
             OpCode::SED => self.sed(),
             OpCode::SEI => self.sei(),
-            OpCode::STA => self.sta(operand, bus),
+            OpCode::STA => self.sta(address, bus),
             OpCode::TXS => self.txs(),
             OpCode::NOP => 0,
             op_code => panic!(format!("[Cpu::process] Unexpected op code: {:?}", op_code))
         };
+        // self.debug();
 
         cycles
     }
 
     fn read_address<Bus: BusTrait>(&mut self, bus: &Bus, addressing_mode: &AddressingMode) -> Word {
         match addressing_mode {
-            AddressingMode::Implied => 0,
+            AddressingMode::Absolute => {
+                let address = bus.read_word(self.PC);
+                self.PC += 2;
+                address
+            }
             AddressingMode::Immediate => {
                 let operand = bus.read_byte(self.PC);
                 self.PC += 1;
                 operand as Word
             }
-            AddressingMode::Absolute => {
-                let address = bus.read_word(self.PC);
-                self.PC += 2;
-                address
+            AddressingMode::Implied => 0,
+            AddressingMode::Relative => {
+                let address = bus.read_byte(self.PC);
+                self.PC += 1;
+                address as Word
             }
             _ => panic!(format!("[Cpu::read_byte] Unexpected addressing mode: {:?}", addressing_mode))
         }
@@ -144,6 +156,15 @@ impl Cpu {
         self.status.N = (self.A & 0x80) == 0x80;
 
         0
+    }
+
+    fn bpl(&mut self, address: Word) -> usize {
+        if !self.status.N {
+            self.PC = address;
+            1
+        } else {
+            0
+        }
     }
 
     fn clc(&mut self) -> usize {
@@ -232,6 +253,28 @@ impl Cpu {
 
         0
     }
+
+    fn debug(&self) {
+        println!("A: {:#04X}", self.A);
+        println!("X: {:#04X}", self.X);
+        println!("Y: {:#04X}", self.X);
+        println!("SP: {}", self.SP);
+        println!("PC: {}", self.PC);
+        self.debug_status();
+    }
+
+    fn debug_status(&self) {
+        println!("Status: {}{}{}{}{}{}{}{}",
+                 if self.status.C { "C" } else { "c" },
+                 if self.status.Z { "Z" } else { "z" },
+                 if self.status.I { "I" } else { "i" },
+                 if self.status.D { "D" } else { "d" },
+                 if self.status.B { "B" } else { "b" },
+                 if self.status.U { "U" } else { "u" },
+                 if self.status.V { "V" } else { "v" },
+                 if self.status.N { "N" } else { "n" }
+        )
+    }
 }
 
 #[cfg(test)]
@@ -241,11 +284,11 @@ mod tests {
     use crate::assembler::{Assembler, Instructions};
     use crate::bus::BusImpl;
     use crate::parser::Parser;
+    use crate::ppu::Ppu;
+    use crate::ram::Ram;
     use crate::rom::Rom;
 
     use super::*;
-    use crate::ram::Ram;
-    use crate::ppu::Ppu;
 
     struct MockBus {
         program: Vec<u8>,
@@ -265,7 +308,7 @@ mod tests {
 
     impl BusTrait for MockBus {
         fn read_byte(&self, address: Word) -> Byte {
-            println!("Reading from {:#X}", address);
+            println!("Reading from {:#06X}", address);
 
             match address {
                 0..=0x0FFF => self.program[address as usize],
@@ -326,6 +369,15 @@ mod tests {
 
         // -128 + -1 = -129 (127), C = 0, V = 1
         assert_instructions(&cpu, "CLC\nLDA #$80\nADC #$FF", 127, 0, 0, 0, 5, "znCV", 5);
+    }
+
+    #[test]
+    fn process_bpl() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "BPL $4\nLDA #2\nLDA #3", 3, 0, 0, 0, 6, "", 5);
+
+        let cpu = build_cpu(0, 0, 0, 0, "N");
+        assert_instructions(&cpu, "BPL $4", 0, 0, 0, 0, 2, "", 2);
     }
 
     #[test]
@@ -485,15 +537,10 @@ mod tests {
         println!("Cycles: {}", total_cycles);
         // let total_cycles = process(cpu, program);
 
-        println!("A: {}", cpu.A);
         assert_that!(cpu.A, eq(a));
-        println!("X: {}", cpu.X);
         assert_that!(cpu.X, eq(x));
-        println!("Y: {}", cpu.X);
         assert_that!(cpu.Y, eq(y));
-        println!("SP: {}", cpu.SP);
         assert_that!(cpu.SP, eq(sp));
-        println!("PC: {}", cpu.PC);
         assert_that!(cpu.PC, eq(pc));
         assert_status(cpu.status.clone(), expected_status);
         assert_that!(total_cycles, geq(expected_cycles));
@@ -537,10 +584,6 @@ mod tests {
         let mut total_cycles = cycles;
 
         while cycles != 0 {
-            println!("A: {:#04X}", cpu.A);
-            println!("X: {:#04X}", cpu.X);
-            println!("Y: {:#04X}", cpu.Y);
-            println!("PC: {:#06X}", cpu.PC);
             cycles = cpu.process(bus);
             total_cycles += cycles;
         }

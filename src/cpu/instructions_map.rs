@@ -1,7 +1,7 @@
-use crate::instruction::Instruction;
 use crate::op_code::OpCode;
 use crate::types::Byte;
 use crate::addressing_mode::AddressingMode;
+use crate::cpu::instruction::Instruction;
 
 #[derive(Clone, Debug)]
 pub struct InstructionsMap {}
@@ -14,6 +14,7 @@ impl InstructionsMap {
     pub fn find(&self, op_id: Byte) -> Instruction {
         match &op_id {
             0x00 => Instruction::new(OpCode::BRK, AddressingMode::Implied, 1),
+            0x10 => Instruction::new(OpCode::BPL, AddressingMode::Relative, 2),
             0x18 => Instruction::new(OpCode::CLC, AddressingMode::Implied, 1),
             0x38 => Instruction::new(OpCode::SEC, AddressingMode::Implied, 1),
             0x4C => Instruction::new(OpCode::JMP, AddressingMode::Absolute, 3),

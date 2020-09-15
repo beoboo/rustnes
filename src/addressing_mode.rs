@@ -8,6 +8,7 @@ pub enum AddressingMode {
     Indirect,
     IndirectX,
     IndirectY,
+    Relative,
     XIndirect,
     YIndirect,
     ZeroPage,

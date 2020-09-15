@@ -65,7 +65,7 @@ impl Assembler {
         match advance(it)?.token_type {
             TokenType::Keyword(k) => self.keyword(k, instructions, it),
 
-            t => Err(Error::Assembler(format!("Undefined token type: '{:?}'", t)))
+            t => Err(Error::Assembler(format!("[Assembler::instruction] Undefined token type: '{:?}'", t)))
         }
     }
 
@@ -79,6 +79,7 @@ impl Assembler {
 
             match address.token_type {
                 TokenType::Address(mode, address) => {
+                    let mode = if instruction.relative { AddressingMode::Relative } else { mode };
                     let op_code = instruction.find(&mode)?;
 
                     match mode {
@@ -90,10 +91,14 @@ impl Assembler {
                             instructions.push_byte(op_code);
                             instructions.push_byte(address as Byte);
                         }
-                        _ => return _report_error(format!("Invalid address mode: '{:?}'", mode))
+                        AddressingMode::Relative => {
+                            instructions.push_byte(op_code);
+                            instructions.push_byte(address as Byte);
+                        }
+                        _ => return _report_error(format!("[Assembler::keyword] Invalid address mode: '{:?}'", mode))
                     }
                 }
-                _ => return _report_error(format!("Expected address token: '{:?}'", address.token_type))
+                _ => return _report_error(format!("[Assembler::keyword] Expected address token: '{:?}'", address.token_type))
             }
         }
 
@@ -138,6 +143,11 @@ mod tests {
     #[test]
     fn assemble_adc() {
         assert_assemble("ADC #$1", &[0x69, 0x01]);
+    }
+
+    #[test]
+    fn assemble_bpl() {
+        assert_assemble("BPL $1", &[0x10, 0x01]);
     }
 
     #[test]
