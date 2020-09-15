@@ -244,6 +244,8 @@ mod tests {
     use crate::rom::Rom;
 
     use super::*;
+    use crate::ram::Ram;
+    use crate::ppu::Ppu;
 
     struct MockBus {
         program: Vec<u8>,
@@ -295,7 +297,7 @@ mod tests {
     fn process_all() {
         let rom = Rom::load("roms/nestest.nes", 16384, 8192);
         let mut cpu = build_cpu(0, 0, 0, 0, "");
-        let mut bus = BusImpl::new(rom);
+        let mut bus = BusImpl::new(Ram::new(16), Ppu::new(), rom);
 
         let start = bus.read_word(0xFFFC);
         println!("Starting address: {:#06X}", start);

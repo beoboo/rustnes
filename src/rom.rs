@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::prelude::*;
 use std::str;
+use crate::types::{Word, Byte};
 
 #[derive(Debug)]
 pub struct RomHeader {
@@ -67,6 +68,14 @@ impl Rom {
             prg_rom: buffer[prg_rom_start..prg_rom_end].to_vec(),
             chr_rom: buffer[chr_rom_start..chr_rom_end].to_vec(),
         }
+    }
+
+    pub fn read(&self, address: Word) -> Byte {
+        self.prg_rom[address as usize]
+    }
+
+    pub fn write(&mut self, address: Word, data: Byte) {
+        self.prg_rom[address as usize] = data;
     }
 
     fn load_file(filename: &str) -> Vec<u8> {

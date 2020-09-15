@@ -16,6 +16,8 @@ mod parser;
 mod rom;
 mod token;
 mod types;
+mod ppu;
+mod ram;
 
 fn main() {
     let _cpu = Cpu::new();
