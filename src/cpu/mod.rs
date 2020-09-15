@@ -39,6 +39,8 @@ pub struct Cpu {
     Y: Byte,
     // Program counter
     PC: Word,
+    // Stack pointer
+    SP: Byte,
     // Status
     status: CpuStatus,
     instructions_map: InstructionsMap,
@@ -50,6 +52,7 @@ impl Cpu {
             A: 0,
             X: 0,
             Y: 0,
+            SP: 0,
             PC: 0,
             status: CpuStatus {
                 C: false,
@@ -87,6 +90,7 @@ impl Cpu {
             OpCode::SEC => self.sec(),
             OpCode::SED => self.sed(),
             OpCode::SEI => self.sei(),
+            OpCode::TXS => self.txs(),
             OpCode::NOP => 0,
             op_code => panic!(format!("[Cpu::process] Unexpected op code: {:?}", op_code))
         };
@@ -192,6 +196,12 @@ impl Cpu {
 
         0
     }
+
+    fn txs(&mut self) -> usize {
+        self.SP = self.X;
+
+        0
+    }
 }
 
 #[cfg(test)]
@@ -257,19 +267,19 @@ mod tests {
     fn process_adc() {
         let cpu = build_cpu(1, 0, 0, 0, "");
 
-        assert_instructions(&cpu, "ADC #1", 2, 0, 0, 2, "zncv", 2);
+        assert_instructions(&cpu, "ADC #1", 2, 0, 0, 0, 2, "zncv", 2);
 
         // 1 + 1 = 2, C = 0, V = 0
-        assert_instructions(&cpu, "CLC\nLDA #1\nADC #1", 2, 0, 0, 5, "zncv", 5);
+        assert_instructions(&cpu, "CLC\nLDA #1\nADC #1", 2, 0, 0, 0, 5, "zncv", 5);
 
         // 1 + -1 = 0, C = 1, V = 0
-        assert_instructions(&cpu, "CLC\nLDA #1\nADC #$FF", 0, 0, 0, 5, "ZnCv", 5);
+        assert_instructions(&cpu, "CLC\nLDA #1\nADC #$FF", 0, 0, 0, 0, 5, "ZnCv", 5);
 
         // 127 + 1 = 128 (-128), C = 0, V = 1
-        assert_instructions(&cpu, "CLC\nLDA #$7F\nADC #$01", 128, 0, 0, 5, "zNcV", 5);
+        assert_instructions(&cpu, "CLC\nLDA #$7F\nADC #$01", 128, 0, 0, 0, 5, "zNcV", 5);
 
         // -128 + -1 = -129 (127), C = 0, V = 1
-        assert_instructions(&cpu, "CLC\nLDA #$80\nADC #$FF", 127, 0, 0, 5, "znCV", 5);
+        assert_instructions(&cpu, "CLC\nLDA #$80\nADC #$FF", 127, 0, 0, 0, 5, "znCV", 5);
     }
 
     #[test]
@@ -300,48 +310,48 @@ mod tests {
     fn process_jmp() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_instructions(&cpu, "JMP $03", 0, 0, 0, 0x0003, "", 3);
+        assert_instructions(&cpu, "JMP $03", 0, 0, 0, 0, 0x0003, "", 3);
     }
 
     #[test]
     fn process_lda() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_instructions(&cpu, "LDA #0", 0x00, 0, 0, 2, "Zn", 2);
-        assert_instructions(&cpu, "LDA #01", 0x01, 0, 0, 2, "zn", 2);
-        assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN", 2);
+        assert_instructions(&cpu, "LDA #0", 0x00, 0, 0, 0, 2, "Zn", 2);
+        assert_instructions(&cpu, "LDA #01", 0x01, 0, 0, 0, 2, "zn", 2);
+        assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 0, 2, "zN", 2);
     }
 
     #[test]
     fn process_ldx() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_instructions(&cpu, "LDX #0", 0, 0x00, 0, 2, "Zn", 2);
-        assert_instructions(&cpu, "LDX #01", 0, 0x01, 0, 2, "zn", 2);
-        assert_instructions(&cpu, "LDX #255", 0, 0xFF, 0, 2, "zN", 2);
+        assert_instructions(&cpu, "LDX #0", 0, 0x00, 0, 0, 2, "Zn", 2);
+        assert_instructions(&cpu, "LDX #01", 0, 0x01, 0, 0, 2, "zn", 2);
+        assert_instructions(&cpu, "LDX #255", 0, 0xFF, 0, 0, 2, "zN", 2);
     }
 
     #[test]
     fn process_nop() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_instructions(&cpu, "", 0, 0, 0, 0, "zncv", 0);
+        assert_instructions(&cpu, "", 0, 0, 0, 0, 0, "zncv", 0);
     }
 
     #[test]
     fn process_sbc() {
         let cpu = build_cpu(1, 0, 0, 0, "C");
 
-        assert_instructions(&cpu, "SBC #$1", 0, 0, 0, 2, "ZnCv", 2);
+        assert_instructions(&cpu, "SBC #$1", 0, 0, 0, 0, 2, "ZnCv", 2);
 
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         // 0 - 1 = -1 (255), C = 1, V = 1
-        assert_instructions(&cpu, "SEC\nLDA #0\nSBC #1", 255, 0, 0, 5, "zNcV", 5);
+        assert_instructions(&cpu, "SEC\nLDA #0\nSBC #1", 255, 0, 0, 0, 5, "zNcV", 5);
         // -128 - 1 = -129 (127), C = 1, V = 1
-        assert_instructions(&cpu, "SEC\nLDA #$80\nSBC #1", 127, 0, 0, 5, "znCV", 5);
+        assert_instructions(&cpu, "SEC\nLDA #$80\nSBC #1", 127, 0, 0, 0, 5, "znCV", 5);
         // 127 - -1 = 128 (-128), C = 0, V = 1
-        assert_instructions(&cpu, "SEC\nLDA #$7F\nSBC #$FF", -128i8 as u8, 0, 0, 5, "zNcV", 5);
+        assert_instructions(&cpu, "SEC\nLDA #$7F\nSBC #$FF", -128i8 as u8, 0, 0, 0, 5, "zNcV", 5);
     }
 
     #[test]
@@ -366,6 +376,14 @@ mod tests {
 
         assert_status_flags(&cpu, "SEI", 0, 0, 0, "I");
         assert_status_flags(&cpu, "CLI\nSEI", 0, 0, 0, "I");
+    }
+
+    #[test]
+    fn process_txs() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        // 127 - -1 = 128 (-128), C = 0, V = 1
+        assert_instructions(&cpu, "LDX #1\nTXS", 0, 1, 0, 1, 3, "", 4);
     }
 
     fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {
@@ -397,7 +415,7 @@ mod tests {
         flags.contains(flag)
     }
 
-    fn assert_instructions(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
+    fn assert_instructions(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, sp: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
         let program = _build_program(source);
 
         let cpu = &mut cpu.clone();
@@ -412,6 +430,8 @@ mod tests {
         assert_that!(cpu.X, eq(x));
         println!("Y: {}", cpu.X);
         assert_that!(cpu.Y, eq(y));
+        println!("SP: {}", cpu.SP);
+        assert_that!(cpu.SP, eq(sp));
         println!("PC: {}", cpu.PC);
         assert_that!(cpu.PC, eq(pc));
         assert_status(cpu.status.clone(), expected_status);

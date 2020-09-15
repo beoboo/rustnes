@@ -19,6 +19,7 @@ impl InstructionsMap {
             0x58 => Instruction::new(OpCode::CLI, 2),
             0x69 => Instruction::new(OpCode::ADC, 2),
             0x78 => Instruction::new(OpCode::SEI, 2),
+            0x9A => Instruction::new(OpCode::TXS, 2),
             0xA2 => Instruction::new(OpCode::LDX, 2),
             0xA9 => Instruction::new(OpCode::LDA, 2),
             0xEA => Instruction::new(OpCode::NOP, 0),

@@ -34,6 +34,7 @@ impl AddressingModeMap {
         insert(&mut map, "SEC", true, AddressingMode::Implied, 0x38);
         insert(&mut map, "SED", true, AddressingMode::Implied, 0xF8);
         insert(&mut map, "SEI", true, AddressingMode::Implied, 0x78);
+        insert(&mut map, "TXS", true, AddressingMode::Implied, 0x9A);
 
         AddressingModeMap {
             map
