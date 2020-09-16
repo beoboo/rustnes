@@ -83,11 +83,11 @@ impl Cpu {
             return 0;
         }
 
+        println!("\n{:#06X}: {:?} ({:#04X}) {:?}", self.PC, instruction.op_code, op_id, instruction.addressing_mode);
         self.PC += 1;
 
         // self.debug();
         //
-        println!("\nExecuting: {:?} {:?}", instruction.op_code, instruction.addressing_mode);
         let address = self.read_address(bus, &instruction.addressing_mode);
 
         cycles += match instruction.op_code {
@@ -99,6 +99,7 @@ impl Cpu {
             OpCode::CLD => self.cld(),
             OpCode::CLI => self.cli(),
             OpCode::DEX => self.dex(),
+            OpCode::DEY => self.dey(),
             OpCode::JMP => self.jmp(address),
             OpCode::LDA => self.lda(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDX => self.ldx(self.read_operand(address, bus, &instruction.addressing_mode)),
@@ -111,7 +112,6 @@ impl Cpu {
             OpCode::STX => self.stx(address, bus),
             OpCode::TXS => self.txs(),
             OpCode::NOP => 0,
-            op_code => panic!(format!("[Cpu::process] Unexpected op code: {:?}", op_code))
         };
         self.debug();
 
@@ -130,15 +130,23 @@ impl Cpu {
                 self.PC += 1;
                 operand as Word
             }
-            AddressingMode::Implied => 0,
+            AddressingMode::Implied => return 0,
             AddressingMode::Relative => {
-                let address = bus.read_byte(self.PC);
+                let relative = bus.read_byte(self.PC) as Word;
+                let address = if relative > 0x80 {
+                    self.PC + relative - 0xFF
+                } else {
+                    self.PC + relative
+                };
+
+                // println!("Relative: {}", relative as SignedWord);
+
                 self.PC += 1;
                 address as Word
             }
             _ => panic!(format!("[Cpu::read_byte] Unexpected addressing mode: {:?}", addressing_mode))
         };
-        println!("Address: {:#04X}", address);
+        println!("Address: {:#06X}", address);
         address
     }
 
@@ -217,6 +225,16 @@ impl Cpu {
         self.X = computed as Byte;
         self.status.Z = self.X == 0x00;
         self.status.N = (self.X & 0x80) == 0x80;
+
+        0
+    }
+
+    fn dey(&mut self) -> usize {
+        let computed = self.Y as SignedWord - 1;
+
+        self.Y = computed as Byte;
+        self.status.Z = self.Y == 0x00;
+        self.status.N = (self.Y & 0x80) == 0x80;
 
         0
     }
@@ -426,16 +444,17 @@ mod tests {
     #[test]
     fn process_bpl() {
         let cpu = build_cpu(0, 0, 0, 0, "");
-        assert_instructions(&cpu, "LDA #0\nBPL $6\nLDA #3", 0, 0, 0, 0, 6, "", 5);
-        assert_instructions(&cpu, "LDA #1\nBPL $6\nLDA #3", 1, 0, 0, 0, 6, "", 5);
-        assert_instructions(&cpu, "LDA #$FF\nBPL $6\nLDA #3", 3, 0, 0, 0, 6, "", 5);
+        assert_instructions(&cpu, "LDA #0\nBPL $3\nLDA #3", 0, 0, 0, 0, 6, "", 5);
+        assert_instructions(&cpu, "LDA #1\nBPL $3\nLDA #3", 1, 0, 0, 0, 6, "", 5);
+        assert_instructions(&cpu, "LDA #$FF\nBPL $3\nLDA #3", 3, 0, 0, 0, 6, "", 5);
     }
 
     #[test]
     fn process_bne() {
         let cpu = build_cpu(0, 0, 0, 0, "");
-        assert_instructions(&cpu, "LDA #1\nBNE $6\nLDA #3", 1, 0, 0, 0, 6, "", 4);
-        assert_instructions(&cpu, "LDA #0\nBNE $6\nLDA #3", 3, 0, 0, 0, 6, "", 5);
+        // assert_instructions(&cpu, "LDA #1\nBNE $3\nLDA #3", 1, 0, 0, 0, 6, "", 4);
+        // assert_instructions(&cpu, "LDA #0\nBNE $3\nLDA #3", 3, 0, 0, 0, 6, "", 5);
+        assert_instructions(&cpu, "LDA #1\nBNE $3\nBPL $3\nBNE $FC", 1, 0, 0, 0, 8, "", 5);
     }
 
     #[test]
@@ -474,6 +493,14 @@ mod tests {
 
         assert_instructions(&cpu, "LDX #1\nDEX", 0, 0, 0, 0, 3, "Zn", 4);
         assert_instructions(&cpu, "LDX #0\nDEX", 0, -1i8 as Byte, 0, 0, 3, "zN", 4);
+    }
+
+    #[test]
+    fn process_dey() {
+        let cpu = build_cpu(0, 0, 1, 0, "");
+
+        assert_instructions(&cpu, "LDY #1\nDEY", 0, 0, 0, 0, 3, "Zn", 4);
+        assert_instructions(&cpu, "LDY #0\nDEY", 0, 0, -1i8 as Byte, 0, 3, "zN", 4);
     }
 
     #[test]
