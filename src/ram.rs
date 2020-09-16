@@ -12,10 +12,12 @@ impl Ram {
     }
 
     pub fn read(&self, address: Word) -> Byte {
+        println!("Reading from RAM address: {:#06X}", address);
         self.data[address as usize]
     }
 
     pub fn write(&mut self, address: Word, data: Byte) {
+        println!("Writing {:#04X} to RAM address {:#06X}", data, address);
         self.data[address as usize] = data;
     }
 }

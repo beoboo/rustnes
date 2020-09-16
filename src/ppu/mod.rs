@@ -10,12 +10,12 @@ impl Ppu {
     }
 
     pub fn read(&self, address: Word) -> Byte {
-        println!("Raading from PPU address: {}", address);
+        println!("Reading from PPU address: {:#06X}", address);
         0xFF
     }
 
     pub fn write(&mut self, address: Word, data: Byte) {
-        println!("Writing to PPU address: {}", address);
+        println!("Writing {:#04X} to PPU address {:#06X}", data, address);
     }
 }
 

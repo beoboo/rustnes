@@ -23,6 +23,7 @@ impl AddressingModeMap {
         let mut map = Map::new();
 
         insert(&mut map, "ADC", false, false, AddressingMode::Immediate, 0x69);
+        insert(&mut map, "BNE", false, true, AddressingMode::Relative, 0xD0);
         insert(&mut map, "BPL", false, true, AddressingMode::Relative, 0x10);
         insert(&mut map, "BRK", true, false, AddressingMode::Implied, 0x00);
         insert(&mut map, "CLC", true, false, AddressingMode::Implied, 0x18);

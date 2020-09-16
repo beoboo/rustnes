@@ -87,12 +87,14 @@ impl Cpu {
 
         // self.debug();
         //
-        println!("Next instruction: {:?} {:?}", instruction.op_code, instruction.addressing_mode);
+        println!("\nExecuting: {:?} {:?}", instruction.op_code, instruction.addressing_mode);
         let address = self.read_address(bus, &instruction.addressing_mode);
 
         cycles += match instruction.op_code {
             OpCode::ADC => self.adc(address),
+            OpCode::BNE => self.bne(address),
             OpCode::BPL => self.bpl(address),
+            OpCode::BRK => self.brk(),
             OpCode::CLC => self.clc(),
             OpCode::CLD => self.cld(),
             OpCode::CLI => self.cli(),
@@ -117,7 +119,7 @@ impl Cpu {
     }
 
     fn read_address<Bus: BusTrait>(&mut self, bus: &Bus, addressing_mode: &AddressingMode) -> Word {
-        match addressing_mode {
+        let address = match addressing_mode {
             AddressingMode::Absolute => {
                 let address = bus.read_word(self.PC);
                 self.PC += 2;
@@ -135,7 +137,9 @@ impl Cpu {
                 address as Word
             }
             _ => panic!(format!("[Cpu::read_byte] Unexpected addressing mode: {:?}", addressing_mode))
-        }
+        };
+        println!("Address: {:#04X}", address);
+        address
     }
 
     fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &Bus, addressing_mode: &AddressingMode) -> Byte {
@@ -163,13 +167,30 @@ impl Cpu {
         0
     }
 
-    fn bpl(&mut self, address: Word) -> usize {
-        if !self.status.N {
+    fn bne(&mut self, address: Word) -> usize {
+        if !self.status.Z {
             self.PC = address;
             1
         } else {
             0
         }
+    }
+
+    fn bpl(&mut self, address: Word) -> usize {
+        if !self.status.N {
+            println!("here");
+            self.PC = address;
+            1
+        } else {
+            0
+        }
+    }
+
+    fn brk(&mut self) -> usize {
+        self.PC = 0xFFFE;
+        self.status.B = true;
+        self.status.I = true;
+        0
     }
 
     fn clc(&mut self) -> usize {
@@ -338,19 +359,21 @@ mod tests {
     impl BusTrait for MockBus {
         fn read_byte(&self, address: Word) -> Byte {
             println!("Reading from {:#06X}", address);
+            let address = address as usize;
 
             match address {
-                0..=0x0FFF => self.program[address as usize],
-                _ => self.data[address as usize]
+                0..=0x0FFF => self.program[address],
+                _ => self.data[address - 0x0FFF]
             }
         }
 
         fn write_byte(&mut self, address: Word, data: Byte) {
-            println!("Writing to {:#X}", address);
+            println!("Writing to {:#06X}", address);
+            let address = address as usize;
 
             match address {
-                0..=0x0FFF => self.program[address as usize] = data,
-                _ => self.data[address as usize] = data
+                0..=0x0FFF => self.program[address] = data,
+                _ => self.data[address - 0x0FFF] = data
             }
         }
     }
@@ -369,7 +392,7 @@ mod tests {
     fn process_all() {
         let rom = Rom::load("roms/nestest.nes", 16384, 8192);
         let mut cpu = build_cpu(0, 0, 0, 0, "");
-        let mut bus = BusImpl::new(Ram::new(16), Ppu::new(), rom);
+        let mut bus = BusImpl::new(Ram::new(0x0800), Ppu::new(), rom);
 
         let start = bus.read_word(0xFFFC);
         println!("Starting address: {:#06X}", start);
@@ -403,10 +426,22 @@ mod tests {
     #[test]
     fn process_bpl() {
         let cpu = build_cpu(0, 0, 0, 0, "");
-        assert_instructions(&cpu, "BPL $4\nLDA #2\nLDA #3", 3, 0, 0, 0, 6, "", 5);
+        assert_instructions(&cpu, "LDA #0\nBPL $6\nLDA #3", 0, 0, 0, 0, 6, "", 5);
+        assert_instructions(&cpu, "LDA #1\nBPL $6\nLDA #3", 1, 0, 0, 0, 6, "", 5);
+        assert_instructions(&cpu, "LDA #$FF\nBPL $6\nLDA #3", 3, 0, 0, 0, 6, "", 5);
+    }
 
-        let cpu = build_cpu(0, 0, 0, 0, "N");
-        assert_instructions(&cpu, "BPL $4", 0, 0, 0, 0, 2, "", 2);
+    #[test]
+    fn process_bne() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "LDA #1\nBNE $6\nLDA #3", 1, 0, 0, 0, 6, "", 4);
+        assert_instructions(&cpu, "LDA #0\nBNE $6\nLDA #3", 3, 0, 0, 0, 6, "", 5);
+    }
+
+    #[test]
+    fn process_brk() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "LDA #$EA\nSTA $FFFE\nBRK", 0xEA, 0, 0, 0, 0xFFFE, "BI", 4);
     }
 
     #[test]

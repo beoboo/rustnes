@@ -35,7 +35,7 @@ impl BusImpl {
 impl Bus for BusImpl {
     fn read_byte(&self, address: Word) -> Byte {
         match address {
-            0x0000..=16 => self.ram.read(address),
+            0x0000..=0x1FFF => self.ram.read(address),
             0x2000..=0x2007 => self.ppu.read(address - 0x2000),
             0x8000..=0xFFFF if address - 0x8000 > self.rom.prg_rom.len() as Word => self.rom.read(address - 0xC000),
             0x8000..=0xFFFF  => self.rom.read(address - 0x8000),
