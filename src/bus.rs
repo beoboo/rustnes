@@ -49,7 +49,7 @@ impl Bus for BusImpl {
 
     fn write_byte(&mut self, address: Word, data: Byte) {
         match address {
-            0x0000..=16 => self.ram.write(address, data),
+            0x0000..=0x1FFF => self.ram.write(address & 0x07FF, data),
             0x2000..=0x2007 => self.ppu.write(address - 0x2000, data),
             0x4000..=0x401F => self.apu.write(address - 0x4000, data),
             _ => panic!(format!("[Bus::write_byte] Not mapped address: {:#6X}", address))

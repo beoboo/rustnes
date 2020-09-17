@@ -44,7 +44,9 @@ impl AddressingModeMap {
         insert(&mut map, "SED", true, false, AddressingMode::Implied, 0xF8);
         insert(&mut map, "SEI", true, false, AddressingMode::Implied, 0x78);
         insert(&mut map, "STA", false, false, AddressingMode::Absolute, 0x8D);
+        insert(&mut map, "STA", false, false, AddressingMode::ZeroPage, 0x85);
         insert(&mut map, "STX", false, false, AddressingMode::Absolute, 0x8E);
+        insert(&mut map, "STY", false, false, AddressingMode::Absolute, 0x8C);
         insert(&mut map, "TXS", true, false, AddressingMode::Implied, 0x9A);
 
         AddressingModeMap {

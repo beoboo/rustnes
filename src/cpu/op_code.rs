@@ -22,5 +22,6 @@ pub enum OpCode {
     SEI,
     STA,
     STX,
+    STY,
     TXS,
 }

@@ -113,6 +113,7 @@ impl Cpu {
             OpCode::SEI => self.sei(),
             OpCode::STA => self.sta(address, bus),
             OpCode::STX => self.stx(address, bus),
+            OpCode::STY => self.sty(address, bus),
             OpCode::TXS => self.txs(),
             OpCode::NOP => 0,
         };
@@ -147,6 +148,11 @@ impl Cpu {
                     self.PC + relative
                 };
 
+                self.PC += 1;
+                address as Word
+            }
+            AddressingMode::ZeroPage => {
+                let address = bus.read_byte(self.PC);
                 self.PC += 1;
                 address as Word
             }
@@ -339,6 +345,12 @@ impl Cpu {
 
     fn stx<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus) -> usize {
         bus.write_byte(address, self.X);
+
+        0
+    }
+
+    fn sty<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus) -> usize {
+        bus.write_byte(address, self.Y);
 
         0
     }
@@ -648,10 +660,14 @@ mod tests {
         let mut cpu = build_cpu(0, 0, 0, 0, "");
 
         let mut bus = build_bus("LDA #1\nSTA $1234");
-
         run(&mut cpu, &mut bus);
 
-        assert_that!(bus.read_byte(0x1234), equal_to(0x01))
+        assert_that!(bus.read_byte(0x1234), equal_to(0x01));
+
+        let mut bus = build_bus("LDA #1\nSTA $01");
+        run(&mut cpu, &mut bus);
+
+        assert_that!(bus.read_byte(0x01), equal_to(0x01));
     }
 
     #[test]
@@ -662,7 +678,7 @@ mod tests {
 
         run(&mut cpu, &mut bus);
 
-        assert_that!(bus.read_byte(0x1234), equal_to(0x01))
+        assert_that!(bus.read_byte(0x1234), equal_to(0x01));
     }
 
     #[test]
