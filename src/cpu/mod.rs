@@ -99,8 +99,10 @@ impl Cpu {
             OpCode::CLC => self.clc(),
             OpCode::CLD => self.cld(),
             OpCode::CLI => self.cli(),
+            OpCode::CPX => self.cpx(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::DEX => self.dex(),
             OpCode::DEY => self.dey(),
+            OpCode::INX => self.inx(),
             OpCode::JMP => self.jmp(address),
             OpCode::LDA => self.lda(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDX => self.ldx(self.read_operand(address, bus, &instruction.addressing_mode)),
@@ -223,12 +225,21 @@ impl Cpu {
         0
     }
 
+    fn cpx(&mut self, operand: Byte) -> usize {
+        let computed = self.X as SignedByte - operand as SignedByte;
+        self.status.C = computed >= 0;
+        self.status.Z = computed == 0x00;
+        self.status.N = (self.X as SignedByte) < 0;
+
+        0
+    }
+
     fn dex(&mut self) -> usize {
         let computed = self.X as SignedWord - 1;
 
         self.X = computed as Byte;
-        self.status.Z = self.X == 0x00;
-        self.status.N = (self.X & 0x80) == 0x80;
+        self.status.Z = computed == 0x00;
+        self.status.N = computed < 0;
 
         0
     }
@@ -237,8 +248,18 @@ impl Cpu {
         let computed = self.Y as SignedWord - 1;
 
         self.Y = computed as Byte;
-        self.status.Z = self.Y == 0x00;
-        self.status.N = (self.Y & 0x80) == 0x80;
+        self.status.Z = computed == 0x00;
+        self.status.N = computed < 0;
+
+        0
+    }
+
+    fn inx(&mut self) -> usize {
+        let computed = self.X as SignedByte + 1;
+
+        self.X = computed as Byte;
+        self.status.Z = computed == 0x00;
+        self.status.N = computed < 0;
 
         0
     }
@@ -253,8 +274,10 @@ impl Cpu {
 
     fn lda(&mut self, operand: Byte) -> usize {
         self.A = operand;
-        self.status.Z = self.A == 0x00;
-        self.status.N = (self.A & 0x80) == 0x80;
+
+        let operand = operand as SignedByte;
+        self.status.Z = operand == 0x00;
+        self.status.N = operand < 0;
 
         0
     }
@@ -361,6 +384,7 @@ mod tests {
     use crate::rom::Rom;
 
     use super::*;
+    use crate::apu::Apu;
 
     struct MockBus {
         program: Vec<u8>,
@@ -414,7 +438,7 @@ mod tests {
     fn process_all() {
         let rom = Rom::load("roms/nestest.nes", 16384, 8192);
         let mut cpu = build_cpu(0, 0, 0, 0, "");
-        let mut bus = BusImpl::new(Ram::new(0x0800), Ppu::new(), rom);
+        let mut bus = BusImpl::new(Ram::new(0x0800), Apu::new(), Ppu::new(), rom);
 
         let start = bus.read_word(0xFFFC);
         println!("Starting address: {:#06X}", start);
@@ -484,6 +508,15 @@ mod tests {
     }
 
     #[test]
+    fn process_cpx() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_status_flags(&cpu, "CPX #1", 0, 0, 0, "czn");
+        assert_status_flags(&cpu, "CPX #0", 0, 0, 0, "CZn");
+        assert_status_flags(&cpu, "LDX #$FF\nCPX #1", 0, 0xFF, 0, "czN");
+    }
+
+    #[test]
     fn process_cli() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
@@ -505,6 +538,14 @@ mod tests {
 
         assert_instructions(&cpu, "LDY #1\nDEY", 0, 0, 0, 0, 3, "Zn", 4);
         assert_instructions(&cpu, "LDY #0\nDEY", 0, 0, -1i8 as Byte, 0, 3, "zN", 4);
+    }
+
+    #[test]
+    fn process_inx() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_instructions(&cpu, "INX", 0, 1, 0, 0, 1, "zn", 2);
+        assert_instructions(&cpu, "LDX #$FF\nINX", 0, 0, 0, 0, 3, "Zn", 4);
     }
 
     #[test]
@@ -546,8 +587,6 @@ mod tests {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         assert_instructions(&cpu, "LDX #0", 0, 0x00, 0, 0, 2, "Zn", 2);
-        assert_instructions(&cpu, "LDX #01", 0, 0x01, 0, 0, 2, "zn", 2);
-        assert_instructions(&cpu, "LDX #255", 0, 0xFF, 0, 0, 2, "zN", 2);
     }
 
     #[test]
@@ -555,8 +594,6 @@ mod tests {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         assert_instructions(&cpu, "LDY #0", 0, 0, 0x00, 0, 2, "Zn", 2);
-        assert_instructions(&cpu, "LDY #01", 0, 0, 0x01, 0, 2, "zn", 2);
-        assert_instructions(&cpu, "LDY #255", 0, 0, 0xFF, 0, 2, "zN", 2);
     }
 
     #[test]
@@ -709,13 +746,17 @@ mod tests {
         assert_status(cpu.status.clone(), expected_status);
     }
 
-    fn _build_program(source: &str) -> Vec<Byte> {
+    fn build_program(source: &str) -> Vec<Byte> {
         println!("Processing: {}", source);
         let assembler = Assembler::new();
         let parser = Parser::new();
         let tokens = parser.parse(source).unwrap();
+        println!("Tokens: {:?}", tokens);
 
-        let program = assembler.assemble(tokens).unwrap();
+        let program = match assembler.assemble(tokens) {
+            Ok(program) => program,
+            Err(e) => panic!("Assembler error: {}", e)
+        };
         println!("Program: {:x?}", program);
 
         let mut data = program.data;
@@ -727,7 +768,7 @@ mod tests {
     }
 
     fn build_bus(source: &str) -> MockBus {
-        let program = _build_program(source);
+        let program = build_program(source);
 
         MockBus::new(program)
     }

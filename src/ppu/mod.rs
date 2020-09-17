@@ -26,9 +26,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_read_byte() {
+    fn test_read() {
         let ppu = Ppu::new();
 
         assert_that!(ppu.read(0x0000), eq(0xFF));
     }
+    //
+    // #[test]
+    // fn test_write() {
+    //     let mut ppu = Ppu::new();
+    //     ppu.write(0x0000, 0x123);
+    //
+    //     assert_that!(ppu.read(0x0000), eq(0x123));
+    // }
 }

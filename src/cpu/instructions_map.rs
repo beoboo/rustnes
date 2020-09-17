@@ -31,12 +31,14 @@ impl InstructionsMap {
             0xAD => Instruction::new(OpCode::LDA, AddressingMode::Absolute, 4),
             0xBD => Instruction::new(OpCode::LDA, AddressingMode::AbsoluteX, 4),
             0xCA => Instruction::new(OpCode::DEX, AddressingMode::Implied, 2),
+            0xE0 => Instruction::new(OpCode::CPX, AddressingMode::Immediate, 2),
             0xEA => Instruction::new(OpCode::NOP, AddressingMode::Implied, 0),
             0xD0 => Instruction::new(OpCode::BNE, AddressingMode::Relative, 1),
             0xD8 => Instruction::new(OpCode::CLD, AddressingMode::Implied, 1),
+            0xE8 => Instruction::new(OpCode::INX, AddressingMode::Implied, 2),
             0xF8 => Instruction::new(OpCode::SED, AddressingMode::Implied, 1),
             0xE9 => Instruction::new(OpCode::SBC, AddressingMode::Immediate, 2),
-            _ => panic!(format!("Unexpected op code: {:#04X}", op_id))
+            _ => panic!(format!("[InstructionsMap::find] Unexpected op code: {:#04X}", op_id))
         }
     }
 }

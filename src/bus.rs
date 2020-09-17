@@ -2,6 +2,7 @@ use crate::rom::Rom;
 use crate::types::{Byte, Word};
 use crate::ppu::Ppu;
 use crate::ram::Ram;
+use crate::apu::Apu;
 
 pub trait Bus {
     fn read_byte(&self, address: Word) -> Byte;
@@ -18,14 +19,16 @@ pub trait Bus {
 
 pub struct BusImpl {
     ram: Ram,
+    apu: Apu,
     ppu: Ppu,
     rom: Rom,
 }
 
 impl BusImpl {
-    pub fn new(ram: Ram, ppu: Ppu, rom: Rom) -> BusImpl {
+    pub fn new(ram: Ram, apu: Apu, ppu: Ppu, rom: Rom) -> BusImpl {
         BusImpl {
             ram,
+            apu,
             ppu,
             rom,
         }
@@ -37,6 +40,7 @@ impl Bus for BusImpl {
         match address {
             0x0000..=0x1FFF => self.ram.read(address & 0x07FF),
             0x2000..=0x2007 => self.ppu.read(address - 0x2000),
+            0x4000..=0x401F => self.apu.read(address - 0x4000),
             0x8000..=0xFFFF if address - 0x8000 > self.rom.prg_rom.len() as Word => self.rom.read(address - 0xC000),
             0x8000..=0xFFFF  => self.rom.read(address - 0x8000),
             _ => panic!(format!("[Bus::read_byte] Not mapped address: {:#6X}", address))
@@ -47,6 +51,7 @@ impl Bus for BusImpl {
         match address {
             0x0000..=16 => self.ram.write(address, data),
             0x2000..=0x2007 => self.ppu.write(address - 0x2000, data),
+            0x4000..=0x401F => self.apu.write(address - 0x4000, data),
             _ => panic!(format!("[Bus::write_byte] Not mapped address: {:#6X}", address))
         }
     }
@@ -106,6 +111,6 @@ mod tests {
     }
 
     fn _build_bus(rom: Rom) -> BusImpl {
-        BusImpl::new(Ram::new(16), Ppu::new(), rom)
+        BusImpl::new(Ram::new(16), Apu::new(), Ppu::new(), rom)
     }
 }

@@ -70,15 +70,20 @@ impl Assembler {
     }
 
     fn keyword(&self, k: String, instructions: &mut Instructions, it: &mut PeekableToken) -> Result<(), Error> {
-        let instruction = self.map.find(k.as_str())?;
+        let instruction = match self.map.find(k.as_str()) {
+            Ok(i) => i,
+            Err(e) => return _report_error(format!("[Assembler::keyword] {}", e))
+        };
 
         if instruction.implied {
+            println!("Implied");
             instructions.push_byte(instruction.find(&AddressingMode::Implied).unwrap())
         } else {
             let address = advance(it)?;
 
             match address.token_type {
                 TokenType::Address(mode, address) => {
+                    println!("{:?}", mode);
                     let mode = if instruction.relative { AddressingMode::Relative } else { mode };
                     let op_code = instruction.find(&mode)?;
 
@@ -111,7 +116,7 @@ pub fn advance(it: &mut PeekableToken) -> Result<Token, Error> {
         Some(token) => {
             Ok(token.clone())
         }
-        None => Err(Error::Parser(format!("Token not found.")))
+        None => Err(Error::Assembler(format!("Token not found.")))
     }
 }
 

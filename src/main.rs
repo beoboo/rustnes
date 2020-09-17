@@ -4,17 +4,18 @@ use crate::cpu::Cpu;
 #[macro_use]
 extern crate hamcrest2;
 
-mod assembler;
 mod addressing_mode;
+mod apu;
+mod assembler;
 mod bus;
 mod cpu;
 mod error;
 mod parser;
+mod ppu;
+mod ram;
 mod rom;
 mod token;
 mod types;
-mod ppu;
-mod ram;
 
 fn main() {
     let _cpu = Cpu::new();
