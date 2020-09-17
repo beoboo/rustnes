@@ -12,6 +12,7 @@ pub enum OpCode {
     DEY,
     INX,
     JMP,
+    JSR,
     LDA,
     LDX,
     LDY,

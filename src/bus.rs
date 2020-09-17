@@ -15,6 +15,11 @@ pub trait Bus {
     }
 
     fn write_byte(&mut self, address: Word, data: Byte);
+
+    fn write_word(&mut self, address: Word, data: Word) {
+        self.write_byte(address, data as Byte);
+        self.write_byte(address + 1, (data >> 8) as Byte);
+    }
 }
 
 pub struct BusImpl {

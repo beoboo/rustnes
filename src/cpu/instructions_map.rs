@@ -15,6 +15,7 @@ impl InstructionsMap {
         match &op_id {
             0x00 => Instruction::new(OpCode::BRK, AddressingMode::Implied, 1),
             0x10 => Instruction::new(OpCode::BPL, AddressingMode::Relative, 2),
+            0x20 => Instruction::new(OpCode::JSR, AddressingMode::Absolute, 6),
             0x18 => Instruction::new(OpCode::CLC, AddressingMode::Implied, 1),
             0x38 => Instruction::new(OpCode::SEC, AddressingMode::Implied, 1),
             0x4C => Instruction::new(OpCode::JMP, AddressingMode::Absolute, 3),
