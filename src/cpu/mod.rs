@@ -52,13 +52,13 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new() -> Cpu {
+    pub fn new(start_pc: Word) -> Cpu {
         Cpu {
             A: 0,
             X: 0,
             Y: 0,
             SP: 0xFF,
-            PC: 0,
+            PC: start_pc,
             status: CpuStatus {
                 C: false,
                 Z: false,
@@ -462,12 +462,12 @@ mod tests {
 
     #[test]
     fn ctor() {
-        let cpu = Cpu::new();
+        let cpu = Cpu::new(0x1234);
 
         assert_that!(cpu.A, eq(0));
         assert_that!(cpu.X, eq(0));
         assert_that!(cpu.Y, eq(0));
-        assert_that!(cpu.PC, eq(0));
+        assert_that!(cpu.PC, eq(0x1234));
     }
     //
     // #[test]
@@ -740,12 +740,11 @@ mod tests {
     }
 
     fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::new(pc);
 
         cpu.A = a;
         cpu.X = x;
         cpu.Y = y;
-        cpu.PC = pc;
         cpu.status = build_status(status);
 
         cpu

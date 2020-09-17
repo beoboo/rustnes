@@ -109,13 +109,11 @@ mod tests {
         let mut bus = _build_bus(rom);
 
         bus.write_byte(0x0000, 0x01);
-        // bus.write_byte(0x8000, 0x02);
 
         assert_that!(bus.read_byte(0x0000), eq(0x01));
         assert_that!(bus.read_byte(0x0800), eq(0x01));
         assert_that!(bus.read_byte(0x1000), eq(0x01));
         assert_that!(bus.read_byte(0x1800), eq(0x01));
-        // assert_that!(bus.read_byte(0x8000), eq(0x02));
     }
 
     fn _build_bus(rom: Rom) -> BusImpl {

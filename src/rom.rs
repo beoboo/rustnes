@@ -57,7 +57,7 @@ impl Rom {
         let header = RomHeader::load(&buffer[0..16]);
 
         let prg_rom_start = header.len();
-        println!("Header length: {}", header.len());
+        // println!("Header length: {}", header.len());
         let prg_rom_end = prg_rom_start + prg_bank_size * header.prg_rom_size;
         let chr_rom_start = prg_rom_end;
         let chr_rom_end = chr_rom_start + chr_bank_size * header.chr_rom_size;
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn read_valid() {
-        let rom = Rom::load("roms/nestest.nes", 16384, 8192);
+        let rom = Rom::load("roms/cpu/nestest/nestest.nes", 16384, 8192);
 
         assert_that!(rom.header.len(), eq(16));
         assert_that!(rom.header.nes, eq("NES"));
