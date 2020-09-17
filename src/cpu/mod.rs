@@ -153,6 +153,12 @@ impl Cpu {
                 self.PC += 1;
                 address as Word
             }
+            AddressingMode::YIndexedIndirect => {
+                let address = bus.read_byte(self.PC) as Word + self.Y as Word;
+
+                self.PC += 1;
+                address
+            }
             AddressingMode::ZeroPage => {
                 let address = bus.read_byte(self.PC);
                 self.PC += 1;
@@ -167,7 +173,7 @@ impl Cpu {
     fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &Bus, addressing_mode: &AddressingMode) -> Byte {
         let operand = match addressing_mode {
             AddressingMode::Immediate => operand as Byte,
-            AddressingMode::Absolute | AddressingMode::AbsoluteX => bus.read_byte(operand),
+            AddressingMode::Absolute | AddressingMode::AbsoluteX | AddressingMode::YIndexedIndirect => bus.read_byte(operand),
             _ => panic!(format!("[Cpu::read_byte] Unexpected addressing mode: {:?}", addressing_mode)),
         };
         println!("Operand: {:#04X}", operand);
@@ -610,6 +616,7 @@ mod tests {
         assert_instructions(&cpu, "LDA #0", 0x00, 0, 0, 2, "Zn", 2);
         assert_instructions(&cpu, "LDA #01", 0x01, 0, 0, 2, "zn", 2);
         assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN", 2);
+        assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN", 2);
         assert_instructions(&cpu, "LDA #$FF\nSTA $1234\nLDA $1234", 0xFF, 0, 0, 8, "zN", 10);
 
         // Absolute
@@ -627,7 +634,12 @@ mod tests {
         bus.write_byte(0x0002, 0x80);
         bus.write_byte(0x8001, 123);
 
-        assert_address(&cpu, &mut bus, 123, 1, 0, 3, "", 4);
+        // Indirect, Y
+        let cpu = build_cpu(0, 0, 1, 0, "");
+        let mut bus = build_bus("LDA ($1F),Y");
+        bus.write_byte(0x20, 123);
+
+        assert_address(&cpu, &mut bus, 123, 0, 1, 2, "", 5);
     }
 
     #[test]
@@ -710,11 +722,6 @@ mod tests {
         run(&mut cpu, &mut bus);
 
         assert_that!(bus.read_byte(0x1234), equal_to(0x01));
-
-        let mut bus = build_bus("LDA #1\nSTA $01");
-        run(&mut cpu, &mut bus);
-
-        assert_that!(bus.read_byte(0x01), equal_to(0x01));
     }
 
     #[test]
@@ -795,7 +802,7 @@ mod tests {
         assert_that!(cpu.Y, eq(y));
         assert_that!(cpu.PC, eq(pc));
         assert_status(cpu.status.clone(), expected_status);
-        assert_that!(total_cycles, geq(expected_cycles));
+        assert_that!(total_cycles, eq(expected_cycles));
     }
 
     fn assert_status_flags(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, expected_status: &str) {

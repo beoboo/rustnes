@@ -92,7 +92,7 @@ impl Assembler {
                             instructions.push_byte(op_code);
                             instructions.push_word(address);
                         }
-                        AddressingMode::Immediate => {
+                        AddressingMode::Immediate | AddressingMode::YIndexedIndirect => {
                             instructions.push_byte(op_code);
                             instructions.push_byte(address as Byte);
                         }

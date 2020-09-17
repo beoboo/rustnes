@@ -102,9 +102,8 @@ fn address_indirect(it: &mut PeekableChar) -> Result<TokenType, Error> {
     if peek(it) == ',' {
         advance(it);
         match peek(it) {
-            'X' => addressing_mode = AddressingMode::XIndirect,
-            'Y' => addressing_mode = AddressingMode::YIndirect,
-            c => return _report_error(format!("Invalid indirect address: {}", c))
+            'X' => addressing_mode = AddressingMode::IndirectIndexedX,
+            c => return _report_error(format!("Invalid indexed indirect address: {}", c))
         }
         advance(it);
     }
@@ -114,9 +113,8 @@ fn address_indirect(it: &mut PeekableChar) -> Result<TokenType, Error> {
     if peek(it) == ',' {
         advance(it);
         match peek(it) {
-            'X' => addressing_mode = AddressingMode::IndirectX,
-            'Y' => addressing_mode = AddressingMode::IndirectY,
-            c => return _report_error(format!("Invalid indirect address: {}", c))
+            'Y' => addressing_mode = AddressingMode::YIndexedIndirect,
+            c => return _report_error(format!("Invalid indirect indexed address: {}", c))
         }
         advance(it);
     }
@@ -366,17 +364,11 @@ mod tests {
         let tokens = parse("LDA ($DEAD)").unwrap();
         assert_token(&tokens[1], &TokenType::Address(AddressingMode::Indirect, 0xDEAD), 1);
 
-        let tokens = parse("LDA ($DEAD),X").unwrap();
-        assert_token(&tokens[1], &TokenType::Address(AddressingMode::IndirectX, 0xDEAD), 1);
+        let tokens = parse("LDA ($DEAD,X)").unwrap();
+        assert_token(&tokens[1], &TokenType::Address(AddressingMode::IndirectIndexedX, 0xDEAD), 1);
 
         let tokens = parse("LDA ($DEAD),Y").unwrap();
-        assert_token(&tokens[1], &TokenType::Address(AddressingMode::IndirectY, 0xDEAD), 1);
-
-        let tokens = parse("LDA ($DEAD,X)").unwrap();
-        assert_token(&tokens[1], &TokenType::Address(AddressingMode::XIndirect, 0xDEAD), 1);
-
-        let tokens = parse("LDA ($DEAD,Y)").unwrap();
-        assert_token(&tokens[1], &TokenType::Address(AddressingMode::YIndirect, 0xDEAD), 1);
+        assert_token(&tokens[1], &TokenType::Address(AddressingMode::YIndexedIndirect, 0xDEAD), 1);
     }
 
     fn assert_token(token: &Token, token_type: &TokenType, line: u32) {

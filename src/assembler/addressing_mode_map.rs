@@ -37,6 +37,7 @@ impl AddressingModeMap {
         insert(&mut map, "JSR", false, false, AddressingMode::Absolute, 0x20);
         insert(&mut map, "LDA", false, false, AddressingMode::Immediate, 0xA9);
         insert(&mut map, "LDA", false, false, AddressingMode::Absolute, 0xAD);
+        insert(&mut map, "LDA", false, false, AddressingMode::YIndexedIndirect, 0xB1);
         insert(&mut map, "LDA", false, false, AddressingMode::AbsoluteX, 0xBD);
         insert(&mut map, "LDX", false, false, AddressingMode::Immediate, 0xA2);
         insert(&mut map, "LDY", false, false, AddressingMode::Immediate, 0xA0);
@@ -48,6 +49,7 @@ impl AddressingModeMap {
         insert(&mut map, "STA", false, false, AddressingMode::Absolute, 0x8D);
         insert(&mut map, "STA", false, false, AddressingMode::ZeroPage, 0x85);
         insert(&mut map, "STX", false, false, AddressingMode::Absolute, 0x8E);
+        insert(&mut map, "STX", false, false, AddressingMode::ZeroPage, 0x86);
         insert(&mut map, "STY", false, false, AddressingMode::Absolute, 0x8C);
         insert(&mut map, "TXS", true, false, AddressingMode::Implied, 0x9A);
 
