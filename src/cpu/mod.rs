@@ -1,11 +1,12 @@
 use crate::addressing_mode::AddressingMode;
 use crate::bus::Bus as BusTrait;
 use crate::cpu::instructions_map::InstructionsMap;
-use crate::op_code::OpCode;
 use crate::types::*;
+use crate::cpu::op_code::OpCode;
 
 mod instruction;
 mod instructions_map;
+mod op_code;
 
 fn bool_to_byte(flag: bool) -> Byte {
     if flag { 1 } else { 0 }
@@ -88,7 +89,7 @@ impl Cpu {
 
         // self.debug();
         //
-        let address = self.read_address(bus, &instruction.addressing_mode);
+        let address = self.fetch_address(bus, &instruction.addressing_mode);
 
         cycles += match instruction.op_code {
             OpCode::ADC => self.adc(address),
@@ -118,10 +119,15 @@ impl Cpu {
         cycles
     }
 
-    fn read_address<Bus: BusTrait>(&mut self, bus: &Bus, addressing_mode: &AddressingMode) -> Word {
+    fn fetch_address<Bus: BusTrait>(&mut self, bus: &Bus, addressing_mode: &AddressingMode) -> Word {
         let address = match addressing_mode {
             AddressingMode::Absolute => {
                 let address = bus.read_word(self.PC);
+                self.PC += 2;
+                address
+            }
+            AddressingMode::AbsoluteX => {
+                let address = bus.read_word(self.PC) + self.X as Word;
                 self.PC += 2;
                 address
             }
@@ -139,8 +145,6 @@ impl Cpu {
                     self.PC + relative
                 };
 
-                // println!("Relative: {}", relative as SignedWord);
-
                 self.PC += 1;
                 address as Word
             }
@@ -153,7 +157,7 @@ impl Cpu {
     fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &Bus, addressing_mode: &AddressingMode) -> Byte {
         let operand = match addressing_mode {
             AddressingMode::Immediate => operand as Byte,
-            AddressingMode::Absolute => bus.read_byte(operand),
+            AddressingMode::Absolute | AddressingMode::AbsoluteX => bus.read_byte(operand),
             _ => panic!(format!("[Cpu::read_byte] Unexpected addressing mode: {:?}", addressing_mode)),
         };
         println!("Operand: {:#04X}", operand);
@@ -349,7 +353,7 @@ impl Cpu {
 mod tests {
     use hamcrest2::prelude::*;
 
-    use crate::assembler::{Assembler, Instructions};
+    use crate::assembler::Assembler;
     use crate::bus::BusImpl;
     use crate::parser::Parser;
     use crate::ppu::Ppu;
@@ -418,7 +422,7 @@ mod tests {
         cpu.PC = start;
         // println!("First op: {:#04X}", bus.read_byte(start));
 
-        let cycles = process_bus(&mut cpu, &mut bus);
+        let cycles = run(&mut cpu, &mut bus);
         assert_that!(cycles, geq(1234));
     }
 
@@ -518,6 +522,23 @@ mod tests {
         assert_instructions(&cpu, "LDA #01", 0x01, 0, 0, 0, 2, "zn", 2);
         assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 0, 2, "zN", 2);
         assert_instructions(&cpu, "LDA #$FF\nSTA $1234\nLDA $1234", 0xFF, 0, 0, 0, 8, "zN", 9);
+
+        // Absolute
+        let mut bus = build_bus("LDA $0001");
+        bus.write_byte(0x0001, 0x00);
+        bus.write_byte(0x0002, 0x80);
+        bus.write_byte(0x8000, 123);
+
+        assert_address(&cpu, &mut bus, 123, 0, 0, 0, 3, "", 4);
+
+        // Absolute, X
+        let cpu = build_cpu(0, 1, 0, 0, "");
+        let mut bus = build_bus("LDA $0001,X");
+        bus.write_byte(0x0001, 0x00);
+        bus.write_byte(0x0002, 0x80);
+        bus.write_byte(0x8001, 123);
+
+        assert_address(&cpu, &mut bus, 123, 1, 0, 0, 3, "", 4);
     }
 
     #[test]
@@ -589,14 +610,9 @@ mod tests {
     fn process_sta() {
         let mut cpu = build_cpu(0, 0, 0, 0, "");
 
-        let program = _build_program("LDA #1\nSTA $1234");
+        let mut bus = build_bus("LDA #1\nSTA $1234");
 
-        let mut program = program.data;
-        program.push(0xEA);
-
-        let mut bus = MockBus::new(program);
-
-        process_bus(&mut cpu, &mut bus);
+        run(&mut cpu, &mut bus);
 
         assert_that!(bus.read_byte(0x1234), equal_to(0x01))
     }
@@ -605,14 +621,9 @@ mod tests {
     fn process_stx() {
         let mut cpu = build_cpu(0, 0, 0, 0, "");
 
-        let program = _build_program("LDX #1\nSTX $1234");
+        let mut bus = build_bus("LDX #1\nSTX $1234");
 
-        let mut program = program.data;
-        program.push(0xEA);
-
-        let mut bus = MockBus::new(program);
-
-        process_bus(&mut cpu, &mut bus);
+        run(&mut cpu, &mut bus);
 
         assert_that!(bus.read_byte(0x1234), equal_to(0x01))
     }
@@ -657,7 +668,24 @@ mod tests {
     fn assert_instructions(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, sp: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
         let cpu = &mut cpu.clone();
 
-        let total_cycles = process(cpu, source);
+        let total_cycles = process_source(cpu, source);
+        println!("Cycles: {}", total_cycles);
+        // let total_cycles = process(cpu, program);
+
+        assert_that!(cpu.A, eq(a));
+        assert_that!(cpu.X, eq(x));
+        assert_that!(cpu.Y, eq(y));
+        assert_that!(cpu.SP, eq(sp));
+        assert_that!(cpu.PC, eq(pc));
+        assert_status(cpu.status.clone(), expected_status);
+        assert_that!(total_cycles, geq(expected_cycles));
+    }
+
+    fn assert_address<Bus: BusTrait>(cpu: &Cpu, bus: &mut Bus, a: Byte, x: Byte, y: Byte, sp: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
+        let cpu = &mut cpu.clone();
+
+        let total_cycles = run(cpu, bus);
+
         println!("Cycles: {}", total_cycles);
         // let total_cycles = process(cpu, program);
 
@@ -673,7 +701,7 @@ mod tests {
     fn assert_status_flags(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, expected_status: &str) {
         let cpu = &mut cpu.clone();
 
-        process(cpu, source);
+        process_source(cpu, source);
 
         assert_that!(cpu.A, eq(a));
         assert_that!(cpu.X, eq(x));
@@ -681,7 +709,7 @@ mod tests {
         assert_status(cpu.status.clone(), expected_status);
     }
 
-    fn _build_program(source: &str) -> Instructions {
+    fn _build_program(source: &str) -> Vec<Byte> {
         println!("Processing: {}", source);
         let assembler = Assembler::new();
         let parser = Parser::new();
@@ -689,21 +717,28 @@ mod tests {
 
         let program = assembler.assemble(tokens).unwrap();
         println!("Program: {:x?}", program);
-        program
+
+        let mut data = program.data;
+
+        // Append NOP
+        data.push(0xEA);
+
+        data
     }
 
-    fn process(cpu: &mut Cpu, source: &str) -> usize {
+    fn build_bus(source: &str) -> MockBus {
         let program = _build_program(source);
 
-        let mut program = program.data;
-        program.push(0xEA);
-
-        let mut bus = MockBus::new(program);
-
-        process_bus(cpu, &mut bus)
+        MockBus::new(program)
     }
 
-    fn process_bus<Bus: BusTrait>(cpu: &mut Cpu, bus: &mut Bus) -> usize {
+    fn process_source(cpu: &mut Cpu, source: &str) -> usize {
+        let mut bus = build_bus(source);
+
+        run(cpu, &mut bus)
+    }
+
+    fn run<Bus: BusTrait>(cpu: &mut Cpu, bus: &mut Bus) -> usize {
         let mut cycles = cpu.process(bus);
         let mut total_cycles = cycles;
 

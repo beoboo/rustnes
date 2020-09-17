@@ -1,7 +1,7 @@
-use crate::op_code::OpCode;
 use crate::types::Byte;
 use crate::addressing_mode::AddressingMode;
 use crate::cpu::instruction::Instruction;
+use crate::cpu::op_code::OpCode;
 
 #[derive(Clone, Debug)]
 pub struct InstructionsMap {}
@@ -29,6 +29,7 @@ impl InstructionsMap {
             0xA2 => Instruction::new(OpCode::LDX, AddressingMode::Immediate, 2),
             0xA9 => Instruction::new(OpCode::LDA, AddressingMode::Immediate, 2),
             0xAD => Instruction::new(OpCode::LDA, AddressingMode::Absolute, 4),
+            0xBD => Instruction::new(OpCode::LDA, AddressingMode::AbsoluteX, 4),
             0xCA => Instruction::new(OpCode::DEX, AddressingMode::Implied, 2),
             0xEA => Instruction::new(OpCode::NOP, AddressingMode::Implied, 0),
             0xD0 => Instruction::new(OpCode::BNE, AddressingMode::Relative, 1),

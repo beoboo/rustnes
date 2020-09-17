@@ -73,10 +73,10 @@ impl Rom {
     pub fn read(&self, address: Word) -> Byte {
         self.prg_rom[address as usize]
     }
-
-    pub fn write(&mut self, address: Word, data: Byte) {
-        self.prg_rom[address as usize] = data;
-    }
+    //
+    // pub fn write(&mut self, address: Word, data: Byte) {
+    //     self.prg_rom[address as usize] = data;
+    // }
 
     fn load_file(filename: &str) -> Vec<u8> {
         let mut file = File::open(filename).expect(format!("Could not open {}", filename).as_str());

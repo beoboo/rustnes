@@ -83,7 +83,7 @@ impl Assembler {
                     let op_code = instruction.find(&mode)?;
 
                     match mode {
-                        AddressingMode::Absolute => {
+                        AddressingMode::Absolute | AddressingMode::AbsoluteX => {
                             instructions.push_byte(op_code);
                             instructions.push_word(address);
                         }

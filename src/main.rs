@@ -9,7 +9,6 @@ mod addressing_mode;
 mod bus;
 mod cpu;
 mod error;
-mod op_code;
 mod parser;
 mod rom;
 mod token;

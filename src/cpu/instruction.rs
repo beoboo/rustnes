@@ -1,5 +1,5 @@
-use crate::op_code::OpCode;
 use crate::addressing_mode::AddressingMode;
+use crate::cpu::op_code::OpCode;
 
 pub struct Instruction {
     pub op_code: OpCode,
