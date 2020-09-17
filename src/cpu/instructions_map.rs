@@ -20,6 +20,7 @@ impl InstructionsMap {
             0x38 => Instruction::new(OpCode::SEC, AddressingMode::Implied, 1),
             0x4C => Instruction::new(OpCode::JMP, AddressingMode::Absolute, 3),
             0x58 => Instruction::new(OpCode::CLI, AddressingMode::Implied, 2),
+            0x60 => Instruction::new(OpCode::RTS, AddressingMode::Implied, 6),
             0x69 => Instruction::new(OpCode::ADC, AddressingMode::Immediate, 2),
             0x78 => Instruction::new(OpCode::SEI, AddressingMode::Implied, 2),
             0x85 => Instruction::new(OpCode::STA, AddressingMode::ZeroPage, 3),

@@ -11,12 +11,15 @@ pub trait Bus {
         let low = self.read_byte(address) as Word;
         let high = self.read_byte(address + 1) as Word;
 
-        (high << 8) + low
+        let data = (high << 8) + low;
+        println!("Read {:#06X} from {:#06X}", data, address);
+        data
     }
 
     fn write_byte(&mut self, address: Word, data: Byte);
 
     fn write_word(&mut self, address: Word, data: Word) {
+        println!("Writing {:#06X} to {:#06X}", data, address);
         self.write_byte(address, data as Byte);
         self.write_byte(address + 1, (data >> 8) as Byte);
     }

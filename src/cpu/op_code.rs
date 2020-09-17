@@ -17,6 +17,7 @@ pub enum OpCode {
     LDX,
     LDY,
     NOP,
+    RTS,
     SBC,
     SEC,
     SED,

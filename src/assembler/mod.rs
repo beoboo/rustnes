@@ -103,7 +103,7 @@ impl Assembler {
                         _ => return _report_error(format!("[Assembler::keyword] Invalid address mode: '{:?}'", mode))
                     }
                 }
-                _ => return _report_error(format!("[Assembler::keyword] Expected address token: '{:?}'", address.token_type))
+                _ => return _report_error(format!("[Assembler::keyword] Expected address token for '{}' instruction: '{:?}'", instruction.op_code, address.token_type))
             }
         }
 

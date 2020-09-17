@@ -108,6 +108,7 @@ impl Cpu {
             OpCode::LDA => self.lda(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDX => self.ldx(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDY => self.ldy(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::RTS => self.rts(bus),
             OpCode::SBC => self.sbc(address),
             OpCode::SEC => self.sec(),
             OpCode::SED => self.sed(),
@@ -280,7 +281,7 @@ impl Cpu {
     }
 
     fn jsr<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus) -> usize {
-        bus.write_word((self.SP as Word) - 1 | 0x0100, self.PC);
+        bus.write_word((self.SP as Word) - 1 | 0x0100, self.PC - 1);
         self.SP -= 2;
         println!("Jumping to {:#06X}", address);
 
@@ -311,6 +312,13 @@ impl Cpu {
         self.Y = operand;
         self.status.Z = self.Y == 0x00;
         self.status.N = (self.Y & 0x80) == 0x80;
+
+        0
+    }
+
+    fn rts<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
+        self.SP += 2;
+        self.PC = bus.read_word(self.SP as Word - 1 | 0x0100) + 1;
 
         0
     }
@@ -427,15 +435,16 @@ mod tests {
 
     impl BusTrait for MockBus {
         fn read_byte(&self, address: Word) -> Byte {
-            println!("Reading from {:#06X}", address);
             let address = address as usize;
             let len = self.program.len();
 
-            if address < self.program.len() {
+            let data = if address < self.program.len() {
                 self.program[address]
             } else {
                 self.data[address - len]
-            }
+            };
+            println!("Reading from {:#06X} -> {:#04X}", address, data);
+            data
         }
 
         fn write_byte(&mut self, address: Word, data: Byte) {
@@ -460,22 +469,22 @@ mod tests {
         assert_that!(cpu.Y, eq(0));
         assert_that!(cpu.PC, eq(0));
     }
-
-    #[test]
-    fn process_all() {
-        let rom = Rom::load("roms/nestest.nes", 16384, 8192);
-        let mut cpu = build_cpu(0, 0, 0, 0, "");
-        let mut bus = BusImpl::new(Ram::new(0x0800), Apu::new(), Ppu::new(), rom);
-
-        let start = bus.read_word(0xFFFC);
-        println!("Starting address: {:#06X}", start);
-
-        cpu.PC = start;
-        // println!("First op: {:#04X}", bus.read_byte(start));
-
-        let cycles = run(&mut cpu, &mut bus);
-        assert_that!(cycles, geq(1234));
-    }
+    //
+    // #[test]
+    // fn process_all() {
+    //     let rom = Rom::load("roms/nestest.nes", 16384, 8192);
+    //     let mut cpu = build_cpu(0, 0, 0, 0, "");
+    //     let mut bus = BusImpl::new(Ram::new(0x0800), Apu::new(), Ppu::new(), rom);
+    //
+    //     let start = bus.read_word(0xFFFC);
+    //     println!("Starting address: {:#06X}", start);
+    //
+    //     cpu.PC = start;
+    //     // println!("First op: {:#04X}", bus.read_byte(start));
+    //
+    //     let cycles = run(&mut cpu, &mut bus);
+    //     assert_that!(cycles, geq(1234));
+    // }
 
     #[test]
     fn process_adc() {
@@ -497,25 +506,25 @@ mod tests {
     }
 
     #[test]
+    fn process_bne() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "LDA #1\nBNE $3\nLDA #3", 1, 0, 0, 6, "", 4);
+        assert_instructions(&cpu, "LDA #0\nBNE $3\nLDA #3", 3, 0, 0, 6, "", 5);
+        assert_instructions(&cpu, "LDA #1\nBNE $3\nBPL $3\nBNE $FC", 1, 0, 0, 8, "", 9);
+    }
+
+    #[test]
     fn process_bpl() {
         let cpu = build_cpu(0, 0, 0, 0, "");
         assert_instructions(&cpu, "LDA #0\nBPL $3\nLDA #3", 0, 0, 0, 6, "", 5);
         assert_instructions(&cpu, "LDA #1\nBPL $3\nLDA #3", 1, 0, 0, 6, "", 5);
-        assert_instructions(&cpu, "LDA #$FF\nBPL $3\nLDA #3", 3, 0, 0, 6, "", 5);
-    }
-
-    #[test]
-    fn process_bne() {
-        let cpu = build_cpu(0, 0, 0, 0, "");
-        // assert_instructions(&cpu, "LDA #1\nBNE $3\nLDA #3", 1, 0, 0, 0, 6, "", 4);
-        // assert_instructions(&cpu, "LDA #0\nBNE $3\nLDA #3", 3, 0, 0, 0, 6, "", 5);
-        assert_instructions(&cpu, "LDA #1\nBNE $3\nBPL $3\nBNE $FC", 1, 0, 0, 8, "", 5);
+        assert_instructions(&cpu, "LDA #$FF\nBPL $3\nLDA #3", 3, 0, 0, 6, "", 6);
     }
 
     #[test]
     fn process_brk() {
         let cpu = build_cpu(0, 0, 0, 0, "");
-        assert_instructions(&cpu, "LDA #$EA\nSTA $FFFE\nBRK", 0xEA, 0, 0, 0xFFFE, "BI", 4);
+        assert_instructions(&cpu, "LDA #$EA\nSTA $FFFE\nBRK", 0xEA, 0, 0, 0xFFFE, "BI", 7);
     }
 
     #[test]
@@ -586,12 +595,12 @@ mod tests {
     fn process_jsr() {
         let mut cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_instructions(&cpu, "JSR $04\nBRK\nLDA #1", 1, 0, 0, 6, "", 8);
+        assert_instructions(&cpu, "JSR $4\nBRK\nLDA #1", 1, 0, 0, 6, "", 8);
 
-        let mut bus = build_bus("JSR $04\nBRK\nLDA #1");
+        let mut bus = build_bus("JSR $4\nBRK\nLDA #1");
         run(&mut cpu, &mut bus);
         assert_that!(cpu.SP, eq(0xFD));
-        assert_that!(bus.read_word(0x01FE), eq(0x0003));
+        assert_that!(bus.read_word(0x01FE), eq(0x0002));
     }
 
     #[test]
@@ -601,7 +610,7 @@ mod tests {
         assert_instructions(&cpu, "LDA #0", 0x00, 0, 0, 2, "Zn", 2);
         assert_instructions(&cpu, "LDA #01", 0x01, 0, 0, 2, "zn", 2);
         assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN", 2);
-        assert_instructions(&cpu, "LDA #$FF\nSTA $1234\nLDA $1234", 0xFF, 0, 0, 8, "zN", 9);
+        assert_instructions(&cpu, "LDA #$FF\nSTA $1234\nLDA $1234", 0xFF, 0, 0, 8, "zN", 10);
 
         // Absolute
         let mut bus = build_bus("LDA $0001");
@@ -640,6 +649,17 @@ mod tests {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         assert_instructions(&cpu, "", 0, 0, 0, 0, "zncv", 0);
+    }
+
+    #[test]
+    fn process_rts() {
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "JSR $6\nJMP $7\nRTS", 0, 0, 0, 7, "", 15);
+
+        let mut bus = build_bus("JSR $6\nJMP $7\nRTS");
+        run(&mut cpu, &mut bus);
+
+        assert_that!(cpu.SP, eq(0xFF));
     }
 
     #[test]
@@ -760,7 +780,7 @@ mod tests {
         assert_that!(cpu.Y, eq(y));
         assert_that!(cpu.PC, eq(pc));
         assert_status(cpu.status.clone(), expected_status);
-        assert_that!(total_cycles, geq(expected_cycles));
+        assert_that!(total_cycles, eq(expected_cycles));
     }
 
     fn assert_address<Bus: BusTrait>(cpu: &Cpu, bus: &mut Bus, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {

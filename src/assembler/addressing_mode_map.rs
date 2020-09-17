@@ -40,6 +40,7 @@ impl AddressingModeMap {
         insert(&mut map, "LDA", false, false, AddressingMode::AbsoluteX, 0xBD);
         insert(&mut map, "LDX", false, false, AddressingMode::Immediate, 0xA2);
         insert(&mut map, "LDY", false, false, AddressingMode::Immediate, 0xA0);
+        insert(&mut map, "RTS", true, false, AddressingMode::Implied, 0x60);
         insert(&mut map, "SBC", false, false, AddressingMode::Immediate, 0xE9);
         insert(&mut map, "SEC", true, false, AddressingMode::Implied, 0x38);
         insert(&mut map, "SED", true, false, AddressingMode::Implied, 0xF8);
