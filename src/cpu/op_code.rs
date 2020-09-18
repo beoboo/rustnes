@@ -21,6 +21,7 @@ pub enum OpCode {
     LDY,
     NOP,
     PHA,
+    PLA,
     RTS,
     SBC,
     SEC,

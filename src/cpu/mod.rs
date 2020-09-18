@@ -112,6 +112,7 @@ impl Cpu {
             OpCode::LDX => self.ldx(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDY => self.ldy(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::PHA => self.pha(bus),
+            OpCode::PLA => self.pla(bus),
             OpCode::RTS => self.rts(bus),
             OpCode::SBC => self.sbc(address),
             OpCode::SEC => self.sec(),
@@ -360,6 +361,13 @@ impl Cpu {
     fn pha<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
         bus.write_byte((self.SP as Word) | 0x0100, self.A);
         self.SP -= 1;
+
+        0
+    }
+
+    fn pla<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
+        self.SP += 1;
+        self.A = bus.read_byte((self.SP as Word) | 0x0100);
 
         0
     }
@@ -760,7 +768,19 @@ mod tests {
         run(&mut cpu, &mut bus);
 
         assert_that!(cpu.SP, eq(0xFE));
-        assert_that!(bus.read_word(0x01FF), eq(0x0001));
+        assert_that!(bus.read_byte(0x01FF), eq(0x01));
+    }
+
+    #[test]
+    fn process_pla() {
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+
+        let mut bus = build_bus("LDA #1\nPHA\nLDA #0\nPLA");
+        bus.write_byte(0x01FF, 0x01);
+        run(&mut cpu, &mut bus);
+
+        assert_that!(cpu.SP, eq(0xFF));
+        assert_that!(cpu.A, eq(0x01));
     }
 
     #[test]
