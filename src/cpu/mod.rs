@@ -125,6 +125,7 @@ impl Cpu {
             OpCode::STX => self.stx(address, bus),
             OpCode::STY => self.sty(address, bus),
             OpCode::TXS => self.txs(),
+            OpCode::TAX => self.tax(),
             OpCode::NOP => 0,
         };
         self.debug();
@@ -398,8 +399,9 @@ impl Cpu {
     }
 
     fn ror(&mut self, operand: Byte) -> usize {
-        self.status.C = (self.A & 0x01) == 0x01;
+        let acc = self.A;
         self.A = (operand >> 1) + if self.status.C { 0x80 } else { 0 };
+        self.status.C = (acc & 0x01) == 0x01;
         self.status.Z = self.A == 0x00;
         self.status.N = (self.A as SignedByte) < 0;
 
@@ -460,6 +462,14 @@ impl Cpu {
 
     fn sty<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus) -> usize {
         bus.write_byte(address, self.Y);
+
+        0
+    }
+
+    fn tax(&mut self) -> usize {
+        self.X = self.A;
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
 
         0
     }
@@ -930,6 +940,15 @@ mod tests {
         run(&mut cpu, &mut bus);
 
         assert_that!(bus.read_byte(0x1234), equal_to(0x01));
+    }
+
+    #[test]
+    fn process_tax() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_instructions(&cpu, "LDA #1\nTAX", 1, 1, 0, 3, "nz", 4);
+        assert_instructions(&cpu, "LDA #0\nTAX", 0, 0, 0, 3, "nZ", 4);
+        assert_instructions(&cpu, "LDA #$FF\nTAX", 0xFF, 0xFF, 0, 3, "Nz", 4);
     }
 
     #[test]

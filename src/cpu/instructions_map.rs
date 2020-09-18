@@ -44,6 +44,7 @@ impl InstructionsMap {
             0xA5 => Instruction::new(OpCode::LDA, AddressingMode::ZeroPage, 3),
             0xA6 => Instruction::new(OpCode::LDX, AddressingMode::ZeroPage, 3),
             0xA9 => Instruction::new(OpCode::LDA, AddressingMode::Immediate, 2),
+            0xAA => Instruction::new(OpCode::TAX, AddressingMode::Implied, 2),
             0xAD => Instruction::new(OpCode::LDA, AddressingMode::Absolute, 4),
             0xB1 => Instruction::new(OpCode::LDA, AddressingMode::YIndexedIndirect, 5),
             0xBD => Instruction::new(OpCode::LDA, AddressingMode::AbsoluteX, 4),

@@ -33,5 +33,6 @@ pub enum OpCode {
     STA,
     STX,
     STY,
+    TAX,
     TXS,
 }
