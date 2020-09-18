@@ -93,6 +93,7 @@ impl Cpu {
 
         cycles += match instruction.op_code {
             OpCode::ADC => self.adc(address),
+            OpCode::AND => self.and(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::BCC => self.bcc(address),
             OpCode::BIT => self.bit(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::BNE => self.bne(address),
@@ -208,6 +209,23 @@ impl Cpu {
         0
     }
 
+    fn and(&mut self, operand: Byte) -> usize {
+        self.A = self.A & operand;
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
+
+        0
+    }
+
+    fn bcc(&mut self, address: Word) -> usize {
+        if !self.status.C {
+            self.PC = address;
+            1
+        } else {
+            0
+        }
+    }
+
     fn bit(&mut self, operand: Byte) -> usize {
         self.status.Z = self.A & operand == 0x00;
         self.status.N = (operand as SignedByte) < 0;
@@ -218,15 +236,6 @@ impl Cpu {
 
     fn bne(&mut self, address: Word) -> usize {
         if !self.status.Z {
-            self.PC = address;
-            1
-        } else {
-            0
-        }
-    }
-
-    fn bcc(&mut self, address: Word) -> usize {
-        if !self.status.C {
             self.PC = address;
             1
         } else {
@@ -578,6 +587,14 @@ mod tests {
     }
 
     #[test]
+    fn process_and() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_instructions(&cpu, "AND #1", 0, 0, 0, 2, "Zn", 2);
+        assert_instructions(&cpu, "LDA #$80\nAND #$FF", 0x80, 0, 0, 4, "zN", 4);
+    }
+
+    #[test]
     fn process_bcc() {
         let cpu = build_cpu(0, 0, 0, 0, "c");
         assert_instructions(&cpu, "BCC $3\nLDA #3", 0, 0, 0, 4, "", 3);
@@ -798,20 +815,20 @@ mod tests {
         assert_that!(cpu.SP, eq(0xFF));
         assert_that!(cpu.A, eq(0x01));
 
-        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        let cpu = build_cpu(0, 0, 0, 0, "");
         assert_instructions(&cpu, "LDA #0\nPHA\nLDA #1\nPLA", 0, 0, 0, 6, "Zn", 11);
 
-        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        let cpu = build_cpu(0, 0, 0, 0, "");
         assert_instructions(&cpu, "LDA #$FF\nPHA\nLDA #0\nPLA", 0xFF, 0, 0, 6, "zN", 11);
     }
 
     #[test]
     fn process_rol() {
-        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        let cpu = build_cpu(0, 0, 0, 0, "");
         assert_instructions(&cpu, "LDA #1\nROL A", 2, 0, 0, 3, "nzc", 4);
         assert_instructions(&cpu, "LDA #$80\nROL A", 0, 0, 0, 3, "nZC", 4);
 
-        let mut cpu = build_cpu(0, 0, 0, 0, "C");
+        let cpu = build_cpu(0, 0, 0, 0, "C");
         assert_instructions(&cpu, "ROL A", 1, 0, 0, 1, "nzc", 2);
     }
 

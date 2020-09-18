@@ -16,6 +16,7 @@ impl InstructionsMap {
             0x00 => Instruction::new(OpCode::BRK, AddressingMode::Implied, 1),
             0x10 => Instruction::new(OpCode::BPL, AddressingMode::Relative, 2),
             0x20 => Instruction::new(OpCode::JSR, AddressingMode::Absolute, 6),
+            0x29 => Instruction::new(OpCode::AND, AddressingMode::Immediate, 2),
             0x2A => Instruction::new(OpCode::ROL, AddressingMode::Accumulator, 2),
             0x2C => Instruction::new(OpCode::BIT, AddressingMode::Absolute, 4),
             0x18 => Instruction::new(OpCode::CLC, AddressingMode::Implied, 1),
