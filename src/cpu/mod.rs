@@ -93,6 +93,7 @@ impl Cpu {
 
         cycles += match instruction.op_code {
             OpCode::ADC => self.adc(address),
+            OpCode::BCC => self.bcc(address),
             OpCode::BIT => self.bit(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::BNE => self.bne(address),
             OpCode::BPL => self.bpl(address),
@@ -211,6 +212,15 @@ impl Cpu {
 
     fn bne(&mut self, address: Word) -> usize {
         if !self.status.Z {
+            self.PC = address;
+            1
+        } else {
+            0
+        }
+    }
+
+    fn bcc(&mut self, address: Word) -> usize {
+        if !self.status.C {
             self.PC = address;
             1
         } else {
@@ -533,6 +543,15 @@ mod tests {
 
         // -128 + -1 = -129 (127), C = 0, V = 1
         assert_instructions(&cpu, "CLC\nLDA #$80\nADC #$FF", 127, 0, 0, 5, "znCV", 5);
+    }
+
+    #[test]
+    fn process_bcc() {
+        let cpu = build_cpu(0, 0, 0, 0, "c");
+        assert_instructions(&cpu, "BCC $3\nLDA #3", 0, 0, 0, 4, "", 3);
+
+        let cpu = build_cpu(0, 0, 0, 0, "C");
+        assert_instructions(&cpu, "BCC $3\nLDA #3", 3, 0, 0, 4, "", 4);
     }
 
     #[test]

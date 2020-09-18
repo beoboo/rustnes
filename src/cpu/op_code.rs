@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum OpCode {
     ADC,
+    BCC,
     BIT,
     BNE,
     BPL,

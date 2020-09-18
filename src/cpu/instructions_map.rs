@@ -30,6 +30,7 @@ impl InstructionsMap {
             0x8C => Instruction::new(OpCode::STY, AddressingMode::Absolute, 4),
             0x8D => Instruction::new(OpCode::STA, AddressingMode::Absolute, 4),
             0x8E => Instruction::new(OpCode::STX, AddressingMode::Absolute, 4),
+            0x90 => Instruction::new(OpCode::BCC, AddressingMode::Relative, 2),
             0x91 => Instruction::new(OpCode::STA, AddressingMode::YIndexedIndirect, 6),
             0x9A => Instruction::new(OpCode::TXS, AddressingMode::Implied, 2),
             0xA0 => Instruction::new(OpCode::LDY, AddressingMode::Immediate, 2),
