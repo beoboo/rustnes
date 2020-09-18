@@ -56,7 +56,7 @@ fn identifier(it: &mut PeekableChar) -> Result<TokenType, Error> {
         keyword.push(advance(it));
     }
 
-    Ok(TokenType::Keyword(keyword))
+    Ok(TokenType::Identifier(keyword))
 }
 
 fn address(it: &mut PeekableChar) -> Result<TokenType, Error> {
@@ -300,23 +300,23 @@ mod tests {
     fn parse_one_byte_instruction() {
         let tokens = parse("BRK").unwrap();
 
-        assert_token(&tokens[0], &TokenType::Keyword("BRK".to_string()), 1);
+        assert_token(&tokens[0], &TokenType::Identifier("BRK".to_string()), 1);
     }
 
     #[test]
     fn parse_multiple_instructions() {
         let tokens = parse("LDA $DEAD,X\nBRK").unwrap();
 
-        assert_token(&tokens[0], &TokenType::Keyword("LDA".to_string()), 1);
+        assert_token(&tokens[0], &TokenType::Identifier("LDA".to_string()), 1);
         assert_token(&tokens[1], &TokenType::Address(AddressingMode::AbsoluteX, 0xDEAD), 1);
-        assert_token(&tokens[2], &TokenType::Keyword("BRK".to_string()), 2);
+        assert_token(&tokens[2], &TokenType::Identifier("BRK".to_string()), 2);
     }
 
     #[test]
     fn parse_two_bytes_instruction() {
         let tokens = parse("LDA 123").unwrap();
 
-        assert_token(&tokens[0], &TokenType::Keyword("LDA".to_string()), 1);
+        assert_token(&tokens[0], &TokenType::Identifier("LDA".to_string()), 1);
         assert_token(&tokens[1], &TokenType::Address(AddressingMode::Absolute, 123), 1);
     }
 
@@ -340,6 +340,9 @@ mod tests {
 
     #[test]
     fn parse_address() {
+        let tokens = parse("LDA A").unwrap();
+        assert_token(&tokens[1], &TokenType::Identifier("A".to_string()), 1);
+
         let tokens = parse("LDA $DEAD").unwrap();
         assert_token(&tokens[1], &TokenType::Address(AddressingMode::Absolute, 0xDEAD), 1);
 

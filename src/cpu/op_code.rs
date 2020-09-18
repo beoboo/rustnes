@@ -22,6 +22,7 @@ pub enum OpCode {
     NOP,
     PHA,
     PLA,
+    ROL,
     RTS,
     SBC,
     SEC,

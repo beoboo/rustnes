@@ -4,7 +4,7 @@ use crate::addressing_mode::AddressingMode;
 #[derive(Clone, Debug, PartialEq)]
 pub enum TokenType {
     Address(AddressingMode, Word),
-    Keyword(String),
+    Identifier(String),
     EOF,
 }
 

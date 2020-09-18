@@ -113,6 +113,7 @@ impl Cpu {
             OpCode::LDY => self.ldy(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::PHA => self.pha(bus),
             OpCode::PLA => self.pla(bus),
+            OpCode::ROL => self.rol(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::RTS => self.rts(bus),
             OpCode::SBC => self.sbc(address),
             OpCode::SEC => self.sec(),
@@ -140,6 +141,9 @@ impl Cpu {
                 let address = bus.read_word(self.PC) + self.X as Word;
                 self.PC += 2;
                 address
+            }
+            AddressingMode::Accumulator => {
+                self.A as Word
             }
             AddressingMode::Immediate => {
                 let operand = bus.read_byte(self.PC);
@@ -177,7 +181,7 @@ impl Cpu {
 
     fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &Bus, addressing_mode: &AddressingMode) -> Byte {
         let operand = match addressing_mode {
-            AddressingMode::Immediate => operand as Byte,
+            AddressingMode::Accumulator | AddressingMode::Immediate => operand as Byte,
             AddressingMode::Absolute |
             AddressingMode::AbsoluteX |
             AddressingMode::YIndexedIndirect |
@@ -374,6 +378,15 @@ impl Cpu {
         0
     }
 
+    fn rol(&mut self, operand: Byte) -> usize {
+        self.A = (operand << 1) + if self.status.C { 1 } else { 0 };
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
+        self.status.C = (operand as SignedByte) < 0;
+
+        0
+    }
+
     fn rts<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
         self.SP += 2;
         self.PC = bus.read_word(self.SP as Word - 1 | 0x0100) + 1;
@@ -469,11 +482,12 @@ mod tests {
     use crate::assembler::Assembler;
     // use crate::bus::BusImpl;
     use crate::parser::Parser;
-    // use crate::ppu::Ppu;
-    // use crate::ram::Ram;
-    // use crate::rom::Rom;
 
     use super::*;
+
+// use crate::ppu::Ppu;
+    // use crate::ram::Ram;
+    // use crate::rom::Rom;
 
     struct MockBus {
         program: Vec<u8>,
@@ -789,6 +803,16 @@ mod tests {
 
         let mut cpu = build_cpu(0, 0, 0, 0, "");
         assert_instructions(&cpu, "LDA #$FF\nPHA\nLDA #0\nPLA", 0xFF, 0, 0, 6, "zN", 11);
+    }
+
+    #[test]
+    fn process_rol() {
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "LDA #1\nROL A", 2, 0, 0, 3, "nzc", 4);
+        assert_instructions(&cpu, "LDA #$80\nROL A", 0, 0, 0, 3, "nZC", 4);
+
+        let mut cpu = build_cpu(0, 0, 0, 0, "C");
+        assert_instructions(&cpu, "ROL A", 1, 0, 0, 1, "nzc", 2);
     }
 
     #[test]

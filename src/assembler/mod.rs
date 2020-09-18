@@ -63,7 +63,7 @@ impl Assembler {
 
     fn instruction(&self, instructions: &mut Instructions, it: &mut PeekableToken) -> Result<(), Error> {
         match advance(it)?.token_type {
-            TokenType::Keyword(k) => self.keyword(k, instructions, it),
+            TokenType::Identifier(k) => self.keyword(k, instructions, it),
 
             t => Err(Error::Assembler(format!("[Assembler::instruction] Undefined token type: '{:?}'", t)))
         }
@@ -82,6 +82,15 @@ impl Assembler {
             let address = advance(it)?;
 
             match address.token_type {
+                TokenType::Identifier(a) => {
+                    match a.as_str() {
+                        "A" => {
+                            let op_code = instruction.find(AddressingMode::Accumulator)?;
+                            instructions.push_byte(op_code);
+                        }
+                        _ => return _report_error(format!("[Assembler::keyword] Expected 'A' for accumulator address"))
+                    }
+                },
                 TokenType::Address(mode, address) => {
                     println!("{:?}", mode);
                     let mode = if instruction.relative { AddressingMode::Relative } else { mode };
@@ -106,10 +115,10 @@ impl Assembler {
                             instructions.push_byte(op_code);
                             instructions.push_byte(address as Byte);
                         }
-                        _ => return _report_error(format!("[Assembler::keyword] Invalid address mode: '{:?}'", mode))
+                        _ => return _report_error(format!("[Assembler::keyword] Invalid addressing mode: '{:?}'", mode))
                     }
                 }
-                _ => return _report_error(format!("[Assembler::keyword] Expected address token for '{}' instruction: '{:?}'", instruction.op_code, address.token_type))
+                t => return _report_error(format!("[Assembler::keyword] Expected address token for '{}' instruction (found {:?})", instruction.op_code, t))
             }
         }
 
