@@ -23,6 +23,7 @@ impl AddressingModeMap {
         let mut map = Map::new();
 
         insert(&mut map, "ADC", false, false, AddressingMode::Immediate, 0x69);
+        insert(&mut map, "BIT", false, false, AddressingMode::Absolute, 0x2C);
         insert(&mut map, "BNE", false, true, AddressingMode::Relative, 0xD0);
         insert(&mut map, "BPL", false, true, AddressingMode::Relative, 0x10);
         insert(&mut map, "BRK", true, false, AddressingMode::Implied, 0x00);
@@ -39,6 +40,7 @@ impl AddressingModeMap {
         insert(&mut map, "LDA", false, false, AddressingMode::Absolute, 0xAD);
         insert(&mut map, "LDA", false, false, AddressingMode::YIndexedIndirect, 0xB1);
         insert(&mut map, "LDA", false, false, AddressingMode::AbsoluteX, 0xBD);
+        insert(&mut map, "LDA", false, false, AddressingMode::ZeroPage, 0xA5);
         insert(&mut map, "LDX", false, false, AddressingMode::Immediate, 0xA2);
         insert(&mut map, "LDY", false, false, AddressingMode::Immediate, 0xA0);
         insert(&mut map, "RTS", true, false, AddressingMode::Implied, 0x60);

@@ -21,7 +21,7 @@ impl fmt::Display for Error {
             Error::Lexer(message) => write!(f, "{}", message),
             Error::Parser(message) => write!(f, "{}", message),
             Error::UndefinedStage(stage) => write!(f, "Undefined stage: '{}'", stage),
-            Error::UnknownAddressingMode(op_code, addressing_mode) => write!(f, "Unmapped addressing mode {:?} for op code: {}", addressing_mode, op_code),
+            Error::UnknownAddressingMode(op_code, addressing_mode) => write!(f, "Unmapped addressing mode '{:?}' for op code: {}", addressing_mode, op_code),
             Error::UnknownOpCode(op_code) => write!(f, "Unknown op code: {}", op_code),
             Error::UnterminatedInput => write!(f, "EOF"),
         }

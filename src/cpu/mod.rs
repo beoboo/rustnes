@@ -1,8 +1,8 @@
 use crate::addressing_mode::AddressingMode;
 use crate::bus::Bus as BusTrait;
 use crate::cpu::instructions_map::InstructionsMap;
-use crate::types::*;
 use crate::cpu::op_code::OpCode;
+use crate::types::*;
 
 mod instruction;
 mod instructions_map;
@@ -93,6 +93,7 @@ impl Cpu {
 
         cycles += match instruction.op_code {
             OpCode::ADC => self.adc(address),
+            OpCode::BIT => self.bit(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::BNE => self.bne(address),
             OpCode::BPL => self.bpl(address),
             OpCode::BRK => self.brk(),
@@ -173,8 +174,12 @@ impl Cpu {
     fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &Bus, addressing_mode: &AddressingMode) -> Byte {
         let operand = match addressing_mode {
             AddressingMode::Immediate => operand as Byte,
-            AddressingMode::Absolute | AddressingMode::AbsoluteX | AddressingMode::YIndexedIndirect => bus.read_byte(operand),
-            _ => panic!(format!("[Cpu::read_byte] Unexpected addressing mode: {:?}", addressing_mode)),
+            AddressingMode::Absolute |
+            AddressingMode::AbsoluteX |
+            AddressingMode::YIndexedIndirect |
+            AddressingMode::ZeroPage
+            => bus.read_byte(operand),
+            _ => panic!(format!("[Cpu::read_operand] Unexpected addressing mode: {:?}", addressing_mode)),
         };
         println!("Operand: {:#04X}", operand);
         operand
@@ -191,6 +196,14 @@ impl Cpu {
         self.status.V = (!((acc ^ operand as Byte) & 0x80) != 0) && (((acc ^ (computed as Byte)) & 0x80) != 0);
         self.status.C = computed > 0xFF;
         self.status.N = (self.A & 0x80) == 0x80;
+
+        0
+    }
+
+    fn bit(&mut self, operand: Byte) -> usize {
+        self.status.Z = self.A & operand == 0x00;
+        self.status.N = (operand as SignedByte) < 0;
+        self.status.V = operand & 0x40 == 0x40;
 
         0
     }
@@ -413,6 +426,7 @@ impl Cpu {
 mod tests {
     use hamcrest2::prelude::*;
 
+    use crate::apu::Apu;
     use crate::assembler::Assembler;
     use crate::bus::BusImpl;
     use crate::parser::Parser;
@@ -421,7 +435,6 @@ mod tests {
     use crate::rom::Rom;
 
     use super::*;
-    use crate::apu::Apu;
 
     struct MockBus {
         program: Vec<u8>,
@@ -512,6 +525,23 @@ mod tests {
     }
 
     #[test]
+    fn process_bit() {
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        let mut bus = build_bus("LDA #1\nBIT $8005");
+        bus.write_byte(0x8005, 0xFF);
+        run(&mut cpu, &mut bus);
+
+        assert_status(cpu.status.clone(), "NVz");
+
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        let mut bus = build_bus("LDA #0\nBIT $8005");
+        bus.write_byte(0x8005, 0x1);
+        run(&mut cpu, &mut bus);
+
+        assert_status(cpu.status.clone(), "nvZ");
+    }
+
+    #[test]
     fn process_bne() {
         let cpu = build_cpu(0, 0, 0, 0, "");
         assert_instructions(&cpu, "LDA #1\nBNE $3\nLDA #3", 1, 0, 0, 6, "", 4);
@@ -537,33 +567,33 @@ mod tests {
     fn process_clc() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_status_flags(&cpu, "CLC", 0, 0, 0, "c");
-        assert_status_flags(&cpu, "SEC\nCLC", 0, 0, 0, "c");
+        assert_registers(&cpu, "CLC", 0, 0, 0, "c");
+        assert_registers(&cpu, "SEC\nCLC", 0, 0, 0, "c");
     }
 
     #[test]
     fn process_cld() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_status_flags(&cpu, "CLD", 0, 0, 0, "d");
-        assert_status_flags(&cpu, "SED\nCLD", 0, 0, 0, "d");
+        assert_registers(&cpu, "CLD", 0, 0, 0, "d");
+        assert_registers(&cpu, "SED\nCLD", 0, 0, 0, "d");
     }
 
     #[test]
     fn process_cpx() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_status_flags(&cpu, "CPX #1", 0, 0, 0, "czn");
-        assert_status_flags(&cpu, "CPX #0", 0, 0, 0, "CZn");
-        assert_status_flags(&cpu, "LDX #$FF\nCPX #1", 0, 0xFF, 0, "czN");
+        assert_registers(&cpu, "CPX #1", 0, 0, 0, "czn");
+        assert_registers(&cpu, "CPX #0", 0, 0, 0, "CZn");
+        assert_registers(&cpu, "LDX #$FF\nCPX #1", 0, 0xFF, 0, "czN");
     }
 
     #[test]
     fn process_cli() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_status_flags(&cpu, "CLI", 0, 0, 0, "i");
-        assert_status_flags(&cpu, "SEI\nCLI", 0, 0, 0, "i");
+        assert_registers(&cpu, "CLI", 0, 0, 0, "i");
+        assert_registers(&cpu, "SEI\nCLI", 0, 0, 0, "i");
     }
 
     #[test]
@@ -620,10 +650,8 @@ mod tests {
         assert_instructions(&cpu, "LDA #$FF\nSTA $1234\nLDA $1234", 0xFF, 0, 0, 8, "zN", 10);
 
         // Absolute
-        let mut bus = build_bus("LDA $0001");
-        bus.write_byte(0x0001, 0x00);
-        bus.write_byte(0x0002, 0x80);
-        bus.write_byte(0x8000, 123);
+        let mut bus = build_bus("LDA $8001");
+        bus.write_byte(0x8001, 123);
 
         assert_address(&cpu, &mut bus, 123, 0, 0, 3, "", 4);
 
@@ -640,6 +668,13 @@ mod tests {
         bus.write_byte(0x20, 123);
 
         assert_address(&cpu, &mut bus, 123, 0, 1, 2, "", 5);
+
+        // Zeropage
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        let mut bus = build_bus("LDA $1F");
+        bus.write_byte(0x1F, 123);
+
+        assert_address(&cpu, &mut bus, 123, 0, 0, 2, "", 2);
     }
 
     #[test]
@@ -694,24 +729,24 @@ mod tests {
     fn process_sec() {
         let cpu = build_cpu(0, 0, 0, 0, "C");
 
-        assert_status_flags(&cpu, "SEC", 0, 0, 0, "C");
-        assert_status_flags(&cpu, "CLC\nSEC", 0, 0, 0, "C");
+        assert_registers(&cpu, "SEC", 0, 0, 0, "C");
+        assert_registers(&cpu, "CLC\nSEC", 0, 0, 0, "C");
     }
 
     #[test]
     fn process_sed() {
         let cpu = build_cpu(0, 0, 0, 0, "D");
 
-        assert_status_flags(&cpu, "SED", 0, 0, 0, "D");
-        assert_status_flags(&cpu, "CLD\nSED", 0, 0, 0, "D");
+        assert_registers(&cpu, "SED", 0, 0, 0, "D");
+        assert_registers(&cpu, "CLD\nSED", 0, 0, 0, "D");
     }
 
     #[test]
     fn process_sei() {
         let cpu = build_cpu(0, 0, 0, 0, "I");
 
-        assert_status_flags(&cpu, "SEI", 0, 0, 0, "I");
-        assert_status_flags(&cpu, "CLI\nSEI", 0, 0, 0, "I");
+        assert_registers(&cpu, "SEI", 0, 0, 0, "I");
+        assert_registers(&cpu, "CLI\nSEI", 0, 0, 0, "I");
     }
 
     #[test]
@@ -805,7 +840,7 @@ mod tests {
         assert_that!(total_cycles, eq(expected_cycles));
     }
 
-    fn assert_status_flags(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, expected_status: &str) {
+    fn assert_registers(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, expected_status: &str) {
         let cpu = &mut cpu.clone();
 
         process_source(cpu, source);

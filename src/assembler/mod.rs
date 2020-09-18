@@ -77,7 +77,7 @@ impl Assembler {
 
         if instruction.implied {
             println!("Implied");
-            instructions.push_byte(instruction.find(&AddressingMode::Implied).unwrap())
+            instructions.push_byte(instruction.find(AddressingMode::Implied).unwrap())
         } else {
             let address = advance(it)?;
 
@@ -85,7 +85,13 @@ impl Assembler {
                 TokenType::Address(mode, address) => {
                     println!("{:?}", mode);
                     let mode = if instruction.relative { AddressingMode::Relative } else { mode };
-                    let op_code = instruction.find(&mode)?;
+                    let mode = if mode == AddressingMode::Absolute && address <= 0xFF && instruction.contains(AddressingMode::ZeroPage) {
+                        AddressingMode::ZeroPage
+                    } else {
+                        mode
+                    };
+
+                    let op_code = instruction.find(mode.clone())?;
 
                     match mode {
                         AddressingMode::Absolute | AddressingMode::AbsoluteX => {
@@ -96,7 +102,7 @@ impl Assembler {
                             instructions.push_byte(op_code);
                             instructions.push_byte(address as Byte);
                         }
-                        AddressingMode::Relative => {
+                        AddressingMode::Relative | AddressingMode::ZeroPage => {
                             instructions.push_byte(op_code);
                             instructions.push_byte(address as Byte);
                         }

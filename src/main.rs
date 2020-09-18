@@ -40,16 +40,6 @@ fn main() {
     }
 }
 
-fn run_file(filename: &str) {
-    let source: String = fs::read_to_string(filename)
-        .expect(format!("Cannot read {}", filename).as_str());
-
-    match run(&source) {
-        Err(e) => eprintln!("{}", format!("{}", e).red()),
-        _ => (),
-    };
-}
-
 fn run(filename: &str)  -> Result<usize, Error> {
     let rom = Rom::load(filename, 16384, 8192);
     let mut bus = BusImpl::new(Ram::new(0x0800), Apu::new(), Ppu::new(), rom);
