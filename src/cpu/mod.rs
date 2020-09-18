@@ -111,6 +111,7 @@ impl Cpu {
             OpCode::LDA => self.lda(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDX => self.ldx(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDY => self.ldy(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::PHA => self.pha(bus),
             OpCode::RTS => self.rts(bus),
             OpCode::SBC => self.sbc(address),
             OpCode::SEC => self.sec(),
@@ -356,6 +357,13 @@ impl Cpu {
         0
     }
 
+    fn pha<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
+        bus.write_byte((self.SP as Word) | 0x0100, self.A);
+        self.SP -= 1;
+
+        0
+    }
+
     fn rts<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
         self.SP += 2;
         self.PC = bus.read_word(self.SP as Word - 1 | 0x0100) + 1;
@@ -447,13 +455,13 @@ impl Cpu {
 mod tests {
     use hamcrest2::prelude::*;
 
-    use crate::apu::Apu;
+    // use crate::apu::Apu;
     use crate::assembler::Assembler;
-    use crate::bus::BusImpl;
+    // use crate::bus::BusImpl;
     use crate::parser::Parser;
-    use crate::ppu::Ppu;
-    use crate::ram::Ram;
-    use crate::rom::Rom;
+    // use crate::ppu::Ppu;
+    // use crate::ram::Ram;
+    // use crate::rom::Rom;
 
     use super::*;
 
@@ -700,6 +708,7 @@ mod tests {
         bus.write_byte(0x0001, 0x00);
         bus.write_byte(0x0002, 0x80);
         bus.write_byte(0x8001, 123);
+        assert_address(&cpu, &mut bus, 123, 1, 0, 3, "", 4);
 
         // Indirect, Y
         let cpu = build_cpu(0, 0, 1, 0, "");
@@ -723,7 +732,6 @@ mod tests {
         assert_instructions(&cpu, "LDX #1", 0, 1, 0, 2, "zn", 2);
 
         // Zeropage
-        let cpu = build_cpu(0, 0, 0, 0, "");
         let mut bus = build_bus("LDX $1F");
         bus.write_byte(0x1F, 123);
 
@@ -742,6 +750,17 @@ mod tests {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         assert_instructions(&cpu, "", 0, 0, 0, 0, "zncv", 0);
+    }
+
+    #[test]
+    fn process_pha() {
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+
+        let mut bus = build_bus("LDA $1\nPHA");
+        run(&mut cpu, &mut bus);
+
+        assert_that!(cpu.SP, eq(0xFE));
+        assert_that!(bus.read_word(0x01FF), eq(0x0001));
     }
 
     #[test]

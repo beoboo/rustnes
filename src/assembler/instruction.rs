@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::addressing_mode::AddressingMode;
 use crate::error::Error;
-use crate::types::{Byte, Word};
+use crate::types::Byte;
 
 type AddressingModes = HashMap<AddressingMode, Byte>;
 

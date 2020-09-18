@@ -2,10 +2,7 @@
 #[macro_use]
 extern crate hamcrest2;
 
-use std::fs;
-
 use clap::{App, Arg};
-use colored::*;
 
 use crate::apu::Apu;
 use crate::bus::{Bus, BusImpl};
