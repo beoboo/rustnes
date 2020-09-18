@@ -790,9 +790,17 @@ mod tests {
 
     #[test]
     fn process_sta() {
+        // Absolute
         let mut cpu = build_cpu(0, 0, 0, 0, "");
 
         let mut bus = build_bus("LDA #1\nSTA $1234");
+        run(&mut cpu, &mut bus);
+
+        assert_that!(bus.read_byte(0x1234), equal_to(0x01));
+
+        // Absolute X
+        let mut cpu = build_cpu(0, 1, 0, 0, "");
+        let mut bus = build_bus("LDA #1\nSTA $1233,X");
         run(&mut cpu, &mut bus);
 
         assert_that!(bus.read_byte(0x1234), equal_to(0x01));
