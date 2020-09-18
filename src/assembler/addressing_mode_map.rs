@@ -44,6 +44,7 @@ impl AddressingModeMap {
         insert(&mut map, "LDA", false, false, AddressingMode::YIndexedIndirect, 0xB1);
         insert(&mut map, "LDA", false, false, AddressingMode::ZeroPage, 0xA5);
         insert(&mut map, "LDX", false, false, AddressingMode::Immediate, 0xA2);
+        insert(&mut map, "LDX", false, false, AddressingMode::ZeroPage, 0xA6);
         insert(&mut map, "LDY", false, false, AddressingMode::Immediate, 0xA0);
         insert(&mut map, "RTS", true, false, AddressingMode::Implied, 0x60);
         insert(&mut map, "SBC", false, false, AddressingMode::Immediate, 0xE9);

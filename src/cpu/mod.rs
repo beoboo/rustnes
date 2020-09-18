@@ -713,7 +713,7 @@ mod tests {
         let mut bus = build_bus("LDA $1F");
         bus.write_byte(0x1F, 123);
 
-        assert_address(&cpu, &mut bus, 123, 0, 0, 2, "", 2);
+        assert_address(&cpu, &mut bus, 123, 0, 0, 2, "", 3);
     }
 
     #[test]
@@ -721,6 +721,13 @@ mod tests {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         assert_instructions(&cpu, "LDX #1", 0, 1, 0, 2, "zn", 2);
+
+        // Zeropage
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        let mut bus = build_bus("LDX $1F");
+        bus.write_byte(0x1F, 123);
+
+        assert_address(&cpu, &mut bus, 0, 123, 0, 2, "", 3);
     }
 
     #[test]
