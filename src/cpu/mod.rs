@@ -100,6 +100,7 @@ impl Cpu {
             OpCode::CLC => self.clc(),
             OpCode::CLD => self.cld(),
             OpCode::CLI => self.cli(),
+            OpCode::CMP => self.cmp(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::CPX => self.cpx(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::DEX => self.dex(),
             OpCode::DEY => self.dey(),
@@ -252,13 +253,23 @@ impl Cpu {
         0
     }
 
-    fn cpx(&mut self, operand: Byte) -> usize {
-        let computed = self.X as SignedByte - operand as SignedByte;
-        self.status.C = computed >= 0;
-        self.status.Z = computed == 0x00;
-        self.status.N = (self.X as SignedByte) < 0;
+    fn cmp(&mut self, operand: Byte) -> usize {
+        self.compare(self.A, operand);
 
         0
+    }
+
+    fn cpx(&mut self, operand: Byte) -> usize {
+        self.compare(self.X, operand);
+
+        0
+    }
+
+    fn compare(&mut self, register: Byte, operand: Byte) {
+        let computed = register as SignedByte - operand as SignedByte;
+        self.status.C = computed >= 0;
+        self.status.Z = computed == 0x00;
+        self.status.N = (register as SignedByte) < 0;
     }
 
     fn dex(&mut self) -> usize {
@@ -577,6 +588,15 @@ mod tests {
 
         assert_registers(&cpu, "CLD", 0, 0, 0, "d");
         assert_registers(&cpu, "SED\nCLD", 0, 0, 0, "d");
+    }
+
+    #[test]
+    fn process_cmp() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_registers(&cpu, "CMP #1", 0, 0, 0, "czn");
+        assert_registers(&cpu, "CMP #0", 0, 0, 0, "CZn");
+        assert_registers(&cpu, "LDA #$FF\nCMP #1", 0xFF, 0, 0, "czN");
     }
 
     #[test]

@@ -8,6 +8,7 @@ pub enum OpCode {
     CLC,
     CLD,
     CLI,
+    CMP,
     CPX,
     DEX,
     DEY,
