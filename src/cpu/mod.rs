@@ -368,6 +368,8 @@ impl Cpu {
     fn pla<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
         self.SP += 1;
         self.A = bus.read_byte((self.SP as Word) | 0x0100);
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
 
         0
     }
@@ -389,7 +391,7 @@ impl Cpu {
         self.status.Z = self.A == 0x00;
         self.status.V = (!((acc ^ operand as Byte) & 0x80) != 0) && (((acc ^ (computed as Byte)) & 0x80) != 0);
         self.status.C = computed >= 0;
-        self.status.N = (self.A & 0x80) == 0x80;
+        self.status.N = (self.A as SignedByte) < 0;
 
         0
     }
@@ -781,6 +783,12 @@ mod tests {
 
         assert_that!(cpu.SP, eq(0xFF));
         assert_that!(cpu.A, eq(0x01));
+
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "LDA #0\nPHA\nLDA #1\nPLA", 0, 0, 0, 6, "Zn", 11);
+
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "LDA #$FF\nPHA\nLDA #0\nPLA", 0xFF, 0, 0, 6, "zN", 11);
     }
 
     #[test]
@@ -907,7 +915,6 @@ mod tests {
 
         let total_cycles = process_source(cpu, source);
         println!("Cycles: {}", total_cycles);
-        // let total_cycles = process(cpu, program);
 
         assert_that!(cpu.A, eq(a));
         assert_that!(cpu.X, eq(x));
@@ -945,7 +952,7 @@ mod tests {
     }
 
     fn build_program(source: &str) -> Vec<Byte> {
-        println!("Processing: {}", source);
+        println!("Processing:\n {}", source);
         let assembler = Assembler::new();
         let parser = Parser::new();
         let tokens = parser.parse(source).unwrap();
