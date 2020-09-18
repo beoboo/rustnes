@@ -115,6 +115,7 @@ impl Cpu {
             OpCode::PHA => self.pha(bus),
             OpCode::PLA => self.pla(bus),
             OpCode::ROL => self.rol(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::ROR => self.ror(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::RTS => self.rts(bus),
             OpCode::SBC => self.sbc(address),
             OpCode::SEC => self.sec(),
@@ -392,6 +393,15 @@ impl Cpu {
         self.status.Z = self.A == 0x00;
         self.status.N = (self.A as SignedByte) < 0;
         self.status.C = (operand as SignedByte) < 0;
+
+        0
+    }
+
+    fn ror(&mut self, operand: Byte) -> usize {
+        self.status.C = (self.A & 0x01) == 0x01;
+        self.A = (operand >> 1) + if self.status.C { 0x80 } else { 0 };
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
 
         0
     }
@@ -830,6 +840,16 @@ mod tests {
 
         let cpu = build_cpu(0, 0, 0, 0, "C");
         assert_instructions(&cpu, "ROL A", 1, 0, 0, 1, "nzc", 2);
+    }
+
+    #[test]
+    fn process_ror() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "LDA #1\nROR A", 0, 0, 0, 3, "nZC", 4);
+        assert_instructions(&cpu, "LDA #$80\nROR A", 0x40, 0, 0, 3, "nzc", 4);
+
+        let cpu = build_cpu(0, 0, 0, 0, "C");
+        assert_instructions(&cpu, "ROR A", 0x80, 0, 0, 1, "Nzc", 2);
     }
 
     #[test]

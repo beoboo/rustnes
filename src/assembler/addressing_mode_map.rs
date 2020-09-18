@@ -50,6 +50,7 @@ impl AddressingModeMap {
         insert(&mut map, "PHA", true, false, AddressingMode::Implied, 0x48);
         insert(&mut map, "PLA", true, false, AddressingMode::Implied, 0x68);
         insert(&mut map, "ROL", false, false, AddressingMode::Accumulator, 0x2A);
+        insert(&mut map, "ROR", false, false, AddressingMode::Accumulator, 0x6A);
         insert(&mut map, "RTS", true, false, AddressingMode::Implied, 0x60);
         insert(&mut map, "SBC", false, false, AddressingMode::Immediate, 0xE9);
         insert(&mut map, "SEC", true, false, AddressingMode::Implied, 0x38);

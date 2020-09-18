@@ -25,6 +25,7 @@ impl InstructionsMap {
             0x48 => Instruction::new(OpCode::PHA, AddressingMode::Implied, 3),
             0x58 => Instruction::new(OpCode::CLI, AddressingMode::Implied, 2),
             0x60 => Instruction::new(OpCode::RTS, AddressingMode::Implied, 6),
+            0x6A => Instruction::new(OpCode::ROR, AddressingMode::Accumulator, 2),
             0x68 => Instruction::new(OpCode::PLA, AddressingMode::Implied, 4),
             0x69 => Instruction::new(OpCode::ADC, AddressingMode::Immediate, 2),
             0x78 => Instruction::new(OpCode::SEI, AddressingMode::Implied, 2),
