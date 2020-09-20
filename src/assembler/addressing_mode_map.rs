@@ -35,8 +35,10 @@ impl AddressingModeMap {
         insert(&mut map, "CLI", true, false, AddressingMode::Implied, 0x58);
         insert(&mut map, "CMP", false, false, AddressingMode::Immediate, 0xC9);
         insert(&mut map, "CPX", false, false, AddressingMode::Immediate, 0xE0);
+        insert(&mut map, "DEC", false, false, AddressingMode::ZeroPage, 0xC6);
         insert(&mut map, "DEX", true, false, AddressingMode::Implied, 0xCA);
         insert(&mut map, "DEY", true, false, AddressingMode::Implied, 0x88);
+        insert(&mut map, "INC", false, false, AddressingMode::ZeroPage, 0xE6);
         insert(&mut map, "INX", true, false, AddressingMode::Implied, 0xE8);
         insert(&mut map, "INY", true, false, AddressingMode::Implied, 0xC8);
         insert(&mut map, "JMP", false, false, AddressingMode::Absolute, 0x4C);

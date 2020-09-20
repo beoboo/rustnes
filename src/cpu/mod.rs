@@ -129,8 +129,10 @@ impl Cpu {
             OpCode::CLI => self.cli(),
             OpCode::CMP => self.cmp(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::CPX => self.cpx(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::DEC => self.dec(address, bus, &instruction.addressing_mode),
             OpCode::DEX => self.dex(),
             OpCode::DEY => self.dey(),
+            OpCode::INC => self.inc(address, bus, &instruction.addressing_mode),
             OpCode::INX => self.inx(),
             OpCode::INY => self.iny(),
             OpCode::JMP => self.jmp(address),
@@ -341,6 +343,17 @@ impl Cpu {
         self.status.N = (register as SignedByte) < 0;
     }
 
+    fn dec<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus, addressing_mode: &AddressingMode) -> usize {
+        let data = bus.read_byte(address) as SignedWord - 1;
+        let data = data as Byte;
+        bus.write_byte(address, data);
+
+        self.status.Z = data == 0x00;
+        self.status.N = (data as SignedByte) < 0;
+
+        0
+    }
+
     fn dex(&mut self) -> usize {
         let computed = self.X as SignedWord - 1;
 
@@ -357,6 +370,17 @@ impl Cpu {
         self.Y = computed as Byte;
         self.status.Z = computed == 0x00;
         self.status.N = computed < 0;
+
+        0
+    }
+
+    fn inc<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus, addressing_mode: &AddressingMode) -> usize {
+        let data = bus.read_byte(address) as Word + 1;
+        let data = data as Byte;
+        bus.write_byte(address, data);
+
+        self.status.Z = data == 0x00;
+        self.status.N = (data as SignedByte) < 0;
 
         0
     }
@@ -788,6 +812,23 @@ mod tests {
     }
 
     #[test]
+    fn process_dec() {
+        // // Zeropage
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        let mut bus = build_bus("DEC $10");
+
+        bus.write_byte(0x10, 123);
+        run(&mut cpu, &mut bus);
+
+        assert_that!(bus.read_byte(0x10), eq(122));
+
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "DEC $10", 0, 0, 0, 2, "zN", 5);
+        assert_instructions(&cpu, "LDA #$80\nSTA $10\nDEC $10", 0x80, 0, 0, 6, "zn", 10);
+        assert_instructions(&cpu, "LDA #1\nSTA $10\nDEC $10", 1, 0, 0, 6, "Zn", 10);
+    }
+
+    #[test]
     fn process_dex() {
         let cpu = build_cpu(0, 1, 0, 0, "");
 
@@ -801,6 +842,23 @@ mod tests {
 
         assert_instructions(&cpu, "LDY #1\nDEY", 0, 0, 0, 3, "Zn", 4);
         assert_instructions(&cpu, "LDY #0\nDEY", 0, 0, -1i8 as Byte, 3, "zN", 4);
+    }
+
+    #[test]
+    fn process_inc() {
+        // // Zeropage
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        let mut bus = build_bus("INC $10");
+
+        bus.write_byte(0x10, 123);
+        run(&mut cpu, &mut bus);
+
+        assert_that!(bus.read_byte(0x10), eq(124));
+
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "INC $10", 0, 0, 0, 2, "zn", 5);
+        assert_instructions(&cpu, "LDA #$80\nSTA $10\nINC $10", 128, 0, 0, 6, "zN", 10);
+        assert_instructions(&cpu, "LDA #$FF\nSTA $10\nINC $10", -1i8 as Byte, 0, 0, 6, "Zn", 10);
     }
 
     #[test]
@@ -834,6 +892,7 @@ mod tests {
 
         let mut bus = build_bus("JSR $4\nBRK\nLDA #1");
         run(&mut cpu, &mut bus);
+
         assert_that!(cpu.SP, eq(0xFD));
         assert_that!(bus.read_word(0x01FE), eq(0x0002));
     }
