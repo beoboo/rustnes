@@ -132,6 +132,7 @@ impl Cpu {
             OpCode::DEX => self.dex(),
             OpCode::DEY => self.dey(),
             OpCode::INX => self.inx(),
+            OpCode::INY => self.iny(),
             OpCode::JMP => self.jmp(address),
             OpCode::JSR => self.jsr(address, bus),
             OpCode::LDA => self.lda(self.read_operand(address, bus, &instruction.addressing_mode)),
@@ -365,6 +366,16 @@ impl Cpu {
         self.X = computed as Byte;
         self.status.Z = self.X == 0x00;
         self.status.N = (self.X as SignedByte) < 0;
+
+        0
+    }
+
+    fn iny(&mut self) -> usize {
+        let computed = self.Y as Word + 1;
+
+        self.Y = computed as Byte;
+        self.status.Z = self.Y == 0x00;
+        self.status.N = (self.Y as SignedByte) < 0;
 
         0
     }
@@ -792,6 +803,14 @@ mod tests {
     }
 
     #[test]
+    fn process_iny() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_instructions(&cpu, "INY", 0, 0, 1, 1, "zn", 2);
+        assert_instructions(&cpu, "LDY #$FF\nINY", 0, 0, 0, 3, "Zn", 4);
+    }
+
+    #[test]
     fn process_jmp() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
@@ -1102,7 +1121,6 @@ mod tests {
         let total_cycles = run(cpu, bus);
 
         println!("Cycles: {}", total_cycles);
-        // let total_cycles = process(cpu, program);
 
         assert_that!(cpu.A, eq(a));
         assert_that!(cpu.X, eq(x));

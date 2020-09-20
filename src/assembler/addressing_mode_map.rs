@@ -38,6 +38,7 @@ impl AddressingModeMap {
         insert(&mut map, "DEX", true, false, AddressingMode::Implied, 0xCA);
         insert(&mut map, "DEY", true, false, AddressingMode::Implied, 0x88);
         insert(&mut map, "INX", true, false, AddressingMode::Implied, 0xE8);
+        insert(&mut map, "INY", true, false, AddressingMode::Implied, 0xC8);
         insert(&mut map, "JMP", false, false, AddressingMode::Absolute, 0x4C);
         insert(&mut map, "JSR", false, false, AddressingMode::Absolute, 0x20);
         insert(&mut map, "LDA", false, false, AddressingMode::Absolute, 0xAD);
