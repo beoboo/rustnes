@@ -48,12 +48,15 @@ impl AddressingModeMap {
         insert(&mut map, "LDX", false, false, AddressingMode::Immediate, 0xA2);
         insert(&mut map, "LDX", false, false, AddressingMode::ZeroPage, 0xA6);
         insert(&mut map, "LDY", false, false, AddressingMode::Immediate, 0xA0);
+        insert(&mut map, "ORA", false, false, AddressingMode::Immediate, 0x09);
+        insert(&mut map, "ORA", false, false, AddressingMode::ZeroPage, 0x0D);
         insert(&mut map, "PHA", true, false, AddressingMode::Implied, 0x48);
         insert(&mut map, "PLA", true, false, AddressingMode::Implied, 0x68);
         insert(&mut map, "ROL", false, false, AddressingMode::Accumulator, 0x2A);
         insert(&mut map, "ROR", false, false, AddressingMode::Accumulator, 0x6A);
         insert(&mut map, "RTS", true, false, AddressingMode::Implied, 0x60);
         insert(&mut map, "SBC", false, false, AddressingMode::Immediate, 0xE9);
+        insert(&mut map, "SBC", false, false, AddressingMode::ZeroPageX, 0xF5);
         insert(&mut map, "SEC", true, false, AddressingMode::Implied, 0x38);
         insert(&mut map, "SED", true, false, AddressingMode::Implied, 0xF8);
         insert(&mut map, "SEI", true, false, AddressingMode::Implied, 0x78);

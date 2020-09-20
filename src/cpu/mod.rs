@@ -137,6 +137,7 @@ impl Cpu {
             OpCode::LDA => self.lda(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDX => self.ldx(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDY => self.ldy(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::ORA => self.ora(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::PHA => self.pha(bus),
             OpCode::PLA => self.pla(bus),
             OpCode::ROL => self.rol(self.read_operand(address, bus, &instruction.addressing_mode)),
@@ -408,6 +409,14 @@ impl Cpu {
         self.Y = operand;
         self.status.Z = self.Y == 0x00;
         self.status.N = (self.Y & 0x80) == 0x80;
+
+        0
+    }
+
+    fn ora(&mut self, operand: Byte) -> usize {
+        self.A = self.A | operand;
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
 
         0
     }
@@ -868,6 +877,14 @@ mod tests {
     }
 
     #[test]
+    fn process_ora() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_instructions(&cpu, "ORA #0", 0, 0, 0, 2, "Zn", 2);
+        assert_instructions(&cpu, "LDA #$80\nORA #$FF", 0xFF, 0, 0, 4, "zN", 4);
+    }
+
+    #[test]
     fn process_pha() {
         let mut cpu = build_cpu(0, 0, 0, 0, "");
 
@@ -991,10 +1008,10 @@ mod tests {
 
         assert_that!(bus.read_byte(0x13), equal_to(0x01));
 
-        let mut cpu = build_cpu(0, 1, 0, 0, "");
+        let cpu = build_cpu(0, 1, 0, 0, "");
         assert_instructions(&cpu, "LDA #1\nSTA $1234,X", 1, 1, 0, 5, "", 7);
 
-        let mut cpu = build_cpu(0, 1, 0, 0, "");
+        let cpu = build_cpu(0, 1, 0, 0, "");
         assert_instructions(&cpu, "LDA #1\nSTA $12,X", 1, 1, 0, 4, "", 6);
     }
 
@@ -1031,7 +1048,7 @@ mod tests {
 
     #[test]
     fn process_tsx() {
-        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        let cpu = build_cpu(0, 0, 0, 0, "");
 
         assert_instructions(&cpu, "TSX", 0, 0xFF, 0, 1, "Nz", 2);
     }

@@ -22,6 +22,7 @@ pub enum OpCode {
     LDX,
     LDY,
     NOP,
+    ORA,
     PHA,
     PLA,
     ROL,
