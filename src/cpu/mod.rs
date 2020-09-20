@@ -120,6 +120,7 @@ impl Cpu {
             OpCode::AND => self.and(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::BCC => self.bcc(address),
             OpCode::BIT => self.bit(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::BMI => self.bmi(address),
             OpCode::BNE => self.bne(address),
             OpCode::BPL => self.bpl(address),
             OpCode::BRK => self.brk(),
@@ -266,6 +267,15 @@ impl Cpu {
         0
     }
 
+    fn bmi(&mut self, address: Word) -> usize {
+        if self.status.N {
+            self.PC = address;
+            1
+        } else {
+            0
+        }
+    }
+
     fn bne(&mut self, address: Word) -> usize {
         if !self.status.Z {
             self.PC = address;
@@ -277,7 +287,6 @@ impl Cpu {
 
     fn bpl(&mut self, address: Word) -> usize {
         if !self.status.N {
-            println!("here");
             self.PC = address;
             1
         } else {
@@ -676,6 +685,13 @@ mod tests {
         run(&mut cpu, &mut bus);
 
         assert_status(cpu.status.clone(), "nvZ");
+    }
+
+    #[test]
+    fn process_bmi() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "LDA #0\nBMI $3\nLDA #3", 3, 0, 0, 6, "", 6);
+        assert_instructions(&cpu, "LDA #$FF\nBMI $3\nLDA #3", 0xFF, 0, 0, 6, "", 5);
     }
 
     #[test]

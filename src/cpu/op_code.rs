@@ -4,6 +4,7 @@ pub enum OpCode {
     AND,
     BCC,
     BIT,
+    BMI,
     BNE,
     BPL,
     BRK,

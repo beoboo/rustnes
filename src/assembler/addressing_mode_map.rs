@@ -26,6 +26,7 @@ impl AddressingModeMap {
         insert(&mut map, "AND", false, false, AddressingMode::Immediate, 0x29);
         insert(&mut map, "BCC", false, true, AddressingMode::Relative, 0x90);
         insert(&mut map, "BIT", false, false, AddressingMode::Absolute, 0x2C);
+        insert(&mut map, "BMI", false, true, AddressingMode::Relative, 0x30);
         insert(&mut map, "BNE", false, true, AddressingMode::Relative, 0xD0);
         insert(&mut map, "BPL", false, true, AddressingMode::Relative, 0x10);
         insert(&mut map, "BRK", true, false, AddressingMode::Implied, 0x00);
