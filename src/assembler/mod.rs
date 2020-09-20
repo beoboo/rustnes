@@ -99,6 +99,11 @@ impl Assembler {
                     } else {
                         mode
                     };
+                    let mode = if mode == AddressingMode::AbsoluteX && address <= 0xFF && instruction.contains(AddressingMode::ZeroPageX) {
+                        AddressingMode::ZeroPageX
+                    } else {
+                        mode
+                    };
 
                     let op_code = instruction.find(mode.clone())?;
 
@@ -111,7 +116,7 @@ impl Assembler {
                             instructions.push_byte(op_code);
                             instructions.push_byte(address as Byte);
                         }
-                        AddressingMode::Relative | AddressingMode::ZeroPage => {
+                        AddressingMode::Relative | AddressingMode::ZeroPage | AddressingMode::ZeroPageX => {
                             instructions.push_byte(op_code);
                             instructions.push_byte(address as Byte);
                         }

@@ -33,6 +33,19 @@ pub struct CpuStatus {
     N: bool,
 }
 
+impl CpuStatus {
+    pub fn reset(&mut self) {
+        self.C = false;
+        self.Z = false;
+        self.I = false;
+        self.D = false;
+        self.B = false;
+        self.U = false;
+        self.V = false;
+        self.N = false;
+    }
+}
+
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
 pub struct Cpu {
@@ -72,6 +85,17 @@ impl Cpu {
             instructions_map: InstructionsMap::new(),
         }
     }
+
+    pub fn reset(&mut self, start_pc: Word) {
+        self.A = 0;
+        self.X = 0;
+        self.Y = 0;
+        self.SP = 0xFF;
+        self.PC = start_pc;
+
+        self.status.reset();
+    }
+
 
     pub fn process<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
         let op_id = bus.read_byte(self.PC);
@@ -173,6 +197,11 @@ impl Cpu {
             }
             AddressingMode::ZeroPage => {
                 let address = bus.read_byte(self.PC);
+                self.PC += 1;
+                address as Word
+            }
+            AddressingMode::ZeroPageX => {
+                let address = bus.read_byte(self.PC) + self.X;
                 self.PC += 1;
                 address as Word
             }
@@ -929,6 +958,19 @@ mod tests {
         run(&mut cpu, &mut bus);
 
         assert_that!(bus.read_byte(0x1234), equal_to(0x01));
+
+        // ZeroPage, X
+        let mut cpu = build_cpu(0, 1, 0, 0, "");
+        let mut bus = build_bus("LDA #1\nSTA $12,X");
+        run(&mut cpu, &mut bus);
+
+        assert_that!(bus.read_byte(0x13), equal_to(0x01));
+
+        let mut cpu = build_cpu(0, 1, 0, 0, "");
+        assert_instructions(&cpu, "LDA #1\nSTA $1234,X", 1, 1, 0, 5, "", 7);
+
+        let mut cpu = build_cpu(0, 1, 0, 0, "");
+        assert_instructions(&cpu, "LDA #1\nSTA $12,X", 1, 1, 0, 4, "", 6);
     }
 
     #[test]
@@ -964,6 +1006,7 @@ mod tests {
 
     fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {
         let mut cpu = Cpu::new(pc);
+        cpu.reset(0);
 
         cpu.A = a;
         cpu.X = x;
