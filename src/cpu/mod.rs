@@ -151,6 +151,7 @@ impl Cpu {
             OpCode::STA => self.sta(address, bus),
             OpCode::STX => self.stx(address, bus),
             OpCode::STY => self.sty(address, bus),
+            OpCode::TXA => self.txa(),
             OpCode::TXS => self.txs(),
             OpCode::TSX => self.tsx(),
             OpCode::TAX => self.tax(),
@@ -527,6 +528,14 @@ impl Cpu {
 
     fn tax(&mut self) -> usize {
         self.X = self.A;
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
+
+        0
+    }
+
+    fn txa(&mut self) -> usize {
+        self.A = self.X;
         self.status.Z = self.A == 0x00;
         self.status.N = (self.A as SignedByte) < 0;
 
@@ -1052,6 +1061,15 @@ mod tests {
         assert_instructions(&cpu, "LDA #1\nTAX", 1, 1, 0, 3, "nz", 4);
         assert_instructions(&cpu, "LDA #0\nTAX", 0, 0, 0, 3, "nZ", 4);
         assert_instructions(&cpu, "LDA #$FF\nTAX", 0xFF, 0xFF, 0, 3, "Nz", 4);
+    }
+
+    #[test]
+    fn process_txa() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_instructions(&cpu, "LDX #1\nTXA", 1, 1, 0, 3, "nz", 4);
+        assert_instructions(&cpu, "LDX #0\nTXA", 0, 0, 0, 3, "nZ", 4);
+        assert_instructions(&cpu, "LDX #$FF\nTXA", 0xFF, 0xFF, 0, 3, "Nz", 4);
     }
 
     #[test]
