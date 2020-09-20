@@ -149,6 +149,7 @@ impl Cpu {
             OpCode::STX => self.stx(address, bus),
             OpCode::STY => self.sty(address, bus),
             OpCode::TXS => self.txs(),
+            OpCode::TSX => self.tsx(),
             OpCode::TAX => self.tax(),
             OpCode::NOP => 0,
         };
@@ -349,11 +350,11 @@ impl Cpu {
     }
 
     fn inx(&mut self) -> usize {
-        let computed = self.X as SignedByte + 1;
+        let computed = self.X as Word + 1;
 
         self.X = computed as Byte;
-        self.status.Z = computed == 0x00;
-        self.status.N = computed < 0;
+        self.status.Z = self.X == 0x00;
+        self.status.N = (self.X as SignedByte) < 0;
 
         0
     }
@@ -505,6 +506,14 @@ impl Cpu {
 
     fn txs(&mut self) -> usize {
         self.SP = self.X;
+
+        0
+    }
+
+    fn tsx(&mut self) -> usize {
+        self.X = self.SP;
+        self.status.Z = self.X == 0x00;
+        self.status.N = (self.X as SignedByte) < 0;
 
         0
     }
@@ -1002,6 +1011,13 @@ mod tests {
         run(&mut cpu, &mut bus);
 
         assert_that!(cpu.SP, eq(1));
+    }
+
+    #[test]
+    fn process_tsx() {
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_instructions(&cpu, "TSX", 0, 0xFF, 0, 1, "Nz", 2);
     }
 
     fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {

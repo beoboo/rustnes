@@ -48,6 +48,7 @@ impl InstructionsMap {
             0xAA => Instruction::new(OpCode::TAX, AddressingMode::Implied, 2),
             0xAD => Instruction::new(OpCode::LDA, AddressingMode::Absolute, 4),
             0xB1 => Instruction::new(OpCode::LDA, AddressingMode::YIndexedIndirect, 5),
+            0xBA => Instruction::new(OpCode::TSX, AddressingMode::Implied, 2),
             0xBD => Instruction::new(OpCode::LDA, AddressingMode::AbsoluteX, 4),
             0xCA => Instruction::new(OpCode::DEX, AddressingMode::Implied, 2),
             0xC9 => Instruction::new(OpCode::CMP, AddressingMode::Immediate, 2),
