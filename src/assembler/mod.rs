@@ -108,7 +108,7 @@ impl Assembler {
                     let op_code = instruction.find(mode.clone())?;
 
                     match mode {
-                        AddressingMode::Absolute | AddressingMode::AbsoluteX => {
+                        AddressingMode::Absolute | AddressingMode::AbsoluteX | AddressingMode::Indirect => {
                             instructions.push_byte(op_code);
                             instructions.push_word(address);
                         }

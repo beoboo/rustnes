@@ -102,11 +102,11 @@ impl Cpu {
 
         let instruction = self.instructions_map.find(op_id);
         let mut cycles = instruction.cycles;
-
-        if instruction.op_code == OpCode::NOP {
-            println!("NOP, exiting!");
-            return 0;
-        }
+        //
+        // if instruction.op_code == OpCode::NOP {
+        //     println!("NOP, exiting!");
+        //     return 0;
+        // }
 
         println!("\n{:#06X}: {:?} ({:#04X}) {:?}", self.PC, instruction.op_code, op_id, instruction.addressing_mode);
         self.PC += 1;
@@ -119,6 +119,8 @@ impl Cpu {
             OpCode::ADC => self.adc(address),
             OpCode::AND => self.and(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::BCC => self.bcc(address),
+            OpCode::BCS => self.bcs(address),
+            OpCode::BEQ => self.beq(address),
             OpCode::BIT => self.bit(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::BMI => self.bmi(address),
             OpCode::BNE => self.bne(address),
@@ -140,6 +142,8 @@ impl Cpu {
             OpCode::LDA => self.lda(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDX => self.ldx(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::LDY => self.ldy(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::LSR => self.lsr(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::NOP => self.nop(),
             OpCode::ORA => self.ora(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::PHA => self.pha(bus),
             OpCode::PLA => self.pla(bus),
@@ -157,7 +161,6 @@ impl Cpu {
             OpCode::TXS => self.txs(),
             OpCode::TSX => self.tsx(),
             OpCode::TAX => self.tax(),
-            OpCode::NOP => 0,
         };
         self.debug();
 
@@ -185,8 +188,18 @@ impl Cpu {
                 operand as Word
             }
             AddressingMode::Implied => return 0,
+            AddressingMode::Indirect => {
+                let address = bus.read_word(self.PC) as Word;
+                self.PC = address;
+
+                let address = bus.read_word(self.PC) as Word;
+
+                self.PC += 1;
+                address as Word
+            }
             AddressingMode::Relative => {
                 let relative = bus.read_byte(self.PC) as Word;
+                println!("{}", relative);
                 let address = if relative > 0x80 {
                     self.PC + relative - 0xFF
                 } else {
@@ -256,12 +269,30 @@ impl Cpu {
     }
 
     fn bcc(&mut self, address: Word) -> usize {
-        if !self.status.C {
+        self._test(!self.status.C, address)
+    }
+
+    fn bcs(&mut self, address: Word) -> usize {
+        self._test(self.status.C, address)
+    }
+
+    fn _test(&mut self, test: bool, address: Word) -> usize {
+        println!("Test is {}", test);
+        if test {
+            println!("Jumping to {:#06X}", address);
             self.PC = address;
-            1
+            match address {
+                0..=0xFF => 1,
+                _ => 2
+            }
         } else {
             0
         }
+    }
+
+
+    fn beq(&mut self, address: Word) -> usize {
+        self._test(self.status.Z, address)
     }
 
     fn bit(&mut self, operand: Byte) -> usize {
@@ -273,30 +304,15 @@ impl Cpu {
     }
 
     fn bmi(&mut self, address: Word) -> usize {
-        if self.status.N {
-            self.PC = address;
-            1
-        } else {
-            0
-        }
+        self._test(self.status.N, address)
     }
 
     fn bne(&mut self, address: Word) -> usize {
-        if !self.status.Z {
-            self.PC = address;
-            1
-        } else {
-            0
-        }
+        self._test(!self.status.Z, address)
     }
 
     fn bpl(&mut self, address: Word) -> usize {
-        if !self.status.N {
-            self.PC = address;
-            1
-        } else {
-            0
-        }
+        self._test(!self.status.N, address)
     }
 
     fn brk(&mut self) -> usize {
@@ -449,11 +465,22 @@ impl Cpu {
         0
     }
 
+    fn lsr(&mut self, operand: Byte) -> usize {
+        self.status.C = operand & 0x01 == 0x01;
+        self.A = operand >> 1 & 0x7F;
+
+        0
+    }
+
     fn ora(&mut self, operand: Byte) -> usize {
         self.A = self.A | operand;
         self.status.Z = self.A == 0x00;
         self.status.N = (self.A as SignedByte) < 0;
 
+        0
+    }
+
+    fn nop(&mut self) -> usize {
         0
     }
 
@@ -721,6 +748,34 @@ mod tests {
 
         let cpu = build_cpu(0, 0, 0, 0, "C");
         assert_instructions(&cpu, "BCC $3\nLDA #3", 3, 0, 0, 4, "", 4);
+
+        // Page boundary cross
+        let mut cpu = build_cpu(0, 0, 0, 0, "c");
+        let mut bus = build_bus("JMP $FF");
+        // BCC in address 0xFF
+        bus.write_byte(0xFF, 0x90);
+        bus.write_byte(0x100, 0x01);
+        bus.write_byte(0x101, 0xEA);
+        let cycles = run(&mut cpu, &mut bus);
+
+        assert_that!(cpu.PC, eq(0x101));
+        assert_that!(cycles, eq(7));
+    }
+
+    #[test]
+    fn process_bcs() {
+        let cpu = build_cpu(0, 0, 0, 0, "c");
+        assert_instructions(&cpu, "BCS $3\nLDA #3", 3, 0, 0, 4, "", 4);
+
+        let cpu = build_cpu(0, 0, 0, 0, "C");
+        assert_instructions(&cpu, "BCS $3\nLDA #3", 0, 0, 0, 4, "", 3);
+    }
+
+    #[test]
+    fn process_beq() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "LDA #1\nBEQ $3\nLDA #3", 3, 0, 0, 6, "", 6);
+        assert_instructions(&cpu, "LDA #0\nBEQ $3\nLDA #3", 0, 0, 0, 6, "", 5);
     }
 
     #[test]
@@ -750,9 +805,9 @@ mod tests {
     #[test]
     fn process_bne() {
         let cpu = build_cpu(0, 0, 0, 0, "");
-        assert_instructions(&cpu, "LDA #1\nBNE $3\nLDA #3", 1, 0, 0, 6, "", 4);
-        assert_instructions(&cpu, "LDA #0\nBNE $3\nLDA #3", 3, 0, 0, 6, "", 5);
-        assert_instructions(&cpu, "LDA #1\nBNE $3\nBPL $3\nBNE $FC", 1, 0, 0, 8, "", 9);
+        assert_instructions(&cpu, "LDA #1\nBNE $3\nLDA #3", 1, 0, 0, 6, "", 5);
+        assert_instructions(&cpu, "LDA #0\nBNE $3\nLDA #3", 3, 0, 0, 6, "", 6);
+        assert_instructions(&cpu, "LDA #1\nBNE $3\nBPL $3\nBNE $FC", 1, 0, 0, 8, "", 11);
     }
 
     #[test]
@@ -856,6 +911,7 @@ mod tests {
         assert_that!(bus.read_byte(0x10), eq(124));
 
         let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "INC $1234", 0, 0, 0, 3, "zn", 6);
         assert_instructions(&cpu, "INC $10", 0, 0, 0, 2, "zn", 5);
         assert_instructions(&cpu, "LDA #$80\nSTA $10\nINC $10", 128, 0, 0, 6, "zN", 10);
         assert_instructions(&cpu, "LDA #$FF\nSTA $10\nINC $10", -1i8 as Byte, 0, 0, 6, "Zn", 10);
@@ -881,7 +937,16 @@ mod tests {
     fn process_jmp() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
-        assert_instructions(&cpu, "JMP $03", 0, 0, 0, 0x0003, "", 3);
+        assert_instructions(&cpu, "JMP $03", 0, 0, 0, 3, "", 3);
+
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+        let mut bus = build_bus("JMP ($10)\nLDA #1");
+
+        bus.write_word(0x10, 0x05);
+        run(&mut cpu, &mut bus);
+
+        assert_that!(cpu.A, eq(0));
+        assert_that!(cpu.PC, eq(5));
     }
 
     #[test]
@@ -954,6 +1019,13 @@ mod tests {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
         assert_instructions(&cpu, "LDY #1", 0, 0, 1, 2, "zn", 2);
+    }
+
+    #[test]
+    fn process_lsr() {
+        let cpu = build_cpu(0, 0, 0, 0, "");
+
+        assert_instructions(&cpu, "LDA #%10000001\nLSR A", 0b01000000, 0, 0, 3, "C", 4);
     }
 
     #[test]
@@ -1268,12 +1340,13 @@ mod tests {
     }
 
     fn run<Bus: BusTrait>(cpu: &mut Cpu, bus: &mut Bus) -> usize {
-        let mut cycles = cpu.process(bus);
-        let mut total_cycles = cycles;
+        let mut next_op_code = bus.read_byte(cpu.PC);
+        let mut total_cycles = 0;
 
-        while cycles != 0 {
-            cycles = cpu.process(bus);
+        while next_op_code != 0xEA {
+            let cycles = cpu.process(bus);
             total_cycles += cycles;
+            next_op_code = bus.read_byte(cpu.PC);
         }
         total_cycles
     }

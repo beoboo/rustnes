@@ -25,6 +25,8 @@ impl AddressingModeMap {
         insert(&mut map, "ADC", false, false, AddressingMode::Immediate, 0x69);
         insert(&mut map, "AND", false, false, AddressingMode::Immediate, 0x29);
         insert(&mut map, "BCC", false, true, AddressingMode::Relative, 0x90);
+        insert(&mut map, "BCS", false, true, AddressingMode::Relative, 0xB0);
+        insert(&mut map, "BEQ", false, true, AddressingMode::Relative, 0xF0);
         insert(&mut map, "BIT", false, false, AddressingMode::Absolute, 0x2C);
         insert(&mut map, "BMI", false, true, AddressingMode::Relative, 0x30);
         insert(&mut map, "BNE", false, true, AddressingMode::Relative, 0xD0);
@@ -39,9 +41,11 @@ impl AddressingModeMap {
         insert(&mut map, "DEX", true, false, AddressingMode::Implied, 0xCA);
         insert(&mut map, "DEY", true, false, AddressingMode::Implied, 0x88);
         insert(&mut map, "INC", false, false, AddressingMode::ZeroPage, 0xE6);
+        insert(&mut map, "INC", false, false, AddressingMode::Absolute, 0xEE);
         insert(&mut map, "INX", true, false, AddressingMode::Implied, 0xE8);
         insert(&mut map, "INY", true, false, AddressingMode::Implied, 0xC8);
         insert(&mut map, "JMP", false, false, AddressingMode::Absolute, 0x4C);
+        insert(&mut map, "JMP", false, false, AddressingMode::Indirect, 0x6C);
         insert(&mut map, "JSR", false, false, AddressingMode::Absolute, 0x20);
         insert(&mut map, "LDA", false, false, AddressingMode::Absolute, 0xAD);
         insert(&mut map, "LDA", false, false, AddressingMode::AbsoluteX, 0xBD);
@@ -51,6 +55,7 @@ impl AddressingModeMap {
         insert(&mut map, "LDX", false, false, AddressingMode::Immediate, 0xA2);
         insert(&mut map, "LDX", false, false, AddressingMode::ZeroPage, 0xA6);
         insert(&mut map, "LDY", false, false, AddressingMode::Immediate, 0xA0);
+        insert(&mut map, "LSR", false, false, AddressingMode::Accumulator, 0x4A);
         insert(&mut map, "ORA", false, false, AddressingMode::Immediate, 0x09);
         insert(&mut map, "ORA", false, false, AddressingMode::ZeroPage, 0x0D);
         insert(&mut map, "PHA", true, false, AddressingMode::Implied, 0x48);
