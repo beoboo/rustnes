@@ -32,6 +32,7 @@ impl InstructionsMap {
             0x68 => Instruction::new(OpCode::PLA, AddressingMode::Implied, 4),
             0x69 => Instruction::new(OpCode::ADC, AddressingMode::Immediate, 2),
             0x78 => Instruction::new(OpCode::SEI, AddressingMode::Implied, 2),
+            0x84 => Instruction::new(OpCode::STY, AddressingMode::ZeroPage, 3),
             0x85 => Instruction::new(OpCode::STA, AddressingMode::ZeroPage, 3),
             0x86 => Instruction::new(OpCode::STX, AddressingMode::ZeroPage, 3),
             0x88 => Instruction::new(OpCode::DEY, AddressingMode::Implied, 2),

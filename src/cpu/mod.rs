@@ -1114,6 +1114,22 @@ mod tests {
     }
 
     #[test]
+    fn process_sty() {
+        let mut cpu = build_cpu(0, 0, 0, 0, "");
+
+        let mut bus = build_bus("LDY #1\nSTY $1234");
+
+        run(&mut cpu, &mut bus);
+
+        assert_that!(bus.read_byte(0x1234), equal_to(0x01));
+
+        // Timing
+        let cpu = build_cpu(0, 0, 0, 0, "");
+        assert_instructions(&cpu, "LDY #1\nSTY $1234", 0, 0, 1, 5, "", 6);
+        assert_instructions(&cpu, "LDY #1\nSTY $12", 0, 0, 1, 4, "", 5);
+    }
+
+    #[test]
     fn process_tax() {
         let cpu = build_cpu(0, 0, 0, 0, "");
 
