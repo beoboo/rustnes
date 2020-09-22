@@ -37,6 +37,7 @@ impl AddressingModeMap {
         insert(&mut map, "CLI", true, false, AddressingMode::Implied, 0x58);
         insert(&mut map, "CMP", false, false, AddressingMode::Immediate, 0xC9);
         insert(&mut map, "CPX", false, false, AddressingMode::Immediate, 0xE0);
+        insert(&mut map, "CPX", false, false, AddressingMode::Absolute, 0xEC);
         insert(&mut map, "DEC", false, false, AddressingMode::ZeroPage, 0xC6);
         insert(&mut map, "DEX", true, false, AddressingMode::Implied, 0xCA);
         insert(&mut map, "DEY", true, false, AddressingMode::Implied, 0x88);

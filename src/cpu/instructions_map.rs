@@ -71,6 +71,7 @@ impl InstructionsMap {
             0xE8 => Instruction::new(OpCode::INX, AddressingMode::Implied, 2),
             0xF8 => Instruction::new(OpCode::SED, AddressingMode::Implied, 1),
             0xE9 => Instruction::new(OpCode::SBC, AddressingMode::Immediate, 2),
+            0xEC => Instruction::new(OpCode::CPX, AddressingMode::Absolute, 4),
             0xEE => Instruction::new(OpCode::INC, AddressingMode::Absolute, 6),
             0xF0 => Instruction::new(OpCode::BEQ, AddressingMode::Relative, 2),
             _ => panic!(format!("[InstructionsMap::find] Unexpected op code: {:#04X}", op_id))

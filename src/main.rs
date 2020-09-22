@@ -17,6 +17,7 @@ mod apu;
 mod assembler;
 mod bus;
 mod cpu;
+mod nes;
 mod error;
 mod parser;
 mod ppu;

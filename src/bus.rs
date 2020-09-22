@@ -49,8 +49,9 @@ impl Bus for BusImpl {
             0x0000..=0x1FFF => self.ram.read(address & 0x07FF),
             0x2000..=0x2007 => self.ppu.read(address - 0x2000),
             0x4000..=0x401F => self.apu.read(address - 0x4000),
-            0x8000..=0xFFFF if address - 0x8000 > self.rom.prg_rom.len() as Word => self.rom.read(address - 0xC000),
-            0x8000..=0xFFFF  => self.rom.read(address - 0x8000),
+            0x8000..=0xBFFF => self.rom.read(address - 0x8000),
+            0xC000..=0xFFFF if self.rom.prg_rom.len() <= 0x4000 => self.rom.read(address - 0xC000),
+            0xC000..=0xFFFF => self.rom.read(address - 0x8000),
             _ => panic!(format!("[Bus::read_byte] Not mapped address: {:#6X}", address))
         }
     }
