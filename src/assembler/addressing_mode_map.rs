@@ -1,8 +1,9 @@
-use crate::addressing_mode::AddressingMode;
-use crate::types::Byte;
 use std::collections::HashMap;
-use crate::error::Error;
+
+use crate::addressing_mode::AddressingMode;
 use crate::assembler::instruction::Instruction;
+use crate::error::Error;
+use crate::types::Byte;
 
 type Map = HashMap<String, Instruction>;
 
@@ -22,6 +23,7 @@ impl AddressingModeMap {
     pub fn new() -> AddressingModeMap {
         let mut map = Map::new();
 
+        // ADC
         insert(&mut map, "ADC", false, false, AddressingMode::Immediate, 0x69);
         insert(&mut map, "ADC", false, false, AddressingMode::ZeroPage, 0x65);
         insert(&mut map, "ADC", false, false, AddressingMode::ZeroPageX, 0x75);
@@ -31,7 +33,16 @@ impl AddressingModeMap {
         insert(&mut map, "ADC", false, false, AddressingMode::IndirectIndexedX, 0x61);
         insert(&mut map, "ADC", false, false, AddressingMode::YIndexedIndirect, 0x71);
 
+        // AND
         insert(&mut map, "AND", false, false, AddressingMode::Immediate, 0x29);
+        insert(&mut map, "AND", false, false, AddressingMode::ZeroPage, 0x25);
+        insert(&mut map, "AND", false, false, AddressingMode::ZeroPageX, 0x35);
+        insert(&mut map, "AND", false, false, AddressingMode::Absolute, 0x2D);
+        insert(&mut map, "AND", false, false, AddressingMode::AbsoluteX, 0x3D);
+        insert(&mut map, "AND", false, false, AddressingMode::AbsoluteY, 0x39);
+        insert(&mut map, "AND", false, false, AddressingMode::IndirectIndexedX, 0x21);
+        insert(&mut map, "AND", false, false, AddressingMode::YIndexedIndirect, 0x31);
+
         insert(&mut map, "BCC", false, true, AddressingMode::Relative, 0x90);
         insert(&mut map, "BCS", false, true, AddressingMode::Relative, 0xB0);
         insert(&mut map, "BEQ", false, true, AddressingMode::Relative, 0xF0);
@@ -97,7 +108,7 @@ impl AddressingModeMap {
 
     pub fn find(&self, op_code: &str) -> Result<Instruction, Error> {
         if !self.map.contains_key(op_code) {
-            return Err(Error::UnknownOpCode(op_code.to_string()))
+            return Err(Error::UnknownOpCode(op_code.to_string()));
         }
 
         Ok(self.map[op_code].clone())

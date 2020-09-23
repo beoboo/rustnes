@@ -277,8 +277,8 @@ impl Cpu {
             AddressingMode::Accumulator | AddressingMode::Immediate => operand as Byte,
             AddressingMode::Absolute |
             AddressingMode::AbsoluteX | AddressingMode::AbsoluteY |
-            AddressingMode::YIndexedIndirect |
-            AddressingMode::ZeroPage
+            AddressingMode::YIndexedIndirect | AddressingMode::IndirectIndexedX |
+            AddressingMode::ZeroPage | AddressingMode::ZeroPageX
             => bus.read_byte(operand),
             _ => panic!(format!("[Cpu::read_operand] Unexpected addressing mode: {:?}", addressing_mode)),
         };

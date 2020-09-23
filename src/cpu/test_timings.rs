@@ -63,6 +63,22 @@ fn process_adc() {
     assert_instruction_with_page_cross("ADC ($44),Y", 0, 0xFF, 0x71, 2, 6);
 }
 
+#[test]
+fn process_and() {
+    assert_instruction("AND #$44", 0x29, 2, 2);
+    assert_instruction("AND $44", 0x25, 2, 3);
+    assert_instruction("AND $44,X", 0x35, 2, 4);
+    assert_instruction("AND $4400", 0x2D, 3, 4);
+    assert_instruction("AND $4400,X", 0x3D, 3, 4);
+    assert_instruction("AND $4400,Y", 0x39, 3, 4);
+    assert_instruction("AND ($44,X)", 0x21, 2, 6);
+    assert_instruction("AND ($44),Y", 0x31, 2, 5);
+
+    assert_instruction_with_page_cross("AND $44FF,X", 0xFF, 0, 0x3D, 3, 5);
+    assert_instruction_with_page_cross("AND $44FF,Y", 0, 0xFF, 0x39, 3, 5);
+    assert_instruction_with_page_cross("AND ($44),Y", 0, 0xFF, 0x31, 2, 6);
+}
+
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
     let mut bus = MockBus::new();
