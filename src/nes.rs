@@ -1,4 +1,4 @@
-use crate::types::{Byte, Word};
+use crate::types::Byte;
 use rand::Rng;
 
 pub struct Buffer {
