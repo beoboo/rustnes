@@ -1,3 +1,4 @@
+use hamcrest2::core::*;
 use hamcrest2::prelude::*;
 
 // use crate::apu::Apu;
@@ -6,7 +7,6 @@ use crate::assembler::Assembler;
 use crate::parser::Parser;
 
 use super::*;
-use hamcrest2::core::*;
 
 // use crate::ppu::Ppu;
 // use crate::ram::Ram;
@@ -605,6 +605,67 @@ fn process_tsx() {
     assert_instructions(&cpu, "TSX", 0, 0xFF, 0, 1, "Nz", 2);
 }
 
+fn assert_address<Bus: BusTrait>(cpu: &Cpu, bus: &mut Bus, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
+    let cpu = &mut cpu.clone();
+
+    let total_cycles = run(cpu, bus);
+
+    println!("Cycles: {}", total_cycles);
+
+    assert_that!(cpu.A, eq(a));
+    assert_that!(cpu.X, eq(x));
+    assert_that!(cpu.Y, eq(y));
+    assert_that!(cpu.PC, eq(pc));
+    assert_status(cpu.status.clone(), expected_status);
+    assert_that!(total_cycles, eq(expected_cycles));
+}
+
+fn assert_registers(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, expected_status: &str) {
+    let cpu = &mut cpu.clone();
+
+    process_source(cpu, source);
+
+    assert_that!(cpu.A, eq(a));
+    assert_that!(cpu.X, eq(x));
+    assert_that!(cpu.Y, eq(y));
+    assert_status(cpu.status.clone(), expected_status);
+}
+
+fn assert_status(status: CpuStatus, flags: &str) {
+    for flag in flags.chars() {
+        match flag {
+            'C' | 'c' => assert_flag(status.C, flag),
+            'Z' | 'z' => assert_flag(status.Z, flag),
+            'I' | 'i' => assert_flag(status.I, flag),
+            'D' | 'd' => assert_flag(status.D, flag),
+            'B' | 'b' => assert_flag(status.B, flag),
+            'U' | 'u' => assert_flag(status.U, flag),
+            'V' | 'v' => assert_flag(status.V, flag),
+            'N' | 'n' => assert_flag(status.N, flag),
+            _ => panic!(format!("Undefined flag: {}", flag))
+        }
+    }
+}
+
+fn assert_flag(status: bool, flag: char) {
+    println!("{}: {}", flag, status);
+    assert_that!(status, is(flag.is_uppercase()));
+}
+
+fn assert_instructions(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
+    let cpu = &mut cpu.clone();
+
+    let total_cycles = process_source(cpu, source);
+    println!("Cycles: {}", total_cycles);
+
+    assert_that!(cpu.A, eq(a));
+    assert_that!(cpu.X, eq(x));
+    assert_that!(cpu.Y, eq(y));
+    assert_that!(cpu.PC, eq(pc));
+    assert_status(cpu.status.clone(), expected_status);
+    assert_that!(total_cycles, eq(expected_cycles));
+}
+
 fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {
     let mut cpu = Cpu::new(pc);
     cpu.reset(0);
@@ -634,44 +695,10 @@ fn build_status_flag(flags: &str, flag: char) -> bool {
     flags.contains(flag)
 }
 
-fn assert_instructions(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
-    let cpu = &mut cpu.clone();
+fn build_bus(source: &str) -> MockBus {
+    let program = build_program(source);
 
-    let total_cycles = process_source(cpu, source);
-    println!("Cycles: {}", total_cycles);
-
-    assert_that!(cpu.A, eq(a));
-    assert_that!(cpu.X, eq(x));
-    assert_that!(cpu.Y, eq(y));
-    assert_that!(cpu.PC, eq(pc));
-    assert_status(cpu.status.clone(), expected_status);
-    assert_that!(total_cycles, eq(expected_cycles));
-}
-
-fn assert_address<Bus: BusTrait>(cpu: &Cpu, bus: &mut Bus, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
-    let cpu = &mut cpu.clone();
-
-    let total_cycles = run(cpu, bus);
-
-    println!("Cycles: {}", total_cycles);
-
-    assert_that!(cpu.A, eq(a));
-    assert_that!(cpu.X, eq(x));
-    assert_that!(cpu.Y, eq(y));
-    assert_that!(cpu.PC, eq(pc));
-    assert_status(cpu.status.clone(), expected_status);
-    assert_that!(total_cycles, eq(expected_cycles));
-}
-
-fn assert_registers(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, expected_status: &str) {
-    let cpu = &mut cpu.clone();
-
-    process_source(cpu, source);
-
-    assert_that!(cpu.A, eq(a));
-    assert_that!(cpu.X, eq(x));
-    assert_that!(cpu.Y, eq(y));
-    assert_status(cpu.status.clone(), expected_status);
+    MockBus::new(program)
 }
 
 fn build_program(source: &str) -> Vec<Byte> {
@@ -695,12 +722,6 @@ fn build_program(source: &str) -> Vec<Byte> {
     data
 }
 
-fn build_bus(source: &str) -> MockBus {
-    let program = build_program(source);
-
-    MockBus::new(program)
-}
-
 fn process_source(cpu: &mut Cpu, source: &str) -> usize {
     let mut bus = build_bus(source);
 
@@ -717,25 +738,4 @@ fn run<Bus: BusTrait>(cpu: &mut Cpu, bus: &mut Bus) -> usize {
         next_op_code = bus.read_byte(cpu.PC);
     }
     total_cycles
-}
-
-fn assert_status(status: CpuStatus, flags: &str) {
-    for flag in flags.chars() {
-        match flag {
-            'C' | 'c' => assert_flag(status.C, flag),
-            'Z' | 'z' => assert_flag(status.Z, flag),
-            'I' | 'i' => assert_flag(status.I, flag),
-            'D' | 'd' => assert_flag(status.D, flag),
-            'B' | 'b' => assert_flag(status.B, flag),
-            'U' | 'u' => assert_flag(status.U, flag),
-            'V' | 'v' => assert_flag(status.V, flag),
-            'N' | 'n' => assert_flag(status.N, flag),
-            _ => panic!(format!("Undefined flag: {}", flag))
-        }
-    }
-}
-
-fn assert_flag(status: bool, flag: char) {
-    println!("{}: {}", flag, status);
-    assert_that!(status, is(flag.is_uppercase()));
 }

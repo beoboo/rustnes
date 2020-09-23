@@ -19,7 +19,7 @@ mod ram;
 mod rom;
 mod token;
 mod types;
-
-#[cfg(test)]
-#[macro_use]
-extern crate hamcrest2;
+//
+// #[cfg(test)]
+// #[macro_use]
+// extern crate hamcrest2;

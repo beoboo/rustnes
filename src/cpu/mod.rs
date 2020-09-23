@@ -9,7 +9,9 @@ mod instructions_map;
 mod op_code;
 
 #[cfg(test)]
-mod test_instructions;
+mod test_execution;
+#[cfg(test)]
+mod test_timings;
 
 
 fn bool_to_byte(flag: bool) -> Byte {
@@ -105,19 +107,14 @@ impl Cpu {
         let op_id = bus.read_byte(self.PC);
 
         let instruction = self.instructions_map.find(op_id);
-        let mut cycles = instruction.cycles;
-        //
-        // if instruction.op_code == OpCode::NOP {
-        //     println!("NOP, exiting!");
-        //     return 0;
-        // }
 
         println!("\n{:#06X}: {:?} ({:#04X}) {:?}", self.PC, instruction.op_code, op_id, instruction.addressing_mode);
         self.PC += 1;
 
         // self.debug();
         //
-        let address = self.fetch_address(bus, &instruction.addressing_mode);
+        let (address, extra_cycles) = self.fetch_address(bus, &instruction.addressing_mode);
+        let mut cycles = instruction.cycles + extra_cycles;
 
         cycles += match instruction.op_code {
             OpCode::ADC => self.adc(address),
@@ -171,7 +168,8 @@ impl Cpu {
         cycles
     }
 
-    fn fetch_address<Bus: BusTrait>(&mut self, bus: &Bus, addressing_mode: &AddressingMode) -> Word {
+    fn fetch_address<Bus: BusTrait>(&mut self, bus: &Bus, addressing_mode: &AddressingMode) -> (Word, usize) {
+        let mut extra_cycles = 0;
         let address = match addressing_mode {
             AddressingMode::Absolute => {
                 let address = bus.read_word(self.PC);
@@ -179,8 +177,33 @@ impl Cpu {
                 address
             }
             AddressingMode::AbsoluteX => {
-                let address = bus.read_word(self.PC) + self.X as Word;
+                let address = bus.read_word(self.PC);
+                let page1 = address & 0xFF00;
+
+                let address = address + self.X as Word;
+                let page2 = address & 0xFF00;
+
                 self.PC += 2;
+
+                if page1 != page2 {
+                    extra_cycles += 1;
+                }
+
+                address
+            }
+            AddressingMode::AbsoluteY => {
+                let address = bus.read_word(self.PC);
+                let page1 = address & 0xFF00;
+
+                let address = address + self.Y as Word;
+                let page2 = address & 0xFF00;
+
+                self.PC += 2;
+
+                if page1 != page2 {
+                    extra_cycles += 1;
+                }
+
                 address
             }
             AddressingMode::Accumulator => {
@@ -191,17 +214,17 @@ impl Cpu {
                 self.PC += 1;
                 operand as Word
             }
-            AddressingMode::Implied => return 0,
+            AddressingMode::Implied => return (0, 0),
             AddressingMode::Indirect => {
                 let address = bus.read_word(self.PC) as Word;
                 let address = bus.read_word(address) as Word;
 
                 self.PC += 1;
-                address as Word
+                address
             }
             AddressingMode::Relative => {
                 let relative = bus.read_byte(self.PC) as Word;
-                println!("{}", relative);
+
                 let address = if relative > 0x80 {
                     self.PC + relative - 0xFF
                 } else {
@@ -213,6 +236,20 @@ impl Cpu {
             }
             AddressingMode::YIndexedIndirect => {
                 let address = bus.read_byte(self.PC) as Word + self.Y as Word;
+                let page1 = address & 0xFF00;
+                let address = bus.read_word(address) as Word;
+                let page2 = address & 0xFF00;
+
+                self.PC += 1;
+
+                if page1 != page2 {
+                    extra_cycles += 1;
+                }
+
+                address
+            }
+            AddressingMode::IndirectIndexedX => {
+                let address = bus.read_byte(self.PC) as Word + self.X as Word;
                 let address = bus.read_word(address) as Word;
 
                 self.PC += 1;
@@ -228,17 +265,18 @@ impl Cpu {
                 self.PC += 1;
                 address as Word
             }
-            _ => panic!(format!("[Cpu::read_byte] Unexpected addressing mode: {:?}", addressing_mode))
+            _ => panic!(format!("[Cpu::fetch_address] Unexpected addressing mode: {:?}", addressing_mode))
         };
+
         println!("Address: {:#06X}", address);
-        address
+        (address, extra_cycles)
     }
 
     fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &Bus, addressing_mode: &AddressingMode) -> Byte {
         let operand = match addressing_mode {
             AddressingMode::Accumulator | AddressingMode::Immediate => operand as Byte,
             AddressingMode::Absolute |
-            AddressingMode::AbsoluteX |
+            AddressingMode::AbsoluteX | AddressingMode::AbsoluteY |
             AddressingMode::YIndexedIndirect |
             AddressingMode::ZeroPage
             => bus.read_byte(operand),

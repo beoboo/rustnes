@@ -4,12 +4,10 @@ version = "0.1.0"
 authors = ["Pietro Atzeni <pietrino.atzeni@gmail.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 clap = "*"
 colored = "*"
-num_enum = "0.5.1"
+num_enum = "*"
 rand = "*"
 
 [dev-dependencies]

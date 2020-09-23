@@ -23,6 +23,14 @@ impl AddressingModeMap {
         let mut map = Map::new();
 
         insert(&mut map, "ADC", false, false, AddressingMode::Immediate, 0x69);
+        insert(&mut map, "ADC", false, false, AddressingMode::ZeroPage, 0x65);
+        insert(&mut map, "ADC", false, false, AddressingMode::ZeroPageX, 0x75);
+        insert(&mut map, "ADC", false, false, AddressingMode::Absolute, 0x6D);
+        insert(&mut map, "ADC", false, false, AddressingMode::AbsoluteX, 0x7D);
+        insert(&mut map, "ADC", false, false, AddressingMode::AbsoluteY, 0x79);
+        insert(&mut map, "ADC", false, false, AddressingMode::IndirectIndexedX, 0x61);
+        insert(&mut map, "ADC", false, false, AddressingMode::YIndexedIndirect, 0x71);
+
         insert(&mut map, "AND", false, false, AddressingMode::Immediate, 0x29);
         insert(&mut map, "BCC", false, true, AddressingMode::Relative, 0x90);
         insert(&mut map, "BCS", false, true, AddressingMode::Relative, 0xB0);
