@@ -94,9 +94,34 @@ fn process_bit() {
     assert_instruction("BIT $4400", 0x2C, 3, 4);
 }
 
+#[test]
+fn process_branching_instructions() {
+    assert_branch("BCC $2", "c", 0x24, 2, 3);
+}
+
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
     let mut bus = MockBus::new();
+    let program = build_program(source);
+    let length = program.len();
+    let op_code = program[0];
+
+    bus.load(program);
+
+    let total_cycles = cpu.process(&mut bus);
+    println!("Cycles: {}", total_cycles);
+
+    assert_that!(op_code, equal_to(expected_op_code));
+    assert_that!(length, equal_to(expected_length));
+    assert_that!(total_cycles, equal_to(expected_cycles));
+}
+
+fn assert_branch(source: &str, status: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
+    let mut cpu = Cpu::new(0);
+    cpu.status = build_status(status);
+
+    let mut bus = MockBus::new();
+
     let program = build_program(source);
     let length = program.len();
     let op_code = program[0];
@@ -145,4 +170,17 @@ fn build_program(source: &str) -> Vec<Byte> {
     println!("Program: {:x?}", program);
 
     program.data
+}
+
+fn build_status(flags: &str) -> CpuStatus {
+    CpuStatus {
+        C: build_status_flag(flags, 'C'),
+        Z: build_status_flag(flags, 'Z'),
+        I: build_status_flag(flags, 'I'),
+        D: build_status_flag(flags, 'D'),
+        B: build_status_flag(flags, 'B'),
+        U: build_status_flag(flags, 'U'),
+        V: build_status_flag(flags, 'V'),
+        N: build_status_flag(flags, 'N'),
+    }
 }
