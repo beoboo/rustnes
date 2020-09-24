@@ -7,53 +7,11 @@ use crate::assembler::Assembler;
 use crate::parser::Parser;
 
 use super::*;
+use crate::bus::simple_bus::SimpleBus;
 
 // use crate::ppu::Ppu;
 // use crate::ram::Ram;
 // use crate::rom::Rom;
-
-struct MockBus {
-    program: Vec<u8>,
-    data: Vec<u8>,
-}
-
-impl MockBus {
-    fn new(program: Vec<u8>) -> MockBus {
-        let data = vec![0; 0xFFFF - program.len()];
-
-        MockBus {
-            program,
-            data,
-        }
-    }
-}
-
-impl BusTrait for MockBus {
-    fn read_byte(&self, address: Word) -> Byte {
-        let address = address as usize;
-        let len = self.program.len();
-
-        let data = if address < self.program.len() {
-            self.program[address]
-        } else {
-            self.data[address - len]
-        };
-        println!("Reading from {:#06X} -> {:#04X}", address, data);
-        data
-    }
-
-    fn write_byte(&mut self, address: Word, data: Byte) {
-        println!("Writing {:#04X} to {:#06X}", data, address);
-        let address = address as usize;
-        let len = self.program.len();
-
-        if address < self.program.len() {
-            self.program[address] = data
-        } else {
-            self.data[address - len] = data
-        }
-    }
-}
 
 #[test]
 fn ctor() {
@@ -184,8 +142,18 @@ fn process_bpl() {
 
 #[test]
 fn process_brk() {
-    let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDA #$EA\nSTA $FFFE\nBRK", 0xEA, 0, 0, 0xFFFE, "BI");
+    let status = Status::from_string("CZidbuVN");
+    let mut cpu = build_cpu(0, 0, 0, 0, status.to_string().as_str());
+    let mut bus = build_bus("BRK");
+
+    bus.write_word(0xFFFE, 0x0001);
+    run(&mut cpu, &mut bus);
+
+    assert_that!(cpu.PC, eq(0x0001));
+    assert_that!(bus.read_word(0x01FE), eq(0x0002)); // PC + 1
+    assert_that!(bus.read_byte(0x01FD), eq(status.to_byte()));
+    assert_that!(cpu.SP, eq(0xFC));
+    assert_status(cpu.status, "CZIdBuVN");
 }
 
 #[test]
@@ -501,8 +469,9 @@ fn process_rti() {
     cpu.SP = 0xFC;
 
     let mut bus = build_bus("RTI");
-    bus.write_word(0xFE, 0x0001); // PC
-    bus.write_byte(0xFD, 0xFF); // Status
+    bus.write_word(0x01FE, 0x0001); // PC
+    bus.write_byte(0x01FD, 0xFF); // Status
+
     run(&mut cpu, &mut bus);
 
     assert_that!(cpu.SP, eq(0xFF));
@@ -513,12 +482,15 @@ fn process_rti() {
 #[test]
 fn process_rts() {
     let mut cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "JSR $6\nJMP $7\nRTS", 0, 0, 0, 7, "",);
+    cpu.SP = 0xFD;
 
-    let mut bus = build_bus("JSR $6\nJMP $7\nRTS");
+    let mut bus = build_bus("RTS");
+    bus.write_word(0x01FE, 0x0001); // PC
+
     run(&mut cpu, &mut bus);
 
     assert_that!(cpu.SP, eq(0xFF));
+    assert_that!(cpu.PC, eq(0x0001));
 }
 
 #[test]
@@ -744,10 +716,13 @@ fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {
     cpu
 }
 
-fn build_bus(source: &str) -> MockBus {
+fn build_bus(source: &str) -> SimpleBus {
     let program = build_program(source);
 
-    MockBus::new(program)
+    let mut bus = SimpleBus::new();
+    bus.load(program, 0);
+
+    bus
 }
 
 fn build_program(source: &str) -> Vec<Byte> {

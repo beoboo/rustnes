@@ -99,7 +99,7 @@ impl Cpu {
             OpCode::BPL => self.bpl(address),
             OpCode::BVC => self.bvc(address),
             OpCode::BVS => self.bvs(address),
-            OpCode::BRK => self.brk(),
+            OpCode::BRK => self.brk(bus),
             OpCode::CLC => self.clc(),
             OpCode::CLD => self.cld(),
             OpCode::CLI => self.cli(),
@@ -321,23 +321,6 @@ impl Cpu {
         self._test(self.status.C, address)
     }
 
-    fn _test(&mut self, test: bool, address: Word) -> usize {
-        println!("Test is {}", test);
-        if test {
-            let page1 = self.PC & 0xFF00;
-
-            println!("Jumping to {:#04X}", address);
-
-            self.PC = self.PC.wrapping_add(address);
-
-            let page2 = self.PC & 0xFF00;
-
-            if page1 != page2 { 2 } else { 1 }
-        } else {
-            0
-        }
-    }
-
     fn beq(&mut self, address: Word) -> usize {
         self._test(self.status.Z, address)
     }
@@ -362,10 +345,17 @@ impl Cpu {
         self._test(!self.status.N, address)
     }
 
-    fn brk(&mut self) -> usize {
-        self.PC = 0xFFFE;
+    fn brk<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
+        self._push_word(bus, self.PC + 1);
+        self._push_byte(bus, self.status.to_byte());
+
+        let address = bus.read_word(0xFFFE);
+        println!("Jumping to {:#06X}", address);
+        self.PC = address;
+
         self.status.B = true;
         self.status.I = true;
+
         0
     }
 
@@ -417,13 +407,6 @@ impl Cpu {
         self._compare(self.Y, operand);
 
         0
-    }
-
-    fn _compare(&mut self, register: Byte, operand: Byte) {
-        let computed = register as SignedByte - operand as SignedByte;
-        self.status.N = (register as SignedByte) < 0;
-        self.status.Z = computed == 0x00;
-        self.status.C = computed >= 0;
     }
 
     fn dec<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus, _addressing_mode: &AddressingMode) -> usize {
@@ -505,8 +488,7 @@ impl Cpu {
     }
 
     fn jsr<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus) -> usize {
-        bus.write_word((self.SP as Word) - 1 | 0x0100, self.PC - 1);
-        self.SP -= 2;
+        self._push_word(bus, self.PC - 1);
         println!("Jumping to {:#06X}", address);
 
         self.PC = address;
@@ -560,22 +542,19 @@ impl Cpu {
     }
 
     fn pha<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
-        bus.write_byte((self.SP as Word) | 0x0100, self.A);
-        self.SP -= 1;
+        self._push_byte(bus, self.A);
 
         0
     }
 
     fn php<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
-        bus.write_byte((self.SP as Word) | 0x0100, self.status.to_byte());
-        self.SP -= 1;
+        self._push_byte(bus, self.status.to_byte());
 
         0
     }
 
     fn pla<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
-        self.SP = self.SP.wrapping_add(1);
-        self.A = bus.read_byte((self.SP as Word) | 0x0100);
+        self.A = self._pop_byte(bus);
         self.status.Z = self.A == 0x00;
         self.status.N = (self.A as SignedByte) < 0;
 
@@ -583,8 +562,7 @@ impl Cpu {
     }
 
     fn plp<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
-        self.SP = self.SP.wrapping_add(1);
-        self.status = Status::from_byte(bus.read_byte((self.SP as Word) | 0x0100));
+        self.status = Status::from_byte(self._pop_byte(bus));
 
         0
     }
@@ -609,16 +587,14 @@ impl Cpu {
     }
 
     fn rti<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
-        self.status = Status::from_byte(bus.read_byte(self.SP as Word + 1));
-        self.PC = bus.read_word(self.SP as Word + 2 | 0x0100) + 1;
-        self.SP = self.SP.wrapping_add(3);
+        self.status = Status::from_byte(self._pop_byte(bus));
+        self.PC = self._pop_word(bus);
 
         0
     }
 
     fn rts<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
-        self.PC = bus.read_word(self.SP as Word + 1 | 0x0100) + 1;
-        self.SP = self.SP.wrapping_add(2);
+        self.PC = self._pop_word(bus);
 
         0
     }
@@ -626,8 +602,8 @@ impl Cpu {
     fn sbc(&mut self, operand: Word) -> usize {
         let computed = self.A as SignedWord - operand as SignedWord - bool_to_byte(!self.status.C) as SignedWord;
         let acc = self.A;
-
-        println!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
+        //
+        // println!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
 
         self.A = computed as Byte;
         self.status.Z = self.A == 0x00;
@@ -740,5 +716,53 @@ impl Cpu {
                  if self.status.V { "V" } else { "v" },
                  if self.status.N { "N" } else { "n" }
         )
+    }
+
+    fn _compare(&mut self, register: Byte, operand: Byte) {
+        let computed = register as SignedByte - operand as SignedByte;
+        self.status.N = (register as SignedByte) < 0;
+        self.status.Z = computed == 0x00;
+        self.status.C = computed >= 0;
+    }
+
+    fn _pop_byte<Bus: BusTrait>(&mut self, bus: &mut Bus) -> Byte {
+        println!("Popping byte from {:#04X}", self.SP.wrapping_add(1));
+        self.SP = self.SP.wrapping_add(1);
+        bus.read_byte((self.SP as Word) | 0x0100)
+    }
+
+    fn _pop_word<Bus: BusTrait>(&mut self, bus: &mut Bus) -> Word {
+        println!("Popping word from {:#04X}", self.SP.wrapping_add(1));
+        self.SP = self.SP.wrapping_add(2);
+        bus.read_word((self.SP.wrapping_sub(1) as Word) | 0x0100)
+    }
+
+    fn _push_byte<Bus: BusTrait>(&mut self, bus: &mut Bus, byte: Byte) {
+        println!("Pushing byte to {:#04X}", self.SP.wrapping_sub(1));
+        bus.write_byte((self.SP as Word) | 0x0100, byte);
+        self.SP = self.SP.wrapping_sub(1);
+    }
+
+    fn _push_word<Bus: BusTrait>(&mut self, bus: &mut Bus, word: Word) {
+        println!("Pushing word to {:#04X}", self.SP.wrapping_sub(1));
+        bus.write_word((self.SP.wrapping_sub(1) as Word) | 0x0100, word);
+        self.SP = self.SP.wrapping_sub(2);
+    }
+
+    fn _test(&mut self, test: bool, address: Word) -> usize {
+        println!("Test is {}", test);
+        if test {
+            let page1 = self.PC & 0xFF00;
+
+            println!("Jumping to {:#04X}", address);
+
+            self.PC = self.PC.wrapping_add(address);
+
+            let page2 = self.PC & 0xFF00;
+
+            if page1 != page2 { 2 } else { 1 }
+        } else {
+            0
+        }
     }
 }

@@ -1,12 +1,13 @@
 use clap::{App, Arg};
 
 use crate::apu::Apu;
-use crate::bus::{Bus, BusImpl};
 use crate::cpu::Cpu;
 use crate::error::Error;
 use crate::ppu::Ppu;
 use crate::ram::Ram;
 use crate::rom::Rom;
+use crate::bus::bus_impl::BusImpl;
+use crate::bus::Bus;
 
 mod addressing_mode;
 mod apu;

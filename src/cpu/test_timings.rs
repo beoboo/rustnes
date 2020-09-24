@@ -5,47 +5,7 @@ use crate::assembler::Assembler;
 use crate::parser::Parser;
 
 use super::*;
-
-struct MockBus {
-    data: Vec<u8>,
-}
-
-fn replace_slice<T>(source: &mut [T], from: &[T])
-    where
-        T: Clone + PartialEq,
-{
-    source[..from.len()].clone_from_slice(from);
-}
-
-impl MockBus {
-    fn new() -> MockBus {
-        MockBus {
-            data: vec![0; 0xFFFF],
-        }
-    }
-
-    fn load(&mut self, program: Vec<u8>, starting_pos: usize) {
-        // let mut data = self.data;
-        replace_slice(&mut self.data[starting_pos..], program.as_slice());
-    }
-}
-
-impl BusTrait for MockBus {
-    fn read_byte(&self, address: Word) -> Byte {
-        let address = address as usize;
-
-        let data = self.data[address];
-        println!("Reading from {:#06X} -> {:#04X}", address, data);
-        data
-    }
-
-    fn write_byte(&mut self, address: Word, data: Byte) {
-        println!("Writing {:#04X} to {:#06X}", data, address);
-        let address = address as usize;
-
-        self.data[address] = data
-    }
-}
+use crate::bus::simple_bus::SimpleBus;
 
 #[test]
 fn process_adc() {
@@ -379,7 +339,7 @@ fn process_sty() {
 
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
-    let mut bus = MockBus::new();
+    let mut bus = SimpleBus::new();
     let program = build_program(source);
     let length = program.len();
     let op_code = program[0];
@@ -398,7 +358,7 @@ fn assert_branch(source: &str, status: &str, expected_op_code: Byte, expected_le
     let mut cpu = Cpu::new(0);
     cpu.status = Status::from_string(status);
 
-    let mut bus = MockBus::new();
+    let mut bus = SimpleBus::new();
 
     let program = build_program(source);
     let length = program.len();
@@ -419,7 +379,7 @@ fn assert_branch_with_page_cross(source: &str, pc: Word, status: &str, expected_
     cpu.PC = pc;
     cpu.status = Status::from_string(status);
 
-    let mut bus = MockBus::new();
+    let mut bus = SimpleBus::new();
 
     let program = build_program(source);
     let length = program.len();
@@ -440,7 +400,7 @@ fn assert_instruction_with_page_cross(source: &str, x: Byte, y: Byte, expected_o
     cpu.X = x;
     cpu.Y = y;
 
-    let mut bus = MockBus::new();
+    let mut bus = SimpleBus::new();
     let program = build_program(source);
     let length = program.len();
     let op_code = program[0];
