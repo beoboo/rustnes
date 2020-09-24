@@ -11,6 +11,8 @@ pub enum OpCode {
     BNE,
     BPL,
     BRK,
+    BVC,
+    BVS,
     CLC,
     CLD,
     CLI,

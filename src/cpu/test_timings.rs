@@ -88,6 +88,12 @@ fn process_asl() {
     assert_instruction("ASL $4400,X", 0x1E, 3, 7);
 }
 
+#[test]
+fn process_bit() {
+    assert_instruction("BIT $44", 0x24, 2, 3);
+    assert_instruction("BIT $4400", 0x2C, 3, 4);
+}
+
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
     let mut bus = MockBus::new();

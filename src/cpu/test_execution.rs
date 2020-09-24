@@ -201,6 +201,24 @@ fn process_brk() {
 }
 
 #[test]
+fn process_bvc() {
+    let cpu = build_cpu(0, 0, 0, 0, "v");
+    assert_instructions(&cpu, "BVC $3\nLDA #3", 0, 0, 0, 4, "");
+
+    let cpu = build_cpu(0, 0, 0, 0, "V");
+    assert_instructions(&cpu, "BVC $3\nLDA #3", 3, 0, 0, 4, "");
+}
+
+#[test]
+fn process_bvs() {
+    let cpu = build_cpu(0, 0, 0, 0, "v");
+    assert_instructions(&cpu, "BVS $3\nLDA #3", 3, 0, 0, 4, "");
+
+    let cpu = build_cpu(0, 0, 0, 0, "V");
+    assert_instructions(&cpu, "BVS $3\nLDA #3", 0, 0, 0, 4, "");
+}
+
+#[test]
 fn process_clc() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 

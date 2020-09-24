@@ -127,6 +127,8 @@ impl Cpu {
             OpCode::BMI => self.bmi(address),
             OpCode::BNE => self.bne(address),
             OpCode::BPL => self.bpl(address),
+            OpCode::BVC => self.bvc(address),
+            OpCode::BVS => self.bvs(address),
             OpCode::BRK => self.brk(),
             OpCode::CLC => self.clc(),
             OpCode::CLD => self.cld(),
@@ -341,7 +343,6 @@ impl Cpu {
         }
     }
 
-
     fn beq(&mut self, address: Word) -> usize {
         self._test(self.status.Z, address)
     }
@@ -371,6 +372,14 @@ impl Cpu {
         self.status.B = true;
         self.status.I = true;
         0
+    }
+
+    fn bvc(&mut self, address: Word) -> usize {
+        self._test(!self.status.V, address)
+    }
+
+    fn bvs(&mut self, address: Word) -> usize {
+        self._test(self.status.V, address)
     }
 
     fn clc(&mut self) -> usize {

@@ -50,13 +50,22 @@ impl AddressingModeMap {
         insert(&mut map, "ASL", false, false, AddressingMode::Absolute, 0x0E);
         insert(&mut map, "ASL", false, false, AddressingMode::AbsoluteX, 0x1E);
 
+        // BIT
+        insert(&mut map, "BIT", false, false, AddressingMode::ZeroPage, 0x24);
+        insert(&mut map, "BIT", false, false, AddressingMode::Absolute, 0x2C);
+
+
+        // Branching instructions
+        insert(&mut map, "BPL", false, true, AddressingMode::Relative, 0x10);
+        insert(&mut map, "BMI", false, true, AddressingMode::Relative, 0x30);
+        insert(&mut map, "BVC", false, true, AddressingMode::Relative, 0x50);
+        insert(&mut map, "BVS", false, true, AddressingMode::Relative, 0x70);
         insert(&mut map, "BCC", false, true, AddressingMode::Relative, 0x90);
         insert(&mut map, "BCS", false, true, AddressingMode::Relative, 0xB0);
-        insert(&mut map, "BEQ", false, true, AddressingMode::Relative, 0xF0);
-        insert(&mut map, "BIT", false, false, AddressingMode::Absolute, 0x2C);
-        insert(&mut map, "BMI", false, true, AddressingMode::Relative, 0x30);
         insert(&mut map, "BNE", false, true, AddressingMode::Relative, 0xD0);
-        insert(&mut map, "BPL", false, true, AddressingMode::Relative, 0x10);
+        insert(&mut map, "BEQ", false, true, AddressingMode::Relative, 0xF0);
+
+
         insert(&mut map, "BRK", true, false, AddressingMode::Implied, 0x00);
         insert(&mut map, "CLC", true, false, AddressingMode::Implied, 0x18);
         insert(&mut map, "CLD", true, false, AddressingMode::Implied, 0xD8);
