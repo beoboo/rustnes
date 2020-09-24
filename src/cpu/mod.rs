@@ -135,9 +135,11 @@ impl Cpu {
             OpCode::CLI => self.cli(),
             OpCode::CMP => self.cmp(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::CPX => self.cpx(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::CPY => self.cpy(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::DEC => self.dec(address, bus, &instruction.addressing_mode),
             OpCode::DEX => self.dex(),
             OpCode::DEY => self.dey(),
+            OpCode::EOR => self.eor(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::INC => self.inc(address, bus, &instruction.addressing_mode),
             OpCode::INX => self.inx(),
             OpCode::INY => self.iny(),
@@ -412,22 +414,28 @@ impl Cpu {
     }
 
     fn cmp(&mut self, operand: Byte) -> usize {
-        self.compare(self.A, operand);
+        self._compare(self.A, operand);
 
         0
     }
 
     fn cpx(&mut self, operand: Byte) -> usize {
-        self.compare(self.X, operand);
+        self._compare(self.X, operand);
 
         0
     }
 
-    fn compare(&mut self, register: Byte, operand: Byte) {
+    fn cpy(&mut self, operand: Byte) -> usize {
+        self._compare(self.Y, operand);
+
+        0
+    }
+
+    fn _compare(&mut self, register: Byte, operand: Byte) {
         let computed = register as SignedByte - operand as SignedByte;
-        self.status.C = computed >= 0;
-        self.status.Z = computed == 0x00;
         self.status.N = (register as SignedByte) < 0;
+        self.status.Z = computed == 0x00;
+        self.status.C = computed >= 0;
     }
 
     fn dec<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus, _addressing_mode: &AddressingMode) -> usize {
@@ -457,6 +465,14 @@ impl Cpu {
         self.Y = computed as Byte;
         self.status.Z = computed == 0x00;
         self.status.N = computed < 0;
+
+        0
+    }
+
+    fn eor(&mut self, operand: Byte) -> usize {
+        self.A ^= operand;
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
 
         0
     }

@@ -124,18 +124,6 @@ fn process_bcc() {
 
     let cpu = build_cpu(0, 0, 0, 0, "C");
     assert_instructions(&cpu, "BCC $2\nLDA #3", 3, 0, 0, 4, "");
-    //
-    // // Page boundary cross
-    // let mut cpu = build_cpu(0, 0, 0, 0, "c");
-    // let mut bus = build_bus("JMP $FF");
-    // // BCC in address 0xFF
-    // bus.write_byte(0xFF, 0x90);
-    // bus.write_byte(0x100, 0x01);
-    // bus.write_byte(0x101, 0xEA);
-    // let cycles = run(&mut cpu, &mut bus);
-    //
-    // assert_that!(cpu.PC, eq(0x101));
-    // assert_that!(cycles, eq(7));
 }
 
 #[test]
@@ -244,6 +232,14 @@ fn process_cmp() {
 }
 
 #[test]
+fn process_cli() {
+    let cpu = build_cpu(0, 0, 0, 0, "");
+
+    assert_registers(&cpu, "CLI", 0, 0, 0, "i");
+    assert_registers(&cpu, "SEI\nCLI", 0, 0, 0, "i");
+}
+
+#[test]
 fn process_cpx() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
@@ -253,11 +249,12 @@ fn process_cpx() {
 }
 
 #[test]
-fn process_cli() {
+fn process_cpy() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_registers(&cpu, "CLI", 0, 0, 0, "i");
-    assert_registers(&cpu, "SEI\nCLI", 0, 0, 0, "i");
+    assert_registers(&cpu, "CPY #1", 0, 0, 0, "czn");
+    assert_registers(&cpu, "CPY #0", 0, 0, 0, "CZn");
+    assert_registers(&cpu, "LDY #$FF\nCPY #1", 0, 0, 0xFF, "czN");
 }
 
 #[test]
@@ -291,6 +288,14 @@ fn process_dey() {
 
     assert_instructions(&cpu, "LDY #1\nDEY", 0, 0, 0, 3, "Zn");
     assert_instructions(&cpu, "LDY #0\nDEY", 0, 0, -1i8 as Byte, 3, "zN");
+}
+
+#[test]
+fn process_eor() {
+    let cpu = build_cpu(0, 0, 0, 0, "");
+
+    assert_registers(&cpu, "EOR #0", 0, 0, 0, "Zn");
+    assert_registers(&cpu, "LDA #$FF\nEOR #1", 0xFE, 0, 0, "zN");
 }
 
 #[test]

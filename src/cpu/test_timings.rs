@@ -96,25 +96,25 @@ fn process_bit() {
 
 #[test]
 fn process_branching_instructions() {
-    // // Not taken
-    // assert_branch("BPL $2", "N", 0x10, 2, 2);
-    // assert_branch("BMI $2", "n", 0x30, 2, 2);
-    // assert_branch("BVC $2", "V", 0x50, 2, 2);
-    // assert_branch("BVS $2", "v", 0x70, 2, 2);
-    // assert_branch("BCC $2", "C", 0x90, 2, 2);
-    // assert_branch("BCS $2", "c", 0xB0, 2, 2);
-    // assert_branch("BNE $2", "Z", 0xD0, 2, 2);
-    // assert_branch("BEQ $2", "z", 0xF0, 2, 2);
-    //
-    // // Taken
-    // assert_branch("BPL $2", "n", 0x10, 2, 3);
-    // assert_branch("BMI $2", "N", 0x30, 2, 3);
-    // assert_branch("BVC $2", "v", 0x50, 2, 3);
-    // assert_branch("BVS $2", "V", 0x70, 2, 3);
-    // assert_branch("BCC $2", "c", 0x90, 2, 3);
-    // assert_branch("BCS $2", "C", 0xB0, 2, 3);
-    // assert_branch("BNE $2", "z", 0xD0, 2, 3);
-    // assert_branch("BEQ $2", "Z", 0xF0, 2, 3);
+    // Not taken
+    assert_branch("BPL $2", "N", 0x10, 2, 2);
+    assert_branch("BMI $2", "n", 0x30, 2, 2);
+    assert_branch("BVC $2", "V", 0x50, 2, 2);
+    assert_branch("BVS $2", "v", 0x70, 2, 2);
+    assert_branch("BCC $2", "C", 0x90, 2, 2);
+    assert_branch("BCS $2", "c", 0xB0, 2, 2);
+    assert_branch("BNE $2", "Z", 0xD0, 2, 2);
+    assert_branch("BEQ $2", "z", 0xF0, 2, 2);
+
+    // Taken
+    assert_branch("BPL $2", "n", 0x10, 2, 3);
+    assert_branch("BMI $2", "N", 0x30, 2, 3);
+    assert_branch("BVC $2", "v", 0x50, 2, 3);
+    assert_branch("BVS $2", "V", 0x70, 2, 3);
+    assert_branch("BCC $2", "c", 0x90, 2, 3);
+    assert_branch("BCS $2", "C", 0xB0, 2, 3);
+    assert_branch("BNE $2", "z", 0xD0, 2, 3);
+    assert_branch("BEQ $2", "Z", 0xF0, 2, 3);
 
     // Taken with page cross
     assert_branch_with_page_cross("BPL $80", 0x00CF, "n", 0x10, 2, 4);
@@ -125,6 +125,65 @@ fn process_branching_instructions() {
     assert_branch_with_page_cross("BCS $80", 0x00CF, "C", 0xB0, 2, 4);
     assert_branch_with_page_cross("BNE $80", 0x00CF, "z", 0xD0, 2, 4);
     assert_branch_with_page_cross("BEQ $80", 0x00CF, "Z", 0xF0, 2, 4);
+}
+
+#[test]
+fn process_brk() {
+    assert_instruction("BRK", 0x00, 1, 7);
+}
+
+#[test]
+fn process_cmp() {
+    assert_instruction("CMP #$44", 0xC9, 2, 2);
+    assert_instruction("CMP $44", 0xC5, 2, 3);
+    assert_instruction("CMP $44,X", 0xD5, 2, 4);
+    assert_instruction("CMP $4400", 0xCD, 3, 4);
+    assert_instruction("CMP $4400,X", 0xDD, 3, 4);
+    assert_instruction("CMP $4400,Y", 0xD9, 3, 4);
+    assert_instruction("CMP ($44,X)", 0xC1, 2, 6);
+    assert_instruction("CMP ($44),Y", 0xD1, 2, 5);
+
+    assert_instruction_with_page_cross("CMP $44FF,X", 0xFF, 0, 0xDD, 3, 5);
+    assert_instruction_with_page_cross("CMP $44FF,Y", 0, 0xFF, 0xD9, 3, 5);
+    assert_instruction_with_page_cross("CMP ($44),Y", 0, 0xFF, 0xD1, 2, 6);
+}
+
+#[test]
+fn process_cpx() {
+    assert_instruction("CPX #$44", 0xE0, 2, 2);
+    assert_instruction("CPX $44", 0xE4, 2, 3);
+    assert_instruction("CPX $4400", 0xEC, 3, 4);
+}
+
+#[test]
+fn process_cpy() {
+    assert_instruction("CPY #$44", 0xC0, 2, 2);
+    assert_instruction("CPY $44", 0xC4, 2, 3);
+    assert_instruction("CPY $4400", 0xCC, 3, 4);
+}
+
+#[test]
+fn process_dec() {
+    assert_instruction("DEC $44", 0xC6, 2, 5);
+    assert_instruction("DEC $44,X", 0xD6, 2, 6);
+    assert_instruction("DEC $4400", 0xCE, 3, 6);
+    assert_instruction("DEC $4400,X", 0xDE, 3, 7);
+}
+
+#[test]
+fn process_eor() {
+    assert_instruction("EOR #$44", 0x49, 2, 2);
+    assert_instruction("EOR $44", 0x45, 2, 3);
+    assert_instruction("EOR $44,X", 0x55, 2, 4);
+    assert_instruction("EOR $4400", 0x4D, 3, 4);
+    assert_instruction("EOR $4400,X", 0x5D, 3, 4);
+    assert_instruction("EOR $4400,Y", 0x59, 3, 4);
+    assert_instruction("EOR ($44,X)", 0x41, 2, 6);
+    assert_instruction("EOR ($44),Y", 0x51, 2, 5);
+
+    assert_instruction_with_page_cross("EOR $44FF,X", 0xFF, 0, 0x5D, 3, 5);
+    assert_instruction_with_page_cross("EOR $44FF,Y", 0, 0xFF, 0x59, 3, 5);
+    assert_instruction_with_page_cross("EOR ($44),Y", 0, 0xFF, 0x51, 2, 6);
 }
 
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {

@@ -54,7 +54,6 @@ impl AddressingModeMap {
         insert(&mut map, "BIT", false, false, AddressingMode::ZeroPage, 0x24);
         insert(&mut map, "BIT", false, false, AddressingMode::Absolute, 0x2C);
 
-
         // Branching instructions
         insert(&mut map, "BPL", false, true, AddressingMode::Relative, 0x10);
         insert(&mut map, "BMI", false, true, AddressingMode::Relative, 0x30);
@@ -65,15 +64,48 @@ impl AddressingModeMap {
         insert(&mut map, "BNE", false, true, AddressingMode::Relative, 0xD0);
         insert(&mut map, "BEQ", false, true, AddressingMode::Relative, 0xF0);
 
-
+        // BRK
         insert(&mut map, "BRK", true, false, AddressingMode::Implied, 0x00);
+
+        // CMP
+        insert(&mut map, "CMP", false, false, AddressingMode::Immediate, 0xC9);
+        insert(&mut map, "CMP", false, false, AddressingMode::ZeroPage, 0xC5);
+        insert(&mut map, "CMP", false, false, AddressingMode::ZeroPageX, 0xD5);
+        insert(&mut map, "CMP", false, false, AddressingMode::Absolute, 0xCD);
+        insert(&mut map, "CMP", false, false, AddressingMode::AbsoluteX, 0xDD);
+        insert(&mut map, "CMP", false, false, AddressingMode::AbsoluteY, 0xD9);
+        insert(&mut map, "CMP", false, false, AddressingMode::IndirectIndexedX, 0xC1);
+        insert(&mut map, "CMP", false, false, AddressingMode::YIndexedIndirect, 0xD1);
+
+        // CPX
+        insert(&mut map, "CPX", false, false, AddressingMode::Immediate, 0xE0);
+        insert(&mut map, "CPX", false, false, AddressingMode::ZeroPage, 0xE4);
+        insert(&mut map, "CPX", false, false, AddressingMode::Absolute, 0xEC);
+
+        // CPY
+        insert(&mut map, "CPY", false, false, AddressingMode::Immediate, 0xC0);
+        insert(&mut map, "CPY", false, false, AddressingMode::ZeroPage, 0xC4);
+        insert(&mut map, "CPY", false, false, AddressingMode::Absolute, 0xCC);
+
+        // DEC
+        insert(&mut map, "DEC", false, false, AddressingMode::ZeroPage, 0xC6);
+        insert(&mut map, "DEC", false, false, AddressingMode::ZeroPageX, 0xD6);
+        insert(&mut map, "DEC", false, false, AddressingMode::Absolute, 0xCE);
+        insert(&mut map, "DEC", false, false, AddressingMode::AbsoluteX, 0xDE);
+
+        // EOR
+        insert(&mut map, "EOR", false, false, AddressingMode::Immediate, 0x49);
+        insert(&mut map, "EOR", false, false, AddressingMode::ZeroPage, 0x45);
+        insert(&mut map, "EOR", false, false, AddressingMode::ZeroPageX, 0x55);
+        insert(&mut map, "EOR", false, false, AddressingMode::Absolute, 0x4D);
+        insert(&mut map, "EOR", false, false, AddressingMode::AbsoluteX, 0x5D);
+        insert(&mut map, "EOR", false, false, AddressingMode::AbsoluteY, 0x59);
+        insert(&mut map, "EOR", false, false, AddressingMode::IndirectIndexedX, 0x41);
+        insert(&mut map, "EOR", false, false, AddressingMode::YIndexedIndirect, 0x51);
+
         insert(&mut map, "CLC", true, false, AddressingMode::Implied, 0x18);
         insert(&mut map, "CLD", true, false, AddressingMode::Implied, 0xD8);
         insert(&mut map, "CLI", true, false, AddressingMode::Implied, 0x58);
-        insert(&mut map, "CMP", false, false, AddressingMode::Immediate, 0xC9);
-        insert(&mut map, "CPX", false, false, AddressingMode::Immediate, 0xE0);
-        insert(&mut map, "CPX", false, false, AddressingMode::Absolute, 0xEC);
-        insert(&mut map, "DEC", false, false, AddressingMode::ZeroPage, 0xC6);
         insert(&mut map, "DEX", true, false, AddressingMode::Implied, 0xCA);
         insert(&mut map, "DEY", true, false, AddressingMode::Implied, 0x88);
         insert(&mut map, "INC", false, false, AddressingMode::ZeroPage, 0xE6);
