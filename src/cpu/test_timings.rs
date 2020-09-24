@@ -24,9 +24,9 @@ impl MockBus {
         }
     }
 
-    fn load(&mut self, program: Vec<u8>) {
+    fn load(&mut self, program: Vec<u8>, starting_pos: usize) {
         // let mut data = self.data;
-        replace_slice(&mut self.data[..], program.as_slice());
+        replace_slice(&mut self.data[starting_pos..], program.as_slice());
     }
 }
 
@@ -96,7 +96,35 @@ fn process_bit() {
 
 #[test]
 fn process_branching_instructions() {
-    assert_branch("BCC $2", "c", 0x24, 2, 3);
+    // // Not taken
+    // assert_branch("BPL $2", "N", 0x10, 2, 2);
+    // assert_branch("BMI $2", "n", 0x30, 2, 2);
+    // assert_branch("BVC $2", "V", 0x50, 2, 2);
+    // assert_branch("BVS $2", "v", 0x70, 2, 2);
+    // assert_branch("BCC $2", "C", 0x90, 2, 2);
+    // assert_branch("BCS $2", "c", 0xB0, 2, 2);
+    // assert_branch("BNE $2", "Z", 0xD0, 2, 2);
+    // assert_branch("BEQ $2", "z", 0xF0, 2, 2);
+    //
+    // // Taken
+    // assert_branch("BPL $2", "n", 0x10, 2, 3);
+    // assert_branch("BMI $2", "N", 0x30, 2, 3);
+    // assert_branch("BVC $2", "v", 0x50, 2, 3);
+    // assert_branch("BVS $2", "V", 0x70, 2, 3);
+    // assert_branch("BCC $2", "c", 0x90, 2, 3);
+    // assert_branch("BCS $2", "C", 0xB0, 2, 3);
+    // assert_branch("BNE $2", "z", 0xD0, 2, 3);
+    // assert_branch("BEQ $2", "Z", 0xF0, 2, 3);
+
+    // Taken with page cross
+    assert_branch_with_page_cross("BPL $80", 0x00CF, "n", 0x10, 2, 4);
+    assert_branch_with_page_cross("BMI $80", 0x00CF, "N", 0x30, 2, 4);
+    assert_branch_with_page_cross("BVC $80", 0x00CF, "v", 0x50, 2, 4);
+    assert_branch_with_page_cross("BVS $80", 0x00CF, "V", 0x70, 2, 4);
+    assert_branch_with_page_cross("BCC $80", 0x00CF, "c", 0x90, 2, 4);
+    assert_branch_with_page_cross("BCS $80", 0x00CF, "C", 0xB0, 2, 4);
+    assert_branch_with_page_cross("BNE $80", 0x00CF, "z", 0xD0, 2, 4);
+    assert_branch_with_page_cross("BEQ $80", 0x00CF, "Z", 0xF0, 2, 4);
 }
 
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
@@ -106,7 +134,7 @@ fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usi
     let length = program.len();
     let op_code = program[0];
 
-    bus.load(program);
+    bus.load(program, 0);
 
     let total_cycles = cpu.process(&mut bus);
     println!("Cycles: {}", total_cycles);
@@ -126,7 +154,28 @@ fn assert_branch(source: &str, status: &str, expected_op_code: Byte, expected_le
     let length = program.len();
     let op_code = program[0];
 
-    bus.load(program);
+    bus.load(program, 0);
+
+    let total_cycles = cpu.process(&mut bus);
+    println!("Cycles: {}", total_cycles);
+
+    assert_that!(op_code, equal_to(expected_op_code));
+    assert_that!(length, equal_to(expected_length));
+    assert_that!(total_cycles, equal_to(expected_cycles));
+}
+
+fn assert_branch_with_page_cross(source: &str, pc: Word, status: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
+    let mut cpu = Cpu::new(0);
+    cpu.PC = pc;
+    cpu.status = build_status(status);
+
+    let mut bus = MockBus::new();
+
+    let program = build_program(source);
+    let length = program.len();
+    let op_code = program[0];
+
+    bus.load(program, pc as usize);
 
     let total_cycles = cpu.process(&mut bus);
     println!("Cycles: {}", total_cycles);
@@ -146,7 +195,7 @@ fn assert_instruction_with_page_cross(source: &str, x: Byte, y: Byte, expected_o
     let length = program.len();
     let op_code = program[0];
 
-    bus.load(program);
+    bus.load(program, 0);
 
     let total_cycles = cpu.process(&mut bus);
     println!("Cycles: {}", total_cycles);
@@ -183,4 +232,8 @@ fn build_status(flags: &str) -> CpuStatus {
         V: build_status_flag(flags, 'V'),
         N: build_status_flag(flags, 'N'),
     }
+}
+
+fn build_status_flag(flags: &str, flag: char) -> bool {
+    flags.contains(flag)
 }

@@ -226,13 +226,21 @@ impl Cpu {
                 address
             }
             AddressingMode::Relative => {
-                let relative = bus.read_byte(self.PC) as Word;
+                let relative = bus.read_byte(self.PC) as SignedWord;
 
                 let address = if relative > 0x80 {
-                    self.PC + relative - 0xFF
+                    relative - 0xFF
                 } else {
-                    self.PC + relative
+                    relative
                 };
+
+
+                // println!("Relative: {:#06X}", relative);
+                //
+                // println!("PC: {:#06X}", self.PC);
+                // println!("Relative: {:#06X}", relative - 0xFF);
+                // println!("Address: {:#06X}", address as Word);
+                // println!("PC: {:#06X}", Wrapping(self.PC) + Wrapping(address as Word));
 
                 self.PC += 1;
                 address as Word
@@ -332,12 +340,15 @@ impl Cpu {
     fn _test(&mut self, test: bool, address: Word) -> usize {
         println!("Test is {}", test);
         if test {
-            println!("Jumping to {:#06X}", address);
-            self.PC = address;
-            match address {
-                0..=0xFF => 1,
-                _ => 2
-            }
+            let page1 = self.PC & 0xFF00;
+
+            println!("Jumping to {:#04X}", address);
+
+            self.PC = self.PC.wrapping_add(address);
+
+            let page2 = self.PC & 0xFF00;
+
+            if page1 != page2 { 2 } else { 1 }
         } else {
             0
         }
