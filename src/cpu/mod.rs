@@ -133,6 +133,7 @@ impl Cpu {
             OpCode::CLC => self.clc(),
             OpCode::CLD => self.cld(),
             OpCode::CLI => self.cli(),
+            OpCode::CLV => self.clv(),
             OpCode::CMP => self.cmp(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::CPX => self.cpx(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::CPY => self.cpy(self.read_operand(address, bus, &instruction.addressing_mode)),
@@ -409,6 +410,12 @@ impl Cpu {
 
     fn cli(&mut self) -> usize {
         self.status.I = false;
+
+        0
+    }
+
+    fn clv(&mut self) -> usize {
+        self.status.V = false;
 
         0
     }

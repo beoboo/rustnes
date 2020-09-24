@@ -186,6 +186,17 @@ fn process_eor() {
     assert_instruction_with_page_cross("EOR ($44),Y", 0, 0xFF, 0x51, 2, 6);
 }
 
+#[test]
+fn process_flags() {
+    assert_instruction("CLC", 0x18, 1, 2);
+    assert_instruction("SEC", 0x38, 1, 2);
+    assert_instruction("CLI", 0x58, 1, 2);
+    assert_instruction("SEI", 0x78, 1, 2);
+    assert_instruction("CLV", 0xB8, 1, 2);
+    assert_instruction("CLD", 0xD8, 1, 2);
+    assert_instruction("SED", 0xF8, 1, 2);
+}
+
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
     let mut bus = MockBus::new();

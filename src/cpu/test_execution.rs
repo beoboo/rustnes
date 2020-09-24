@@ -240,6 +240,15 @@ fn process_cli() {
 }
 
 #[test]
+fn process_clv() {
+    let cpu = build_cpu(0, 0, 0, 0, "");
+    assert_registers(&cpu, "CLV", 0, 0, 0, "v");
+
+    let cpu = build_cpu(0, 0, 0, 0, "V");
+    assert_registers(&cpu, "CLV", 0, 0, 0, "v");
+}
+
+#[test]
 fn process_cpx() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 

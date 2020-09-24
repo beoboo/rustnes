@@ -16,6 +16,7 @@ pub enum OpCode {
     CLC,
     CLD,
     CLI,
+    CLV,
     CMP,
     CPX,
     CPY,

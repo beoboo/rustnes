@@ -103,9 +103,15 @@ impl AddressingModeMap {
         insert(&mut map, "EOR", false, false, AddressingMode::IndirectIndexedX, 0x41);
         insert(&mut map, "EOR", false, false, AddressingMode::YIndexedIndirect, 0x51);
 
+        // Flags
         insert(&mut map, "CLC", true, false, AddressingMode::Implied, 0x18);
         insert(&mut map, "CLD", true, false, AddressingMode::Implied, 0xD8);
         insert(&mut map, "CLI", true, false, AddressingMode::Implied, 0x58);
+        insert(&mut map, "CLV", true, false, AddressingMode::Implied, 0xB8);
+        insert(&mut map, "SEC", true, false, AddressingMode::Implied, 0x38);
+        insert(&mut map, "SED", true, false, AddressingMode::Implied, 0xF8);
+        insert(&mut map, "SEI", true, false, AddressingMode::Implied, 0x78);
+
         insert(&mut map, "DEX", true, false, AddressingMode::Implied, 0xCA);
         insert(&mut map, "DEY", true, false, AddressingMode::Implied, 0x88);
         insert(&mut map, "INC", false, false, AddressingMode::ZeroPage, 0xE6);
@@ -133,9 +139,6 @@ impl AddressingModeMap {
         insert(&mut map, "RTS", true, false, AddressingMode::Implied, 0x60);
         insert(&mut map, "SBC", false, false, AddressingMode::Immediate, 0xE9);
         insert(&mut map, "SBC", false, false, AddressingMode::ZeroPageX, 0xF5);
-        insert(&mut map, "SEC", true, false, AddressingMode::Implied, 0x38);
-        insert(&mut map, "SED", true, false, AddressingMode::Implied, 0xF8);
-        insert(&mut map, "SEI", true, false, AddressingMode::Implied, 0x78);
         insert(&mut map, "STA", false, false, AddressingMode::Absolute, 0x8D);
         insert(&mut map, "STA", false, false, AddressingMode::AbsoluteX, 0x9D);
         insert(&mut map, "STA", false, false, AddressingMode::ZeroPage, 0x85);
