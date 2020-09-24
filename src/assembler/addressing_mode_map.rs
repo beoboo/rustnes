@@ -43,6 +43,13 @@ impl AddressingModeMap {
         insert(&mut map, "AND", false, false, AddressingMode::IndirectIndexedX, 0x21);
         insert(&mut map, "AND", false, false, AddressingMode::YIndexedIndirect, 0x31);
 
+        // ASL
+        insert(&mut map, "ASL", false, false, AddressingMode::Accumulator, 0x0A);
+        insert(&mut map, "ASL", false, false, AddressingMode::ZeroPage, 0x06);
+        insert(&mut map, "ASL", false, false, AddressingMode::ZeroPageX, 0x16);
+        insert(&mut map, "ASL", false, false, AddressingMode::Absolute, 0x0E);
+        insert(&mut map, "ASL", false, false, AddressingMode::AbsoluteX, 0x1E);
+
         insert(&mut map, "BCC", false, true, AddressingMode::Relative, 0x90);
         insert(&mut map, "BCS", false, true, AddressingMode::Relative, 0xB0);
         insert(&mut map, "BEQ", false, true, AddressingMode::Relative, 0xF0);

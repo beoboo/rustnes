@@ -44,6 +44,7 @@ impl Instruction {
 
 #[cfg(test)]
 mod tests {
+    use hamcrest2::core::*;
     use hamcrest2::prelude::*;
 
     use super::*;

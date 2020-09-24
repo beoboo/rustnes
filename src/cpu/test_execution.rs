@@ -85,36 +85,45 @@ fn ctor() {
 fn process_adc() {
     let cpu = build_cpu(1, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "ADC #1", 2, 0, 0, 2, "zncv", 2);
+    assert_instructions(&cpu, "ADC #1", 2, 0, 0, 2, "zncv");
 
     // 1 + 1 = 2, C = 0, V = 0
-    assert_instructions(&cpu, "CLC\nLDA #1\nADC #1", 2, 0, 0, 5, "zncv", 5);
+    assert_instructions(&cpu, "CLC\nLDA #1\nADC #1", 2, 0, 0, 5, "zncv");
 
     // 1 + -1 = 0, C = 1, V = 0
-    assert_instructions(&cpu, "CLC\nLDA #1\nADC #$FF", 0, 0, 0, 5, "ZnCv", 5);
+    assert_instructions(&cpu, "CLC\nLDA #1\nADC #$FF", 0, 0, 0, 5, "ZnCv");
 
     // 127 + 1 = 128 (-128), C = 0, V = 1
-    assert_instructions(&cpu, "CLC\nLDA #$7F\nADC #$01", 128, 0, 0, 5, "zNcV", 5);
+    assert_instructions(&cpu, "CLC\nLDA #$7F\nADC #$01", 128, 0, 0, 5, "zNcV");
 
     // -128 + -1 = -129 (127), C = 0, V = 1
-    assert_instructions(&cpu, "CLC\nLDA #$80\nADC #$FF", 127, 0, 0, 5, "znCV", 5);
+    assert_instructions(&cpu, "CLC\nLDA #$80\nADC #$FF", 127, 0, 0, 5, "znCV");
 }
 
 #[test]
 fn process_and() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "AND #1", 0, 0, 0, 2, "Zn", 2);
-    assert_instructions(&cpu, "LDA #$80\nAND #$FF", 0x80, 0, 0, 4, "zN", 4);
+    assert_instructions(&cpu, "AND #1", 0, 0, 0, 2, "Zn");
+    assert_instructions(&cpu, "LDA #$80\nAND #$FF", 0x80, 0, 0, 4, "zN");
+}
+
+#[test]
+fn process_asl() {
+    let cpu = build_cpu(0, 0, 0, 0, "");
+    assert_instructions(&cpu, "ASL A", 0, 0, 0, 1, "Znc");
+
+    let cpu = build_cpu(0xC0, 0, 0, 0, "");
+    assert_instructions(&cpu, "ASL A", 0x80, 0, 0, 1, "zNC");
 }
 
 #[test]
 fn process_bcc() {
     let cpu = build_cpu(0, 0, 0, 0, "c");
-    assert_instructions(&cpu, "BCC $3\nLDA #3", 0, 0, 0, 4, "", 3);
+    assert_instructions(&cpu, "BCC $3\nLDA #3", 0, 0, 0, 4, "");
 
     let cpu = build_cpu(0, 0, 0, 0, "C");
-    assert_instructions(&cpu, "BCC $3\nLDA #3", 3, 0, 0, 4, "", 4);
+    assert_instructions(&cpu, "BCC $3\nLDA #3", 3, 0, 0, 4, "");
 
     // Page boundary cross
     let mut cpu = build_cpu(0, 0, 0, 0, "c");
@@ -132,17 +141,17 @@ fn process_bcc() {
 #[test]
 fn process_bcs() {
     let cpu = build_cpu(0, 0, 0, 0, "c");
-    assert_instructions(&cpu, "BCS $3\nLDA #3", 3, 0, 0, 4, "", 4);
+    assert_instructions(&cpu, "BCS $3\nLDA #3", 3, 0, 0, 4, "");
 
     let cpu = build_cpu(0, 0, 0, 0, "C");
-    assert_instructions(&cpu, "BCS $3\nLDA #3", 0, 0, 0, 4, "", 3);
+    assert_instructions(&cpu, "BCS $3\nLDA #3", 0, 0, 0, 4, "");
 }
 
 #[test]
 fn process_beq() {
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDA #1\nBEQ $3\nLDA #3", 3, 0, 0, 6, "", 6);
-    assert_instructions(&cpu, "LDA #0\nBEQ $3\nLDA #3", 0, 0, 0, 6, "", 5);
+    assert_instructions(&cpu, "LDA #1\nBEQ $3\nLDA #3", 3, 0, 0, 6, "");
+    assert_instructions(&cpu, "LDA #0\nBEQ $3\nLDA #3", 0, 0, 0, 6, "");
 }
 
 #[test]
@@ -165,30 +174,30 @@ fn process_bit() {
 #[test]
 fn process_bmi() {
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDA #0\nBMI $3\nLDA #3", 3, 0, 0, 6, "", 6);
-    assert_instructions(&cpu, "LDA #$FF\nBMI $3\nLDA #3", 0xFF, 0, 0, 6, "", 5);
+    assert_instructions(&cpu, "LDA #0\nBMI $3\nLDA #3", 3, 0, 0, 6, "");
+    assert_instructions(&cpu, "LDA #$FF\nBMI $3\nLDA #3", 0xFF, 0, 0, 6, "");
 }
 
 #[test]
 fn process_bne() {
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDA #1\nBNE $3\nLDA #3", 1, 0, 0, 6, "", 5);
-    assert_instructions(&cpu, "LDA #0\nBNE $3\nLDA #3", 3, 0, 0, 6, "", 6);
-    assert_instructions(&cpu, "LDA #1\nBNE $3\nBPL $3\nBNE $FC", 1, 0, 0, 8, "", 11);
+    assert_instructions(&cpu, "LDA #1\nBNE $3\nLDA #3", 1, 0, 0, 6, "");
+    assert_instructions(&cpu, "LDA #0\nBNE $3\nLDA #3", 3, 0, 0, 6, "");
+    assert_instructions(&cpu, "LDA #1\nBNE $3\nBPL $3\nBNE $FC", 1, 0, 0, 8, "",);
 }
 
 #[test]
 fn process_bpl() {
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDA #0\nBPL $3\nLDA #3", 0, 0, 0, 6, "", 5);
-    assert_instructions(&cpu, "LDA #1\nBPL $3\nLDA #3", 1, 0, 0, 6, "", 5);
-    assert_instructions(&cpu, "LDA #$FF\nBPL $3\nLDA #3", 3, 0, 0, 6, "", 6);
+    assert_instructions(&cpu, "LDA #0\nBPL $3\nLDA #3", 0, 0, 0, 6, "");
+    assert_instructions(&cpu, "LDA #1\nBPL $3\nLDA #3", 1, 0, 0, 6, "");
+    assert_instructions(&cpu, "LDA #$FF\nBPL $3\nLDA #3", 3, 0, 0, 6, "");
 }
 
 #[test]
 fn process_brk() {
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDA #$EA\nSTA $FFFE\nBRK", 0xEA, 0, 0, 0xFFFE, "BI", 7);
+    assert_instructions(&cpu, "LDA #$EA\nSTA $FFFE\nBRK", 0xEA, 0, 0, 0xFFFE, "BI");
 }
 
 #[test]
@@ -245,25 +254,25 @@ fn process_dec() {
     assert_that!(bus.read_byte(0x10), eq(122));
 
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "DEC $10", 0, 0, 0, 2, "zN", 5);
-    assert_instructions(&cpu, "LDA #$80\nSTA $10\nDEC $10", 0x80, 0, 0, 6, "zn", 10);
-    assert_instructions(&cpu, "LDA #1\nSTA $10\nDEC $10", 1, 0, 0, 6, "Zn", 10);
+    assert_instructions(&cpu, "DEC $10", 0, 0, 0, 2, "zN");
+    assert_instructions(&cpu, "LDA #$80\nSTA $10\nDEC $10", 0x80, 0, 0, 6, "zn",);
+    assert_instructions(&cpu, "LDA #1\nSTA $10\nDEC $10", 1, 0, 0, 6, "Zn",);
 }
 
 #[test]
 fn process_dex() {
     let cpu = build_cpu(0, 1, 0, 0, "");
 
-    assert_instructions(&cpu, "LDX #1\nDEX", 0, 0, 0, 3, "Zn", 4);
-    assert_instructions(&cpu, "LDX #0\nDEX", 0, -1i8 as Byte, 0, 3, "zN", 4);
+    assert_instructions(&cpu, "LDX #1\nDEX", 0, 0, 0, 3, "Zn");
+    assert_instructions(&cpu, "LDX #0\nDEX", 0, -1i8 as Byte, 0, 3, "zN");
 }
 
 #[test]
 fn process_dey() {
     let cpu = build_cpu(0, 0, 1, 0, "");
 
-    assert_instructions(&cpu, "LDY #1\nDEY", 0, 0, 0, 3, "Zn", 4);
-    assert_instructions(&cpu, "LDY #0\nDEY", 0, 0, -1i8 as Byte, 3, "zN", 4);
+    assert_instructions(&cpu, "LDY #1\nDEY", 0, 0, 0, 3, "Zn");
+    assert_instructions(&cpu, "LDY #0\nDEY", 0, 0, -1i8 as Byte, 3, "zN");
 }
 
 #[test]
@@ -278,33 +287,33 @@ fn process_inc() {
     assert_that!(bus.read_byte(0x10), eq(124));
 
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "INC $1234", 0, 0, 0, 3, "zn", 6);
-    assert_instructions(&cpu, "INC $10", 0, 0, 0, 2, "zn", 5);
-    assert_instructions(&cpu, "LDA #$80\nSTA $10\nINC $10", 128, 0, 0, 6, "zN", 10);
-    assert_instructions(&cpu, "LDA #$FF\nSTA $10\nINC $10", -1i8 as Byte, 0, 0, 6, "Zn", 10);
+    assert_instructions(&cpu, "INC $1234", 0, 0, 0, 3, "zn");
+    assert_instructions(&cpu, "INC $10", 0, 0, 0, 2, "zn");
+    assert_instructions(&cpu, "LDA #$80\nSTA $10\nINC $10", 128, 0, 0, 6, "zN",);
+    assert_instructions(&cpu, "LDA #$FF\nSTA $10\nINC $10", -1i8 as Byte, 0, 0, 6, "Zn",);
 }
 
 #[test]
 fn process_inx() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "INX", 0, 1, 0, 1, "zn", 2);
-    assert_instructions(&cpu, "LDX #$FF\nINX", 0, 0, 0, 3, "Zn", 4);
+    assert_instructions(&cpu, "INX", 0, 1, 0, 1, "zn");
+    assert_instructions(&cpu, "LDX #$FF\nINX", 0, 0, 0, 3, "Zn");
 }
 
 #[test]
 fn process_iny() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "INY", 0, 0, 1, 1, "zn", 2);
-    assert_instructions(&cpu, "LDY #$FF\nINY", 0, 0, 0, 3, "Zn", 4);
+    assert_instructions(&cpu, "INY", 0, 0, 1, 1, "zn");
+    assert_instructions(&cpu, "LDY #$FF\nINY", 0, 0, 0, 3, "Zn");
 }
 
 #[test]
 fn process_jmp() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "JMP $03", 0, 0, 0, 3, "", 3);
+    assert_instructions(&cpu, "JMP $03", 0, 0, 0, 3, "");
 
     let mut cpu = build_cpu(0, 0, 0, 0, "");
     let mut bus = build_bus("JMP ($10)\nLDA #1");
@@ -320,7 +329,7 @@ fn process_jmp() {
 fn process_jsr() {
     let mut cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "JSR $4\nBRK\nLDA #1", 1, 0, 0, 6, "", 8);
+    assert_instructions(&cpu, "JSR $4\nBRK\nLDA #1", 1, 0, 0, 6, "");
 
     let mut bus = build_bus("JSR $4\nBRK\nLDA #1");
     run(&mut cpu, &mut bus);
@@ -333,11 +342,11 @@ fn process_jsr() {
 fn process_lda() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "LDA #0", 0x00, 0, 0, 2, "Zn", 2);
-    assert_instructions(&cpu, "LDA #01", 0x01, 0, 0, 2, "zn", 2);
-    assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN", 2);
-    assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN", 2);
-    assert_instructions(&cpu, "LDA #$FF\nSTA $1234\nLDA $1234", 0xFF, 0, 0, 8, "zN", 10);
+    assert_instructions(&cpu, "LDA #0", 0x00, 0, 0, 2, "Zn");
+    assert_instructions(&cpu, "LDA #01", 0x01, 0, 0, 2, "zn");
+    assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN");
+    assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN");
+    assert_instructions(&cpu, "LDA #$FF\nSTA $1234\nLDA $1234", 0xFF, 0, 0, 8, "zN",);
 
     // Absolute
     let mut bus = build_bus("LDA $8001");
@@ -373,7 +382,7 @@ fn process_lda() {
 fn process_ldx() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "LDX #1", 0, 1, 0, 2, "zn", 2);
+    assert_instructions(&cpu, "LDX #1", 0, 1, 0, 2, "zn");
 
     // Zeropage
     let mut bus = build_bus("LDX $1F");
@@ -386,29 +395,29 @@ fn process_ldx() {
 fn process_ldy() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "LDY #1", 0, 0, 1, 2, "zn", 2);
+    assert_instructions(&cpu, "LDY #1", 0, 0, 1, 2, "zn");
 }
 
 #[test]
 fn process_lsr() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "LDA #%10000001\nLSR A", 0b01000000, 0, 0, 3, "C", 4);
+    assert_instructions(&cpu, "LDA #%10000001\nLSR A", 0b01000000, 0, 0, 3, "C");
 }
 
 #[test]
 fn process_nop() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "", 0, 0, 0, 0, "zncv", 0);
+    assert_instructions(&cpu, "", 0, 0, 0, 0, "zncv");
 }
 
 #[test]
 fn process_ora() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "ORA #0", 0, 0, 0, 2, "Zn", 2);
-    assert_instructions(&cpu, "LDA #$80\nORA #$FF", 0xFF, 0, 0, 4, "zN", 4);
+    assert_instructions(&cpu, "ORA #0", 0, 0, 0, 2, "Zn");
+    assert_instructions(&cpu, "LDA #$80\nORA #$FF", 0xFF, 0, 0, 4, "zN");
 }
 
 #[test]
@@ -434,36 +443,36 @@ fn process_pla() {
     assert_that!(cpu.A, eq(0x01));
 
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDA #0\nPHA\nLDA #1\nPLA", 0, 0, 0, 6, "Zn", 11);
+    assert_instructions(&cpu, "LDA #0\nPHA\nLDA #1\nPLA", 0, 0, 0, 6, "Zn",);
 
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDA #$FF\nPHA\nLDA #0\nPLA", 0xFF, 0, 0, 6, "zN", 11);
+    assert_instructions(&cpu, "LDA #$FF\nPHA\nLDA #0\nPLA", 0xFF, 0, 0, 6, "zN",);
 }
 
 #[test]
 fn process_rol() {
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDA #1\nROL A", 2, 0, 0, 3, "nzc", 4);
-    assert_instructions(&cpu, "LDA #$80\nROL A", 0, 0, 0, 3, "nZC", 4);
+    assert_instructions(&cpu, "LDA #1\nROL A", 2, 0, 0, 3, "nzc");
+    assert_instructions(&cpu, "LDA #$80\nROL A", 0, 0, 0, 3, "nZC");
 
     let cpu = build_cpu(0, 0, 0, 0, "C");
-    assert_instructions(&cpu, "ROL A", 1, 0, 0, 1, "nzc", 2);
+    assert_instructions(&cpu, "ROL A", 1, 0, 0, 1, "nzc");
 }
 
 #[test]
 fn process_ror() {
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDA #1\nROR A", 0, 0, 0, 3, "nZC", 4);
-    assert_instructions(&cpu, "LDA #$80\nROR A", 0x40, 0, 0, 3, "nzc", 4);
+    assert_instructions(&cpu, "LDA #1\nROR A", 0, 0, 0, 3, "nZC");
+    assert_instructions(&cpu, "LDA #$80\nROR A", 0x40, 0, 0, 3, "nzc");
 
     let cpu = build_cpu(0, 0, 0, 0, "C");
-    assert_instructions(&cpu, "ROR A", 0x80, 0, 0, 1, "Nzc", 2);
+    assert_instructions(&cpu, "ROR A", 0x80, 0, 0, 1, "Nzc");
 }
 
 #[test]
 fn process_rts() {
     let mut cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "JSR $6\nJMP $7\nRTS", 0, 0, 0, 7, "", 15);
+    assert_instructions(&cpu, "JSR $6\nJMP $7\nRTS", 0, 0, 0, 7, "",);
 
     let mut bus = build_bus("JSR $6\nJMP $7\nRTS");
     run(&mut cpu, &mut bus);
@@ -475,16 +484,16 @@ fn process_rts() {
 fn process_sbc() {
     let cpu = build_cpu(1, 0, 0, 0, "C");
 
-    assert_instructions(&cpu, "SBC #$1", 0, 0, 0, 2, "ZnCv", 2);
+    assert_instructions(&cpu, "SBC #$1", 0, 0, 0, 2, "ZnCv");
 
     let cpu = build_cpu(0, 0, 0, 0, "");
 
     // 0 - 1 = -1 (255), C = 1, V = 1
-    assert_instructions(&cpu, "SEC\nLDA #0\nSBC #1", 255, 0, 0, 5, "zNcV", 5);
+    assert_instructions(&cpu, "SEC\nLDA #0\nSBC #1", 255, 0, 0, 5, "zNcV");
     // -128 - 1 = -129 (127), C = 1, V = 1
-    assert_instructions(&cpu, "SEC\nLDA #$80\nSBC #1", 127, 0, 0, 5, "znCV", 5);
+    assert_instructions(&cpu, "SEC\nLDA #$80\nSBC #1", 127, 0, 0, 5, "znCV");
     // 127 - -1 = 128 (-128), C = 0, V = 1
-    assert_instructions(&cpu, "SEC\nLDA #$7F\nSBC #$FF", -128i8 as u8, 0, 0, 5, "zNcV", 5);
+    assert_instructions(&cpu, "SEC\nLDA #$7F\nSBC #$FF", -128i8 as u8, 0, 0, 5, "zNcV");
 }
 
 #[test]
@@ -536,10 +545,10 @@ fn process_sta() {
     assert_that!(bus.read_byte(0x13), equal_to(0x01));
 
     let cpu = build_cpu(0, 1, 0, 0, "");
-    assert_instructions(&cpu, "LDA #1\nSTA $1234,X", 1, 1, 0, 5, "", 7);
+    assert_instructions(&cpu, "LDA #1\nSTA $1234,X", 1, 1, 0, 5, "");
 
     let cpu = build_cpu(0, 1, 0, 0, "");
-    assert_instructions(&cpu, "LDA #1\nSTA $12,X", 1, 1, 0, 4, "", 6);
+    assert_instructions(&cpu, "LDA #1\nSTA $12,X", 1, 1, 0, 4, "");
 }
 
 #[test]
@@ -565,26 +574,26 @@ fn process_sty() {
 
     // Timing
     let cpu = build_cpu(0, 0, 0, 0, "");
-    assert_instructions(&cpu, "LDY #1\nSTY $1234", 0, 0, 1, 5, "", 6);
-    assert_instructions(&cpu, "LDY #1\nSTY $12", 0, 0, 1, 4, "", 5);
+    assert_instructions(&cpu, "LDY #1\nSTY $1234", 0, 0, 1, 5, "");
+    assert_instructions(&cpu, "LDY #1\nSTY $12", 0, 0, 1, 4, "");
 }
 
 #[test]
 fn process_tax() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "LDA #1\nTAX", 1, 1, 0, 3, "nz", 4);
-    assert_instructions(&cpu, "LDA #0\nTAX", 0, 0, 0, 3, "nZ", 4);
-    assert_instructions(&cpu, "LDA #$FF\nTAX", 0xFF, 0xFF, 0, 3, "Nz", 4);
+    assert_instructions(&cpu, "LDA #1\nTAX", 1, 1, 0, 3, "nz");
+    assert_instructions(&cpu, "LDA #0\nTAX", 0, 0, 0, 3, "nZ");
+    assert_instructions(&cpu, "LDA #$FF\nTAX", 0xFF, 0xFF, 0, 3, "Nz");
 }
 
 #[test]
 fn process_txa() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "LDX #1\nTXA", 1, 1, 0, 3, "nz", 4);
-    assert_instructions(&cpu, "LDX #0\nTXA", 0, 0, 0, 3, "nZ", 4);
-    assert_instructions(&cpu, "LDX #$FF\nTXA", 0xFF, 0xFF, 0, 3, "Nz", 4);
+    assert_instructions(&cpu, "LDX #1\nTXA", 1, 1, 0, 3, "nz");
+    assert_instructions(&cpu, "LDX #0\nTXA", 0, 0, 0, 3, "nZ");
+    assert_instructions(&cpu, "LDX #$FF\nTXA", 0xFF, 0xFF, 0, 3, "Nz");
 }
 
 #[test]
@@ -602,7 +611,7 @@ fn process_txs() {
 fn process_tsx() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "TSX", 0, 0xFF, 0, 1, "Nz", 2);
+    assert_instructions(&cpu, "TSX", 0, 0xFF, 0, 1, "Nz");
 }
 
 fn assert_address<Bus: BusTrait>(cpu: &Cpu, bus: &mut Bus, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
@@ -652,18 +661,16 @@ fn assert_flag(status: bool, flag: char) {
     assert_that!(status, is(flag.is_uppercase()));
 }
 
-fn assert_instructions(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
+fn assert_instructions(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str) {
     let cpu = &mut cpu.clone();
 
-    let total_cycles = process_source(cpu, source);
-    println!("Cycles: {}", total_cycles);
+    let _total_cycles = process_source(cpu, source);
 
     assert_that!(cpu.A, eq(a));
     assert_that!(cpu.X, eq(x));
     assert_that!(cpu.Y, eq(y));
     assert_that!(cpu.PC, eq(pc));
     assert_status(cpu.status.clone(), expected_status);
-    assert_that!(total_cycles, eq(expected_cycles));
 }
 
 fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {

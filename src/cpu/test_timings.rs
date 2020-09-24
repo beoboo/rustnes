@@ -79,6 +79,15 @@ fn process_and() {
     assert_instruction_with_page_cross("AND ($44),Y", 0, 0xFF, 0x31, 2, 6);
 }
 
+#[test]
+fn process_asl() {
+    assert_instruction("ASL A", 0x0A, 1, 2);
+    assert_instruction("ASL $44", 0x06, 2, 5);
+    assert_instruction("ASL $44,X", 0x16, 2, 6);
+    assert_instruction("ASL $4400", 0x0E, 3, 6);
+    assert_instruction("ASL $4400,X", 0x1E, 3, 7);
+}
+
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
     let mut bus = MockBus::new();

@@ -14,10 +14,15 @@ impl InstructionsMap {
     pub fn find(&self, op_id: Byte) -> Instruction {
         match &op_id {
             0x00 => Instruction::new(OpCode::BRK, AddressingMode::Implied, 1),
+            0x06 => Instruction::new(OpCode::ASL, AddressingMode::ZeroPage, 5),
             0x09 => Instruction::new(OpCode::ORA, AddressingMode::Immediate, 2),
+            0x0A => Instruction::new(OpCode::ASL, AddressingMode::Accumulator, 2),
             0x0D => Instruction::new(OpCode::ORA, AddressingMode::Absolute, 4),
+            0x0E => Instruction::new(OpCode::ASL, AddressingMode::Absolute, 6),
             0x10 => Instruction::new(OpCode::BPL, AddressingMode::Relative, 2),
+            0x16 => Instruction::new(OpCode::ASL, AddressingMode::ZeroPageX, 6),
             0x18 => Instruction::new(OpCode::CLC, AddressingMode::Implied, 1),
+            0x1E => Instruction::new(OpCode::ASL, AddressingMode::AbsoluteX, 7),
             0x20 => Instruction::new(OpCode::JSR, AddressingMode::Absolute, 6),
             0x21 => Instruction::new(OpCode::AND, AddressingMode::IndirectIndexedX, 6),
             0x25 => Instruction::new(OpCode::AND, AddressingMode::ZeroPage, 3),

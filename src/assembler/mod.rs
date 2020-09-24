@@ -90,7 +90,7 @@ impl Assembler {
                         }
                         _ => return _report_error(format!("[Assembler::keyword] Expected 'A' for accumulator address"))
                     }
-                },
+                }
                 TokenType::Address(mode, address) => {
                     println!("{:?}", mode);
                     let mode = if instruction.relative { AddressingMode::Relative } else { mode };
@@ -154,6 +154,7 @@ fn _report_error<S: Into<String>, T>(err: S) -> Result<T, Error> {
 
 #[cfg(test)]
 mod tests {
+    use hamcrest2::core::*;
     use hamcrest2::prelude::*;
 
     use crate::parser::Parser;

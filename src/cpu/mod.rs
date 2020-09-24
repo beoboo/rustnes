@@ -119,6 +119,7 @@ impl Cpu {
         cycles += match instruction.op_code {
             OpCode::ADC => self.adc(address),
             OpCode::AND => self.and(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::ASL => self.asl(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::BCC => self.bcc(address),
             OpCode::BCS => self.bcs(address),
             OpCode::BEQ => self.beq(address),
@@ -309,6 +310,15 @@ impl Cpu {
         0
     }
 
+    fn asl(&mut self, operand: Byte) -> usize {
+        self.status.C = operand & 0x80 == 0x80;
+        self.A = operand << 1;
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
+
+        0
+    }
+
     fn bcc(&mut self, address: Word) -> usize {
         self._test(!self.status.C, address)
     }
@@ -400,7 +410,7 @@ impl Cpu {
         self.status.N = (register as SignedByte) < 0;
     }
 
-    fn dec<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus, addressing_mode: &AddressingMode) -> usize {
+    fn dec<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus, _addressing_mode: &AddressingMode) -> usize {
         let data = bus.read_byte(address) as SignedWord - 1;
         let data = data as Byte;
         bus.write_byte(address, data);
@@ -431,7 +441,7 @@ impl Cpu {
         0
     }
 
-    fn inc<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus, addressing_mode: &AddressingMode) -> usize {
+    fn inc<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus, _addressing_mode: &AddressingMode) -> usize {
         let data = bus.read_byte(address) as Word + 1;
         let data = data as Byte;
         bus.write_byte(address, data);

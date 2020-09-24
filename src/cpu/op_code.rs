@@ -2,6 +2,7 @@
 pub enum OpCode {
     ADC,
     AND,
+    ASL,
     BCC,
     BCS,
     BEQ,
