@@ -3,53 +3,23 @@ use crate::bus::Bus as BusTrait;
 use crate::cpu::instructions_map::InstructionsMap;
 use crate::cpu::op_code::OpCode;
 use crate::types::*;
+use crate::cpu::status::Status;
 
 mod instruction;
 mod instructions_map;
 mod op_code;
+mod status;
 
 #[cfg(test)]
 mod test_execution;
 #[cfg(test)]
 mod test_timings;
+#[cfg(test)]
+mod test_status;
 
 
 fn bool_to_byte(flag: bool) -> Byte {
     if flag { 1 } else { 0 }
-}
-
-#[allow(non_snake_case)]
-#[derive(Clone, Debug)]
-pub struct CpuStatus {
-    // Carry
-    C: bool,
-    // Zero
-    Z: bool,
-    // Enable/Disable Interrupts
-    I: bool,
-    // Decimal Mode
-    D: bool,
-    // Break
-    B: bool,
-    // Unused
-    U: bool,
-    // Overflow
-    V: bool,
-    // Negative
-    N: bool,
-}
-
-impl CpuStatus {
-    pub fn reset(&mut self) {
-        self.C = false;
-        self.Z = false;
-        self.I = false;
-        self.D = false;
-        self.B = false;
-        self.U = false;
-        self.V = false;
-        self.N = false;
-    }
 }
 
 #[allow(non_snake_case)]
@@ -66,7 +36,7 @@ pub struct Cpu {
     // Stack pointer
     SP: Byte,
     // Status
-    status: CpuStatus,
+    status: Status,
     instructions_map: InstructionsMap,
 }
 
@@ -78,7 +48,7 @@ impl Cpu {
             Y: 0,
             SP: 0xFF,
             PC: start_pc,
-            status: CpuStatus {
+            status: Status {
                 C: false,
                 Z: false,
                 I: false,
@@ -153,9 +123,12 @@ impl Cpu {
             OpCode::NOP => self.nop(),
             OpCode::ORA => self.ora(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::PHA => self.pha(bus),
+            OpCode::PHP => self.php(bus),
             OpCode::PLA => self.pla(bus),
-            OpCode::ROL => self.rol(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::PLP => self.plp(bus),
+            OpCode::ROL  => self.rol(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::ROR => self.ror(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::RTI => self.rti(bus),
             OpCode::RTS => self.rts(bus),
             OpCode::SBC => self.sbc(address),
             OpCode::SEC => self.sec(),
@@ -164,10 +137,12 @@ impl Cpu {
             OpCode::STA => self.sta(address, bus),
             OpCode::STX => self.stx(address, bus),
             OpCode::STY => self.sty(address, bus),
+            OpCode::TAX => self.tax(),
+            OpCode::TAY => self.tay(),
             OpCode::TXA => self.txa(),
+            OpCode::TYA => self.tya(),
             OpCode::TXS => self.txs(),
             OpCode::TSX => self.tsx(),
-            OpCode::TAX => self.tax(),
         };
         self.debug();
 
@@ -279,6 +254,11 @@ impl Cpu {
                 self.PC += 1;
                 address as Word
             }
+            AddressingMode::ZeroPageY => {
+                let address = bus.read_byte(self.PC) + self.Y;
+                self.PC += 1;
+                address as Word
+            }
             _ => panic!(format!("[Cpu::fetch_address] Unexpected addressing mode: {:?}", addressing_mode))
         };
 
@@ -288,11 +268,12 @@ impl Cpu {
 
     fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &Bus, addressing_mode: &AddressingMode) -> Byte {
         let operand = match addressing_mode {
+            AddressingMode::Implied => 0,
             AddressingMode::Accumulator | AddressingMode::Immediate => operand as Byte,
             AddressingMode::Absolute |
             AddressingMode::AbsoluteX | AddressingMode::AbsoluteY |
             AddressingMode::YIndexedIndirect | AddressingMode::IndirectIndexedX |
-            AddressingMode::ZeroPage | AddressingMode::ZeroPageX
+            AddressingMode::ZeroPage | AddressingMode::ZeroPageX | AddressingMode::ZeroPageY
             => bus.read_byte(operand),
             _ => panic!(format!("[Cpu::read_operand] Unexpected addressing mode: {:?}", addressing_mode)),
         };
@@ -585,11 +566,25 @@ impl Cpu {
         0
     }
 
+    fn php<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
+        bus.write_byte((self.SP as Word) | 0x0100, self.status.to_byte());
+        self.SP -= 1;
+
+        0
+    }
+
     fn pla<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
-        self.SP += 1;
+        self.SP = self.SP.wrapping_add(1);
         self.A = bus.read_byte((self.SP as Word) | 0x0100);
         self.status.Z = self.A == 0x00;
         self.status.N = (self.A as SignedByte) < 0;
+
+        0
+    }
+
+    fn plp<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
+        self.SP = self.SP.wrapping_add(1);
+        self.status = Status::from_byte(bus.read_byte((self.SP as Word) | 0x0100));
 
         0
     }
@@ -613,9 +608,17 @@ impl Cpu {
         0
     }
 
+    fn rti<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
+        self.status = Status::from_byte(bus.read_byte(self.SP as Word + 1));
+        self.PC = bus.read_word(self.SP as Word + 2 | 0x0100) + 1;
+        self.SP = self.SP.wrapping_add(3);
+
+        0
+    }
+
     fn rts<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
-        self.SP += 2;
-        self.PC = bus.read_word(self.SP as Word - 1 | 0x0100) + 1;
+        self.PC = bus.read_word(self.SP as Word + 1 | 0x0100) + 1;
+        self.SP = self.SP.wrapping_add(2);
 
         0
     }
@@ -679,6 +682,22 @@ impl Cpu {
         0
     }
 
+    fn tay(&mut self) -> usize {
+        self.Y = self.A;
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
+
+        0
+    }
+
+    fn tsx(&mut self) -> usize {
+        self.X = self.SP;
+        self.status.Z = self.X == 0x00;
+        self.status.N = (self.X as SignedByte) < 0;
+
+        0
+    }
+
     fn txa(&mut self) -> usize {
         self.A = self.X;
         self.status.Z = self.A == 0x00;
@@ -693,10 +712,10 @@ impl Cpu {
         0
     }
 
-    fn tsx(&mut self) -> usize {
-        self.X = self.SP;
-        self.status.Z = self.X == 0x00;
-        self.status.N = (self.X as SignedByte) < 0;
+    fn tya(&mut self) -> usize {
+        self.A = self.Y;
+        self.status.Z = self.A == 0x00;
+        self.status.N = (self.A as SignedByte) < 0;
 
         0
     }

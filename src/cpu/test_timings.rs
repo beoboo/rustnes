@@ -197,6 +197,186 @@ fn process_flags() {
     assert_instruction("SED", 0xF8, 1, 2);
 }
 
+#[test]
+fn process_inc() {
+    assert_instruction("INC $44", 0xE6, 2, 5);
+    assert_instruction("INC $44,X", 0xF6, 2, 6);
+    assert_instruction("INC $4400", 0xEE, 3, 6);
+    assert_instruction("INC $4400,X", 0xFE, 3, 7);
+}
+
+#[test]
+fn process_jmp() {
+    assert_instruction("JMP $5597", 0x4C, 3, 3);
+    assert_instruction("JMP ($5597)", 0x6C, 3, 5);
+}
+
+#[test]
+fn process_jsr() {
+    assert_instruction("JSR $5597", 0x20, 3, 6);
+}
+
+#[test]
+fn process_lda() {
+    assert_instruction("LDA #$44", 0xA9, 2, 2);
+    assert_instruction("LDA $44", 0xA5, 2, 3);
+    assert_instruction("LDA $44,X", 0xB5, 2, 4);
+    assert_instruction("LDA $4400", 0xAD, 3, 4);
+    assert_instruction("LDA $4400,X", 0xBD, 3, 4);
+    assert_instruction("LDA $4400,Y", 0xB9, 3, 4);
+    assert_instruction("LDA ($44,X)", 0xA1, 2, 6);
+    assert_instruction("LDA ($44),Y", 0xB1, 2, 5);
+
+    assert_instruction_with_page_cross("LDA $44FF,X", 0xFF, 0, 0xBD, 3, 5);
+    assert_instruction_with_page_cross("LDA $44FF,Y", 0, 0xFF, 0xB9, 3, 5);
+    assert_instruction_with_page_cross("LDA ($44),Y", 0, 0xFF, 0xB1, 2, 6);
+}
+
+#[test]
+fn process_ldx() {
+    assert_instruction("LDX #$44", 0xA2, 2, 2);
+    assert_instruction("LDX $44", 0xA6, 2, 3);
+    assert_instruction("LDX $44,Y", 0xB6, 2, 4);
+    assert_instruction("LDX $4400", 0xAE, 3, 4);
+    assert_instruction("LDX $4400,Y", 0xBE, 3, 4);
+
+    assert_instruction_with_page_cross("LDX $44FF,Y", 0, 0xFF, 0xBE, 3, 5);
+}
+
+#[test]
+fn process_ldy() {
+    assert_instruction("LDY #$44", 0xA0, 2, 2);
+    assert_instruction("LDY $44", 0xA4, 2, 3);
+    assert_instruction("LDY $44,X", 0xB4, 2, 4);
+    assert_instruction("LDY $4400", 0xAC, 3, 4);
+    assert_instruction("LDY $4400,X", 0xBC, 3, 4);
+
+    assert_instruction_with_page_cross("LDY $44FF,X", 0xFF, 0, 0xBC, 3, 5);
+}
+
+#[test]
+fn process_lsr() {
+    assert_instruction("LSR A", 0x4A, 1, 2);
+    assert_instruction("LSR $44", 0x46, 2, 5);
+    assert_instruction("LSR $44,X", 0x56, 2, 6);
+    assert_instruction("LSR $4400", 0x4E, 3, 6);
+    assert_instruction("LSR $4400,X", 0x5E, 3, 7);
+    //
+    // assert_instruction_with_page_cross("LSR $44FF,X", 0xFF, 0, 0x5E, 3, 8);
+}
+
+#[test]
+fn process_nop() {
+    assert_instruction("NOP", 0xEA, 1, 2);
+}
+
+#[test]
+fn process_ora() {
+    assert_instruction("ORA #$44", 0x09, 2, 2);
+    assert_instruction("ORA $44", 0x05, 2, 3);
+    assert_instruction("ORA $44,X", 0x15, 2, 4);
+    assert_instruction("ORA $4400", 0x0D, 3, 4);
+    assert_instruction("ORA $4400,X", 0x1D, 3, 4);
+    assert_instruction("ORA $4400,Y", 0x19, 3, 4);
+    assert_instruction("ORA ($44,X)", 0x01, 2, 6);
+    assert_instruction("ORA ($44),Y", 0x11, 2, 5);
+
+    assert_instruction_with_page_cross("ORA $44FF,X", 0xFF, 0, 0x1D, 3, 5);
+    assert_instruction_with_page_cross("ORA $44FF,Y", 0, 0xFF, 0x19, 3, 5);
+    assert_instruction_with_page_cross("ORA ($44),Y", 0, 0xFF, 0x11, 2, 6);
+}
+
+#[test]
+fn process_register() {
+    assert_instruction("TAX", 0xAA, 1, 2);
+    assert_instruction("TXA", 0x8A, 1, 2);
+    assert_instruction("DEX", 0xCA, 1, 2);
+    assert_instruction("INX", 0xE8, 1, 2);
+    assert_instruction("TAY", 0xA8, 1, 2);
+    assert_instruction("TYA", 0x98, 1, 2);
+    assert_instruction("DEY", 0x88, 1, 2);
+    assert_instruction("INY", 0xC8, 1, 2);
+}
+
+#[test]
+fn process_rol() {
+    assert_instruction("ROL A", 0x2A, 1, 2);
+    assert_instruction("ROL $44", 0x26, 2, 5);
+    assert_instruction("ROL $44,X", 0x36, 2, 6);
+    assert_instruction("ROL $4400", 0x2E, 3, 6);
+    assert_instruction("ROL $4400,X", 0x3E, 3, 7);
+}
+
+#[test]
+fn process_ror() {
+    assert_instruction("ROR A", 0x6A, 1, 2);
+    assert_instruction("ROR $44", 0x66, 2, 5);
+    assert_instruction("ROR $44,X", 0x76, 2, 6);
+    assert_instruction("ROR $4400", 0x6E, 3, 6);
+    assert_instruction("ROR $4400,X", 0x7E, 3, 7);
+}
+
+#[test]
+fn process_rti() {
+    assert_instruction("RTI", 0x40, 1, 6);
+}
+
+#[test]
+fn process_rts() {
+    assert_instruction("RTS", 0x60, 1, 6);
+}
+
+#[test]
+fn process_sbc() {
+    assert_instruction("SBC #$44", 0xE9, 2, 2);
+    assert_instruction("SBC $44", 0xE5, 2, 3);
+    assert_instruction("SBC $44,X", 0xF5, 2, 4);
+    assert_instruction("SBC $4400", 0xED, 3, 4);
+    assert_instruction("SBC $4400,X", 0xFD, 3, 4);
+    assert_instruction("SBC $4400,Y", 0xF9, 3, 4);
+    assert_instruction("SBC ($44,X)", 0xE1, 2, 6);
+    assert_instruction("SBC ($44),Y", 0xF1, 2, 5);
+
+    assert_instruction_with_page_cross("SBC $44FF,X", 0xFF, 0, 0xFD, 3, 5);
+    assert_instruction_with_page_cross("SBC $44FF,Y", 0, 0xFF, 0xF9, 3, 5);
+    assert_instruction_with_page_cross("SBC ($44),Y", 0, 0xFF, 0xF1, 2, 6);
+}
+
+#[test]
+fn process_sta() {
+    assert_instruction("STA $44", 0x85, 2, 3);
+    assert_instruction("STA $44,X", 0x95, 2, 4);
+    assert_instruction("STA $4400", 0x8D, 3, 4);
+    assert_instruction("STA $4400,X", 0x9D, 3, 5);
+    assert_instruction("STA $4400,Y", 0x99, 3, 5);
+    assert_instruction("STA ($44,X)", 0x81, 2, 6);
+    assert_instruction("STA ($44),Y", 0x91, 2, 6);
+}
+
+#[test]
+fn process_stacks() {
+    assert_instruction("TXS", 0x9A, 1, 2);
+    assert_instruction("TSX", 0xBA, 1, 2);
+    assert_instruction("PHA", 0x48, 1, 3);
+    assert_instruction("PLA", 0x68, 1, 4);
+    assert_instruction("PHP", 0x08, 1, 3);
+    assert_instruction("PLP", 0x28, 1, 4);
+}
+
+#[test]
+fn process_stx() {
+    assert_instruction("STX $44", 0x86, 2, 3);
+    assert_instruction("STX $44,Y", 0x96, 2, 4);
+    assert_instruction("STX $4400", 0x8E, 3, 4);
+}
+
+#[test]
+fn process_sty() {
+    assert_instruction("STY $44", 0x84, 2, 3);
+    assert_instruction("STY $44,X", 0x94, 2, 4);
+    assert_instruction("STY $4400", 0x8C, 3, 4);
+}
+
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
     let mut bus = MockBus::new();
@@ -216,7 +396,7 @@ fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usi
 
 fn assert_branch(source: &str, status: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
-    cpu.status = build_status(status);
+    cpu.status = Status::from_string(status);
 
     let mut bus = MockBus::new();
 
@@ -237,7 +417,7 @@ fn assert_branch(source: &str, status: &str, expected_op_code: Byte, expected_le
 fn assert_branch_with_page_cross(source: &str, pc: Word, status: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
     cpu.PC = pc;
-    cpu.status = build_status(status);
+    cpu.status = Status::from_string(status);
 
     let mut bus = MockBus::new();
 
@@ -291,19 +471,3 @@ fn build_program(source: &str) -> Vec<Byte> {
     program.data
 }
 
-fn build_status(flags: &str) -> CpuStatus {
-    CpuStatus {
-        C: build_status_flag(flags, 'C'),
-        Z: build_status_flag(flags, 'Z'),
-        I: build_status_flag(flags, 'I'),
-        D: build_status_flag(flags, 'D'),
-        B: build_status_flag(flags, 'B'),
-        U: build_status_flag(flags, 'U'),
-        V: build_status_flag(flags, 'V'),
-        N: build_status_flag(flags, 'N'),
-    }
-}
-
-fn build_status_flag(flags: &str, flag: char) -> bool {
-    flags.contains(flag)
-}

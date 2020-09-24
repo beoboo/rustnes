@@ -112,45 +112,129 @@ impl AddressingModeMap {
         insert(&mut map, "SED", true, false, AddressingMode::Implied, 0xF8);
         insert(&mut map, "SEI", true, false, AddressingMode::Implied, 0x78);
 
-        insert(&mut map, "DEX", true, false, AddressingMode::Implied, 0xCA);
-        insert(&mut map, "DEY", true, false, AddressingMode::Implied, 0x88);
+        // INC
         insert(&mut map, "INC", false, false, AddressingMode::ZeroPage, 0xE6);
+        insert(&mut map, "INC", false, false, AddressingMode::ZeroPageX, 0xF6);
         insert(&mut map, "INC", false, false, AddressingMode::Absolute, 0xEE);
-        insert(&mut map, "INX", true, false, AddressingMode::Implied, 0xE8);
-        insert(&mut map, "INY", true, false, AddressingMode::Implied, 0xC8);
+        insert(&mut map, "INC", false, false, AddressingMode::AbsoluteX, 0xFE);
+
+        // JMP
         insert(&mut map, "JMP", false, false, AddressingMode::Absolute, 0x4C);
         insert(&mut map, "JMP", false, false, AddressingMode::Indirect, 0x6C);
+
+        // JSR
         insert(&mut map, "JSR", false, false, AddressingMode::Absolute, 0x20);
+
+        // LDA
+        insert(&mut map, "LDA", false, false, AddressingMode::Immediate, 0xA9);
+        insert(&mut map, "LDA", false, false, AddressingMode::ZeroPage, 0xA5);
+        insert(&mut map, "LDA", false, false, AddressingMode::ZeroPageX, 0xB5);
         insert(&mut map, "LDA", false, false, AddressingMode::Absolute, 0xAD);
         insert(&mut map, "LDA", false, false, AddressingMode::AbsoluteX, 0xBD);
-        insert(&mut map, "LDA", false, false, AddressingMode::Immediate, 0xA9);
+        insert(&mut map, "LDA", false, false, AddressingMode::AbsoluteY, 0xB9);
+        insert(&mut map, "LDA", false, false, AddressingMode::IndirectIndexedX, 0xA1);
         insert(&mut map, "LDA", false, false, AddressingMode::YIndexedIndirect, 0xB1);
-        insert(&mut map, "LDA", false, false, AddressingMode::ZeroPage, 0xA5);
+
+        // LDX
         insert(&mut map, "LDX", false, false, AddressingMode::Immediate, 0xA2);
         insert(&mut map, "LDX", false, false, AddressingMode::ZeroPage, 0xA6);
+        insert(&mut map, "LDX", false, false, AddressingMode::ZeroPageY, 0xB6);
+        insert(&mut map, "LDX", false, false, AddressingMode::Absolute, 0xAE);
+        insert(&mut map, "LDX", false, false, AddressingMode::AbsoluteY, 0xBE);
+
+        // LDY
         insert(&mut map, "LDY", false, false, AddressingMode::Immediate, 0xA0);
+        insert(&mut map, "LDY", false, false, AddressingMode::ZeroPage, 0xA4);
+        insert(&mut map, "LDY", false, false, AddressingMode::ZeroPageX, 0xB4);
+        insert(&mut map, "LDY", false, false, AddressingMode::Absolute, 0xAC);
+        insert(&mut map, "LDY", false, false, AddressingMode::AbsoluteX, 0xBC);
+
+        // LSR
         insert(&mut map, "LSR", false, false, AddressingMode::Accumulator, 0x4A);
+        insert(&mut map, "LSR", false, false, AddressingMode::ZeroPage, 0x46);
+        insert(&mut map, "LSR", false, false, AddressingMode::ZeroPageX, 0x56);
+        insert(&mut map, "LSR", false, false, AddressingMode::Absolute, 0x4E);
+        insert(&mut map, "LSR", false, false, AddressingMode::AbsoluteX, 0x5E);
+
+        // NOP
+        insert(&mut map, "NOP", true, false, AddressingMode::Implied, 0xEA);
+
+        // ORA
         insert(&mut map, "ORA", false, false, AddressingMode::Immediate, 0x09);
-        insert(&mut map, "ORA", false, false, AddressingMode::ZeroPage, 0x0D);
-        insert(&mut map, "PHA", true, false, AddressingMode::Implied, 0x48);
-        insert(&mut map, "PLA", true, false, AddressingMode::Implied, 0x68);
+        insert(&mut map, "ORA", false, false, AddressingMode::ZeroPage, 0x05);
+        insert(&mut map, "ORA", false, false, AddressingMode::ZeroPageX, 0x15);
+        insert(&mut map, "ORA", false, false, AddressingMode::Absolute, 0x0D);
+        insert(&mut map, "ORA", false, false, AddressingMode::AbsoluteX, 0x1D);
+        insert(&mut map, "ORA", false, false, AddressingMode::AbsoluteY, 0x19);
+        insert(&mut map, "ORA", false, false, AddressingMode::IndirectIndexedX, 0x01);
+        insert(&mut map, "ORA", false, false, AddressingMode::YIndexedIndirect, 0x11);
+
+        // Registers
+        insert(&mut map, "TAX", true, false, AddressingMode::Implied, 0xAA);
+        insert(&mut map, "TXA", true, false, AddressingMode::Implied, 0x8A);
+        insert(&mut map, "DEX", true, false, AddressingMode::Implied, 0xCA);
+        insert(&mut map, "INX", true, false, AddressingMode::Implied, 0xE8);
+        insert(&mut map, "TAY", true, false, AddressingMode::Implied, 0xA8);
+        insert(&mut map, "TYA", true, false, AddressingMode::Implied, 0x98);
+        insert(&mut map, "DEY", true, false, AddressingMode::Implied, 0x88);
+        insert(&mut map, "INY", true, false, AddressingMode::Implied, 0xC8);
+
+        // ROL
         insert(&mut map, "ROL", false, false, AddressingMode::Accumulator, 0x2A);
+        insert(&mut map, "ROL", false, false, AddressingMode::ZeroPage, 0x26);
+        insert(&mut map, "ROL", false, false, AddressingMode::ZeroPageX, 0x36);
+        insert(&mut map, "ROL", false, false, AddressingMode::Absolute, 0x2E);
+        insert(&mut map, "ROL", false, false, AddressingMode::AbsoluteX, 0x3E);
+
+        // ROR
         insert(&mut map, "ROR", false, false, AddressingMode::Accumulator, 0x6A);
+        insert(&mut map, "ROR", false, false, AddressingMode::ZeroPage, 0x66);
+        insert(&mut map, "ROR", false, false, AddressingMode::ZeroPageX, 0x76);
+        insert(&mut map, "ROR", false, false, AddressingMode::Absolute, 0x6E);
+        insert(&mut map, "ROR", false, false, AddressingMode::AbsoluteX, 0x7E);
+
+        // RTI
+        insert(&mut map, "RTI", true, false, AddressingMode::Implied, 0x40);
+
+        // RTS
         insert(&mut map, "RTS", true, false, AddressingMode::Implied, 0x60);
+
+        // SBC
         insert(&mut map, "SBC", false, false, AddressingMode::Immediate, 0xE9);
+        insert(&mut map, "SBC", false, false, AddressingMode::ZeroPage, 0xE5);
         insert(&mut map, "SBC", false, false, AddressingMode::ZeroPageX, 0xF5);
-        insert(&mut map, "STA", false, false, AddressingMode::Absolute, 0x8D);
-        insert(&mut map, "STA", false, false, AddressingMode::AbsoluteX, 0x9D);
+        insert(&mut map, "SBC", false, false, AddressingMode::Absolute, 0xED);
+        insert(&mut map, "SBC", false, false, AddressingMode::AbsoluteX, 0xFD);
+        insert(&mut map, "SBC", false, false, AddressingMode::AbsoluteY, 0xF9);
+        insert(&mut map, "SBC", false, false, AddressingMode::IndirectIndexedX, 0xE1);
+        insert(&mut map, "SBC", false, false, AddressingMode::YIndexedIndirect, 0xF1);
+
+        // STA
         insert(&mut map, "STA", false, false, AddressingMode::ZeroPage, 0x85);
         insert(&mut map, "STA", false, false, AddressingMode::ZeroPageX, 0x95);
-        insert(&mut map, "STX", false, false, AddressingMode::Absolute, 0x8E);
-        insert(&mut map, "STX", false, false, AddressingMode::ZeroPage, 0x86);
-        insert(&mut map, "STY", false, false, AddressingMode::Absolute, 0x8C);
-        insert(&mut map, "STY", false, false, AddressingMode::ZeroPage, 0x84);
-        insert(&mut map, "TAX", true, false, AddressingMode::Implied, 0xAA);
-        insert(&mut map, "TXA", true, false, AddressingMode::Implied, 0x98);
-        insert(&mut map, "TSX", true, false, AddressingMode::Implied, 0xBA);
+        insert(&mut map, "STA", false, false, AddressingMode::Absolute, 0x8D);
+        insert(&mut map, "STA", false, false, AddressingMode::AbsoluteX, 0x9D);
+        insert(&mut map, "STA", false, false, AddressingMode::AbsoluteY, 0x99);
+        insert(&mut map, "STA", false, false, AddressingMode::IndirectIndexedX, 0x81);
+        insert(&mut map, "STA", false, false, AddressingMode::YIndexedIndirect, 0x91);
+
+        // Stack instructions
         insert(&mut map, "TXS", true, false, AddressingMode::Implied, 0x9A);
+        insert(&mut map, "TSX", true, false, AddressingMode::Implied, 0xBA);
+        insert(&mut map, "PHA", true, false, AddressingMode::Implied, 0x48);
+        insert(&mut map, "PLA", true, false, AddressingMode::Implied, 0x68);
+        insert(&mut map, "PHP", true, false, AddressingMode::Implied, 0x08);
+        insert(&mut map, "PLP", true, false, AddressingMode::Implied, 0x28);
+
+        // STX
+        insert(&mut map, "STX", false, false, AddressingMode::ZeroPage, 0x86);
+        insert(&mut map, "STX", false, false, AddressingMode::ZeroPageY, 0x96);
+        insert(&mut map, "STX", false, false, AddressingMode::Absolute, 0x8E);
+
+        // STY
+        insert(&mut map, "STY", false, false, AddressingMode::ZeroPage, 0x84);
+        insert(&mut map, "STY", false, false, AddressingMode::ZeroPageX, 0x94);
+        insert(&mut map, "STY", false, false, AddressingMode::Absolute, 0x8C);
 
         AddressingModeMap {
             map
@@ -169,6 +253,7 @@ impl AddressingModeMap {
 
 #[cfg(test)]
 mod tests {
+    use hamcrest2::core::*;
     use hamcrest2::prelude::*;
 
     use super::*;

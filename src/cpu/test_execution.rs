@@ -379,35 +379,6 @@ fn process_lda() {
     assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN");
     assert_instructions(&cpu, "LDA #255", 0xFF, 0, 0, 2, "zN");
     assert_instructions(&cpu, "LDA #$FF\nSTA $1234\nLDA $1234", 0xFF, 0, 0, 8, "zN",);
-
-    // Absolute
-    let mut bus = build_bus("LDA $8001");
-    bus.write_byte(0x8001, 123);
-
-    assert_address(&cpu, &mut bus, 123, 0, 0, 3, "", 4);
-
-    // Absolute, X
-    let cpu = build_cpu(0, 1, 0, 0, "");
-    let mut bus = build_bus("LDA $0001,X");
-    bus.write_byte(0x0001, 0x00);
-    bus.write_byte(0x0002, 0x80);
-    bus.write_byte(0x8001, 123);
-    assert_address(&cpu, &mut bus, 123, 1, 0, 3, "", 4);
-
-    // Indirect, Y
-    let cpu = build_cpu(0, 0, 1, 0, "");
-    let mut bus = build_bus("LDA ($1F),Y");
-    bus.write_word(0x20, 0x0022);
-    bus.write_byte(0x22, 123);
-
-    assert_address(&cpu, &mut bus, 123, 0, 1, 2, "", 5);
-
-    // Zeropage
-    let cpu = build_cpu(0, 0, 0, 0, "");
-    let mut bus = build_bus("LDA $1F");
-    bus.write_byte(0x1F, 123);
-
-    assert_address(&cpu, &mut bus, 123, 0, 0, 2, "", 3);
 }
 
 #[test]
@@ -464,6 +435,16 @@ fn process_pha() {
 }
 
 #[test]
+fn process_php() {
+    let mut cpu = build_cpu(0, 0, 0, 0, "CZIDBUVN");
+    let mut bus = build_bus("PHP");
+    run(&mut cpu, &mut bus);
+
+    assert_that!(cpu.SP, eq(0xFE));
+    assert_that!(bus.read_byte(0x01FF), eq(0xFF));
+}
+
+#[test]
 fn process_pla() {
     let mut cpu = build_cpu(0, 0, 0, 0, "");
 
@@ -479,6 +460,19 @@ fn process_pla() {
 
     let cpu = build_cpu(0, 0, 0, 0, "");
     assert_instructions(&cpu, "LDA #$FF\nPHA\nLDA #0\nPLA", 0xFF, 0, 0, 6, "zN",);
+}
+
+#[test]
+fn process_plp() {
+    let mut cpu = build_cpu(0, 0, 0, 0, "");
+    cpu.SP = 0xFE;
+
+    let mut bus = build_bus("PLP");
+    bus.write_byte(0x01FF, 0xFF);
+    run(&mut cpu, &mut bus);
+
+    assert_that!(cpu.SP, eq(0xFF));
+    assert_status(cpu.status, "CZIDBUVN");
 }
 
 #[test]
@@ -499,6 +493,21 @@ fn process_ror() {
 
     let cpu = build_cpu(0, 0, 0, 0, "C");
     assert_instructions(&cpu, "ROR A", 0x80, 0, 0, 1, "Nzc");
+}
+
+#[test]
+fn process_rti() {
+    let mut cpu = build_cpu(0, 0, 0, 0, "");
+    cpu.SP = 0xFC;
+
+    let mut bus = build_bus("RTI");
+    bus.write_word(0xFE, 0x0001); // PC
+    bus.write_byte(0xFD, 0xFF); // Status
+    run(&mut cpu, &mut bus);
+
+    assert_that!(cpu.SP, eq(0xFF));
+    assert_that!(cpu.PC, eq(0x0001));
+    assert_status(cpu.status, "CZIDBUVN");
 }
 
 #[test]
@@ -620,6 +629,22 @@ fn process_tax() {
 }
 
 #[test]
+fn process_tay() {
+    let cpu = build_cpu(0, 0, 0, 0, "");
+
+    assert_instructions(&cpu, "LDA #1\nTAY", 1, 0, 1, 3, "nz");
+    assert_instructions(&cpu, "LDA #0\nTAY", 0, 0, 0, 3, "nZ");
+    assert_instructions(&cpu, "LDA #$FF\nTAY", 0xFF, 0, 0xFF, 3, "Nz");
+}
+
+#[test]
+fn process_tsx() {
+    let cpu = build_cpu(0, 0, 0, 0, "");
+
+    assert_instructions(&cpu, "TSX", 0, 0xFF, 0, 1, "Nz");
+}
+
+#[test]
 fn process_txa() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
@@ -640,10 +665,12 @@ fn process_txs() {
 }
 
 #[test]
-fn process_tsx() {
+fn process_tya() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "TSX", 0, 0xFF, 0, 1, "Nz");
+    assert_instructions(&cpu, "LDY #1\nTYA", 1, 0, 1, 3, "nz");
+    assert_instructions(&cpu, "LDY #0\nTYA", 0, 0, 0, 3, "nZ");
+    assert_instructions(&cpu, "LDY #$FF\nTYA", 0xFF, 0, 0xFF, 3, "Nz");
 }
 
 fn assert_address<Bus: BusTrait>(cpu: &Cpu, bus: &mut Bus, a: Byte, x: Byte, y: Byte, pc: Word, expected_status: &str, expected_cycles: usize) {
@@ -672,7 +699,7 @@ fn assert_registers(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, expected
     assert_status(cpu.status.clone(), expected_status);
 }
 
-fn assert_status(status: CpuStatus, flags: &str) {
+fn assert_status(status: Status, flags: &str) {
     for flag in flags.chars() {
         match flag {
             'C' | 'c' => assert_flag(status.C, flag),
@@ -712,26 +739,9 @@ fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {
     cpu.A = a;
     cpu.X = x;
     cpu.Y = y;
-    cpu.status = build_status(status);
+    cpu.status = Status::from_string(status);
 
     cpu
-}
-
-fn build_status(flags: &str) -> CpuStatus {
-    CpuStatus {
-        C: build_status_flag(flags, 'C'),
-        Z: build_status_flag(flags, 'Z'),
-        I: build_status_flag(flags, 'I'),
-        D: build_status_flag(flags, 'D'),
-        B: build_status_flag(flags, 'B'),
-        U: build_status_flag(flags, 'U'),
-        V: build_status_flag(flags, 'V'),
-        N: build_status_flag(flags, 'N'),
-    }
-}
-
-fn build_status_flag(flags: &str, flag: char) -> bool {
-    flags.contains(flag)
 }
 
 fn build_bus(source: &str) -> MockBus {

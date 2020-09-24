@@ -6,6 +6,7 @@ use crate::assembler::addressing_mode_map::AddressingModeMap;
 use crate::error::{Error, report_stage_error};
 use crate::token::{Token, TokenType};
 use crate::types::{Byte, Word};
+use crate::assembler::instruction::Instruction;
 
 mod instruction;
 mod addressing_mode_map;
@@ -94,16 +95,10 @@ impl Assembler {
                 TokenType::Address(mode, address) => {
                     println!("{:?}", mode);
                     let mode = if instruction.relative { AddressingMode::Relative } else { mode };
-                    let mode = if mode == AddressingMode::Absolute && address <= 0xFF && instruction.contains(AddressingMode::ZeroPage) {
-                        AddressingMode::ZeroPage
-                    } else {
-                        mode
-                    };
-                    let mode = if mode == AddressingMode::AbsoluteX && address <= 0xFF && instruction.contains(AddressingMode::ZeroPageX) {
-                        AddressingMode::ZeroPageX
-                    } else {
-                        mode
-                    };
+
+                    let mode = Assembler::fix_absolute_mode(mode, &instruction, address, AddressingMode::Absolute, AddressingMode::ZeroPage);
+                    let mode = Assembler::fix_absolute_mode(mode, &instruction, address, AddressingMode::AbsoluteX, AddressingMode::ZeroPageX);
+                    let mode = Assembler::fix_absolute_mode(mode, &instruction, address, AddressingMode::AbsoluteY, AddressingMode::ZeroPageY);
 
                     let op_code = instruction.find(mode.clone())?;
 
@@ -116,7 +111,7 @@ impl Assembler {
                             instructions.push_byte(op_code);
                             instructions.push_byte(address as Byte);
                         }
-                        AddressingMode::Relative | AddressingMode::ZeroPage | AddressingMode::ZeroPageX => {
+                        AddressingMode::Relative | AddressingMode::ZeroPage | AddressingMode::ZeroPageX | AddressingMode::ZeroPageY => {
                             instructions.push_byte(op_code);
                             instructions.push_byte(address as Byte);
                         }
@@ -128,6 +123,14 @@ impl Assembler {
         }
 
         Ok(())
+    }
+
+    fn fix_absolute_mode(mode: AddressingMode, instruction: &Instruction, address: Word, absolute_mode: AddressingMode, zero_page_mode: AddressingMode) -> AddressingMode {
+        if mode == absolute_mode && address <= 0xFF && instruction.contains(zero_page_mode.clone()) {
+            zero_page_mode
+        } else {
+            mode
+        }
     }
 }
 
