@@ -1,4 +1,5 @@
 use crate::types::{Byte, Word};
+use log::warn;
 
 pub struct Apu {
 
@@ -10,17 +11,18 @@ impl Apu {
     }
 
     pub fn read(&self, address: Word) -> Byte {
-        println!("Reading from APU address: {:#06X}", address);
+        warn!("APU: Reading from {:#06X} -> (not implemented)", address);
         0xFF
     }
 
     pub fn write(&mut self, address: Word, data: Byte) {
-        println!("Writing {:#04X} to APU address {:#06X}", data, address);
+        warn!("APU: Writing to {:#06X} <- {:#04X} (not implemented)", address, data);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use hamcrest2::core::*;
     use hamcrest2::prelude::*;
 
     use super::*;

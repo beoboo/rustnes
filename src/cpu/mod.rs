@@ -1,9 +1,12 @@
+use log::*;
+
 use crate::addressing_mode::AddressingMode;
 use crate::bus::Bus as BusTrait;
 use crate::cpu::instructions_map::InstructionsMap;
 use crate::cpu::op_code::OpCode;
-use crate::types::*;
 use crate::cpu::status::Status;
+use crate::types::*;
+use colored::{Colorize, ColoredString};
 
 mod instruction;
 mod instructions_map;
@@ -20,6 +23,10 @@ mod test_status;
 
 fn bool_to_byte(flag: bool) -> Byte {
     if flag { 1 } else { 0 }
+}
+
+fn color_flag(flag: bool, text: &str) -> ColoredString {
+    if flag { text.to_uppercase().as_str().green() } else { text.to_lowercase().as_str().red() }
 }
 
 #[allow(non_snake_case)]
@@ -78,10 +85,10 @@ impl Cpu {
 
         let instruction = self.instructions_map.find(op_id);
 
-        println!("\n{:#06X}: {:?} ({:#04X}) {:?}", self.PC, instruction.op_code, op_id, instruction.addressing_mode);
+        trace!("\n{:#06X}: {:?} ({:#04X}) {:?}", self.PC, instruction.op_code, op_id, instruction.addressing_mode);
         self.PC += 1;
 
-        // self.debug();
+        // self.trace();
         //
         let (address, extra_cycles) = self.fetch_address(bus, &instruction.addressing_mode);
         let mut cycles = instruction.cycles + extra_cycles;
@@ -126,7 +133,7 @@ impl Cpu {
             OpCode::PHP => self.php(bus),
             OpCode::PLA => self.pla(bus),
             OpCode::PLP => self.plp(bus),
-            OpCode::ROL  => self.rol(self.read_operand(address, bus, &instruction.addressing_mode)),
+            OpCode::ROL => self.rol(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::ROR => self.ror(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::RTI => self.rti(bus),
             OpCode::RTS => self.rts(bus),
@@ -213,12 +220,12 @@ impl Cpu {
                 };
 
 
-                // println!("Relative: {:#06X}", relative);
+                // trace!("Relative: {:#06X}", relative);
                 //
-                // println!("PC: {:#06X}", self.PC);
-                // println!("Relative: {:#06X}", relative - 0xFF);
-                // println!("Address: {:#06X}", address as Word);
-                // println!("PC: {:#06X}", Wrapping(self.PC) + Wrapping(address as Word));
+                // trace!("PC: {:#06X}", self.PC);
+                // trace!("Relative: {:#06X}", relative - 0xFF);
+                // trace!("Address: {:#06X}", address as Word);
+                // trace!("PC: {:#06X}", Wrapping(self.PC) + Wrapping(address as Word));
 
                 self.PC += 1;
                 address as Word
@@ -262,7 +269,7 @@ impl Cpu {
             _ => panic!(format!("[Cpu::fetch_address] Unexpected addressing mode: {:?}", addressing_mode))
         };
 
-        println!("Address: {:#06X}", address);
+        trace!("Address: {:#06X}", address);
         (address, extra_cycles)
     }
 
@@ -277,7 +284,7 @@ impl Cpu {
             => bus.read_byte(operand),
             _ => panic!(format!("[Cpu::read_operand] Unexpected addressing mode: {:?}", addressing_mode)),
         };
-        println!("Operand: {:#04X}", operand);
+        trace!("Operand: {:#04X}", operand);
         operand
     }
 
@@ -285,7 +292,7 @@ impl Cpu {
         let computed = self.A as Word + operand + bool_to_byte(self.status.C) as Word;
         let acc = self.A;
 
-        println!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
+        trace!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
 
         self.A = computed as Byte;
         self.status.Z = self.A == 0x00;
@@ -350,7 +357,7 @@ impl Cpu {
         self._push_byte(bus, self.status.to_byte());
 
         let address = bus.read_word(0xFFFE);
-        println!("Jumping to {:#06X}", address);
+        trace!("Jumping to {:#06X}", address);
         self.PC = address;
 
         self.status.B = true;
@@ -480,7 +487,7 @@ impl Cpu {
     }
 
     fn jmp(&mut self, address: Word) -> usize {
-        println!("Jumping to {:#06X}", address);
+        trace!("Jumping to {:#06X}", address);
 
         self.PC = address;
 
@@ -489,7 +496,7 @@ impl Cpu {
 
     fn jsr<Bus: BusTrait>(&mut self, address: Word, bus: &mut Bus) -> usize {
         self._push_word(bus, self.PC - 1);
-        println!("Jumping to {:#06X}", address);
+        trace!("Jumping to {:#06X}", address);
 
         self.PC = address;
 
@@ -603,7 +610,7 @@ impl Cpu {
         let computed = self.A as SignedWord - operand as SignedWord - bool_to_byte(!self.status.C) as SignedWord;
         let acc = self.A;
         //
-        // println!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
+        // trace!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
 
         self.A = computed as Byte;
         self.status.Z = self.A == 0x00;
@@ -696,25 +703,26 @@ impl Cpu {
         0
     }
 
-    fn debug(&self) {
-        println!("A: {:#04X}", self.A);
-        println!("X: {:#04X}", self.X);
-        println!("Y: {:#04X}", self.Y);
-        println!("SP: {:#04X}", self.SP);
-        println!("PC: {:#06X}", self.PC);
+    pub fn debug(&self) {
         self.debug_status();
+
+        info!("PC: {:#06X}", self.PC);
+        info!("A: {:#04X}", self.A);
+        info!("X: {:#04X}", self.X);
+        info!("Y: {:#04X}", self.Y);
+        info!("SP: {:#04X}", self.SP);
     }
 
     fn debug_status(&self) {
-        println!("Status: {}{}{}{}{}{}{}{}",
-                 if self.status.C { "C" } else { "c" },
-                 if self.status.Z { "Z" } else { "z" },
-                 if self.status.I { "I" } else { "i" },
-                 if self.status.D { "D" } else { "d" },
-                 if self.status.B { "B" } else { "b" },
-                 if self.status.U { "U" } else { "u" },
-                 if self.status.V { "V" } else { "v" },
-                 if self.status.N { "N" } else { "n" }
+        info!("Status: {}{}{}{}{}{}{}{}",
+              color_flag(self.status.C, "C"),
+              color_flag(self.status.Z, "Z"),
+              color_flag(self.status.I, "I"),
+              color_flag(self.status.D, "D"),
+              color_flag(self.status.B, "B"),
+              color_flag(self.status.U, "U"),
+              color_flag(self.status.V, "V"),
+              color_flag(self.status.N, "N"),
         )
     }
 
@@ -726,35 +734,35 @@ impl Cpu {
     }
 
     fn _pop_byte<Bus: BusTrait>(&mut self, bus: &mut Bus) -> Byte {
-        println!("Popping byte from {:#04X}", self.SP.wrapping_add(1));
+        trace!("Popping byte from {:#04X}", self.SP.wrapping_add(1));
         self.SP = self.SP.wrapping_add(1);
         bus.read_byte((self.SP as Word) | 0x0100)
     }
 
     fn _pop_word<Bus: BusTrait>(&mut self, bus: &mut Bus) -> Word {
-        println!("Popping word from {:#04X}", self.SP.wrapping_add(1));
+        trace!("Popping word from {:#04X}", self.SP.wrapping_add(1));
         self.SP = self.SP.wrapping_add(2);
         bus.read_word((self.SP.wrapping_sub(1) as Word) | 0x0100)
     }
 
     fn _push_byte<Bus: BusTrait>(&mut self, bus: &mut Bus, byte: Byte) {
-        println!("Pushing byte to {:#04X}", self.SP.wrapping_sub(1));
+        trace!("Pushing byte to {:#04X}", self.SP.wrapping_sub(1));
         bus.write_byte((self.SP as Word) | 0x0100, byte);
         self.SP = self.SP.wrapping_sub(1);
     }
 
     fn _push_word<Bus: BusTrait>(&mut self, bus: &mut Bus, word: Word) {
-        println!("Pushing word to {:#04X}", self.SP.wrapping_sub(1));
+        trace!("Pushing word to {:#04X}", self.SP.wrapping_sub(1));
         bus.write_word((self.SP.wrapping_sub(1) as Word) | 0x0100, word);
         self.SP = self.SP.wrapping_sub(2);
     }
 
     fn _test(&mut self, test: bool, address: Word) -> usize {
-        println!("Test is {}", test);
+        trace!("Test is {}", test);
         if test {
             let page1 = self.PC & 0xFF00;
 
-            println!("Jumping to {:#04X}", address);
+            trace!("Jumping to {:#04X}", address);
 
             self.PC = self.PC.wrapping_add(address);
 

@@ -1,5 +1,7 @@
-use crate::types::{Word, Byte};
+use log::trace;
+
 use crate::bus::Bus;
+use crate::types::{Byte, Word};
 
 pub struct SimpleBus {
     data: Vec<u8>,
@@ -30,12 +32,12 @@ impl Bus for SimpleBus {
         let address = address as usize;
 
         let data = self.data[address];
-        println!("Reading byte from {:#06X} -> {:#04X}", address, data);
+        trace!("Reading byte from {:#06X} -> {:#04X}", address, data);
         data
     }
 
     fn write_byte(&mut self, address: Word, data: Byte) {
-        println!("Writing byte {:#04X} to {:#06X}", data, address);
+        trace!("Writing byte {:#04X} to {:#06X}", data, address);
         let address = address as usize;
 
         self.data[address] = data

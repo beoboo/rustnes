@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::str;
 use crate::types::{Word, Byte};
+use log::trace;
 
 #[derive(Debug)]
 pub struct RomHeader {
@@ -71,7 +72,9 @@ impl Rom {
     }
 
     pub fn read(&self, address: Word) -> Byte {
-        self.prg_rom[address as usize]
+        let data = self.prg_rom[address as usize];
+        trace!("ROM: Reading from {:#06X} -> {:#04X}", address, data);
+        data
     }
     //
     // pub fn write(&mut self, address: Word, data: Byte) {
@@ -95,6 +98,7 @@ mod tests {
     use std::fs::File;
     use std::path::Path;
 
+    use hamcrest2::core::*;
     use hamcrest2::prelude::*;
 
     use super::*;

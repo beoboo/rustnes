@@ -1,6 +1,8 @@
 pub mod simple_bus;
 pub mod bus_impl;
 
+use log::trace;
+
 use crate::types::{Word, Byte};
 
 pub trait Bus {
@@ -11,14 +13,14 @@ pub trait Bus {
         let high = self.read_byte(address + 1) as Word;
 
         let data = (high << 8) + low;
-        println!("Read word {:#06X} from {:#06X}", data, address);
+        trace!("Bus: Reading word from {:#06X} -> {:#04X}", address, data);
         data
     }
 
     fn write_byte(&mut self, address: Word, data: Byte);
 
     fn write_word(&mut self, address: Word, data: Word) {
-        println!("Writing word {:#06X} to {:#06X}", data, address);
+        trace!("BUS: Writing word to {:#06X} <- {:#04X}", address, data);
         self.write_byte(address, data as Byte);
         self.write_byte(address + 1, (data >> 8) as Byte);
     }

@@ -1,4 +1,5 @@
 use crate::types::{Byte, Word};
+use log::trace;
 
 pub struct Ram {
     data: Vec<Byte>,
@@ -12,18 +13,20 @@ impl Ram {
     }
 
     pub fn read(&self, address: Word) -> Byte {
-        println!("Reading from RAM address: {:#06X}", address);
-        self.data[address as usize]
+        let data = self.data[address as usize];
+        trace!("RAM: Reading from {:#06X} -> {:#04X}", address, data);
+        data
     }
 
     pub fn write(&mut self, address: Word, data: Byte) {
-        println!("Writing {:#04X} to RAM address {:#06X}", data, address);
+        trace!("RAM: Writing to {:#06X} <- {:#04X}", address, data);
         self.data[address as usize] = data;
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use hamcrest2::core::*;
     use hamcrest2::prelude::*;
 
     use super::*;

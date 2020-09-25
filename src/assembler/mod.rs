@@ -77,7 +77,6 @@ impl Assembler {
         };
 
         if instruction.implied {
-            println!("Implied");
             instructions.push_byte(instruction.find(AddressingMode::Implied).unwrap())
         } else {
             let address = advance(it)?;
@@ -93,7 +92,6 @@ impl Assembler {
                     }
                 }
                 TokenType::Address(mode, address) => {
-                    println!("{:?}", mode);
                     let mode = if instruction.relative { AddressingMode::Relative } else { mode };
 
                     let mode = Assembler::fix_absolute_mode(mode, &instruction, address, AddressingMode::Absolute, AddressingMode::ZeroPage);
