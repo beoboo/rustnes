@@ -129,7 +129,7 @@ fn process_bne() {
     let cpu = build_cpu(0, 0, 0, 0, "");
     assert_instructions(&cpu, "LDA #1\nBNE $2\nLDA #3", 1, 0, 0, 6, "");
     assert_instructions(&cpu, "LDA #0\nBNE $2\nLDA #3", 3, 0, 0, 6, "");
-    assert_instructions(&cpu, "LDA #1\nBNE $2\nBPL $2\nBNE $FB", 1, 0, 0, 8, "",);
+    assert_instructions(&cpu, "LDA #1\nBNE $2\nBPL $2\nBNE $FC", 1, 0, 0, 8, "",);
 }
 
 #[test]

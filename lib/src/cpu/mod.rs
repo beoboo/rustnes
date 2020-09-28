@@ -210,12 +210,12 @@ impl Cpu {
             }
             AddressingMode::Relative => {
                 let relative = bus.read_byte(self.PC) as SignedWord;
-
-                let address = if relative > 0x80 {
-                    relative - 0xFF
-                } else {
-                    relative
-                };
+                //
+                // let address = if relative > 0x80 {
+                //     (relative as Word) - 0x00FF
+                // } else {
+                //     relative as Word
+                // };
 
 
                 // trace!("Relative: {:#06X}", relative);
@@ -226,7 +226,7 @@ impl Cpu {
                 // trace!("PC: {:#06X}", Wrapping(self.PC) + Wrapping(address as Word));
 
                 self.PC += 1;
-                address as Word
+                relative as Word
             }
             AddressingMode::YIndexedIndirect => {
                 let address = bus.read_byte(self.PC) as Word + self.Y as Word;
@@ -759,9 +759,17 @@ impl Cpu {
         if test {
             let page1 = self.PC & 0xFF00;
 
-            trace!("Jumping to {:#04X}", address);
+            trace!("Jumping relative to {:#04X}", address);
+            let relative = if address > 0x0080 {
+                address | 0xFF00
+            }
+            else {
+                address
+            };
 
-            self.PC = self.PC.wrapping_add(address);
+            trace!("Jumping relative to {:#06X}", relative);
+            self.PC = self.PC.wrapping_add(relative);
+            // trace!("Jumping relative to {:#04X}", address);
 
             let page2 = self.PC & 0xFF00;
 
