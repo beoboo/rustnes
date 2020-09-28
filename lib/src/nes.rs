@@ -12,8 +12,8 @@ pub struct Nes {
     // pub buffer: Buffer
 }
 
-impl Nes {
-    pub fn new() -> Nes {
+impl Default for Nes {
+    fn default() -> Nes {
         Nes {
             width: 256,
             height: 240,
@@ -21,6 +21,9 @@ impl Nes {
             // buffer: Buffer::new(),
         }
     }
+}
+
+impl Nes {
 
     pub fn run() {
         // let rom = Rom::load(filename, 16384, 8192);

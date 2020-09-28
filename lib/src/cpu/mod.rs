@@ -17,8 +17,6 @@ mod status;
 mod test_execution;
 #[cfg(test)]
 mod test_timings;
-#[cfg(test)]
-mod test_status;
 
 
 fn bool_to_byte(flag: bool) -> Byte {
@@ -266,7 +264,6 @@ impl Cpu {
                 self.PC += 1;
                 address as Word
             }
-            _ => panic!(format!("[Cpu::fetch_address] Unexpected addressing mode: {:?}", addressing_mode))
         };
 
         trace!("Address: {:#06X}", address);
@@ -304,7 +301,7 @@ impl Cpu {
     }
 
     fn and(&mut self, operand: Byte) -> usize {
-        self.A = self.A & operand;
+        self.A &= operand;
         self.status.Z = self.A == 0x00;
         self.status.N = (self.A as SignedByte) < 0;
 
@@ -537,7 +534,7 @@ impl Cpu {
     }
 
     fn ora(&mut self, operand: Byte) -> usize {
-        self.A = self.A | operand;
+        self.A |= operand;
         self.status.Z = self.A == 0x00;
         self.status.N = (self.A as SignedByte) < 0;
 

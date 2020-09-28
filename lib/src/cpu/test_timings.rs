@@ -339,47 +339,33 @@ fn process_sty() {
 
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
-    let mut bus = SimpleBus::new();
-    let program = build_program(source);
-    let length = program.len();
-    let op_code = program[0];
-
-    bus.load(program, 0);
-
-    let total_cycles = cpu.process(&mut bus);
-    println!("Cycles: {}", total_cycles);
-
-    assert_that!(op_code, equal_to(expected_op_code));
-    assert_that!(length, equal_to(expected_length));
-    assert_that!(total_cycles, equal_to(expected_cycles));
+    _assert_instruction(&mut cpu, source, 0, expected_op_code, expected_length, expected_cycles);
 }
 
 fn assert_branch(source: &str, status: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
     cpu.status = Status::from_string(status);
 
-    let mut bus = SimpleBus::new();
-
-    let program = build_program(source);
-    let length = program.len();
-    let op_code = program[0];
-
-    bus.load(program, 0);
-
-    let total_cycles = cpu.process(&mut bus);
-    println!("Cycles: {}", total_cycles);
-
-    assert_that!(op_code, equal_to(expected_op_code));
-    assert_that!(length, equal_to(expected_length));
-    assert_that!(total_cycles, equal_to(expected_cycles));
+    _assert_instruction(&mut cpu, source, 0, expected_op_code, expected_length, expected_cycles);
 }
 
 fn assert_branch_with_page_cross(source: &str, pc: Word, status: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
-    let mut cpu = Cpu::new(0);
-    cpu.PC = pc;
+    let mut cpu = Cpu::new(pc);
     cpu.status = Status::from_string(status);
 
-    let mut bus = SimpleBus::new();
+    _assert_instruction(&mut cpu, source, pc, expected_op_code, expected_length, expected_cycles);
+}
+
+fn assert_instruction_with_page_cross(source: &str, x: Byte, y: Byte, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
+    let mut cpu = Cpu::new(0);
+    cpu.X = x;
+    cpu.Y = y;
+
+    _assert_instruction(&mut cpu, source, 0, expected_op_code, expected_length, expected_cycles);
+}
+
+fn _assert_instruction(cpu: &mut Cpu, source: &str, pc: Word, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
+    let mut bus = SimpleBus::default();
 
     let program = build_program(source);
     let length = program.len();
@@ -395,30 +381,10 @@ fn assert_branch_with_page_cross(source: &str, pc: Word, status: &str, expected_
     assert_that!(total_cycles, equal_to(expected_cycles));
 }
 
-fn assert_instruction_with_page_cross(source: &str, x: Byte, y: Byte, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
-    let mut cpu = Cpu::new(0);
-    cpu.X = x;
-    cpu.Y = y;
-
-    let mut bus = SimpleBus::new();
-    let program = build_program(source);
-    let length = program.len();
-    let op_code = program[0];
-
-    bus.load(program, 0);
-
-    let total_cycles = cpu.process(&mut bus);
-    println!("Cycles: {}", total_cycles);
-
-    assert_that!(op_code, equal_to(expected_op_code));
-    assert_that!(length, equal_to(expected_length));
-    assert_that!(total_cycles, equal_to(expected_cycles));
-}
-
 fn build_program(source: &str) -> Vec<Byte> {
     println!("Processing:\n {}", source);
-    let assembler = Assembler::new();
-    let parser = Parser::new();
+    let assembler = Assembler::default();
+    let parser = Parser::default();
     let tokens = parser.parse(source).unwrap();
     // println!("Tokens: {:?}", tokens);
 

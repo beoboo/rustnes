@@ -719,7 +719,7 @@ fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {
 fn build_bus(source: &str) -> SimpleBus {
     let program = build_program(source);
 
-    let mut bus = SimpleBus::new();
+    let mut bus = SimpleBus::default();
     bus.load(program, 0);
 
     bus
@@ -727,8 +727,8 @@ fn build_bus(source: &str) -> SimpleBus {
 
 fn build_program(source: &str) -> Vec<Byte> {
     println!("Processing:\n {}", source);
-    let assembler = Assembler::new();
-    let parser = Parser::new();
+    let assembler = Assembler::default();
+    let parser = Parser::default();
     let tokens = parser.parse(source).unwrap();
     // println!("Tokens: {:?}", tokens);
 

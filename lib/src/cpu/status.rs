@@ -1,4 +1,5 @@
 use crate::types::Byte;
+use std::fmt::{Display, Formatter, Result};
 
 #[allow(non_snake_case)]
 #[derive(Clone, Debug)]
@@ -59,16 +60,19 @@ impl Status {
     }
 
     pub fn to_byte(&self) -> Byte {
-        _bool_to_bit(self.C) << 0 |
-        _bool_to_bit(self.Z) << 1 |
-        _bool_to_bit(self.I) << 2 |
-        _bool_to_bit(self.D) << 3 |
-        _bool_to_bit(self.B) << 4 |
-        _bool_to_bit(self.U) << 5 |
-        _bool_to_bit(self.V) << 6 |
-        _bool_to_bit(self.Z) << 7
+        _bool_to_bit(self.C) |
+            _bool_to_bit(self.Z) << 1 |
+            _bool_to_bit(self.I) << 2 |
+            _bool_to_bit(self.D) << 3 |
+            _bool_to_bit(self.B) << 4 |
+            _bool_to_bit(self.U) << 5 |
+            _bool_to_bit(self.V) << 6 |
+            _bool_to_bit(self.Z) << 7
     }
+}
 
+#[cfg(test)]
+impl Status {
     pub fn from_string(flags: &str) -> Status {
         Status {
             C: _build_status_flag(flags, 'C'),
@@ -81,9 +85,11 @@ impl Status {
             N: _build_status_flag(flags, 'N'),
         }
     }
+}
 
-    pub fn to_string(&self) -> String {
-        format!("{}{}{}{}{}{}{}{}",
+impl Display for Status {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{}{}{}{}{}{}{}{}",
                 if self.C { "C" } else { "c"},
                 if self.Z { "Z" } else { "z"},
                 if self.I { "I" } else { "i"},

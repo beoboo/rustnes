@@ -82,7 +82,7 @@ impl Rom {
     // }
 
     fn load_file(filename: &str) -> Vec<u8> {
-        let mut file = File::open(filename).expect(format!("Could not open {}", filename).as_str());
+        let mut file = File::open(filename).unwrap_or_else(|_| panic!("Could not open {}", filename));
 
         // read the same file back into a Vec of bytes
         let mut buffer = Vec::new();
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn read_valid() {
-        let rom = Rom::load("roms/cpu/nestest/nestest.nes", 16384, 8192);
+        let rom = Rom::load("../roms/cpu/nestest/nestest.nes", 16384, 8192);
 
         assert_that!(rom.header.len(), eq(16));
         assert_that!(rom.header.nes, eq("NES"));

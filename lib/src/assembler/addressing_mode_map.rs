@@ -14,7 +14,7 @@ pub struct AddressingModeMap {
 }
 
 pub fn insert(map: &mut Map, op_code: &str, implied: bool, relative: bool, addressing_mode: AddressingMode, value: Byte) {
-    let instruction = map.entry(op_code.to_string()).or_insert(Instruction::new(op_code, implied, relative));
+    let instruction = map.entry(op_code.to_string()).or_insert_with(|| Instruction::new(op_code, implied, relative));
 
     instruction.modes.insert(addressing_mode, value);
 }

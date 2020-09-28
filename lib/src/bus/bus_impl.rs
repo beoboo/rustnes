@@ -101,6 +101,6 @@ mod tests {
     }
 
     fn _build_bus(rom: Rom) -> BusImpl {
-        BusImpl::new(Ram::new(16), Apu::new(), Ppu::new(), rom)
+        BusImpl::new(Ram::new(16), Apu::default(), Ppu::default(), rom)
     }
 }

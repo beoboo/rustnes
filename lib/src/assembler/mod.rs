@@ -40,13 +40,15 @@ impl Instructions {
 type IterToken<'a> = Iter<'a, Token>;
 type PeekableToken<'a> = Peekable<IterToken<'a>>;
 
-impl Assembler {
-    pub fn new() -> Assembler {
+impl Default for Assembler {
+    fn default() -> Assembler {
         Assembler {
             map: AddressingModeMap::new()
         }
     }
+}
 
+impl Assembler {
     pub fn assemble(&self, tokens: Vec<Token>) -> Result<Instructions, Error> {
         let mut it = tokens.iter().peekable();
         let mut instructions = Instructions::new();
@@ -88,7 +90,7 @@ impl Assembler {
                             let op_code = instruction.find(AddressingMode::Accumulator)?;
                             instructions.push_byte(op_code);
                         }
-                        _ => return _report_error(format!("[Assembler::keyword] Expected 'A' for accumulator address"))
+                        _ => return _report_error("[Assembler::keyword] Expected 'A' for accumulator address".to_string())
                     }
                 }
                 TokenType::Address(mode, address) => {
@@ -137,7 +139,7 @@ pub fn advance(it: &mut PeekableToken) -> Result<Token, Error> {
         Some(token) => {
             Ok(token.clone())
         }
-        None => Err(Error::Assembler(format!("Token not found.")))
+        None => Err(Error::Assembler("Token not found.".to_string()))
     }
 }
 
@@ -189,8 +191,8 @@ mod tests {
     }
 
     fn assemble(source: &str) -> Vec<Byte> {
-        let assembler = Assembler::new();
-        let parser = Parser::new();
+        let assembler = Assembler::default();
+        let parser = Parser::default();
         let tokens = parser.parse(source).unwrap();
 
         assembler.assemble(tokens).unwrap().data

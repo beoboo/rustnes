@@ -14,12 +14,16 @@ fn replace_slice<T>(source: &mut [T], from: &[T])
     source[..from.len()].clone_from_slice(from);
 }
 
-impl SimpleBus {
-    pub fn new() -> SimpleBus {
+impl Default for SimpleBus {
+    fn default() -> SimpleBus {
         SimpleBus {
             data: vec![0; 0xFFFF + 1],
         }
     }
+}
+
+
+impl SimpleBus {
 
     pub fn load(&mut self, program: Vec<u8>, starting_pos: usize) {
         // let mut data = self.data;

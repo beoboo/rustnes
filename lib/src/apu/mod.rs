@@ -5,10 +5,13 @@ pub struct Apu {
 
 }
 
-impl Apu {
-    pub fn new() -> Apu {
+impl Default for Apu {
+    fn default() -> Apu {
         Apu {}
     }
+}
+
+impl Apu {
 
     pub fn read(&self, address: Word) -> Byte {
         warn!("APU: Reading from {:#06X} -> (not implemented)", address);
@@ -29,7 +32,7 @@ mod tests {
 
     #[test]
     fn test_read() {
-        let apu = Apu::new();
+        let apu = Apu::default();
 
         assert_that!(apu.read(0x0000), eq(0xFF));
     }

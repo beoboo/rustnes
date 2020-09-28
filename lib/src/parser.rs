@@ -10,11 +10,14 @@ pub struct Parser {}
 
 type PeekableChar<'a> = Peekable<Chars<'a>>;
 
-impl Parser {
-    pub fn new() -> Parser {
+impl Default for Parser {
+    fn default() -> Parser {
         Parser {}
     }
+}
 
+
+impl Parser {
     pub fn parse(&self, source: &str) -> Result<Vec<Token>, Error> {
         let mut it = source.chars().peekable();
         let mut line = 1;
@@ -46,7 +49,8 @@ impl Parser {
         }
 
         tokens.push(build_token(TokenType::EOF, line));
-        Ok(tokens.clone())
+
+        Ok(tokens)
     }
 }
 
@@ -380,7 +384,7 @@ mod tests {
     }
 
     fn parse(source: &str) -> Result<Vec<Token>, Error> {
-        let parser = Parser::new();
+        let parser = Parser::default();
 
         parser.parse(source)
     }

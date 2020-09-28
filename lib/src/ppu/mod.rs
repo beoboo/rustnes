@@ -4,11 +4,13 @@ pub struct Ppu {
 
 }
 
-impl Ppu {
-    pub fn new() -> Ppu {
+impl Default for Ppu {
+    fn default() -> Ppu {
         Ppu {}
     }
+}
 
+impl Ppu {
     pub fn read(&self, address: Word) -> Byte {
         println!("Reading from PPU address: {:#06X}", address);
         0xFF
@@ -28,7 +30,7 @@ mod tests {
 
     #[test]
     fn test_read() {
-        let ppu = Ppu::new();
+        let ppu = Ppu::default();
 
         assert_that!(ppu.read(0x0000), eq(0xFF));
     }

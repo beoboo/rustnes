@@ -1,14 +1,14 @@
 [package]
-name = "rustnes"
+name = "rustnes-lib"
 version = "0.1.0"
 authors = ["Pietro Atzeni <pietrino.atzeni@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-clap = "*"
 colored = "*"
-crossterm = "*"
-env_logger = { version = "*", features = ["termcolor"] }
 log = "*"
-rustnes-lib = { path = "lib" }
+num_enum = "*"
+rand = "*"
 
+[dev-dependencies]
+hamcrest2 = "*"

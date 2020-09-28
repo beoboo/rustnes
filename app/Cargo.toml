@@ -10,4 +10,4 @@ edition = "2018"
 iced = "*"
 rust-pushrod = "*"
 sdl2 = "*"
-rustnes = { path = ".." }
+rustnes-lib = { path = "../lib" }
