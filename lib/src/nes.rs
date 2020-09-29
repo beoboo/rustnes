@@ -8,6 +8,8 @@ use crate::ppu::Ppu;
 use crate::ram::Ram;
 use crate::rom::Rom;
 use crate::types::Byte;
+use crate::disassembler::Disassembler;
+use std::collections::HashMap;
 
 pub struct Buffer {
     pub data: Vec<Byte>,
@@ -16,6 +18,7 @@ pub struct Buffer {
 pub struct Nes {
     pub cpu: Cpu,
     pub bus: BusImpl,
+    pub instructions: HashMap<Byte, String>,
     pub width: u32,
     pub height: u32,
     pub bits_per_pixel: u32,
@@ -31,9 +34,13 @@ impl Nes {
         let mut cpu = Cpu::new(0);
         cpu.reset(&mut bus);
 
+        let mut disassembler = Disassembler::default();
+        let instructions = disassembler.disassemble(rom.prg_rom.as_slice());
+
         Nes {
             cpu,
             bus,
+            instructions,
             width: 256,
             height: 240,
             bits_per_pixel: 4,
