@@ -1,5 +1,3 @@
-use env_logger;
-
 use hamcrest2::core::*;
 use hamcrest2::prelude::*;
 
