@@ -1,10 +1,11 @@
+use log::warn;
+
 use crate::apu::Apu;
+use crate::bus::Bus;
 use crate::ppu::Ppu;
 use crate::ram::Ram;
 use crate::rom::Rom;
 use crate::types::{Byte, Word};
-use crate::bus::Bus;
-
 
 pub struct BusImpl {
     ram: Ram,
@@ -30,6 +31,10 @@ impl Bus for BusImpl {
             0x0000..=0x1FFF => self.ram.read(address & 0x07FF),
             0x2000..=0x2007 => self.ppu.read(address - 0x2000),
             0x4000..=0x401F => self.apu.read(address - 0x4000),
+            0x6000..=0x7FFF => {
+                warn!("Not implemented");
+                0
+            }
             0x8000..=0xBFFF => self.rom.read(address - 0x8000),
             0xC000..=0xFFFF if self.rom.prg_rom.len() <= 0x4000 => self.rom.read(address - 0xC000),
             0xC000..=0xFFFF => self.rom.read(address - 0x8000),
@@ -42,7 +47,8 @@ impl Bus for BusImpl {
             0x0000..=0x1FFF => self.ram.write(address & 0x07FF, data),
             0x2000..=0x2007 => self.ppu.write(address - 0x2000, data),
             0x4000..=0x401F => self.apu.write(address - 0x4000, data),
-            0x8000..=0xFFFF => {}
+            0x6000..=0x7FFF => { warn!("Not implemented") }
+            0x8000..=0xFFFF => { warn!("Not implemented") }
             _ => panic!(format!("[Bus::write_byte] Not mapped address: {:#6X}", address))
         }
     }

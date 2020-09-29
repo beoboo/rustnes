@@ -1,29 +1,48 @@
-use crate::types::Byte;
+use log::info;
 use rand::Rng;
+
+use crate::apu::Apu;
+use crate::bus::bus_impl::BusImpl;
+use crate::cpu::Cpu;
+use crate::ppu::Ppu;
+use crate::ram::Ram;
+use crate::rom::Rom;
+use crate::types::Byte;
 
 pub struct Buffer {
     pub data: Vec<Byte>,
 }
 
 pub struct Nes {
+    pub cpu: Cpu,
+    pub bus: BusImpl,
     pub width: u32,
     pub height: u32,
     pub bits_per_pixel: u32,
     // pub buffer: Buffer
+    pub cycles: usize,
 }
 
-impl Default for Nes {
-    fn default() -> Nes {
+impl Nes {
+    pub fn new(filename: &str) -> Nes {
+        let rom = Rom::load(filename, 16384, 8192);
+        let bus = BusImpl::new(Ram::new(0x0800), Apu::default(), Ppu::default(), rom);
+
         Nes {
+            cpu: Cpu::new(0xFFFC),
+            bus: bus,
             width: 256,
             height: 240,
             bits_per_pixel: 4,
             // buffer: Buffer::new(),
+            cycles: 0,
         }
     }
-}
 
-impl Nes {
+    pub fn tick(&mut self) {
+        info!("[Nes::tick]");
+        self.cycles += self.cpu.process(&mut self.bus);
+    }
 
     pub fn run() {
         // let rom = Rom::load(filename, 16384, 8192);

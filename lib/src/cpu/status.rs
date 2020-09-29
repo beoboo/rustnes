@@ -2,7 +2,7 @@ use crate::types::Byte;
 use std::fmt::{Display, Formatter, Result};
 
 #[allow(non_snake_case)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Status {
     // Carry
     pub C: bool,
@@ -41,7 +41,7 @@ impl Status {
         self.I = false;
         self.D = false;
         self.B = false;
-        self.U = false;
+        self.U = true;
         self.V = false;
         self.N = false;
     }
@@ -69,10 +69,7 @@ impl Status {
             _bool_to_bit(self.V) << 6 |
             _bool_to_bit(self.Z) << 7
     }
-}
 
-#[cfg(test)]
-impl Status {
     pub fn from_string(flags: &str) -> Status {
         Status {
             C: _build_status_flag(flags, 'C'),

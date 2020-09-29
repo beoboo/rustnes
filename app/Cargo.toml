@@ -7,7 +7,9 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-iced = "*"
-rust-pushrod = "*"
-sdl2 = "*"
+env_logger = "*"
+log = "*"
+iced = "0.1.1"
+#rust-pushrod = "*"
+#sdl2 = "*"
 rustnes-lib = { path = "../lib" }

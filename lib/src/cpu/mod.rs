@@ -11,12 +11,14 @@ use colored::{Colorize, ColoredString};
 mod instruction;
 mod instructions_map;
 mod op_code;
-mod status;
+pub mod status;
 
 #[cfg(test)]
 mod test_execution;
 #[cfg(test)]
 mod test_timings;
+#[cfg(test)]
+mod test_interrupts;
 
 
 fn bool_to_byte(flag: bool) -> Byte {
@@ -31,17 +33,17 @@ fn color_flag(flag: bool, text: &str) -> ColoredString {
 #[derive(Clone, Debug)]
 pub struct Cpu {
     // Accumulator
-    A: Byte,
+    pub A: Byte,
     // X register
-    X: Byte,
+    pub X: Byte,
     // Y register
-    Y: Byte,
+    pub Y: Byte,
     // Program counter
-    PC: Word,
+    pub PC: Word,
     // Stack pointer
-    SP: Byte,
+    pub SP: Byte,
     // Status
-    status: Status,
+    pub status: Status,
     instructions_map: InstructionsMap,
 }
 
@@ -51,28 +53,19 @@ impl Cpu {
             A: 0,
             X: 0,
             Y: 0,
-            SP: 0xFF,
+            SP: 0xFD,
             PC: start_pc,
-            status: Status {
-                C: false,
-                Z: false,
-                I: false,
-                D: false,
-                B: false,
-                U: false,
-                V: false,
-                N: false,
-            },
+            status: Status::default(),
             instructions_map: InstructionsMap::new(),
         }
     }
 
-    pub fn reset(&mut self, start_pc: Word) {
+    pub fn reset<Bus: BusTrait>(&mut self, bus: &Bus) {
         self.A = 0;
         self.X = 0;
         self.Y = 0;
-        self.SP = 0xFF;
-        self.PC = start_pc;
+        self.SP = 0xFD;
+        self.PC = bus.read_word(0xFFFC);
 
         self.status.reset();
     }
@@ -210,28 +203,16 @@ impl Cpu {
             }
             AddressingMode::Relative => {
                 let relative = bus.read_byte(self.PC) as SignedWord;
-                //
-                // let address = if relative > 0x80 {
-                //     (relative as Word) - 0x00FF
-                // } else {
-                //     relative as Word
-                // };
-
-
-                // trace!("Relative: {:#06X}", relative);
-                //
-                // trace!("PC: {:#06X}", self.PC);
-                // trace!("Relative: {:#06X}", relative - 0xFF);
-                // trace!("Address: {:#06X}", address as Word);
-                // trace!("PC: {:#06X}", Wrapping(self.PC) + Wrapping(address as Word));
 
                 self.PC += 1;
+
                 relative as Word
             }
             AddressingMode::YIndexedIndirect => {
-                let address = bus.read_byte(self.PC) as Word + self.Y as Word;
+                let address = bus.read_byte(self.PC) as Word;
+
                 let page1 = address & 0xFF00;
-                let address = bus.read_word(address) as Word;
+                let address = bus.read_word(address) as Word + self.Y as Word;
                 let page2 = address & 0xFF00;
 
                 self.PC += 1;
@@ -598,7 +579,7 @@ impl Cpu {
     }
 
     fn rts<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
-        self.PC = self._pop_word(bus);
+        self.PC = self._pop_word(bus) + 1;
 
         0
     }

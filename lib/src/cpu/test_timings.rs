@@ -3,23 +3,25 @@ use hamcrest2::prelude::*;
 
 use crate::assembler::Assembler;
 use crate::parser::Parser;
+use env_logger;
 
 use super::*;
 use crate::bus::simple_bus::SimpleBus;
 
 #[test]
 fn process_adc() {
-    assert_instruction("ADC #$44", 0x69, 2, 2);
-    assert_instruction("ADC $44", 0x65, 2, 3);
-    assert_instruction("ADC $44,X", 0x75, 2, 4);
-    assert_instruction("ADC $4400", 0x6D, 3, 4);
-    assert_instruction("ADC $4400,X", 0x7D, 3, 4);
-    assert_instruction("ADC $4400,Y", 0x79, 3, 4);
-    assert_instruction("ADC ($44,X)", 0x61, 2, 6);
-    assert_instruction("ADC ($44),Y", 0x71, 2, 5);
-
-    assert_instruction_with_page_cross("ADC $44FF,X", 0xFF, 0, 0x7D, 3, 5);
-    assert_instruction_with_page_cross("ADC $44FF,Y", 0, 0xFF, 0x79, 3, 5);
+    let _ = env_logger::init();
+    // assert_instruction("ADC #$44", 0x69, 2, 2);
+    // assert_instruction("ADC $44", 0x65, 2, 3);
+    // assert_instruction("ADC $44,X", 0x75, 2, 4);
+    // assert_instruction("ADC $4400", 0x6D, 3, 4);
+    // assert_instruction("ADC $4400,X", 0x7D, 3, 4);
+    // assert_instruction("ADC $4400,Y", 0x79, 3, 4);
+    // assert_instruction("ADC ($44,X)", 0x61, 2, 6);
+    // assert_instruction("ADC ($44),Y", 0x71, 2, 5);
+    //
+    // assert_instruction_with_page_cross("ADC $44FF,X", 0xFF, 0, 0x7D, 3, 5);
+    // assert_instruction_with_page_cross("ADC $44FF,Y", 0, 0xFF, 0x79, 3, 5);
     assert_instruction_with_page_cross("ADC ($44),Y", 0, 0xFF, 0x71, 2, 6);
 }
 
@@ -339,21 +341,28 @@ fn process_sty() {
 
 fn assert_instruction(source: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
-    _assert_instruction(&mut cpu, source, 0, expected_op_code, expected_length, expected_cycles);
+
+    let mut bus = SimpleBus::default();
+
+    _assert_instruction(&mut cpu, &mut bus, source, 0, expected_op_code, expected_length, expected_cycles);
 }
 
 fn assert_branch(source: &str, status: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(0);
     cpu.status = Status::from_string(status);
 
-    _assert_instruction(&mut cpu, source, 0, expected_op_code, expected_length, expected_cycles);
+    let mut bus = SimpleBus::default();
+
+    _assert_instruction(&mut cpu, &mut bus, source, 0, expected_op_code, expected_length, expected_cycles);
 }
 
 fn assert_branch_with_page_cross(source: &str, pc: Word, status: &str, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let mut cpu = Cpu::new(pc);
     cpu.status = Status::from_string(status);
 
-    _assert_instruction(&mut cpu, source, pc, expected_op_code, expected_length, expected_cycles);
+    let mut bus = SimpleBus::default();
+
+    _assert_instruction(&mut cpu, &mut bus, source, pc, expected_op_code, expected_length, expected_cycles);
 }
 
 fn assert_instruction_with_page_cross(source: &str, x: Byte, y: Byte, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
@@ -361,19 +370,20 @@ fn assert_instruction_with_page_cross(source: &str, x: Byte, y: Byte, expected_o
     cpu.X = x;
     cpu.Y = y;
 
-    _assert_instruction(&mut cpu, source, 0, expected_op_code, expected_length, expected_cycles);
+    let mut bus = SimpleBus::default();
+    bus.write_word(0x0044, 0x00AB);
+
+    _assert_instruction(&mut cpu, &mut bus, source, 0, expected_op_code, expected_length, expected_cycles);
 }
 
-fn _assert_instruction(cpu: &mut Cpu, source: &str, pc: Word, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
-    let mut bus = SimpleBus::default();
-
+fn _assert_instruction(cpu: &mut Cpu, bus: &mut SimpleBus, source: &str, pc: Word, expected_op_code: Byte, expected_length: usize, expected_cycles: usize) {
     let program = build_program(source);
     let length = program.len();
     let op_code = program[0];
 
     bus.load(program, pc as usize);
 
-    let total_cycles = cpu.process(&mut bus);
+    let total_cycles = cpu.process(bus);
     println!("Cycles: {}", total_cycles);
 
     assert_that!(op_code, equal_to(expected_op_code));

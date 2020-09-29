@@ -150,9 +150,9 @@ fn process_brk() {
     run(&mut cpu, &mut bus);
 
     assert_that!(cpu.PC, eq(0x0001));
-    assert_that!(bus.read_word(0x01FE), eq(0x0002)); // PC + 1
-    assert_that!(bus.read_byte(0x01FD), eq(status.to_byte()));
-    assert_that!(cpu.SP, eq(0xFC));
+    assert_that!(bus.read_word(0x01FC), eq(0x0002)); // PC + 1
+    assert_that!(bus.read_byte(0x01FB), eq(status.to_byte()));
+    assert_that!(cpu.SP, eq(0xFA));
     assert_status(cpu.status, "CZIdBuVN");
 }
 
@@ -334,8 +334,8 @@ fn process_jsr() {
     let mut bus = build_bus("JSR $4\nBRK\nLDA #1");
     run(&mut cpu, &mut bus);
 
-    assert_that!(cpu.SP, eq(0xFD));
-    assert_that!(bus.read_word(0x01FE), eq(0x0002));
+    assert_that!(cpu.SP, eq(0xFB));
+    assert_that!(bus.read_word(0x01FC), eq(0x0002));
 }
 
 #[test]
@@ -398,8 +398,8 @@ fn process_pha() {
     let mut bus = build_bus("LDA $1\nPHA");
     run(&mut cpu, &mut bus);
 
-    assert_that!(cpu.SP, eq(0xFE));
-    assert_that!(bus.read_byte(0x01FF), eq(0x01));
+    assert_that!(cpu.SP, eq(0xFC));
+    assert_that!(bus.read_byte(0x01FD), eq(0x01));
 }
 
 #[test]
@@ -408,8 +408,8 @@ fn process_php() {
     let mut bus = build_bus("PHP");
     run(&mut cpu, &mut bus);
 
-    assert_that!(cpu.SP, eq(0xFE));
-    assert_that!(bus.read_byte(0x01FF), eq(0xFF));
+    assert_that!(cpu.SP, eq(0xFC));
+    assert_that!(bus.read_byte(0x01FD), eq(0xFF));
 }
 
 #[test]
@@ -417,10 +417,10 @@ fn process_pla() {
     let mut cpu = build_cpu(0, 0, 0, 0, "");
 
     let mut bus = build_bus("LDA #1\nPHA\nLDA #0\nPLA");
-    bus.write_byte(0x01FF, 0x01);
+    bus.write_byte(0x01FD, 0x01);
     run(&mut cpu, &mut bus);
 
-    assert_that!(cpu.SP, eq(0xFF));
+    assert_that!(cpu.SP, eq(0xFD));
     assert_that!(cpu.A, eq(0x01));
 
     let cpu = build_cpu(0, 0, 0, 0, "");
@@ -485,7 +485,7 @@ fn process_rts() {
     cpu.SP = 0xFD;
 
     let mut bus = build_bus("RTS");
-    bus.write_word(0x01FE, 0x0001); // PC
+    bus.write_word(0x01FE, 0x0000); // PC
 
     run(&mut cpu, &mut bus);
 
@@ -613,7 +613,7 @@ fn process_tay() {
 fn process_tsx() {
     let cpu = build_cpu(0, 0, 0, 0, "");
 
-    assert_instructions(&cpu, "TSX", 0, 0xFF, 0, 1, "Nz");
+    assert_instructions(&cpu, "TSX", 0, 0xFD, 0, 1, "Nz");
 }
 
 #[test]
@@ -706,7 +706,6 @@ fn assert_instructions(cpu: &Cpu, source: &str, a: Byte, x: Byte, y: Byte, pc: W
 
 fn build_cpu(a: Byte, x: Byte, y: Byte, pc: Word, status: &str) -> Cpu {
     let mut cpu = Cpu::new(pc);
-    cpu.reset(0);
 
     cpu.A = a;
     cpu.X = x;

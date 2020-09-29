@@ -53,10 +53,10 @@ fn run(filename: &str) -> Result<(), ErrorKind> {
     info!("Starting address: {:#06X}\r", start);
 
     let mut cpu = Cpu::new(start);
-
+    let mut paused  = true;
     loop {
-        // Wait up to 1s for another event
-        if poll(Duration::from_millis(1_000))? {
+        // Wait up to 1oms for another event
+        if poll(Duration::from_millis(10))? {
             // It's guaranteed that read() wont block if `poll` returns `Ok(true)`
             let event = read()?;
 
@@ -67,6 +67,21 @@ fn run(filename: &str) -> Result<(), ErrorKind> {
             }
 
             if event == Event::Key(KeyCode::Char(' ').into()) {
+                disable_raw_mode()?;
+                tick(&mut cpu, &mut bus);
+                enable_raw_mode()?;
+            }
+
+            if event == Event::Key(KeyCode::Char('p').into()) {
+                paused = true;
+            }
+
+            if event == Event::Key(KeyCode::Char('c').into()) {
+                paused = false;
+            }
+        }
+        else {
+            if !paused {
                 disable_raw_mode()?;
                 tick(&mut cpu, &mut bus);
                 enable_raw_mode()?;
