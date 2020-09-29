@@ -1,9 +1,9 @@
-pub mod simple_bus;
-pub mod bus_impl;
-
 use log::trace;
 
-use crate::types::{Word, Byte};
+use crate::types::{Byte, Word};
+
+pub mod simple_bus;
+pub mod bus_impl;
 
 pub trait Bus {
     fn read_byte(&self, address: Word) -> Byte;

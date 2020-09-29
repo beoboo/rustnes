@@ -1,5 +1,5 @@
+use crate::instructions::addressing_mode::AddressingMode;
 use crate::types::Word;
-use crate::addressing_mode::AddressingMode;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TokenType {

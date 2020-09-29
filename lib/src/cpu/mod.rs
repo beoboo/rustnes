@@ -1,24 +1,23 @@
+use colored::{ColoredString, Colorize};
 use log::*;
 
-use crate::addressing_mode::AddressingMode;
 use crate::bus::Bus as BusTrait;
-use crate::cpu::instructions_map::InstructionsMap;
-use crate::cpu::op_code::OpCode;
 use crate::cpu::status::Status;
+use crate::instructions::addressing_mode::AddressingMode;
+use crate::instructions::Instructions;
+use crate::instructions::op_code::OpCode;
 use crate::types::*;
-use colored::{Colorize, ColoredString};
 
-mod instruction;
-mod instructions_map;
-mod op_code;
 pub mod status;
 
 #[cfg(test)]
-mod test_execution;
+mod test_instructions;
 #[cfg(test)]
 mod test_timings;
 #[cfg(test)]
 mod test_interrupts;
+#[cfg(test)]
+mod test_execution;
 
 
 fn bool_to_byte(flag: bool) -> Byte {
@@ -30,7 +29,6 @@ fn color_flag(flag: bool, text: &str) -> ColoredString {
 }
 
 #[allow(non_snake_case)]
-#[derive(Clone, Debug)]
 pub struct Cpu {
     // Accumulator
     pub A: Byte,
@@ -44,37 +42,54 @@ pub struct Cpu {
     pub SP: Byte,
     // Status
     pub status: Status,
-    instructions_map: InstructionsMap,
+    pub left_cycles: usize,
+    instructions: Instructions,
 }
 
 impl Cpu {
+    const STACK_POINTER_ADDRESS: Byte = 0xFD;
+    const INTERRUPT_ADDRESS: Word = 0xFFFE;
+    const RESET_ADDRESS: Word = 0xFFFC;
+
     pub fn new(start_pc: Word) -> Cpu {
         Cpu {
             A: 0,
             X: 0,
             Y: 0,
-            SP: 0xFD,
+            SP: Cpu::STACK_POINTER_ADDRESS,
             PC: start_pc,
             status: Status::default(),
-            instructions_map: InstructionsMap::new(),
+            left_cycles: 0,
+            instructions: Instructions::new(),
         }
     }
 
-    pub fn reset<Bus: BusTrait>(&mut self, bus: &Bus) {
+    pub fn reset<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
         self.A = 0;
         self.X = 0;
         self.Y = 0;
-        self.SP = 0xFD;
-        self.PC = bus.read_word(0xFFFC);
+        self.SP = Cpu::STACK_POINTER_ADDRESS;
+        self.PC = bus.read_word(Cpu::RESET_ADDRESS);
 
         self.status.reset();
+        self.left_cycles = 8;
+
+        self.tick(bus)
     }
 
+    pub fn tick<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
+        if self.left_cycles == 0 {
+            self.process(bus);
+        }
+
+        self.left_cycles -= 1;
+        self.left_cycles
+    }
 
     pub fn process<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
         let op_id = bus.read_byte(self.PC);
 
-        let instruction = self.instructions_map.find(op_id);
+        let instruction = self.instructions.find(op_id);
 
         trace!("\n{:#06X}: {:?} ({:#04X}) {:?}", self.PC, instruction.op_code, op_id, instruction.addressing_mode);
         self.PC += 1;
@@ -143,6 +158,8 @@ impl Cpu {
             OpCode::TSX => self.tsx(),
         };
         self.debug();
+
+        self.left_cycles = cycles;
 
         cycles
     }
@@ -334,7 +351,7 @@ impl Cpu {
         self._push_word(bus, self.PC + 1);
         self._push_byte(bus, self.status.to_byte());
 
-        let address = bus.read_word(0xFFFE);
+        let address = bus.read_word(Cpu::INTERRUPT_ADDRESS);
         trace!("Jumping to {:#06X}", address);
         self.PC = address;
 
@@ -587,8 +604,8 @@ impl Cpu {
     fn sbc(&mut self, operand: Word) -> usize {
         let computed = self.A as SignedWord - operand as SignedWord - bool_to_byte(!self.status.C) as SignedWord;
         let acc = self.A;
-        //
-        // trace!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
+
+        trace!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
 
         self.A = computed as Byte;
         self.status.Z = self.A == 0x00;
@@ -743,8 +760,7 @@ impl Cpu {
             trace!("Jumping relative to {:#04X}", address);
             let relative = if address > 0x0080 {
                 address | 0xFF00
-            }
-            else {
+            } else {
                 address
             };
 

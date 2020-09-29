@@ -1,17 +1,19 @@
+use env_logger;
+use iced::{Color, Column, Container, Element, Length, Row, Sandbox, Settings};
+use iced::button::State;
+use rustnes_lib::nes::Nes;
+
+use crate::helpers::{button, byte_to_string, text, word_to_string, horizontal_space};
+// use log::info;
+use crate::side_bar::SideBar;
+
 mod status_bar;
 mod side_bar;
 mod helpers;
 mod style;
 mod cycles_counter;
 mod cpu_status;
-
-use iced::{Color, Column, Container, Element, Length, Row, Sandbox, Settings};
-use rustnes_lib::nes::Nes;
-use env_logger;
-// use log::info;
-use crate::side_bar::SideBar;
-use crate::helpers::{word_to_string, byte_to_string, text, button};
-use iced::button::State;
+mod instructions;
 
 pub fn main() {
     env_logger::init();
@@ -25,13 +27,17 @@ pub fn main() {
 
 struct App {
     nes: Nes,
+    reset_button: State,
     tick_button: State,
+    next_button: State,
     side_bar: SideBar,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
+    Reset,
     Tick,
+    ProcessNext,
 }
 
 impl Sandbox for App {
@@ -40,7 +46,9 @@ impl Sandbox for App {
     fn new() -> Self {
         App {
             nes: Nes::new("../roms/cpu/nestest/nestest.nes"),
+            reset_button: State::default(),
             tick_button: State::default(),
+            next_button: State::default(),
             side_bar: SideBar::default(),
         }
     }
@@ -51,13 +59,17 @@ impl Sandbox for App {
 
     fn update(&mut self, message: Message) {
         match message {
+            Message::Reset => self.reset(),
             Message::Tick => self.tick(),
+            Message::ProcessNext => self.process_next(),
         }
     }
 
     fn view(&mut self) -> Element<Message> {
         let App {
+            reset_button,
             tick_button,
+            next_button,
             nes,
             side_bar,
             ..
@@ -72,9 +84,18 @@ impl Sandbox for App {
             .push(ram)
             .push(side_bar.view(nes));
 
-        let controls = Row::new().push(
-            button(tick_button, "Tick")
-                .on_press(Message::Tick));
+        let controls = Row::new()
+            .push(
+                button(reset_button, "Reset")
+                    .on_press(Message::Reset))
+            .push(horizontal_space())
+            .push(
+                button(tick_button, "Tick")
+                    .on_press(Message::Tick))
+            .push(horizontal_space())
+            .push(
+                button(next_button, "Next")
+                    .on_press(Message::ProcessNext));
 
         let main = Column::new()
             .spacing(20)
@@ -93,8 +114,16 @@ impl Sandbox for App {
 }
 
 impl<'a> App {
+    fn reset(&mut self) {
+        self.nes.reset();
+    }
+
     fn tick(&mut self) {
         self.nes.tick();
+    }
+
+    fn process_next(&mut self) {
+        self.nes.process_next();
     }
 
     // fn build_ram(scroll_state: &'a mut State) -> Scrollable<'a, Message> {

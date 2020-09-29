@@ -1,27 +1,27 @@
+use env_logger;
+
 use hamcrest2::core::*;
 use hamcrest2::prelude::*;
 
 use crate::assembler::Assembler;
+use crate::bus::simple_bus::SimpleBus;
 use crate::parser::Parser;
-use env_logger;
 
 use super::*;
-use crate::bus::simple_bus::SimpleBus;
 
 #[test]
 fn process_adc() {
-    let _ = env_logger::init();
-    // assert_instruction("ADC #$44", 0x69, 2, 2);
-    // assert_instruction("ADC $44", 0x65, 2, 3);
-    // assert_instruction("ADC $44,X", 0x75, 2, 4);
-    // assert_instruction("ADC $4400", 0x6D, 3, 4);
-    // assert_instruction("ADC $4400,X", 0x7D, 3, 4);
-    // assert_instruction("ADC $4400,Y", 0x79, 3, 4);
-    // assert_instruction("ADC ($44,X)", 0x61, 2, 6);
-    // assert_instruction("ADC ($44),Y", 0x71, 2, 5);
-    //
-    // assert_instruction_with_page_cross("ADC $44FF,X", 0xFF, 0, 0x7D, 3, 5);
-    // assert_instruction_with_page_cross("ADC $44FF,Y", 0, 0xFF, 0x79, 3, 5);
+    assert_instruction("ADC #$44", 0x69, 2, 2);
+    assert_instruction("ADC $44", 0x65, 2, 3);
+    assert_instruction("ADC $44,X", 0x75, 2, 4);
+    assert_instruction("ADC $4400", 0x6D, 3, 4);
+    assert_instruction("ADC $4400,X", 0x7D, 3, 4);
+    assert_instruction("ADC $4400,Y", 0x79, 3, 4);
+    assert_instruction("ADC ($44,X)", 0x61, 2, 6);
+    assert_instruction("ADC ($44),Y", 0x71, 2, 5);
+
+    assert_instruction_with_page_cross("ADC $44FF,X", 0xFF, 0, 0x7D, 3, 5);
+    assert_instruction_with_page_cross("ADC $44FF,Y", 0, 0xFF, 0x79, 3, 5);
     assert_instruction_with_page_cross("ADC ($44),Y", 0, 0xFF, 0x71, 2, 6);
 }
 

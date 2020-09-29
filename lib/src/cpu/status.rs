@@ -1,5 +1,6 @@
-use crate::types::Byte;
 use std::fmt::{Display, Formatter, Result};
+
+use crate::types::Byte;
 
 #[allow(non_snake_case)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -87,23 +88,24 @@ impl Status {
 impl Display for Status {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{}{}{}{}{}{}{}{}",
-                if self.C { "C" } else { "c"},
-                if self.Z { "Z" } else { "z"},
-                if self.I { "I" } else { "i"},
-                if self.D { "D" } else { "d"},
-                if self.B { "B" } else { "b"},
-                if self.U { "U" } else { "u"},
-                if self.V { "V" } else { "v"},
-                if self.N { "N" } else { "n"},
+               if self.C { "C" } else { "c" },
+               if self.Z { "Z" } else { "z" },
+               if self.I { "I" } else { "i" },
+               if self.D { "D" } else { "d" },
+               if self.B { "B" } else { "b" },
+               if self.U { "U" } else { "u" },
+               if self.V { "V" } else { "v" },
+               if self.N { "N" } else { "n" },
         )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use hamcrest2::core::*;
     use hamcrest2::prelude::*;
+
+    use super::*;
 
     #[test]
     fn test_from_byte() {

@@ -1,9 +1,8 @@
-use crate::types::{Byte, Word};
 use log::warn;
 
-pub struct Apu {
+use crate::types::{Byte, Word};
 
-}
+pub struct Apu {}
 
 impl Default for Apu {
     fn default() -> Apu {
@@ -12,7 +11,6 @@ impl Default for Apu {
 }
 
 impl Apu {
-
     pub fn read(&self, address: Word) -> Byte {
         warn!("APU: Reading from {:#06X} -> (not implemented)", address);
         0xFF

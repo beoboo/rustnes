@@ -1,4 +1,4 @@
-#[derive(Hash, Clone, Debug, PartialEq, Eq)]
+#[derive(Hash, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddressingMode {
     Accumulator,
     Absolute,

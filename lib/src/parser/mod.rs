@@ -2,9 +2,11 @@ use std::iter::Peekable;
 use std::str::Chars;
 
 use crate::error::{Error, report_stage_error};
-use crate::token::{Token, TokenType};
+use crate::instructions::addressing_mode::AddressingMode;
+use crate::parser::token::{Token, TokenType};
 use crate::types::Word;
-use crate::addressing_mode::AddressingMode;
+
+pub mod token;
 
 pub struct Parser {}
 
@@ -161,7 +163,7 @@ fn number(it: &mut Peekable<Chars>) -> Result<Word, Error> {
 fn hex(it: &mut PeekableChar) -> Result<Word, Error> {
     advance(it);
 
-    let mut number:Word = 0;
+    let mut number: Word = 0;
 
     while is_hex(peek(it)) {
         number *= 16;
@@ -188,7 +190,7 @@ fn high(it: &mut PeekableChar) -> Result<Word, Error> {
 }
 
 fn decimal(it: &mut PeekableChar) -> Result<Word, Error> {
-    let mut number:Word = 0;
+    let mut number: Word = 0;
 
     while is_decimal(peek(it)) {
         number *= 10;
@@ -201,7 +203,7 @@ fn decimal(it: &mut PeekableChar) -> Result<Word, Error> {
 fn octal(it: &mut PeekableChar) -> Result<Word, Error> {
     advance(it);
 
-    let mut number:Word = 0;
+    let mut number: Word = 0;
 
     while is_octal(peek(it)) {
         number *= 8;
@@ -214,7 +216,7 @@ fn octal(it: &mut PeekableChar) -> Result<Word, Error> {
 fn binary(it: &mut PeekableChar) -> Result<Word, Error> {
     advance(it);
 
-    let mut number:Word = 0;
+    let mut number: Word = 0;
 
     while is_binary(peek(it)) {
         number *= 2;
@@ -237,7 +239,7 @@ fn is_alphanum(ch: char) -> bool {
 
 fn is_hex(ch: char) -> bool {
     match ch {
-        '0'..='9' | 'a'..='f' | 'A'..='F'=> true,
+        '0'..='9' | 'a'..='f' | 'A'..='F' => true,
         _ => false
     }
 }
@@ -258,7 +260,7 @@ fn is_octal(ch: char) -> bool {
 
 fn is_binary(ch: char) -> bool {
     match ch {
-        '0' | '1'=> true,
+        '0' | '1' => true,
         _ => false
     }
 }
@@ -295,8 +297,6 @@ fn _report_error<S: Into<String>, T>(err: S) -> Result<T, Error> {
 #[cfg(test)]
 mod tests {
     use hamcrest2::prelude::*;
-
-    use crate::addressing_mode::AddressingMode;
 
     use super::*;
 
@@ -388,5 +388,4 @@ mod tests {
 
         parser.parse(source)
     }
-
 }

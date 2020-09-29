@@ -1,6 +1,6 @@
 use std::{error, fmt};
 
-use crate::addressing_mode::AddressingMode;
+use crate::instructions::addressing_mode::AddressingMode;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {

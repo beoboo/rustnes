@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::addressing_mode::AddressingMode;
 use crate::error::Error;
+use crate::instructions::addressing_mode::AddressingMode;
 use crate::types::Byte;
 
 type AddressingModes = HashMap<AddressingMode, Byte>;
@@ -48,7 +48,8 @@ mod tests {
     use hamcrest2::prelude::*;
 
     use super::*;
-    //
+
+//
     // #[test]
     // fn find_brk() {
     //     let mut instruction = Instruction::new("BRK", true, false);

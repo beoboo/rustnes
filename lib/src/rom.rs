@@ -1,8 +1,10 @@
 use std::fs::File;
 use std::io::prelude::*;
 use std::str;
-use crate::types::{Word, Byte};
+
 use log::trace;
+
+use crate::types::{Byte, Word};
 
 #[derive(Debug)]
 pub struct RomHeader {

@@ -1,12 +1,12 @@
 use std::iter::Peekable;
 use std::slice::Iter;
 
-use crate::addressing_mode::AddressingMode;
 use crate::assembler::addressing_mode_map::AddressingModeMap;
-use crate::error::{Error, report_stage_error};
-use crate::token::{Token, TokenType};
-use crate::types::{Byte, Word};
 use crate::assembler::instruction::Instruction;
+use crate::error::{Error, report_stage_error};
+use crate::instructions::addressing_mode::AddressingMode;
+use crate::parser::token::{Token, TokenType};
+use crate::types::{Byte, Word};
 
 mod instruction;
 mod addressing_mode_map;

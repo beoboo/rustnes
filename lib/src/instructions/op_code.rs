@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum OpCode {
     ADC,
     AND,

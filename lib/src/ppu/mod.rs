@@ -1,8 +1,6 @@
 use crate::types::{Byte, Word};
 
-pub struct Ppu {
-
-}
+pub struct Ppu {}
 
 impl Default for Ppu {
     fn default() -> Ppu {

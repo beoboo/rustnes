@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use crate::addressing_mode::AddressingMode;
 use crate::assembler::instruction::Instruction;
 use crate::error::Error;
+use crate::instructions::addressing_mode::AddressingMode;
 use crate::types::Byte;
 
 type Map = HashMap<String, Instruction>;

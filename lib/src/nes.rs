@@ -26,11 +26,14 @@ pub struct Nes {
 impl Nes {
     pub fn new(filename: &str) -> Nes {
         let rom = Rom::load(filename, 16384, 8192);
-        let bus = BusImpl::new(Ram::new(0x0800), Apu::default(), Ppu::default(), rom);
+        let mut bus = BusImpl::new(Ram::new(0x0800), Apu::default(), Ppu::default(), rom);
+
+        let mut cpu = Cpu::new(0);
+        cpu.reset(&mut bus);
 
         Nes {
-            cpu: Cpu::new(0xFFFC),
-            bus: bus,
+            cpu,
+            bus,
             width: 256,
             height: 240,
             bits_per_pixel: 4,
@@ -39,9 +42,22 @@ impl Nes {
         }
     }
 
+    pub fn reset(&mut self) {
+        info!("[Nes::reset]");
+        self.cycles = self.cpu.reset(&mut self.bus);
+    }
+
     pub fn tick(&mut self) {
         info!("[Nes::tick]");
-        self.cycles += self.cpu.process(&mut self.bus);
+        self.cpu.tick(&mut self.bus);
+        self.cycles += 1;
+    }
+
+    pub fn process_next(&mut self) {
+        info!("[Nes::process_nexy]");
+        while self.cpu.tick(&mut self.bus) != 0 {
+            self.cycles += 1;
+        };
     }
 
     pub fn run() {

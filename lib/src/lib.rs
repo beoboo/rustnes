@@ -1,4 +1,3 @@
-pub mod addressing_mode;
 pub mod apu;
 pub mod assembler;
 pub mod bus;
@@ -9,5 +8,6 @@ pub mod parser;
 pub mod ppu;
 pub mod ram;
 pub mod rom;
-pub mod token;
 pub mod types;
+pub mod disassembler;
+mod instructions;

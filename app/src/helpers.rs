@@ -28,3 +28,7 @@ pub fn button<'a, Message: 'a>(state: &'a mut button::State, label: &str) -> But
 pub fn vertical_space() -> Space {
     Space::with_width(Length::Units(10))
 }
+
+pub fn horizontal_space() -> Space {
+    Space::with_width(Length::Units(10))
+}

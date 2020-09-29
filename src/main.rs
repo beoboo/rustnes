@@ -46,13 +46,11 @@ fn run(filename: &str) -> Result<(), ErrorKind> {
     let rom = Rom::load(filename, 16384, 8192);
     let mut bus = BusImpl::new(Ram::new(0x0800), Apu::default(), Ppu::default(), rom);
 
-    let start = bus.read_word(0xFFFC);
-
     enable_raw_mode()?;
 
-    info!("Starting address: {:#06X}\r", start);
-
     let mut cpu = Cpu::new(start);
+    cpu.reset(&mut bus);
+
     let mut paused  = true;
     loop {
         // Wait up to 1oms for another event

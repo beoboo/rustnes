@@ -1,5 +1,6 @@
-use crate::types::{Byte, Word};
 use log::trace;
+
+use crate::types::{Byte, Word};
 
 pub struct Ram {
     data: Vec<Byte>,

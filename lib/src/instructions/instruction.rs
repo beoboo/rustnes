@@ -1,6 +1,7 @@
-use crate::addressing_mode::AddressingMode;
-use crate::cpu::op_code::OpCode;
+use crate::instructions::addressing_mode::AddressingMode;
+use crate::instructions::op_code::OpCode;
 
+#[derive(Clone, Copy)]
 pub struct Instruction {
     pub op_code: OpCode,
     pub addressing_mode: AddressingMode,
@@ -12,7 +13,7 @@ impl Instruction {
         Instruction {
             op_code,
             addressing_mode,
-            cycles
+            cycles,
         }
     }
 }
