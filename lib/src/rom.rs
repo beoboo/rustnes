@@ -6,7 +6,7 @@ use log::trace;
 
 use crate::types::{Byte, Word};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RomHeader {
     pub nes: String,
     pub prg_rom_size: usize,
@@ -35,7 +35,7 @@ impl RomHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Rom {
     pub header: RomHeader,
     pub trainer: Vec<u8>,

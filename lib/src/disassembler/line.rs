@@ -1,16 +1,16 @@
-use crate::types::Word;
+use crate::instructions::addressing_mode::AddressingMode;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
-    pub address: Word,
     pub instruction: String,
+    pub addressing_mode: AddressingMode,
 }
 
 impl<'a> Line {
-    pub fn new(address: Word, instruction: &'a str) -> Self {
+    pub fn new(instruction: &'a str, addressing_mode: AddressingMode) -> Self {
         Line {
-            address,
             instruction: instruction.to_string(),
+            addressing_mode,
         }
     }
 }
