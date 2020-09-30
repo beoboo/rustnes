@@ -145,7 +145,7 @@ impl Cpu {
             OpCode::ROR => self.ror(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::RTI => self.rti(bus),
             OpCode::RTS => self.rts(bus),
-            OpCode::SBC => self.sbc(address),
+            OpCode::SBC => self.sbc(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::SEC => self.sec(),
             OpCode::SED => self.sed(),
             OpCode::SEI => self.sei(),
@@ -607,7 +607,7 @@ impl Cpu {
         0
     }
 
-    fn sbc(&mut self, operand: Word) -> usize {
+    fn sbc(&mut self, operand: Byte) -> usize {
         let computed = self.A as SignedWord - operand as SignedWord - bool_to_byte(!self.status.C) as SignedWord;
         let acc = self.A;
 

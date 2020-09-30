@@ -24,9 +24,9 @@ impl Default for SimpleBus {
 
 
 impl SimpleBus {
-    pub fn load(&mut self, program: Vec<u8>, starting_pos: usize) {
+    pub fn load(&mut self, program: &[u8], starting_pos: usize) {
         // let mut data = self.data;
-        replace_slice(&mut self.data[starting_pos..], program.as_slice());
+        replace_slice(&mut self.data[starting_pos..], program);
     }
 }
 

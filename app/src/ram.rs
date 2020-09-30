@@ -1,7 +1,7 @@
 use iced::{Color, Column, Row};
 use rustnes_lib::nes::Nes;
 use rustnes_lib::types::{Byte, Word};
-use log::trace;
+// use log::trace;
 use crate::helpers::{byte_to_string, text, word_to_string};
 
 #[derive(Debug, Clone, Default)]

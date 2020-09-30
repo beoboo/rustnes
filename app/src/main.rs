@@ -1,12 +1,14 @@
+use std::time::Instant;
+
 use env_logger;
-use iced::{Column, Container, Element, Length, Row, Sandbox, Settings};
+use iced::{Application, Column, Command, Container, Element, executor, Length, Row, Settings, Subscription};
 use iced::button::State;
 use rustnes_lib::nes::Nes;
 
 use crate::helpers::{button, horizontal_space};
+use crate::ram::Ram;
 // use log::info;
 use crate::side_bar::SideBar;
-use crate::ram::Ram;
 
 mod status_bar;
 mod side_bar;
@@ -21,7 +23,6 @@ pub fn main() {
     env_logger::init();
 
     App::run(iced::Settings {
-        // default_font: Some(include_bytes!("../assets/CourierNew-Regular.ttf")),
         default_font: Some(include_bytes!("../assets/cour.ttf")),
         ..Settings::default()
     })
@@ -30,53 +31,73 @@ pub fn main() {
 struct App {
     nes: Nes,
     reset_button: State,
-    tick_button: State,
     next_button: State,
+    pause_button: State,
+    play_button: State,
     ram: Ram,
     side_bar: SideBar,
+    is_playing: bool,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
+    Pause,
+    Play,
     Reset,
-    Tick,
+    Tick(Instant),
     ProcessNext,
 }
 
-impl Sandbox for App {
+impl Application for App {
+    type Executor = executor::Default;
     type Message = Message;
+    type Flags = ();
 
-    fn new() -> Self {
-        // let mut nes = Nes::new("../roms/cpu/nestest/nestest.nes");
-        let mut nes = Nes::new("../roms/mul3.nes");
+    fn new(_flags: ()) -> (Self, Command<Message>) {
+        let mut nes = Nes::new("../roms/cpu/nestest/nestest.nes");
+        // let mut nes = Nes::new("../roms/mul3.nes");
         nes.reset();
 
-        App {
-            nes,
-            reset_button: State::default(),
-            tick_button: State::default(),
-            next_button: State::default(),
-            ram: Ram::default(),
-            side_bar: SideBar::default(),
-        }
+        (
+            App {
+                nes,
+                pause_button: State::default(),
+                play_button: State::default(),
+                reset_button: State::default(),
+                next_button: State::default(),
+                ram: Ram::default(),
+                side_bar: SideBar::default(),
+                is_playing: false,
+            },
+            Command::none(),
+        )
     }
 
     fn title(&self) -> String {
         String::from("rustnes")
     }
 
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Command<Message> {
         match message {
+            Message::Pause => self.pause(),
+            Message::Play => self.play(),
             Message::Reset => self.reset(),
-            Message::Tick => self.tick(),
             Message::ProcessNext => self.process_next(),
-        }
+            Message::Tick(_now) => if self.is_playing { self.tick() },
+        };
+
+        Command::none()
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        time::every(std::time::Duration::from_micros(100)).map(Message::Tick)
     }
 
     fn view(&mut self) -> Element<Message> {
         let App {
+            pause_button,
+            play_button,
             reset_button,
-            tick_button,
             next_button,
             nes,
             ram,
@@ -89,18 +110,17 @@ impl Sandbox for App {
             .push(ram.view(nes))
             .push(side_bar.view(nes));
 
-        let controls = Row::new()
-            .push(
-                button(reset_button, "Reset")
-                    .on_press(Message::Reset))
+        let mut controls = Row::new()
+            .push(button(reset_button, "Reset").on_press(Message::Reset))
             .push(horizontal_space())
-            .push(
-                button(tick_button, "Tick")
-                    .on_press(Message::Tick))
-            .push(horizontal_space())
-            .push(
-                button(next_button, "Next")
-                    .on_press(Message::ProcessNext));
+            .push(button(next_button, "Next").on_press(Message::ProcessNext))
+            .push(horizontal_space());
+
+        if self.is_playing {
+            controls = controls.push(button(pause_button, "Pause").on_press(Message::Pause));
+        } else {
+            controls = controls.push(button(play_button, "Play").on_press(Message::Play));
+        }
 
         let main = Column::new()
             .spacing(20)
@@ -119,6 +139,14 @@ impl Sandbox for App {
 }
 
 impl<'a> App {
+    fn pause(&mut self) {
+        self.is_playing = false;
+    }
+
+    fn play(&mut self) {
+        self.is_playing = true;
+    }
+
     fn reset(&mut self) {
         self.nes.reset();
     }
@@ -129,5 +157,42 @@ impl<'a> App {
 
     fn process_next(&mut self) {
         self.nes.process_next();
+    }
+}
+
+mod time {
+    use iced::futures;
+
+    pub fn every(
+        duration: std::time::Duration,
+    ) -> iced::Subscription<std::time::Instant> {
+        iced::Subscription::from_recipe(Every(duration))
+    }
+
+    struct Every(std::time::Duration);
+
+    impl<H, I> iced_native::subscription::Recipe<H, I> for Every
+        where
+            H: std::hash::Hasher,
+    {
+        type Output = std::time::Instant;
+
+        fn hash(&self, state: &mut H) {
+            use std::hash::Hash;
+
+            std::any::TypeId::of::<Self>().hash(state);
+            self.0.hash(state);
+        }
+
+        fn stream(
+            self: Box<Self>,
+            _input: futures::stream::BoxStream<'static, I>,
+        ) -> futures::stream::BoxStream<'static, Self::Output> {
+            use futures::stream::StreamExt;
+
+            async_std::stream::interval(self.0)
+                .map(|_| std::time::Instant::now())
+                .boxed()
+        }
     }
 }

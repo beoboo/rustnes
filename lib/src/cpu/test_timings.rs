@@ -379,7 +379,7 @@ fn _assert_instruction(cpu: &mut Cpu, bus: &mut SimpleBus, source: &str, pc: Wor
     let length = program.len();
     let op_code = program[0];
 
-    bus.load(program, pc as usize);
+    bus.load(program.as_slice(), pc as usize);
 
     let total_cycles = cpu.process(bus);
     println!("Cycles: {}", total_cycles);

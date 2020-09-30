@@ -1,5 +1,5 @@
 use iced::{Color, Column, Text};
-use log::{info, trace};
+// use log::{info, trace};
 use rustnes_lib::disassembler::Disassembler;
 use rustnes_lib::disassembler::line::Line;
 use rustnes_lib::types::{Byte, Word};
@@ -18,7 +18,7 @@ fn relative_address(pos: Word, relative: Word) -> String {
         pos + relative
     };
 
-    format!(" [{:#06X}]", pos)
+    format!(" [{:#06X}]", pos + 1)
 }
 
 fn instruction_to_string(pos: Word, line: &Line) -> String {
@@ -33,7 +33,8 @@ fn instruction_text(pos: Word, line: &Line, color: Color) -> Text {
 
 impl Instructions {
     pub fn view<'a, Message: 'a>(&mut self, pc: Word, code: &Vec<Byte>) -> Column<'a, Message> {
-        let pc = pc - 0x8000;
+        // let pc = pc - 0x8000;
+        let pc = pc - 0xC000;
         // info!("[Instructions::view] {:#06X}", pc);
         let instructions = &self.disassembler.disassemble(&code[0..0x3FFF]);
 

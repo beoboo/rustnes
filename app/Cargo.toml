@@ -9,7 +9,8 @@ edition = "2018"
 [dependencies]
 env_logger = "*"
 log = "*"
-iced = "0.1.1"
-#rust-pushrod = "*"
-#sdl2 = "*"
+iced = { version = "*", features = ["canvas", "async-std", "debug"] }
+iced_native = "*"
+chrono = "0.4"
+async-std = { version = "1.0", features = ["unstable"] }
 rustnes-lib = { path = "../lib" }

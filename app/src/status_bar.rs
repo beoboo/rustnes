@@ -1,5 +1,5 @@
 use iced::{Color, Row, Text};
-use log::info;
+// use log::info;
 use rustnes_lib::cpu::status::Status;
 
 use crate::helpers::{color_from_flag, text, vertical_space};
@@ -8,7 +8,7 @@ use crate::helpers::{color_from_flag, text, vertical_space};
 pub struct StatusBar {}
 
 fn bool_to_string(flag: bool, ch: &str) -> String {
-    if flag {ch.to_ascii_uppercase() } else { ch.to_ascii_lowercase() }
+    if flag { ch.to_ascii_uppercase() } else { ch.to_ascii_lowercase() }
 }
 
 fn status_flag(flag: bool, ch: &str) -> Text {

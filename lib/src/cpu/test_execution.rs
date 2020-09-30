@@ -13,7 +13,7 @@ fn simple_tick() {
     let mut bus = SimpleBus::default();
 
     let program = build_program("NOP");
-    bus.load(program, 0);
+    bus.load(program.as_slice(), 0);
     cpu.tick(&mut bus);
     assert_that!(cpu.PC, eq(0x01));
     assert_that!(cpu.left_cycles, eq(1));
