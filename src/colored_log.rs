@@ -1,6 +1,7 @@
 use std::fmt;
 
-use env_logger::{Builder, fmt::{Color, Style}};
+use env_logger::Builder;
+use env_logger::fmt::{Color, Style};
 use log::Level;
 
 pub fn formatted_builder() -> Builder {

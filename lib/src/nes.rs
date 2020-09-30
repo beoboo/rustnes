@@ -8,7 +8,8 @@ use crate::ppu::Ppu;
 use crate::ram::Ram;
 use crate::rom::Rom;
 use crate::types::Byte;
-use crate::disassembler::{Disassembler, DisassembledCode};
+use crate::assembler::Assembler;
+use crate::parser::Parser;
 
 pub struct Buffer {
     pub data: Vec<Byte>,
@@ -17,7 +18,6 @@ pub struct Buffer {
 pub struct Nes {
     pub cpu: Cpu,
     pub bus: BusImpl,
-    pub instructions: DisassembledCode,
     pub width: u32,
     pub height: u32,
     pub bits_per_pixel: u32,
@@ -25,21 +25,49 @@ pub struct Nes {
     pub cycles: usize,
 }
 
+fn build_program(source: &str) -> Vec<Byte> {
+    println!("Processing:\n {}", source);
+    let assembler = Assembler::default();
+    let parser = Parser::default();
+    let tokens = parser.parse(source).unwrap();
+
+    let program = match assembler.assemble(tokens) {
+        Ok(program) => program,
+        Err(e) => panic!("Assembler error: {}", e)
+    };
+    println!("Program: {:x?}", program);
+
+    program.data
+}
+
+
 impl Nes {
     pub fn new(filename: &str) -> Nes {
         let rom = Rom::load(filename, 16384, 8192);
-        let mut bus = BusImpl::new(Ram::new(0x0800), Apu::default(), Ppu::default(), rom.clone());
+//         let program = build_program("
+// LDX #10
+// STX $0000
+// LDX #3
+// STX $0001
+// LDY $0000
+// LDA #0
+// CLC
+// ADC $0001
+// DEY
+// BNE $FA
+// STA $0002
+// NOP
+// NOP
+// NOP
+// ");
 
-        let mut cpu = Cpu::new(0);
-        cpu.reset(&mut bus);
-
-        let mut disassembler = Disassembler::default();
-        let instructions = disassembler.disassemble(rom.prg_rom.as_slice());
+        // let rom = Rom::new(program.as_slice(), vec![0u8; 0].as_slice());
+        let bus = BusImpl::new(Ram::new(0x0800), Apu::default(), Ppu::default(), rom.clone());
+        let cpu = Cpu::new(0);
 
         Nes {
             cpu,
             bus,
-            instructions,
             width: 256,
             height: 240,
             bits_per_pixel: 4,
@@ -50,7 +78,14 @@ impl Nes {
 
     pub fn reset(&mut self) {
         info!("[Nes::reset]");
-        self.cycles = self.cpu.reset(&mut self.bus);
+        self.cpu.reset(&mut self.bus);
+        self.cycles += 1;
+
+        while self.cpu.tick(&mut self.bus) != 0 {
+            self.cycles += 1;
+        }
+
+        self.cycles += 1;
     }
 
     pub fn tick(&mut self) {
@@ -60,7 +95,7 @@ impl Nes {
     }
 
     pub fn process_next(&mut self) {
-        info!("[Nes::process_nexy]");
+        info!("[Nes::process_next]");
         while self.cpu.tick(&mut self.bus) != 0 {
             self.cycles += 1;
         };

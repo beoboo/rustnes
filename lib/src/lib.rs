@@ -10,4 +10,4 @@ pub mod ram;
 pub mod rom;
 pub mod types;
 pub mod disassembler;
-mod instructions;
+pub mod instructions;

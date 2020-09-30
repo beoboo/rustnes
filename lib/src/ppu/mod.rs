@@ -1,4 +1,5 @@
 use crate::types::{Byte, Word};
+use log::trace;
 
 pub struct Ppu {}
 
@@ -10,12 +11,12 @@ impl Default for Ppu {
 
 impl Ppu {
     pub fn read(&self, address: Word) -> Byte {
-        println!("Reading from PPU address: {:#06X}", address);
+        trace!("Reading from PPU address: {:#06X}", address);
         0xFF
     }
 
     pub fn write(&mut self, address: Word, data: Byte) {
-        println!("Writing {:#04X} to PPU address {:#06X}", data, address);
+        trace!("Writing {:#04X} to PPU address {:#06X}", data, address);
     }
 }
 

@@ -1,11 +1,12 @@
 use env_logger;
-use iced::{Color, Column, Container, Element, Length, Row, Sandbox, Settings};
+use iced::{Column, Container, Element, Length, Row, Sandbox, Settings};
 use iced::button::State;
 use rustnes_lib::nes::Nes;
 
-use crate::helpers::{button, byte_to_string, text, word_to_string, horizontal_space};
+use crate::helpers::{button, horizontal_space};
 // use log::info;
 use crate::side_bar::SideBar;
+use crate::ram::Ram;
 
 mod status_bar;
 mod side_bar;
@@ -14,6 +15,7 @@ mod style;
 mod cycles_counter;
 mod cpu_status;
 mod instructions;
+mod ram;
 
 pub fn main() {
     env_logger::init();
@@ -30,6 +32,7 @@ struct App {
     reset_button: State,
     tick_button: State,
     next_button: State,
+    ram: Ram,
     side_bar: SideBar,
 }
 
@@ -44,11 +47,16 @@ impl Sandbox for App {
     type Message = Message;
 
     fn new() -> Self {
+        // let mut nes = Nes::new("../roms/cpu/nestest/nestest.nes");
+        let mut nes = Nes::new("../roms/mul3.nes");
+        nes.reset();
+
         App {
-            nes: Nes::new("../roms/cpu/nestest/nestest.nes"),
+            nes,
             reset_button: State::default(),
             tick_button: State::default(),
             next_button: State::default(),
+            ram: Ram::default(),
             side_bar: SideBar::default(),
         }
     }
@@ -71,17 +79,14 @@ impl Sandbox for App {
             tick_button,
             next_button,
             nes,
+            ram,
             side_bar,
             ..
         } = self;
 
-        // info!("[App::view] {}", nes.status);
-        let ram = App::build_ram();
-        // let side_bar = self.build_sidebar(nes.status);
-
         let content = Row::new()
             .spacing(20)
-            .push(ram)
+            .push(ram.view(nes))
             .push(side_bar.view(nes));
 
         let controls = Row::new()
@@ -124,43 +129,5 @@ impl<'a> App {
 
     fn process_next(&mut self) {
         self.nes.process_next();
-    }
-
-    // fn build_ram(scroll_state: &'a mut State) -> Scrollable<'a, Message> {
-    //     let mut text = String::new();
-    //
-    //     for i in 0..0xFF00 {
-    //         text = text + App::build_bytes(i, vec![0; 16].as_slice()).as_str() + "\n";
-    //     }
-    //
-    //     Scrollable::new(scroll_state)
-    //         .push(text(text.as_str(), Color::WHITE))
-    // }
-
-    fn build_ram() -> Column<'a, Message> {
-        Column::new().spacing(10)
-            .push(App::build_ram_page(0))
-            .push(App::build_ram_page(0x80))
-    }
-
-    fn build_ram_page(page: u16) -> Row<'a, Message> {
-        let mut line = String::new();
-
-        for i in 0..16 {
-            line = line + App::build_addresses(page * 256 + i * 16, vec![0; 16].as_slice()).as_str() + "\n";
-        }
-
-        Row::new()
-            .push(text(line.as_str(), Color::WHITE))
-    }
-
-    fn build_addresses(address: u16, vals: &[u8]) -> String {
-        let mut bytes = String::from(format!("{}:", word_to_string(address)));
-
-        for i in 0..vals.len() {
-            bytes = bytes + " " + byte_to_string(vals[i]).as_str();
-        }
-
-        bytes
     }
 }

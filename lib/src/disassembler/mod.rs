@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::slice::Iter;
 
 use crate::disassembler::line::Line;
@@ -6,27 +6,31 @@ use crate::instructions::addressing_mode::AddressingMode;
 use crate::instructions::Instructions;
 use crate::types::{Byte, Word};
 
-mod line;
+// use log::trace;
+pub mod line;
 
-pub type DisassembledCode = HashMap<Byte, Line>;
+pub type DisassembledCode = BTreeMap<Word, Line>;
 
-#[derive(Debug, Default)]
-pub struct Disassembler {
-}
+#[derive(Clone, Debug, Default)]
+pub struct Disassembler {}
 
 fn decode(it: &mut Iter<Byte>) -> Byte {
     *(it.next().unwrap_or_else(|| panic!("Unexpected end of instructions")))
 }
 
-fn append_byte(source_code: String, it: &mut Iter<Byte>, prefix: &str, postfix: &str) -> String {
-    source_code + format!("{}{:02X?}", prefix, decode(it)).as_str() + postfix
+fn append_byte(source_code: String, it: &mut Iter<Byte>, prefix: &str, postfix: &str) -> (Byte, Word, String) {
+    let address = decode(it) as Word;
+
+    (1, address, source_code + format!("{}{:02X?}", prefix, address).as_str() + postfix)
 }
 
-fn append_word(source_code: String, it: &mut Iter<Byte>, prefix: &str, postfix: &str) -> String {
+fn append_word(source_code: String, it: &mut Iter<Byte>, prefix: &str, postfix: &str) -> (Byte, Word, String) {
     let lo = decode(it) as Word;
     let hi = decode(it) as Word;
 
-    source_code + format!("{}{:04X?}", prefix, (hi << 8) + lo).as_str() + postfix
+    let address = (hi << 8) + lo;
+
+    (2, address, source_code + format!("{}{:04X?}", prefix, address).as_str() + postfix)
 }
 
 impl Disassembler {
@@ -35,35 +39,37 @@ impl Disassembler {
         let mut instructions = DisassembledCode::new();
 
         let mut it = source.iter();
-        let mut line = 0x00;
+        let mut pc: Word = 0;
 
         while let Some(byte) = it.next() {
             let instruction = map.find(*byte);
 
-            let mut source_code = format!("{:?}", instruction.op_code);
+            let source_code = format!("{:?}", instruction.op_code);
 
-            match instruction.addressing_mode {
-                AddressingMode::Implied => {}
-                AddressingMode::Accumulator => { source_code += " A" }
-                AddressingMode::ZeroPage => { source_code = append_byte(source_code, &mut it, " $", ""); }
-                AddressingMode::ZeroPageX => { source_code = append_byte(source_code, &mut it, " $", ",X"); }
-                AddressingMode::ZeroPageY => { source_code = append_byte(source_code, &mut it, " $", ",Y"); }
-                AddressingMode::Relative => { source_code = append_byte(source_code, &mut it, " $", ""); }
-                AddressingMode::Absolute => { source_code = append_word(source_code, &mut it, " $", ""); }
-                AddressingMode::AbsoluteX => { source_code = append_word(source_code, &mut it, " $", ",X"); }
-                AddressingMode::AbsoluteY => { source_code = append_word(source_code, &mut it, " $", ",Y"); }
-                AddressingMode::Immediate => { source_code = append_byte(source_code, &mut it, " #$", ""); }
-                AddressingMode::Indirect => { source_code = append_word(source_code, &mut it, " ($", ")"); }
-                AddressingMode::IndirectIndexedX => { source_code = append_byte(source_code, &mut it, " ($", ",X)"); }
-                AddressingMode::YIndexedIndirect => { source_code = append_byte(source_code, &mut it, " ($", "),Y"); }
-            }
+            let (bytes, address, source_code) = match instruction.addressing_mode {
+                AddressingMode::Implied => { (0, 0, source_code) }
+                AddressingMode::Accumulator => { (0, 0, source_code + " A") }
+                AddressingMode::ZeroPage => { append_byte(source_code, &mut it, " $", "") }
+                AddressingMode::ZeroPageX => { append_byte(source_code, &mut it, " $", ",X") }
+                AddressingMode::ZeroPageY => { append_byte(source_code, &mut it, " $", ",Y") }
+                AddressingMode::Relative => { append_byte(source_code, &mut it, " $", "") }
+                AddressingMode::Absolute => { append_word(source_code, &mut it, " $", "") }
+                AddressingMode::AbsoluteX => { append_word(source_code, &mut it, " $", ",X") }
+                AddressingMode::AbsoluteY => { append_word(source_code, &mut it, " $", ",Y") }
+                AddressingMode::Immediate => { append_byte(source_code, &mut it, " #$", "") }
+                AddressingMode::Indirect => { append_word(source_code, &mut it, " ($", ")") }
+                AddressingMode::IndirectIndexedX => { append_byte(source_code, &mut it, " ($", ",X)") }
+                AddressingMode::YIndexedIndirect => { append_byte(source_code, &mut it, " ($", "),Y") }
+            };
 
-            instructions.insert(line, Line::new(source_code.as_str(), instruction.addressing_mode));
+            // trace!("Decoding: {:#06X}: {:#04X} -> {} [{:?}]", count, *byte, source_code, instruction.addressing_mode);
 
-            line += 1;
+            instructions.insert(pc, Line::new(source_code.as_str(), instruction.addressing_mode, address));
+            pc += 1 + bytes as Word;
         }
 
-instructions    }
+        instructions
+    }
 }
 
 #[cfg(test)]
@@ -99,21 +105,19 @@ mod tests {
 
     #[test]
     fn addressing_modes() {
-        env_logger::init();
-
         let instructions = disassemble("LDA #$44\nLDA $44\nLDA $44,X\nLDA $4400\nLDA $4400,X\nLDA $4400,Y\nLDA ($44,X)\nLDA ($44),Y\nBPL $2\nSTX $2,Y\nASL A\nJMP ($1)");
-        assert_line(&instructions[&0x0000], "LDA #$44");
-        assert_line(&instructions[&0x0001], "LDA $44");
-        assert_line(&instructions[&0x0002], "LDA $44,X");
-        assert_line(&instructions[&0x0003], "LDA $4400");
-        assert_line(&instructions[&0x0004], "LDA $4400,X");
-        assert_line(&instructions[&0x0005], "LDA $4400,Y");
-        assert_line(&instructions[&0x0006], "LDA ($44,X)");
-        assert_line(&instructions[&0x0007], "LDA ($44),Y");
-        assert_line(&instructions[&0x0008], "BPL $02");
-        assert_line(&instructions[&0x0009], "STX $02,Y");
-        assert_line(&instructions[&0x000A], "ASL A");
-        assert_line(&instructions[&0x000B], "JMP ($0001)");
+        assert_line(&instructions[&0], "LDA #$44");
+        assert_line(&instructions[&2], "LDA $44");
+        assert_line(&instructions[&4], "LDA $44,X");
+        assert_line(&instructions[&6], "LDA $4400");
+        assert_line(&instructions[&9], "LDA $4400,X");
+        assert_line(&instructions[&12], "LDA $4400,Y");
+        assert_line(&instructions[&15], "LDA ($44,X)");
+        assert_line(&instructions[&17], "LDA ($44),Y");
+        assert_line(&instructions[&19], "BPL $02");
+        assert_line(&instructions[&21], "STX $02,Y");
+        assert_line(&instructions[&23], "ASL A");
+        assert_line(&instructions[&24], "JMP ($0001)");
     }
 
     fn disassemble(source_code: &str) -> DisassembledCode {

@@ -80,6 +80,8 @@ impl Cpu {
     pub fn tick<Bus: BusTrait>(&mut self, bus: &mut Bus) -> usize {
         if self.left_cycles == 0 {
             self.process(bus);
+        } else {
+            trace!("Nothing to do, just wait for {} cycle{}", self.left_cycles, if self.left_cycles == 1 { "" } else { "s" })
         }
 
         self.left_cycles -= 1;
@@ -100,7 +102,7 @@ impl Cpu {
         let mut cycles = instruction.cycles + extra_cycles;
 
         cycles += match instruction.op_code {
-            OpCode::ADC => self.adc(address),
+            OpCode::ADC => self.adc(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::AND => self.and(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::ASL => self.asl(self.read_operand(address, bus, &instruction.addressing_mode)),
             OpCode::BCC => self.bcc(address),
@@ -219,11 +221,15 @@ impl Cpu {
                 address
             }
             AddressingMode::Relative => {
-                let relative = bus.read_byte(self.PC) as SignedWord;
+                let mut relative = bus.read_byte(self.PC) as Word;
 
                 self.PC += 1;
 
-                relative as Word
+                if relative > 0x80 {
+                    relative = relative | 0xFF00;
+                }
+
+                relative
             }
             AddressingMode::YIndexedIndirect => {
                 let address = bus.read_byte(self.PC) as Word;
@@ -283,8 +289,8 @@ impl Cpu {
         operand
     }
 
-    fn adc(&mut self, operand: Word) -> usize {
-        let computed = self.A as Word + operand + bool_to_byte(self.status.C) as Word;
+    fn adc(&mut self, operand: Byte) -> usize {
+        let computed = self.A as Word + operand as Word + bool_to_byte(self.status.C) as Word;
         let acc = self.A;
 
         trace!("Operand: {}, computed: {}, acc: {}", operand, computed, acc);
@@ -757,16 +763,8 @@ impl Cpu {
         if test {
             let page1 = self.PC & 0xFF00;
 
-            trace!("Jumping relative to {:#04X}", address);
-            let relative = if address > 0x0080 {
-                address | 0xFF00
-            } else {
-                address
-            };
-
-            trace!("Jumping relative to {:#06X}", relative);
-            self.PC = self.PC.wrapping_add(relative);
-            // trace!("Jumping relative to {:#04X}", address);
+            trace!("Jumping relative to {:#04X}", address as Byte);
+            self.PC = self.PC.wrapping_add(address);
 
             let page2 = self.PC & 0xFF00;
 

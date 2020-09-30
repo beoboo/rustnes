@@ -4,6 +4,7 @@ use crate::instructions::addressing_mode::AddressingMode;
 use crate::instructions::instruction::Instruction;
 use crate::instructions::op_code::OpCode;
 use crate::types::Byte;
+use std::borrow::Borrow;
 
 pub mod op_code;
 mod instruction;
@@ -176,7 +177,7 @@ impl Instructions {
     }
 
     pub fn find(&self, op_id: Byte) -> Instruction {
-        *self.map.get(&op_id).unwrap_or_else(|| panic!(format!("[Instructions::find] Unexpected op code: {:#04X}", op_id)))
+        *self.map.get(&op_id).unwrap_or(Instruction::new(OpCode::NOP, AddressingMode::Implied, 2).borrow())
     }
 }
 

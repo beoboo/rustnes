@@ -8,10 +8,10 @@ use crate::rom::Rom;
 use crate::types::{Byte, Word};
 
 pub struct BusImpl {
-    ram: Ram,
-    apu: Apu,
-    ppu: Ppu,
-    rom: Rom,
+    pub ram: Ram,
+    pub apu: Apu,
+    pub ppu: Ppu,
+    pub rom: Rom,
 }
 
 impl BusImpl {
@@ -28,7 +28,7 @@ impl BusImpl {
 impl Bus for BusImpl {
     fn read_byte(&self, address: Word) -> Byte {
         match address {
-            0x0000..=0x1FFF => self.ram.read(address & 0x07FF),
+            0x0000..=0x1FFF => self.ram.read_word(address & 0x07FF),
             0x2000..=0x2007 => self.ppu.read(address - 0x2000),
             0x4000..=0x401F => self.apu.read(address - 0x4000),
             0x6000..=0x7FFF => {
@@ -44,7 +44,7 @@ impl Bus for BusImpl {
 
     fn write_byte(&mut self, address: Word, data: Byte) {
         match address {
-            0x0000..=0x1FFF => self.ram.write(address & 0x07FF, data),
+            0x0000..=0x1FFF => self.ram.write_word(address & 0x07FF, data),
             0x2000..=0x2007 => self.ppu.write(address - 0x2000, data),
             0x4000..=0x401F => self.apu.write(address - 0x4000, data),
             0x6000..=0x7FFF => { warn!("Not implemented") }

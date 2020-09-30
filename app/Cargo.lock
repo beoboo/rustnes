@@ -30,16 +30,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8052e2d8aabbb8d556d6abbcce2a22b9590996c5f849b9c7ce4544a2e3b984e"
 
 [[package]]
-name = "app"
-version = "0.1.0"
-dependencies = [
- "env_logger",
- "iced",
- "log",
- "rustnes-lib",
-]
-
-[[package]]
 name = "approx"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1762,6 +1752,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 dependencies = [
  "semver",
+]
+
+[[package]]
+name = "rustnes-app"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "iced",
+ "log",
+ "rustnes-lib",
 ]
 
 [[package]]

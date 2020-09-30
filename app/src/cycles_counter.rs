@@ -1,9 +1,9 @@
-use iced::{Row, Color};
+use iced::{Color, Row};
+
 use crate::helpers::text;
 
 #[derive(Debug, Clone, Default)]
-pub struct CyclesCounter {
-}
+pub struct CyclesCounter {}
 
 impl CyclesCounter {
     pub fn view<'a, Message: 'a>(&mut self, cycles: usize) -> Row<'a, Message> {

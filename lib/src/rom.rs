@@ -60,7 +60,6 @@ impl Rom {
         let header = RomHeader::load(&buffer[0..16]);
 
         let prg_rom_start = header.len();
-        // println!("Header length: {}", header.len());
         let prg_rom_end = prg_rom_start + prg_bank_size * header.prg_rom_size;
         let chr_rom_start = prg_rom_end;
         let chr_rom_end = chr_rom_start + chr_bank_size * header.chr_rom_size;

@@ -1,10 +1,10 @@
-use iced::{Row, Color, Column, Text};
-use crate::helpers::{text, word_to_string, byte_to_string};
+use iced::{Color, Column, Row, Text};
 use rustnes_lib::cpu::Cpu;
 
+use crate::helpers::{byte_to_string, text, word_to_string};
+
 #[derive(Debug, Clone, Default)]
-pub struct CpuStatus {
-}
+pub struct CpuStatus {}
 
 
 fn word_register(register: u16) -> Text {
@@ -17,31 +17,20 @@ fn byte_register(register: u8) -> Text {
 
 impl CpuStatus {
     pub fn view<'a, Message: 'a>(&mut self, cpu: &'a Cpu) -> Row<'a, Message> {
-        let pc_lbl = text("PC: ", Color::WHITE);
-        let pc_txt = word_register(cpu.PC);
-        let a_lbl = text("A: ", Color::WHITE);
-        let a_txt = byte_register(cpu.A);
-        let x_lbl = text("X: ", Color::WHITE);
-        let x_txt = byte_register(cpu.X);
-        let y_lbl = text("Y: ", Color::WHITE);
-        let y_txt = byte_register(cpu.Y);
-        let sp_lbl = text("SP: ", Color::WHITE);
-        let sp_txt = byte_register(cpu.SP);
-
         let left_column = Column::new()
             .spacing(5)
-            .push(pc_lbl)
-            .push(a_lbl)
-            .push(x_lbl)
-            .push(y_lbl)
-            .push(sp_lbl);
+            .push(text("PC: ", Color::WHITE))
+            .push(text("A: ", Color::WHITE))
+            .push(text("X: ", Color::WHITE))
+            .push(text("Y: ", Color::WHITE))
+            .push(text("SP: ", Color::WHITE));
         let right_column = Column::new()
             .spacing(5)
-            .push(pc_txt)
-            .push(a_txt)
-            .push(x_txt)
-            .push(y_txt)
-            .push(sp_txt);
+            .push(word_register(cpu.PC))
+            .push(byte_register(cpu.A))
+            .push(byte_register(cpu.X))
+            .push(byte_register(cpu.Y))
+            .push(byte_register(cpu.SP));
 
         Row::new()
             .spacing(5)

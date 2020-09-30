@@ -51,7 +51,7 @@ fn run(filename: &str) -> Result<(), ErrorKind> {
     let mut cpu = Cpu::new(start);
     cpu.reset(&mut bus);
 
-    let mut paused  = true;
+    let mut paused = true;
     loop {
         // Wait up to 1oms for another event
         if poll(Duration::from_millis(10))? {
@@ -77,8 +77,7 @@ fn run(filename: &str) -> Result<(), ErrorKind> {
             if event == Event::Key(KeyCode::Char('c').into()) {
                 paused = false;
             }
-        }
-        else {
+        } else {
             if !paused {
                 disable_raw_mode()?;
                 tick(&mut cpu, &mut bus);

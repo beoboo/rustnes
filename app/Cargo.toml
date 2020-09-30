@@ -1,5 +1,5 @@
 [package]
-name = "app"
+name = "rustnes-app"
 version = "0.1.0"
 authors = ["Pietro Atzeni <pietrino.atzeni@moneyfarm.com>"]
 edition = "2018"

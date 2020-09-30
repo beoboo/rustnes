@@ -1,14 +1,14 @@
 use pushrod::layouts::horizontal_layout::HorizontalLayout;
 use pushrod::layouts::vertical_layout::VerticalLayout;
+use pushrod::render::{make_points, make_points_origin, make_size};
 use pushrod::render::callbacks::widget_id_for_name;
 use pushrod::render::engine::Engine;
 use pushrod::render::layout::{Layout, LayoutPosition};
 use pushrod::render::widget::{BaseWidget, Widget};
 use pushrod::render::widget_cache::WidgetContainer;
 use pushrod::render::widget_config::{
-    PaddingConstraint, CONFIG_BORDER_WIDTH, CONFIG_COLOR_BORDER, CONFIG_COLOR_TEXT,
+    CONFIG_BORDER_WIDTH, CONFIG_COLOR_BORDER, CONFIG_COLOR_TEXT, PaddingConstraint,
 };
-use pushrod::render::{make_points, make_points_origin, make_size};
 use pushrod::widgets::push_button_widget::PushButtonWidget;
 use pushrod::widgets::text_widget::{TextJustify, TextWidget};
 use sdl2::pixels::Color;
