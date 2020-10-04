@@ -72,7 +72,7 @@ impl Rom {
         }
     }
 
-    pub fn read(&self, address: Word) -> Byte {
+    pub fn read_byte(&self, address: Word) -> Byte {
         let data = self.prg_rom[address as usize];
         trace!("ROM: Reading from {:#06X} -> {:#04X}", address, data);
         data

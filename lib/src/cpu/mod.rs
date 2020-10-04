@@ -29,6 +29,7 @@ fn color_flag(flag: bool, text: &str) -> ColoredString {
 }
 
 #[allow(non_snake_case)]
+#[derive(Debug)]
 pub struct Cpu {
     // Accumulator
     pub A: Byte,
@@ -728,7 +729,7 @@ impl Cpu {
     }
 
     fn _compare(&mut self, register: Byte, operand: Byte) {
-        let computed = register as SignedByte - operand as SignedByte;
+        let computed = register.wrapping_sub(operand) as SignedByte;
         self.status.N = (register as SignedByte) < 0;
         self.status.Z = computed == 0x00;
         self.status.C = computed >= 0;

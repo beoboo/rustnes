@@ -65,7 +65,7 @@ impl Disassembler {
             // trace!("Decoding: {:#06X}: {:#04X} -> {} [{:?}]", count, *byte, source_code, instruction.addressing_mode);
 
             instructions.insert(pc, Line::new(source_code.as_str(), instruction.addressing_mode, address));
-            pc += 1 + bytes as Word;
+            pc = pc.wrapping_add(1 + bytes as Word);
         }
 
         instructions

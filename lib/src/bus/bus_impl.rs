@@ -7,6 +7,7 @@ use crate::ram::Ram;
 use crate::rom::Rom;
 use crate::types::{Byte, Word};
 
+#[derive(Debug)]
 pub struct BusImpl {
     pub ram: Ram,
     pub apu: Apu,
@@ -28,27 +29,31 @@ impl BusImpl {
 impl Bus for BusImpl {
     fn read_byte(&self, address: Word) -> Byte {
         match address {
-            0x0000..=0x1FFF => self.ram.read_word(address & 0x07FF),
-            0x2000..=0x2007 => self.ppu.read(address - 0x2000),
-            0x4000..=0x401F => self.apu.read(address - 0x4000),
+            0x0000..=0x1FFF => self.ram.read_byte(address & 0x07FF),
+            0x2000..=0x2007 => self.ppu.read_byte(address - 0x2000),
+            0x4000..=0x401F => self.apu.read_byte(address - 0x4000),
             0x6000..=0x7FFF => {
-                warn!("Not implemented");
+                warn!("[BusImpl::read_byte] Addresses 0x6000-0x7FFF not handled");
                 0
             }
-            0x8000..=0xBFFF => self.rom.read(address - 0x8000),
-            0xC000..=0xFFFF if self.rom.prg_rom.len() <= 0x4000 => self.rom.read(address - 0xC000),
-            0xC000..=0xFFFF => self.rom.read(address - 0x8000),
+            0x8000..=0xBFFF => self.rom.read_byte(address - 0x8000),
+            0xC000..=0xFFFF if self.rom.prg_rom.len() <= 0x4000 => self.rom.read_byte(address - 0xC000),
+            0xC000..=0xFFFF => self.rom.read_byte(address - 0x8000),
             _ => panic!(format!("[Bus::read_byte] Not mapped address: {:#6X}", address))
         }
     }
 
     fn write_byte(&mut self, address: Word, data: Byte) {
         match address {
-            0x0000..=0x1FFF => self.ram.write_word(address & 0x07FF, data),
-            0x2000..=0x2007 => self.ppu.write(address - 0x2000, data),
-            0x4000..=0x401F => self.apu.write(address - 0x4000, data),
-            0x6000..=0x7FFF => { warn!("Not implemented") }
-            0x8000..=0xFFFF => { warn!("Not implemented") }
+            0x0000..=0x1FFF => self.ram.write_byte(address & 0x07FF, data),
+            0x2000..=0x2007 => self.ppu.write_byte(address - 0x2000, data),
+            0x4000..=0x401F => self.apu.write_byte(address - 0x4000, data),
+            0x6000..=0x7FFF => {
+                warn!("[BusImpl::write_byte] Addresses 0x6000-0x7FFF not handled");
+            }
+            0x8000..=0xFFFF => {
+                warn!("[BusImpl::write_byte] Addresses 0x8000-0xFFFF not handled");
+            }
             _ => panic!(format!("[Bus::write_byte] Not mapped address: {:#6X}", address))
         }
     }

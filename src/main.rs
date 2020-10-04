@@ -46,12 +46,12 @@ fn run(filename: &str) -> Result<(), ErrorKind> {
     let rom = Rom::load(filename, 16384, 8192);
     let mut bus = BusImpl::new(Ram::new(0x0800), Apu::default(), Ppu::default(), rom);
 
-    enable_raw_mode()?;
-
-    let mut cpu = Cpu::new(start);
+    let mut cpu = Cpu::new(0);
     cpu.reset(&mut bus);
 
     let mut paused = true;
+
+    enable_raw_mode()?;
     loop {
         // Wait up to 1oms for another event
         if poll(Duration::from_millis(10))? {

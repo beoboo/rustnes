@@ -10,7 +10,7 @@ pub mod op_code;
 mod instruction;
 pub mod addressing_mode;
 
-// #[derive(Debug)]
+#[derive(Debug)]
 pub struct Instructions {
     map: HashMap<Byte, Instruction>
 }

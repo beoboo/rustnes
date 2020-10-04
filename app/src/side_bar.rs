@@ -7,7 +7,7 @@ use crate::helpers::vertical_space;
 use crate::instructions::Instructions;
 use crate::status_bar::StatusBar;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct SideBar {
     cycles_counter: CyclesCounter,
     status_bar: StatusBar,
@@ -16,7 +16,7 @@ pub struct SideBar {
 }
 
 impl SideBar {
-    pub fn view<'a, Message: 'a>(&mut self, nes: &'a Nes) -> Column<'a, Message> {
+    pub fn view<'a, Message: 'static + 'a>(&'a mut self, nes: &'a Nes) -> Column<'a, Message> {
         Column::new()
             .spacing(5)
             .push(self.cycles_counter.view(nes.cycles))
@@ -25,7 +25,8 @@ impl SideBar {
             .push(vertical_space())
             .push(self.cpu_status.view(&nes.cpu))
             .push(vertical_space())
-            .push(self.instructions.view(nes.cpu.PC, &nes.bus.rom.prg_rom))
+            .push(self.instructions.view(nes.cpu.PC, &nes))
+            .push(vertical_space())
     }
 }
 

@@ -2,6 +2,7 @@ use log::trace;
 
 use crate::types::{Byte, Word};
 
+#[derive(Debug)]
 pub struct Ram {
     pub data: Vec<Byte>,
 }
@@ -13,13 +14,13 @@ impl Ram {
         }
     }
 
-    pub fn read_word(&self, address: Word) -> Byte {
+    pub fn read_byte(&self, address: Word) -> Byte {
         let data = self.data[address as usize];
         trace!("RAM: Reading from {:#06X} -> {:#04X}", address, data);
         data
     }
 
-    pub fn write_word(&mut self, address: Word, data: Byte) {
+    pub fn write_byte(&mut self, address: Word, data: Byte) {
         trace!("RAM: Writing to {:#06X} <- {:#04X}", address, data);
         self.data[address as usize] = data;
     }
@@ -36,14 +37,14 @@ mod tests {
     fn test_read() {
         let ram = Ram::new(16);
 
-        assert_that!(ram.read_word(0x0000), eq(0));
+        assert_that!(ram.read_byte(0x0000), eq(0));
     }
 
     #[test]
     fn test_write() {
         let mut ram = Ram::new(16);
-        ram.write_word(0, 0x12);
+        ram.write_byte(0x0000, 0x12);
 
-        assert_that!(ram.read_word(0), eq(0x12));
+        assert_that!(ram.read_byte(0x0000), eq(0x12));
     }
 }

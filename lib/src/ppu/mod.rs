@@ -1,22 +1,31 @@
 use crate::types::{Byte, Word};
-use log::trace;
+use log::{trace, warn};
+use crate::ram::Ram;
 
-pub struct Ppu {}
+#[derive(Debug)]
+pub struct Ppu {
+    pub ram: Ram,
+}
 
 impl Default for Ppu {
     fn default() -> Ppu {
-        Ppu {}
+        Ppu {
+            ram: Ram::new(2048)
+        }
     }
 }
 
 impl Ppu {
-    pub fn read(&self, address: Word) -> Byte {
+    pub fn read_byte(&self, address: Word) -> Byte {
         trace!("Reading from PPU address: {:#06X}", address);
-        0xFF
+        self.ram.read_byte(address)
+        // warn!("[Ppu::read] Not implemented");
+        // 0xFF
     }
 
-    pub fn write(&mut self, address: Word, data: Byte) {
+    pub fn write_byte(&mut self, address: Word, data: Byte) {
         trace!("Writing {:#04X} to PPU address {:#06X}", data, address);
+        self.ram.write_byte(address, data);
     }
 }
 
@@ -31,14 +40,14 @@ mod tests {
     fn test_read() {
         let ppu = Ppu::default();
 
-        assert_that!(ppu.read(0x0000), eq(0xFF));
+        assert_that!(ppu.read_byte(0x0000), eq(0x00));
     }
-    //
-    // #[test]
-    // fn test_write() {
-    //     let mut ppu = Ppu::new();
-    //     ppu.write(0x0000, 0x123);
-    //
-    //     assert_that!(ppu.read(0x0000), eq(0x123));
-    // }
+
+    #[test]
+    fn test_write() {
+        let mut ppu = Ppu::default();
+        ppu.write_byte(0x0000, 0x12);
+
+        assert_that!(ppu.read_byte(0x0000), eq(0x12));
+    }
 }

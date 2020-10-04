@@ -2,6 +2,7 @@ use log::warn;
 
 use crate::types::{Byte, Word};
 
+#[derive(Debug)]
 pub struct Apu {}
 
 impl Default for Apu {
@@ -11,12 +12,12 @@ impl Default for Apu {
 }
 
 impl Apu {
-    pub fn read(&self, address: Word) -> Byte {
+    pub fn read_byte(&self, address: Word) -> Byte {
         warn!("APU: Reading from {:#06X} -> (not implemented)", address);
         0xFF
     }
 
-    pub fn write(&mut self, address: Word, data: Byte) {
+    pub fn write_byte(&mut self, address: Word, data: Byte) {
         warn!("APU: Writing to {:#06X} <- {:#04X} (not implemented)", address, data);
     }
 }
@@ -32,7 +33,7 @@ mod tests {
     fn test_read() {
         let apu = Apu::default();
 
-        assert_that!(apu.read(0x0000), eq(0xFF));
+        assert_that!(apu.read_byte(0x0000), eq(0xFF));
     }
     //
     // #[test]

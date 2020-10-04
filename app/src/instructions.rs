@@ -1,10 +1,12 @@
 use iced::{Color, Column, Text};
 // use log::{info, trace};
+use log::trace;
 use rustnes_lib::disassembler::Disassembler;
 use rustnes_lib::disassembler::line::Line;
-use rustnes_lib::types::{Byte, Word};
+use rustnes_lib::types::Word;
 use crate::helpers::{text, vertical_space};
 use rustnes_lib::instructions::addressing_mode::AddressingMode;
+use rustnes_lib::nes::Nes;
 
 #[derive(Debug, Clone, Default)]
 pub struct Instructions {
@@ -32,11 +34,12 @@ fn instruction_text(pos: Word, line: &Line, color: Color) -> Text {
 }
 
 impl Instructions {
-    pub fn view<'a, Message: 'a>(&mut self, pc: Word, code: &Vec<Byte>) -> Column<'a, Message> {
+    pub fn view<'a, Message: 'a>(&mut self, pc: Word, nes: &Nes) -> Column<'a, Message> {
+        trace!("[Instructions::view] {:#06X}", pc);
         // let pc = pc - 0x8000;
-        let pc = pc - 0xC000;
-        // info!("[Instructions::view] {:#06X}", pc);
-        let instructions = &self.disassembler.disassemble(&code[0..0x3FFF]);
+        // let pc = pc - 0xC000;
+        trace!("[Instructions::view] {:#06X}", pc);
+        let instructions = &self.disassembler.disassemble(&nes.bus.rom.prg_rom[0..=0xFFFF]);
 
         let mut column = Column::new()
             .push(text("Instructions", Color::WHITE))

@@ -11,7 +11,8 @@ impl Ram {
     pub fn view<'a, Message: 'a>(&mut self, nes: &'a Nes) -> Column<'a, Message> {
         Column::new()
             .spacing(10)
-            .push(Ram::build_ram_page(0, &nes.bus.ram.data[0..=0xFF]))
+            .push(Ram::build_ram_page(0x60, &nes.bus.ram.data[0..=0x1FF]))
+            // .push(Ram::build_ram_page(0x60, &nes.bus.ram.data[0x6000..=0x60FF]))
         // .push(Ram::build_ram_page(0x80))
     }
 

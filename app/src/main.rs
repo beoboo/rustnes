@@ -9,6 +9,7 @@ use crate::helpers::{button, horizontal_space};
 use crate::ram::Ram;
 // use log::info;
 use crate::side_bar::SideBar;
+use crate::video::Video;
 
 mod status_bar;
 mod side_bar;
@@ -18,6 +19,7 @@ mod cycles_counter;
 mod cpu_status;
 mod instructions;
 mod ram;
+mod video;
 
 pub fn main() {
     env_logger::init();
@@ -36,6 +38,7 @@ struct App {
     play_button: State,
     ram: Ram,
     side_bar: SideBar,
+    video: Video,
     is_playing: bool,
 }
 
@@ -54,12 +57,16 @@ impl Application for App {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
-        let mut nes = Nes::new("../roms/cpu/nestest/nestest.nes");
+        // let mut nes = Nes::new("../roms/cpu/nestest/nestest.nes");
+        let mut nes = Nes::new("../roms/cpu/instr_test-v5/official_only.nes");
         // let mut nes = Nes::new("../roms/mul3.nes");
         nes.reset();
 
+        println!("ROM banks: {:?}", nes.bus.rom.header);
+        println!("ROM length: {:?}", nes.bus.rom.prg_rom.len());
+
         (
-            App {
+            App  {
                 nes,
                 pause_button: State::default(),
                 play_button: State::default(),
@@ -67,6 +74,7 @@ impl Application for App {
                 next_button: State::default(),
                 ram: Ram::default(),
                 side_bar: SideBar::default(),
+                video: Video::default(),
                 is_playing: false,
             },
             Command::none(),
@@ -90,7 +98,8 @@ impl Application for App {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        time::every(std::time::Duration::from_micros(100)).map(Message::Tick)
+        let millis = 1/60;
+        time::every(std::time::Duration::from_millis(millis)).map(Message::Tick)
     }
 
     fn view(&mut self) -> Element<Message> {
@@ -102,13 +111,9 @@ impl Application for App {
             nes,
             ram,
             side_bar,
+            video,
             ..
         } = self;
-
-        let content = Row::new()
-            .spacing(20)
-            .push(ram.view(nes))
-            .push(side_bar.view(nes));
 
         let mut controls = Row::new()
             .push(button(reset_button, "Reset").on_press(Message::Reset))
@@ -122,13 +127,19 @@ impl Application for App {
             controls = controls.push(button(play_button, "Play").on_press(Message::Play));
         }
 
-        let main = Column::new()
+        let main_content = Column::new()
             .spacing(20)
             .padding(20)
-            .push(content)
+            .push(ram.view(nes))
             .push(controls);
 
-        Container::new(main)
+        let content = Row::new()
+            .spacing(20)
+            .push(main_content)
+            .push(side_bar.view(nes))
+            .push(video.view(nes));
+
+        Container::new(content)
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x()
@@ -138,7 +149,7 @@ impl Application for App {
     }
 }
 
-impl<'a> App {
+impl App {
     fn pause(&mut self) {
         self.is_playing = false;
     }

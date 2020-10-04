@@ -15,13 +15,14 @@ pub struct Buffer {
     pub data: Vec<Byte>,
 }
 
+#[derive(Debug)]
 pub struct Nes {
     pub cpu: Cpu,
     pub bus: BusImpl,
     pub width: u32,
     pub height: u32,
     pub bits_per_pixel: u32,
-    // pub buffer: Buffer
+    pub buffer: Vec<Byte>,
     pub cycles: usize,
 }
 
@@ -44,6 +45,12 @@ fn build_program(source: &str) -> Vec<Byte> {
 impl Nes {
     pub fn new(filename: &str) -> Nes {
         let rom = Rom::load(filename, 16384, 8192);
+        let width= 256;
+        let height= 256;
+        let bits_per_pixel = 4;
+        let buffer_size = (width * height * bits_per_pixel) as usize;
+        let buffer = vec![0; buffer_size];
+
 //         let program = build_program("
 // LDX #10
 // STX $0000
@@ -62,16 +69,17 @@ impl Nes {
 // ");
 
         // let rom = Rom::new(program.as_slice(), vec![0u8; 0].as_slice());
-        let bus = BusImpl::new(Ram::new(0x0800), Apu::default(), Ppu::default(), rom.clone());
+        let ppu = Ppu::default();
+        let bus = BusImpl::new(Ram::new(0x0800), Apu::default(), ppu, rom.clone());
         let cpu = Cpu::new(0);
 
         Nes {
             cpu,
             bus,
-            width: 256,
-            height: 240,
-            bits_per_pixel: 4,
-            // buffer: Buffer::new(),
+            width,
+            height,
+            bits_per_pixel,
+            buffer,
             cycles: 0,
         }
     }
@@ -92,6 +100,20 @@ impl Nes {
         info!("[Nes::tick]");
         self.cpu.tick(&mut self.bus);
         self.cycles += 1;
+
+        let mut rng = rand::thread_rng();
+
+        for i in 0..self.height {
+            // let pos = ((i * self.width) * self.bits_per_pixel) as usize;
+            // println!("i: {}, pos: {}", i, pos);
+            for j in 0..self.width {
+                let pos = ((i * self.width + j) * self.bits_per_pixel) as usize;
+                self.buffer[pos] = rng.gen_range(0, 255);
+                self.buffer[pos + 1] = rng.gen_range(0, 255);
+                self.buffer[pos + 2] = rng.gen_range(0, 255);
+                self.buffer[pos + 3] = 0xff;
+            }
+        }
     }
 
     pub fn process_next(&mut self) {
@@ -119,25 +141,8 @@ impl Nes {
         // }
     }
 
-    pub fn get_rendered_buffer(&self) -> Vec<Byte> {
-        let buffer_size = (self.width * self.height * self.bits_per_pixel) as usize;
-        let mut buffer = vec![0; buffer_size];
-        let mut rng = rand::thread_rng();
-
-        for i in 0..self.height {
-            // let pos = ((i * self.width) * self.bits_per_pixel) as usize;
-            // println!("i: {}, pos: {}", i, pos);
-            for j in 0..self.width {
-                let pos = ((i * self.width + j) * self.bits_per_pixel) as usize;
-                // if pos >= buffer_size {
-                //     println!("Pos: {}, i: {}, j: {}", pos, i, j);
-                // }
-                buffer[pos] = rng.gen_range(0, 255);
-                buffer[pos + 1] = rng.gen_range(0, 255);
-                buffer[pos + 2] = rng.gen_range(0, 255);
-            }
-        }
-
-        buffer
+    pub fn get_rendered_buffer(&self) -> &[Byte] {
+        self.bus.ppu.ram.data.as_slice()
+        // self.buffer.as_slice()
     }
 }
