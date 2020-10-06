@@ -17,7 +17,7 @@ pub struct Assembler {
 
 #[derive(Clone, Debug)]
 pub struct Instructions {
-    pub(crate) data: Vec<Byte>
+    pub data: Vec<Byte>
 }
 
 impl Instructions {
@@ -100,7 +100,7 @@ impl Assembler {
                     let mode = Assembler::fix_absolute_mode(mode, &instruction, address, AddressingMode::AbsoluteX, AddressingMode::ZeroPageX);
                     let mode = Assembler::fix_absolute_mode(mode, &instruction, address, AddressingMode::AbsoluteY, AddressingMode::ZeroPageY);
 
-                    let op_code = instruction.find(mode.clone())?;
+                    let op_code = instruction.find(mode)?;
 
                     match mode {
                         AddressingMode::Absolute | AddressingMode::AbsoluteX | AddressingMode::AbsoluteY | AddressingMode::Indirect => {
@@ -126,7 +126,7 @@ impl Assembler {
     }
 
     fn fix_absolute_mode(mode: AddressingMode, instruction: &Instruction, address: Word, absolute_mode: AddressingMode, zero_page_mode: AddressingMode) -> AddressingMode {
-        if mode == absolute_mode && address <= 0xFF && instruction.contains(zero_page_mode.clone()) {
+        if mode == absolute_mode && address <= 0xFF && instruction.contains(zero_page_mode) {
             zero_page_mode
         } else {
             mode

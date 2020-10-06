@@ -2,16 +2,10 @@ use log::trace;
 
 use crate::bus::Bus;
 use crate::types::{Byte, Word};
+use crate::helpers::replace_slice;
 
 pub struct SimpleBus {
     data: Vec<u8>,
-}
-
-fn replace_slice<T>(source: &mut [T], from: &[T])
-    where
-        T: Clone + PartialEq,
-{
-    source[..from.len()].clone_from_slice(from);
 }
 
 impl Default for SimpleBus {

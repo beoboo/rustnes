@@ -10,17 +10,17 @@ use crate::types::{Byte, Word};
 #[derive(Debug)]
 pub struct BusImpl {
     pub ram: Ram,
-    pub apu: Apu,
     pub ppu: Ppu,
+    pub apu: Apu,
     pub rom: Rom,
 }
 
 impl BusImpl {
-    pub fn new(ram: Ram, apu: Apu, ppu: Ppu, rom: Rom) -> BusImpl {
+    pub fn new(ram: Ram, ppu: Ppu, apu: Apu, rom: Rom) -> BusImpl {
         BusImpl {
             ram,
-            apu,
             ppu,
+            apu,
             rom,
         }
     }
@@ -68,7 +68,8 @@ mod tests {
 
     #[test]
     fn test_read_byte() {
-        let rom = Rom::new(&[0x01], &[]);
+        let mut rom = Rom::default();
+        rom.load_bytes(&[0x01], &[]);
         let bus = _build_bus(rom);
 
         assert_that!(bus.read_byte(0x0000), eq(0));
@@ -77,7 +78,9 @@ mod tests {
 
     #[test]
     fn test_read_word() {
-        let rom = Rom::new(&[0x01, 0x02], &[]);
+        let mut rom = Rom::default();
+        rom.load_bytes(&[0x01, 0x02], &[]);
+
         let bus = _build_bus(rom);
 
         assert_that!(bus.read_word(0x8000), eq(0x0201));
@@ -85,7 +88,9 @@ mod tests {
 
     #[test]
     fn test_write() {
-        let rom = Rom::new(&[0x01, 0x02], &[]);
+        let mut rom = Rom::default();
+        rom.load_bytes(&[0x01, 0x02], &[]);
+
         let mut bus = _build_bus(rom);
 
         bus.write_byte(0x0000, 0x01);
@@ -100,7 +105,8 @@ mod tests {
 
     #[test]
     fn test_fetch_address() {
-        let rom = Rom::new(&[0x01, 0x02], &[]);
+        let mut rom = Rom::default();
+        rom.load_bytes(&[0x01, 0x02], &[]);
         let mut bus = _build_bus(rom);
 
         bus.write_byte(0x0000, 0x01);
@@ -112,6 +118,6 @@ mod tests {
     }
 
     fn _build_bus(rom: Rom) -> BusImpl {
-        BusImpl::new(Ram::new(16), Apu::default(), Ppu::default(), rom)
+        BusImpl::new(Ram::new(16), Ppu::default(), Apu::default(), rom)
     }
 }

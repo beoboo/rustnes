@@ -5,6 +5,7 @@ use std::str;
 use log::trace;
 
 use crate::types::{Byte, Word};
+use crate::helpers::replace_slice;
 
 #[derive(Debug, Clone)]
 pub struct RomHeader {
@@ -43,19 +44,28 @@ pub struct Rom {
     pub chr_rom: Vec<u8>,
 }
 
-impl Rom {
-    pub fn new(prg_rom: &[u8], chr_rom: &[u8]) -> Rom {
-        let header = RomHeader::new(prg_rom.len(), chr_rom.len());
+impl Default for Rom {
+    fn default() -> Self {
+        let prg_rom_size = 16384;
+        let chr_rom_size = 8192;
+        let header = RomHeader::new(prg_rom_size, chr_rom_size);
 
         Rom {
             header,
             trainer: vec![],
-            prg_rom: prg_rom.to_vec(),
-            chr_rom: chr_rom.to_vec(),
+            prg_rom: vec![0; prg_rom_size],
+            chr_rom: vec![0; chr_rom_size],
         }
     }
+}
 
-    pub fn load(filename: &str, prg_bank_size: usize, chr_bank_size: usize) -> Rom {
+impl Rom {
+    pub fn load_bytes(&mut self, prg_rom: &[u8], chr_rom: &[u8]) {
+        replace_slice(&mut self.prg_rom[..], prg_rom);
+        replace_slice(&mut self.chr_rom[..], chr_rom);
+    }
+
+    pub fn from_file(filename: &str, prg_bank_size: usize, chr_bank_size: usize) -> Rom {
         let buffer = Rom::load_file(filename);
         let header = RomHeader::load(&buffer[0..16]);
 
@@ -72,6 +82,19 @@ impl Rom {
         }
     }
 
+    pub fn load(&mut self, filename: &str, prg_bank_size: usize, chr_bank_size: usize) {
+        let buffer = Rom::load_file(filename);
+        self.header = RomHeader::load(&buffer[0..16]);
+
+        let prg_rom_start = self.header.len();
+        let prg_rom_end = prg_rom_start + prg_bank_size * self.header.prg_rom_size;
+        let chr_rom_start = prg_rom_end;
+        let chr_rom_end = chr_rom_start + chr_bank_size * self.header.chr_rom_size;
+
+        self.prg_rom = buffer[prg_rom_start..prg_rom_end].to_vec();
+        self.chr_rom = buffer[chr_rom_start..chr_rom_end].to_vec();
+    }
+
     pub fn read_byte(&self, address: Word) -> Byte {
         let data = self.prg_rom[address as usize];
         trace!("ROM: Reading from {:#06X} -> {:#04X}", address, data);
@@ -83,7 +106,12 @@ impl Rom {
     // }
 
     fn load_file(filename: &str) -> Vec<u8> {
-        let mut file = File::open(filename).unwrap_or_else(|_| panic!("Could not open {}", filename));
+        let mut file = match File::open(filename) {
+            Ok(file) => file,
+            Err(e) => panic!("Could not open {} ({})", filename, e)
+        };
+
+        // let mut file = File::open(filename).unwrap_or_else(|_| panic!("Could not open {}", filename));
 
         // read the same file back into a Vec of bytes
         let mut buffer = Vec::new();
@@ -110,7 +138,7 @@ mod tests {
         let filename = "tmp/rom.nes";
         save_file(filename, &[0x4e, 0x45, 0x53, 0x1a, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 
-        let rom = Rom::load(filename, 1, 1);
+        let rom = Rom::from_file(filename, 1, 1);
 
         assert_that!(rom.header.len(), eq(16));
         assert_that!(rom.header.nes, eq("NES"));
@@ -122,7 +150,7 @@ mod tests {
 
     #[test]
     fn read_valid() {
-        let rom = Rom::load("../roms/cpu/nestest/nestest.nes", 16384, 8192);
+        let rom = Rom::from_file("../roms/cpu/nestest/nestest.nes", 16384, 8192);
 
         assert_that!(rom.header.len(), eq(16));
         assert_that!(rom.header.nes, eq("NES"));

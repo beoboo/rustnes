@@ -35,7 +35,7 @@ fn append_word(source_code: String, it: &mut Iter<Byte>, prefix: &str, postfix: 
 
 impl Disassembler {
     pub fn disassemble(&mut self, source: &[Byte]) -> DisassembledCode {
-        let map = Instructions::new();
+        let map = Instructions::default();
         let mut instructions = DisassembledCode::new();
 
         let mut it = source.iter();

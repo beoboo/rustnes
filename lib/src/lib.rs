@@ -11,3 +11,4 @@ pub mod rom;
 pub mod types;
 pub mod disassembler;
 pub mod instructions;
+mod helpers;

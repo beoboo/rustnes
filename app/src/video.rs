@@ -68,7 +68,7 @@
 //     }
 // }
 
-use iced::{Container, Image, Length};
+use iced::Image;
 use iced::image::Handle;
 use rustnes_lib::nes::Nes;
 

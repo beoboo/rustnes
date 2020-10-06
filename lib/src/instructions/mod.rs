@@ -15,8 +15,8 @@ pub struct Instructions {
     map: HashMap<Byte, Instruction>
 }
 
-impl Instructions {
-    pub fn new() -> Instructions {
+impl Default for Instructions {
+    fn default() -> Self {
         let mut map = HashMap::new();
 
         map.insert(0x00, Instruction::new(OpCode::BRK, AddressingMode::Implied, 7));
@@ -175,7 +175,9 @@ impl Instructions {
             map
         }
     }
+}
 
+impl Instructions {
     pub fn find(&self, op_id: Byte) -> Instruction {
         *self.map.get(&op_id).unwrap_or(Instruction::new(OpCode::NOP, AddressingMode::Implied, 2).borrow())
     }
@@ -190,7 +192,7 @@ mod tests {
 
     #[test]
     fn find_instruction() {
-        let map = Instructions::new();
+        let map = Instructions::default();
         let instruction = map.find(0x00);
 
         assert_that!(instruction, type_of::<Instruction>());

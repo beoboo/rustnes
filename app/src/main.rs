@@ -57,8 +57,9 @@ impl Application for App {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
-        // let mut nes = Nes::new("../roms/cpu/nestest/nestest.nes");
-        let mut nes = Nes::new("../roms/cpu/instr_test-v5/official_only.nes");
+        let mut nes = Nes::default();
+        nes.load("../roms/cpu/nestest/nestest.nes");
+        // let mut nes = Nes::new("../roms/cpu/instr_test-v5/official_only.nes");
         // let mut nes = Nes::new("../roms/mul3.nes");
         nes.reset();
 
@@ -98,7 +99,7 @@ impl Application for App {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let millis = 1/60;
+        let millis = 1/600;
         time::every(std::time::Duration::from_millis(millis)).map(Message::Tick)
     }
 
@@ -136,8 +137,8 @@ impl Application for App {
         let content = Row::new()
             .spacing(20)
             .push(main_content)
-            .push(side_bar.view(nes))
-            .push(video.view(nes));
+            .push(side_bar.view(nes));
+            // .push(video.view(nes));
 
         Container::new(content)
             .width(Length::Fill)

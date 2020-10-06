@@ -36,10 +36,7 @@ fn instruction_text(pos: Word, line: &Line, color: Color) -> Text {
 impl Instructions {
     pub fn view<'a, Message: 'a>(&mut self, pc: Word, nes: &Nes) -> Column<'a, Message> {
         trace!("[Instructions::view] {:#06X}", pc);
-        // let pc = pc - 0x8000;
-        // let pc = pc - 0xC000;
-        trace!("[Instructions::view] {:#06X}", pc);
-        let instructions = &self.disassembler.disassemble(&nes.bus.rom.prg_rom[0..=0xFFFF]);
+        let instructions = &self.disassembler.disassemble(&nes.bus.rom.prg_rom[0..=0x1FFF]);
 
         let mut column = Column::new()
             .push(text("Instructions", Color::WHITE))

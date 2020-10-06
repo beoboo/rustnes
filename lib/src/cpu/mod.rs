@@ -61,7 +61,7 @@ impl Cpu {
             PC: start_pc,
             status: Status::default(),
             left_cycles: 0,
-            instructions: Instructions::new(),
+            instructions: Instructions::default(),
         }
     }
 
@@ -227,7 +227,7 @@ impl Cpu {
                 self.PC += 1;
 
                 if relative > 0x80 {
-                    relative = relative | 0xFF00;
+                    relative |= 0xFF00;
                 }
 
                 relative

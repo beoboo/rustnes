@@ -43,7 +43,7 @@ fn main() -> Result<(), ErrorKind> {
 }
 
 fn run(filename: &str) -> Result<(), ErrorKind> {
-    let rom = Rom::load(filename, 16384, 8192);
+    let rom = Rom::from_file(filename, 16384, 8192);
     let mut bus = BusImpl::new(Ram::new(0x0800), Apu::default(), Ppu::default(), rom);
 
     let mut cpu = Cpu::new(0);

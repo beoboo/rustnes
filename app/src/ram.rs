@@ -33,8 +33,8 @@ impl Ram {
     fn build_addresses(address: Word, vals: &[Byte]) -> String {
         let mut bytes = String::from(format!("{}:", word_to_string(address)));
 
-        for i in 0..vals.len() {
-            bytes = bytes + " " + byte_to_string(vals[i]).as_str();
+        for i in vals {
+            bytes = bytes + " " + byte_to_string(*i).as_str();
         }
 
         bytes
