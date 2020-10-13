@@ -6,9 +6,11 @@ pub mod simple_bus;
 pub mod bus_impl;
 
 pub trait Bus {
-    fn read_byte(&self, address: Word) -> Byte;
+    fn read(&self, start: Word, end: Word) -> &[Byte];
 
-    fn read_word(&self, address: Word) -> Word {
+    fn read_byte(&mut self, address: Word) -> Byte;
+
+    fn read_word(&mut self, address: Word) -> Word {
         let low = self.read_byte(address) as Word;
         let high = self.read_byte(address + 1) as Word;
 

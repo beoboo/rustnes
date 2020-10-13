@@ -1,5 +1,4 @@
 use log::info;
-use rand::Rng;
 
 use crate::apu::Apu;
 use crate::bus::bus_impl::BusImpl;
@@ -11,10 +10,6 @@ use crate::types::Byte;
 use crate::assembler::Assembler;
 use crate::parser::Parser;
 
-pub struct Buffer {
-    pub data: Vec<Byte>,
-}
-
 #[derive(Debug)]
 pub struct Nes {
     pub cpu: Cpu,
@@ -22,7 +17,6 @@ pub struct Nes {
     pub width: u32,
     pub height: u32,
     pub bits_per_pixel: u32,
-    pub buffer: Vec<Byte>,
     pub cycles: usize,
 }
 
@@ -46,8 +40,6 @@ impl Default for Nes {
         let width= 256;
         let height= 240;
         let bits_per_pixel = 4;
-        let buffer_size = (width * height * bits_per_pixel) as usize;
-        let buffer = vec![0; buffer_size];
 
         let ram = Ram::new(0x0800);
         let ppu = Ppu::default();
@@ -62,7 +54,6 @@ impl Default for Nes {
             width,
             height,
             bits_per_pixel,
-            buffer,
             cycles: 0,
         }
     }
@@ -70,7 +61,12 @@ impl Default for Nes {
 
 impl Nes {
     pub fn load(&mut self, filename: &str) {
+        info!("[Nes::load] {}", filename);
+        let rom = Rom::from_file(filename, 16384, 8192);
+        self.bus.load_rom(rom);
+    }
 
+    pub fn load_mul3(&mut self) {
         let program = build_program("
 LDX #10
 STX $0000
@@ -89,7 +85,6 @@ NOP
 ");
 
         self.bus.rom.load_bytes(program.as_slice(), vec![0u8; 0].as_slice());
-        // self.bus.rom.load(filename, 16384, 8192);
     }
 
     pub fn reset(&mut self) {
@@ -106,22 +101,12 @@ NOP
 
     pub fn tick(&mut self) {
         info!("[Nes::tick]");
-        self.cpu.tick(&mut self.bus);
-        self.cycles += 1;
+        if self.cycles % 3 == 0 {
+            self.cpu.tick(&mut self.bus);
+        }
 
-        // let mut rng = rand::thread_rng();
-        //
-        // for i in 0..self.height {
-        //     // let pos = ((i * self.width) * self.bits_per_pixel) as usize;
-        //     // println!("i: {}, pos: {}", i, pos);
-        //     for j in 0..self.width {
-        //         let pos = ((i * self.width + j) * self.bits_per_pixel) as usize;
-        //         self.buffer[pos] = rng.gen_range(0, 255);
-        //         self.buffer[pos + 1] = rng.gen_range(0, 255);
-        //         self.buffer[pos + 2] = rng.gen_range(0, 255);
-        //         self.buffer[pos + 3] = 0xff;
-        //     }
-        // }
+        self.bus.ppu.tick();
+        self.cycles += 1;
     }
 
     pub fn process_next(&mut self) {
@@ -129,6 +114,10 @@ NOP
         while self.cpu.tick(&mut self.bus) != 0 {
             self.cycles += 1;
         };
+    }
+
+    pub fn is_frame_complete(&self) -> bool {
+        self.bus.ppu.frame_complete
     }
 
     pub fn run() {
@@ -150,14 +139,6 @@ NOP
     }
 
     pub fn get_rendered_buffer(&self) -> &[u8] {
-        self.buffer.as_slice()
-        // self.bus.ppu.ram.data.as_slice()
-        // self.buffer.as_slice()
-    }
-
-    pub fn get_rendered_buffer2(&self) -> *const Byte {
-        self.buffer.as_ptr()
-        // self.bus.ppu.ram.data.as_slice()
-        // self.buffer.as_slice()
+        self.bus.ppu.frame.data.as_slice()
     }
 }

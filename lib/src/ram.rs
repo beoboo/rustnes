@@ -21,6 +21,7 @@ impl Ram {
     }
 
     pub fn write_byte(&mut self, address: Word, data: Byte) {
+        println!("RAM: Writing to {:#06X} <- {:#04X}", address, data);
         trace!("RAM: Writing to {:#06X} <- {:#04X}", address, data);
         self.data[address as usize] = data;
     }

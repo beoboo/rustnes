@@ -47,8 +47,9 @@ enum Message {
     Pause,
     Play,
     Reset,
-    Tick(Instant),
-    ProcessNext,
+    Tick,
+    NextInstruction,
+    NextFrame(Instant),
 }
 
 impl Application for App {
@@ -67,7 +68,7 @@ impl Application for App {
         println!("ROM length: {:?}", nes.bus.rom.prg_rom.len());
 
         (
-            App  {
+            App {
                 nes,
                 pause_button: State::default(),
                 play_button: State::default(),
@@ -91,16 +92,19 @@ impl Application for App {
             Message::Pause => self.pause(),
             Message::Play => self.play(),
             Message::Reset => self.reset(),
-            Message::ProcessNext => self.process_next(),
-            Message::Tick(_now) => if self.is_playing { self.tick() },
+            Message::Tick => self.tick(),
+            Message::NextInstruction => self.process_next(),
+            Message::NextFrame(_now) => if self.is_playing {
+                self.next_frame()
+            },
         };
 
         Command::none()
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let millis = 1/600;
-        time::every(std::time::Duration::from_millis(millis)).map(Message::Tick)
+        let millis = 1000 / 60;
+        time::every(std::time::Duration::from_millis(millis)).map(Message::NextFrame)
     }
 
     fn view(&mut self) -> Element<Message> {
@@ -119,7 +123,7 @@ impl Application for App {
         let mut controls = Row::new()
             .push(button(reset_button, "Reset").on_press(Message::Reset))
             .push(horizontal_space())
-            .push(button(next_button, "Next").on_press(Message::ProcessNext))
+            .push(button(next_button, "Next").on_press(Message::NextInstruction))
             .push(horizontal_space());
 
         if self.is_playing {
@@ -130,17 +134,17 @@ impl Application for App {
 
         let main_content = Column::new()
             .spacing(20)
-            .padding(20)
             .push(ram.view(nes))
             .push(controls);
 
         let content = Row::new()
             .spacing(20)
             .push(main_content)
-            .push(side_bar.view(nes));
-            // .push(video.view(nes));
+            .push(side_bar.view(nes))
+            .push(video.view(nes));
 
         Container::new(content)
+            .padding(10)
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x()
@@ -161,6 +165,14 @@ impl App {
 
     fn reset(&mut self) {
         self.nes.reset();
+    }
+
+    fn next_frame(&mut self) {
+        self.nes.tick();
+
+        while !self.nes.is_frame_complete() {
+            self.nes.tick();
+        }
     }
 
     fn tick(&mut self) {

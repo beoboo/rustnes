@@ -1,3 +1,5 @@
+mod rom_header;
+
 use std::fs::File;
 use std::io::prelude::*;
 use std::str;
@@ -6,35 +8,7 @@ use log::trace;
 
 use crate::types::{Byte, Word};
 use crate::helpers::replace_slice;
-
-#[derive(Debug, Clone)]
-pub struct RomHeader {
-    pub nes: String,
-    pub prg_rom_size: usize,
-    pub chr_rom_size: usize,
-}
-
-impl RomHeader {
-    fn new(prg_rom_size: usize, chr_rom_size: usize) -> RomHeader {
-        RomHeader {
-            nes: "NES".to_string(),
-            prg_rom_size,
-            chr_rom_size,
-        }
-    }
-
-    fn load(buffer: &[u8]) -> RomHeader {
-        RomHeader {
-            nes: String::from_utf8_lossy(&buffer[0..3]).to_string(),
-            prg_rom_size: buffer[4] as usize,
-            chr_rom_size: buffer[5] as usize,
-        }
-    }
-
-    fn len(&self) -> usize {
-        16
-    }
-}
+use crate::rom::rom_header::RomHeader;
 
 #[derive(Debug, Clone)]
 pub struct Rom {
@@ -67,7 +41,12 @@ impl Rom {
 
     pub fn from_file(filename: &str, prg_bank_size: usize, chr_bank_size: usize) -> Rom {
         let buffer = Rom::load_file(filename);
-        let header = RomHeader::load(&buffer[0..16]);
+        Self::from_bytes(buffer.as_slice(), prg_bank_size, chr_bank_size)
+    }
+
+    pub fn from_bytes(bytes: &[Byte], prg_bank_size: usize, chr_bank_size: usize) -> Rom {
+        let header = RomHeader::load(&bytes[0..16]);
+        trace!("Header: {:?}", header);
 
         let prg_rom_start = header.len();
         let prg_rom_end = prg_rom_start + prg_bank_size * header.prg_rom_size;
@@ -77,41 +56,43 @@ impl Rom {
         Rom {
             header,
             trainer: vec![],
-            prg_rom: buffer[prg_rom_start..prg_rom_end].to_vec(),
-            chr_rom: buffer[chr_rom_start..chr_rom_end].to_vec(),
+            prg_rom: bytes[prg_rom_start..prg_rom_end].to_vec(),
+            chr_rom: bytes[chr_rom_start..chr_rom_end].to_vec(),
         }
     }
 
-    pub fn load(&mut self, filename: &str, prg_bank_size: usize, chr_bank_size: usize) {
-        let buffer = Rom::load_file(filename);
-        self.header = RomHeader::load(&buffer[0..16]);
+    pub fn read(&self, start: Word, end: Word) -> &[Byte] {
+        let start = self.remap(start);
+        let end = self.remap(end);
 
-        let prg_rom_start = self.header.len();
-        let prg_rom_end = prg_rom_start + prg_bank_size * self.header.prg_rom_size;
-        let chr_rom_start = prg_rom_end;
-        let chr_rom_end = chr_rom_start + chr_bank_size * self.header.chr_rom_size;
-
-        self.prg_rom = buffer[prg_rom_start..prg_rom_end].to_vec();
-        self.chr_rom = buffer[chr_rom_start..chr_rom_end].to_vec();
+        trace!("[Rom::read] Reading from {:#06X}:{:#06X}", start, end);
+        let data = &self.prg_rom[start as usize..=end as usize];
+        data
     }
 
     pub fn read_byte(&self, address: Word) -> Byte {
-        let data = self.prg_rom[address as usize];
-        trace!("ROM: Reading from {:#06X} -> {:#04X}", address, data);
+        let address = self.remap(address);
+
+        let data = self.prg_rom[address];
+        trace!("[Rom::read_byte] Reading byte from {:#06X} -> {:#04X}", address, data);
         data
     }
-    //
-    // pub fn write(&mut self, address: Word, data: Byte) {
-    //     self.prg_rom[address as usize] = data;
-    // }
+
+    fn remap(&self, address: Word) -> usize {
+        let address = address as usize;
+
+        match address {
+            0x4000..=0x7FFF if self.header.prg_rom_size <= address => address - 0x4000,
+            0x8000..=0xFFFF => panic!("Invalid ROM address: {:#06X}", address),
+            _ => address
+        }
+    }
 
     fn load_file(filename: &str) -> Vec<u8> {
         let mut file = match File::open(filename) {
             Ok(file) => file,
             Err(e) => panic!("Could not open {} ({})", filename, e)
         };
-
-        // let mut file = File::open(filename).unwrap_or_else(|_| panic!("Could not open {}", filename));
 
         // read the same file back into a Vec of bytes
         let mut buffer = Vec::new();
@@ -161,19 +142,21 @@ mod tests {
         assert_that!(rom.prg_rom[0], eq(0x4C));
     }
 
+    #[test]
+    fn read_mirror() {
+        let mut rom = Rom::default();
+        rom.load_bytes(&[0x01], &[]);
 
-    //
-    // #[test]
-    // fn read_from_file() {
-    //     fs::create_dir("tmp");
-    //     let filename = "tmp/rom.nes";
-    //     save_file(filename, "");
-    //
-    //     let rom = Rom::load(filename);
-    //
-    //     assert_that!(rom.header.len(), eq(16));
-    //     assert_that!(rom.data.len(), eq(0));
-    // }
+        assert_that!(rom.read_byte(0x0000), eq(0x01));
+        assert_that!(rom.read_byte(0x4000), eq(0x01));
+    }
+
+    #[test]
+    fn read() {
+        let rom = Rom::default();
+
+        assert_that!(rom.read(0x0000, 0x7FFF).len(), eq(0x4000));
+    }
 
     fn save_file(filename: &str, content: &[u8]) {
         let path = Path::new(filename);

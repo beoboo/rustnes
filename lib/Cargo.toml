@@ -13,3 +13,8 @@ rand = "*"
 
 [dev-dependencies]
 hamcrest2 = "*"
+criterion = "*"
+
+[[bench]]
+name = "nes_benchmark"
+harness = false

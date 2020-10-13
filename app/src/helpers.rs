@@ -14,8 +14,8 @@ pub fn color_from_flag(flag: bool) -> Color {
     if flag { Color::from_rgb8(0, 255, 0) } else { Color::from_rgb8(255, 0, 0) }
 }
 
-pub fn text(text: &str, color: Color) -> Text {
-    Text::new(text).color(color).size(15)
+pub fn text<S: Into<String>>(text: S, color: Color) -> Text {
+    Text::new(text.into()).color(color).size(15)
 }
 
 pub fn button<'a, Message: 'a>(state: &'a mut button::State, label: &str) -> Button<'a, Message> {

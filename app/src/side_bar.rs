@@ -26,7 +26,6 @@ impl SideBar {
             .push(self.cpu_status.view(&nes.cpu))
             .push(vertical_space())
             .push(self.instructions.view(nes.cpu.PC, &nes))
-            .push(vertical_space())
     }
 }
 

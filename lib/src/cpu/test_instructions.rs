@@ -497,7 +497,6 @@ fn process_rts() {
 
 #[test]
 fn process_sbc() {
-    env_logger::init();
     let mut cpu = Cpu::new(0);
 
     // 1 - 1 = 0, C = 1, V = 0

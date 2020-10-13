@@ -1,54 +1,57 @@
-use std::collections::BTreeMap;
 use std::slice::Iter;
 
-use crate::disassembler::line::Line;
+// use log::trace;
+
+use crate::disassembler::assembly::Assembly;
 use crate::instructions::addressing_mode::AddressingMode;
 use crate::instructions::Instructions;
 use crate::types::{Byte, Word};
 
-// use log::trace;
-pub mod line;
+pub mod assembly;
+pub mod assembly_line;
 
-pub type DisassembledCode = BTreeMap<Word, Line>;
 
 #[derive(Clone, Debug, Default)]
 pub struct Disassembler {}
 
-fn decode(it: &mut Iter<Byte>) -> Byte {
-    *(it.next().unwrap_or_else(|| panic!("Unexpected end of instructions")))
+fn decode(it: &mut Iter<Byte>) -> Result<Word, String> {
+    match it.next() {
+        Some(b) => Ok(*b as Word),
+        None => Err("Unexpected end of instructions at position".to_string())
+    }
 }
 
-fn append_byte(source_code: String, it: &mut Iter<Byte>, prefix: &str, postfix: &str) -> (Byte, Word, String) {
-    let address = decode(it) as Word;
+fn append_byte(source_code: String, it: &mut Iter<Byte>, prefix: &str, postfix: &str) -> Result<(Byte, Word, String), String> {
+    let address = decode(it)?;
 
-    (1, address, source_code + format!("{}{:02X?}", prefix, address).as_str() + postfix)
+    Ok((1, address, source_code + format!("{}{:02X?}", prefix, address).as_str() + postfix))
 }
 
-fn append_word(source_code: String, it: &mut Iter<Byte>, prefix: &str, postfix: &str) -> (Byte, Word, String) {
-    let lo = decode(it) as Word;
-    let hi = decode(it) as Word;
+fn append_word(source_code: String, it: &mut Iter<Byte>, prefix: &str, postfix: &str) -> Result<(Byte, Word, String), String> {
+    let lo = decode(it)?;
+    let hi = decode(it)?;
 
     let address = (hi << 8) + lo;
 
-    (2, address, source_code + format!("{}{:04X?}", prefix, address).as_str() + postfix)
+    Ok((2, address, source_code + format!("{}{:04X?}", prefix, address).as_str() + postfix))
 }
 
 impl Disassembler {
-    pub fn disassemble(&mut self, source: &[Byte]) -> DisassembledCode {
+    pub fn disassemble(&self, source: &[Byte], starting_address: Word) -> Assembly {
         let map = Instructions::default();
-        let mut instructions = DisassembledCode::new();
+        let mut assembly = Assembly::default();
 
         let mut it = source.iter();
-        let mut pc: Word = 0;
+        let mut pc = starting_address;
 
         while let Some(byte) = it.next() {
             let instruction = map.find(*byte);
 
             let source_code = format!("{:?}", instruction.op_code);
 
-            let (bytes, address, source_code) = match instruction.addressing_mode {
-                AddressingMode::Implied => { (0, 0, source_code) }
-                AddressingMode::Accumulator => { (0, 0, source_code + " A") }
+            let decoded = match instruction.addressing_mode {
+                AddressingMode::Implied => { Ok((0, 0, source_code)) }
+                AddressingMode::Accumulator => { Ok((0, 0, source_code + " A")) }
                 AddressingMode::ZeroPage => { append_byte(source_code, &mut it, " $", "") }
                 AddressingMode::ZeroPageX => { append_byte(source_code, &mut it, " $", ",X") }
                 AddressingMode::ZeroPageY => { append_byte(source_code, &mut it, " $", ",Y") }
@@ -62,70 +65,100 @@ impl Disassembler {
                 AddressingMode::YIndexedIndirect => { append_byte(source_code, &mut it, " ($", "),Y") }
             };
 
-            // trace!("Decoding: {:#06X}: {:#04X} -> {} [{:?}]", count, *byte, source_code, instruction.addressing_mode);
+            match decoded {
+                Ok((bytes, address, source_code)) => {
+                    assembly.add(pc, source_code.as_str(), instruction.addressing_mode, address);
+                    pc = pc.wrapping_add(1 + bytes as Word);
+                }
+                Err(e) => panic!("{} at position {:#06X}, while disassembling {:?}", e, pc, instruction.op_code)
+            }
 
-            instructions.insert(pc, Line::new(source_code.as_str(), instruction.addressing_mode, address));
-            pc = pc.wrapping_add(1 + bytes as Word);
+            // trace!("Decoding: {:#06X}: {:#04X} -> {:?} [{:?}]", pc, *byte, instruction.op_code, instruction.addressing_mode);
+            // println!("Decoding: {:#06X}: {:#04X} -> {:?} [{:?}]", pc, *byte, instruction.op_code, instruction.addressing_mode);
         }
 
-        instructions
+        assembly
     }
 }
 
 #[cfg(test)]
 mod tests {
-    // use hamcrest2::core::*;
+    use hamcrest2::core::*;
     use hamcrest2::prelude::*;
 
     use crate::assembler::Assembler;
+    use crate::disassembler::assembly_line::AssemblyLine;
     use crate::parser::Parser;
 
     use super::*;
 
     #[test]
     fn one_byte_instruction() {
-        let instructions = disassemble("BRK");
+        let instructions = disassemble("BRK", 0);
 
-        assert_line(&instructions[&0x0000], "BRK")
+        assert_line(&instructions.at(0x0000), "BRK")
     }
 
     #[test]
     fn two_bytes_instruction() {
-        let instructions = disassemble("LDA #1");
+        let instructions = disassemble("LDA #1", 0);
 
-        assert_line(&instructions[&0x0000], "LDA #$01");
+        assert_line(&instructions.at(0x0000), "LDA #$01");
     }
 
     #[test]
     fn three_bytes_instruction() {
-        let instructions = disassemble("LDA 1");
+        let instructions = disassemble("LDA 1", 0);
 
-        assert_line(&instructions[&0x0000], "LDA $01");
+        assert_line(&instructions.at(0x0000), "LDA $01");
     }
 
     #[test]
     fn addressing_modes() {
-        let instructions = disassemble("LDA #$44\nLDA $44\nLDA $44,X\nLDA $4400\nLDA $4400,X\nLDA $4400,Y\nLDA ($44,X)\nLDA ($44),Y\nBPL $2\nSTX $2,Y\nASL A\nJMP ($1)");
-        assert_line(&instructions[&0], "LDA #$44");
-        assert_line(&instructions[&2], "LDA $44");
-        assert_line(&instructions[&4], "LDA $44,X");
-        assert_line(&instructions[&6], "LDA $4400");
-        assert_line(&instructions[&9], "LDA $4400,X");
-        assert_line(&instructions[&12], "LDA $4400,Y");
-        assert_line(&instructions[&15], "LDA ($44,X)");
-        assert_line(&instructions[&17], "LDA ($44),Y");
-        assert_line(&instructions[&19], "BPL $02");
-        assert_line(&instructions[&21], "STX $02,Y");
-        assert_line(&instructions[&23], "ASL A");
-        assert_line(&instructions[&24], "JMP ($0001)");
+        let instructions = disassemble("LDA #$44\nLDA $44\nLDA $44,X\nLDA $4400\nLDA $4400,X\nLDA $4400,Y\nLDA ($44,X)\nLDA ($44),Y\nBPL $2\nSTX $2,Y\nASL A\nJMP ($1)", 0);
+        assert_line(&instructions.at(0), "LDA #$44");
+        assert_line(&instructions.at(2), "LDA $44");
+        assert_line(&instructions.at(4), "LDA $44,X");
+        assert_line(&instructions.at(6), "LDA $4400");
+        assert_line(&instructions.at(9), "LDA $4400,X");
+        assert_line(&instructions.at(12), "LDA $4400,Y");
+        assert_line(&instructions.at(15), "LDA ($44,X)");
+        assert_line(&instructions.at(17), "LDA ($44),Y");
+        assert_line(&instructions.at(19), "BPL $02");
+        assert_line(&instructions.at(21), "STX $02,Y");
+        assert_line(&instructions.at(23), "ASL A");
+        assert_line(&instructions.at(24), "JMP ($0001)");
     }
 
-    fn disassemble(source_code: &str) -> DisassembledCode {
-        let mut disassembler = Disassembler::default();
-        disassembler.disassemble(build_program(source_code).as_slice())
+    #[test]
+    fn disassemble_range() {
+        let instructions = disassemble("LDA #$44\nLDA $44\nLDA $44,X\nLDA $4400\nLDA $4400,X\nLDA $4400,Y\nLDA ($44,X)\nLDA ($44),Y\nBPL $2\nSTX $2,Y\nASL A\nJMP ($1)", 0);
+        let previous = instructions.before(0x0004, 10);
+        assert_that!(previous.len(), eq(2));
+        assert_line(&previous[0], "LDA #$44");
+        assert_line(&previous[1], "LDA $44");
+
+        let current = instructions.at(0x0004);
+        assert_line(&current, "LDA $44,X");
+
+        let next = instructions.after(0x0004, 10);
+        assert_that!(next.len(), eq(9));
+        assert_line(&next[0], "LDA $4400");
     }
 
-    fn assert_line(line: &Line, instruction: &str) {
+    #[test]
+    fn starting_address() {
+        let instructions = disassemble("LDA #$44", 0x8000);
+        let current = instructions.at(0x8000);
+        assert_line(&current, "LDA #$44");
+    }
+
+    fn disassemble(source_code: &str, starting_address: Word) -> Assembly {
+        let disassembler = Disassembler::default();
+        disassembler.disassemble(build_program(source_code).as_slice(), starting_address)
+    }
+
+    fn assert_line(line: &AssemblyLine, instruction: &str) {
         assert_that!(line.instruction.as_str(), eq(instruction));
     }
 

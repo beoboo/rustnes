@@ -167,7 +167,7 @@ impl Cpu {
         cycles
     }
 
-    fn fetch_address<Bus: BusTrait>(&mut self, bus: &Bus, addressing_mode: &AddressingMode) -> (Word, usize) {
+    fn fetch_address<Bus: BusTrait>(&mut self, bus: &mut Bus, addressing_mode: &AddressingMode) -> (Word, usize) {
         let mut extra_cycles = 0;
         let address = match addressing_mode {
             AddressingMode::Absolute => {
@@ -275,7 +275,7 @@ impl Cpu {
         (address, extra_cycles)
     }
 
-    fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &Bus, addressing_mode: &AddressingMode) -> Byte {
+    fn read_operand<Bus: BusTrait>(&self, operand: Word, bus: &mut Bus, addressing_mode: &AddressingMode) -> Byte {
         let operand = match addressing_mode {
             AddressingMode::Implied => 0,
             AddressingMode::Accumulator | AddressingMode::Immediate => operand as Byte,

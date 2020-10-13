@@ -1,64 +1,63 @@
 use iced::{Color, Column, Text};
 // use log::{info, trace};
-use log::trace;
+// use log::trace;
+use rustnes_lib::bus::Bus;
+use rustnes_lib::disassembler::assembly::Assembly;
+use rustnes_lib::disassembler::assembly_line::AssemblyLine;
 use rustnes_lib::disassembler::Disassembler;
-use rustnes_lib::disassembler::line::Line;
-use rustnes_lib::types::Word;
-use crate::helpers::{text, vertical_space};
-use rustnes_lib::instructions::addressing_mode::AddressingMode;
 use rustnes_lib::nes::Nes;
+use rustnes_lib::types::Word;
+
+use crate::helpers::{text, vertical_space};
 
 #[derive(Debug, Clone, Default)]
 pub struct Instructions {
-    disassembler: Disassembler
+    assembly: Option<Assembly>
 }
 
-fn relative_address(pos: Word, relative: Word) -> String {
-    let pos = if relative > 0x80 {
-        pos + relative - 0xFF
-    } else {
-        pos + relative
-    };
-
-    format!(" [{:#06X}]", pos + 1)
-}
-
-fn instruction_to_string(pos: Word, line: &Line) -> String {
-    let address = if line.addressing_mode == AddressingMode::Relative { relative_address(pos, line.address) } else { String::from("") };
-
-    format!("{:#06X} {}{}", pos, line.instruction, address)
-}
-
-fn instruction_text(pos: Word, line: &Line, color: Color) -> Text {
-    text(instruction_to_string(pos, line).as_str(), color)
+fn instruction_text(line: &AssemblyLine, color: Color) -> Text {
+    text(line.to_string(), color)
 }
 
 impl Instructions {
     pub fn view<'a, Message: 'a>(&mut self, pc: Word, nes: &Nes) -> Column<'a, Message> {
-        trace!("[Instructions::view] {:#06X}", pc);
-        let instructions = &self.disassembler.disassemble(&nes.bus.rom.prg_rom[0..=0x1FFF]);
+        // trace!("[Instructions::view] {:#06X}", pc);
+        if self.assembly.is_none() {
+            let disassembler = Disassembler::default();
+            self.assembly = Some(disassembler.disassemble(&nes.bus.read(0x8000, 0xFFFF - 0x0006), 0x8000));
+        }
+
+        let assembly = self.assembly.as_ref().unwrap();
 
         let mut column = Column::new()
             .push(text("Instructions", Color::WHITE))
             .push(vertical_space());
 
-        let previous = instructions.iter().filter(|(k, _)| *k < &pc).rev().take(10).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>();
-        let current = instructions.get(&pc).unwrap();
-        let next =     instructions.iter().filter(|(k, _)| *k > &pc).take(10).collect::<Vec<_>>();
+        let range = 10;
 
-        for _ in 0..(10 - previous.len()) {
+        let pc = if pc > 0x7FFF && nes.bus.rom.header.prg_rom_size == 1 {
+            pc - 0x4000
+        } else {
+            pc
+        };
+
+        let previous = assembly.before(pc, range);
+        let current = assembly.at(pc);
+        let next = assembly.after(pc, range);
+
+        for _ in 0..(range - previous.len()) {
             column = column.push(text("---", Color::from_rgb8(120, 120, 120)));
         }
-        for (k, v) in previous {
-            column = column.push(instruction_text(*k, v, Color::from_rgb8(120, 120, 120)));
+        for i in previous {
+            column = column.push(instruction_text(i, Color::from_rgb8(120, 120, 120)));
         }
 
-        column = column.push(instruction_text(pc, &current, Color::WHITE));
+        column = column.push(instruction_text(current, Color::WHITE));
 
-        for (k, v) in &next {
-            column = column.push(instruction_text(**k, v, Color::from_rgb8(120, 120, 120)));
+        for v in &next {
+            column = column.push(instruction_text(v, Color::from_rgb8(120, 120, 120)));
         }
-        for _ in 0..(10 - next.len()) {
+        for _ in 0..(range - next.len()) {
             column = column.push(text("---", Color::from_rgb8(120, 120, 120)));
         }
 

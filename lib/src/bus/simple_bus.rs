@@ -25,7 +25,11 @@ impl SimpleBus {
 }
 
 impl Bus for SimpleBus {
-    fn read_byte(&self, address: Word) -> Byte {
+    fn read(&self, start: Word, end: Word) -> &[Byte] {
+        &self.data[start as usize..=end as usize]
+    }
+
+    fn read_byte(&mut self, address: Word) -> Byte {
         let address = address as usize;
 
         let data = self.data[address];
