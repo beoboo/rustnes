@@ -15,11 +15,11 @@ pub enum CpuFlag {
 /// The 6502 CPU implementation for the NES (Ricoh 2A03)
 pub struct Cpu {
     // Registers
-    pub a: u8,     // Accumulator
-    pub x: u8,     // X index register
-    pub y: u8,     // Y index register
-    pub sp: u8,    // Stack pointer (0x00-0xFF, 0x100-0x1FF in memory)
-    pub pc: u16,   // Program counter
+    pub a: u8,      // Accumulator
+    pub x: u8,      // X index register
+    pub y: u8,      // Y index register
+    pub sp: u8,     // Stack pointer (0x00-0xFF, 0x100-0x1FF in memory)
+    pub pc: u16,    // Program counter
     pub status: u8, // Status register (flags)
     
     // CPU cycle count
@@ -31,7 +31,7 @@ impl Cpu {
     pub fn new() -> Self {
         // Initial state according to NES specs
         // See: https://www.nesdev.org/wiki/CPU_power_up_state
-        Cpu {
+        Self {
             a: 0,
             x: 0,
             y: 0,
