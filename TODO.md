@@ -36,8 +36,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement connection between CPU and memory
 
 ### Chapter 4: Addressing Modes
-- [ ] Define addressing mode enum
-- [ ] Implement immediate addressing
+- [x] Define addressing mode enum
+- [x] Implement immediate addressing
 - [ ] Implement zero page addressing
 - [ ] Implement zero page,X addressing
 - [ ] Implement zero page,Y addressing
@@ -48,6 +48,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement indexed indirect (indirect,X) addressing
 - [ ] Implement indirect indexed (indirect,Y) addressing
 - [ ] Write tests for each addressing mode
+- [x] Document immediate addressing mode in book
 - [ ] Document cycle costs for each addressing mode
 
 ### Chapter 5: Implementing Instructions
@@ -79,6 +80,16 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test status flags behavior
 - [ ] Test stack operations
 - [ ] Test unofficial instructions
+
+### Chapter 6B: User Acceptance Tests
+- [ ] Set up Cucumber test framework
+- [ ] Create initial test context and setup
+- [ ] Implement basic step definitions
+- [ ] Create first feature file for immediate addressing
+- [ ] Implement assembly parser for test scenarios
+- [ ] Add scenarios for all instructions
+- [ ] Add scenarios for all addressing modes
+- [ ] Add scenarios for edge cases
 
 ## Part 2: Memory and Cartridges
 
@@ -287,12 +298,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## Progress Tracking
 
-- Core Architecture: 0/20 tasks complete (0%)
+- Core Architecture: 12/20 tasks complete (60%)
 - Basic Rendering: 0/30 tasks complete (0%)
 - Audio & Input: 0/25 tasks complete (0%)
 - Advanced Features: 0/20 tasks complete (0%)
 - Platform Support: 0/15 tasks complete (0%)
 - Debugging & Polish: 0/20 tasks complete (0%)
-- Documentation: 0/10 tasks complete (0%)
+- Documentation: 1/10 tasks complete (10%)
+- Testing: 4/10 tasks complete (40%)
 
-**Total Progress: 8/140 tasks complete (5.7%)** 
+**Total Progress: 17/150 tasks complete (11.3%)** 
