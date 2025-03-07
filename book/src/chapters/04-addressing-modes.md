@@ -27,6 +27,55 @@ The 6502 CPU features several addressing modes, each with different capabilities
 
 We'll explore each of these modes in detail, starting with the simplest: Immediate addressing.
 
+## Cycle Counting and Addressing Modes
+
+One of the most important aspects of emulating the 6502 processor accurately is correctly accounting for the number of clock cycles each instruction takes. The 6502's cycle timing is deterministic and depends on:
+
+1. **The instruction itself**: Each opcode has a base cycle count
+2. **The addressing mode used**: More complex addressing modes take more cycles
+3. **Page boundary crossing**: Some addressing modes incur an extra cycle when crossing a page boundary
+
+### Addressing Mode Base Cycles
+
+Each addressing mode adds a specific number of additional cycles to the instruction's base cycle count:
+
+| Addressing Mode    | Additional Cycles | Notes                                          |
+|--------------------|------------------|------------------------------------------------|
+| Immediate          | 0                | Fastest mode, data is in the instruction stream |
+| Zero Page          | 0                | Fast access to first 256 bytes of memory        |
+| Zero Page,X        | 1                | Extra cycle for adding X to zero page address   |
+| Zero Page,Y        | 1                | Extra cycle for adding Y to zero page address   |
+| Absolute           | 0                | Standard full-memory access                     |
+| Absolute,X         | 0/1              | +1 cycle if page boundary is crossed            |
+| Absolute,Y         | 0/1              | +1 cycle if page boundary is crossed            |
+| Indirect           | 2                | Extra cycles for double memory lookup           |
+| Indexed Indirect   | 4                | Complex addressing with multiple memory accesses|
+| Indirect Indexed   | 0/1              | +1 cycle if page boundary is crossed            |
+
+### Page Boundary Crossing
+
+A "page" in the 6502 is a 256-byte aligned section of memory (addresses that share the same high byte). When an instruction's addressing calculation crosses from one page to another, some instructions require an extra cycle.
+
+For example, if the base address is $12F0 and we add $20 with the X register, the result is $1310, which crosses from page $12 to page $13. This page crossing adds one cycle to instructions using Absolute,X, Absolute,Y, and Indirect Indexed addressing modes.
+
+Not all instructions are affected by page boundary crossings. For example, write operations (like STA, STX) never incur the extra cycle, even when crossing a page boundary.
+
+In our emulator, we've implemented methods to detect page boundary crossings and calculate the appropriate cycle costs:
+
+```rust
+// Detect if an addressing mode crosses a page boundary
+pub fn crosses_page_boundary(&self, cpu: &Cpu) -> bool {
+    // Implementation checks if high byte changes after addressing calculation
+}
+
+// Get the additional cycles for an addressing mode
+pub fn get_additional_cycles(&self, page_crossed: bool) -> u8 {
+    // Returns extra cycles based on addressing mode and page crossing
+}
+```
+
+We'll now explore each addressing mode in detail, including its cycle behavior.
+
 ## Immediate Addressing Mode
 
 ### Concept
@@ -67,6 +116,7 @@ When the CPU executes this instruction:
 - Fast: No additional memory access required beyond instruction fetching
 - Predictable: Always takes a fixed number of cycles
 - Clear intent: Makes it obvious in code that you're using a specific value
+- Zero additional cycles: Immediate addressing adds no extra cycles to the instruction's base cycle count
 
 **Limitations:**
 - Can only use constant values known at assembly time
@@ -186,6 +236,7 @@ When the CPU executes this instruction:
 - Memory efficient: Instructions are only 2 bytes (vs 3 for absolute addressing)
 - Faster execution: Typically requires 1 fewer cycle than absolute addressing
 - Important area: The zero page was heavily used for variables and pointers in 6502 programming
+- Zero additional cycles: Like immediate addressing, zero page addressing adds no extra cycles beyond the instruction's base cycle count
 
 **Limitations:**
 - Limited range: Can only access the first 256 bytes of memory
@@ -329,10 +380,13 @@ Effective address: ($FE + $05) & $FF = $03
 - Memory efficient: Instructions are still only 2 bytes
 - Flexible: Can access a range of addresses with a single instruction
 - Useful for arrays: Perfect for iterating through sequential memory
+- Still faster than absolute indexed modes: Even with the index calculation, this mode is efficient
 
 **Limitations:**
 - Still limited to the zero page
 - Potential wrap-around can be confusing if not handled carefully
+- Adds 1 cycle: The index calculation adds one cycle compared to basic zero page addressing
+- No additional page crossing penalty: Since we always stay within the zero page, there's never a page boundary crossing penalty
 
 ### Implementation in Our Emulator
 
@@ -465,11 +519,14 @@ Effective address: ($FB + $07) & $FF = $02
 - Memory efficient: Instructions are only 2 bytes
 - Provides Y-indexed access to the zero page
 - Complements Zero Page,X for different access patterns
+- Similar performance to Zero Page,X: Still more efficient than absolute modes
 
 **Limitations:**
 - Available in fewer instructions than Zero Page,X
 - Still limited to the zero page
 - Same wrap-around considerations as Zero Page,X
+- Adds 1 cycle: Just like Zero Page,X, the index calculation adds one cycle
+- No page boundary penalty: As with all zero page modes, there's no possibility of a page crossing penalty
 
 ### Implementation in Our Emulator
 
@@ -593,10 +650,11 @@ The 6502 uses little-endian byte order, which means that the least significant b
 - Full access: Can reference any memory location in the entire 64KB address space
 - Versatility: Used by almost all instructions and essential for accessing memory outside the zero page
 - Direct: Provides a straightforward way to access a specific known address
+- No additional cycles beyond base: Like immediate and zero page, absolute addressing adds 0 additional cycles
 
 **Limitations:**
 - Larger instruction size: Takes 3 bytes (vs 2 bytes for zero page addressing)
-- Slower execution: Typically requires 1 more cycle than zero page addressing
+- Slower execution: Typically requires 1 more cycle in base instruction cost than zero page addressing
 - Fixed target: Points to a specific address rather than a calculated one (without indexing)
 
 ### Implementation in Our Emulator
@@ -741,6 +799,20 @@ X register: $20
 Effective address: $1310 (crosses from page $12 to page $13)
 ```
 
+#### Advantages and Limitations
+
+**Advantages:**
+- Full address space access: Can access any location in memory with dynamic indexing
+- Flexible for arrays: Perfect for working with tables or arrays anywhere in memory
+- Widely supported: Many instructions can use Absolute,X addressing
+
+**Limitations:**
+- Larger instruction size: Takes 3 bytes for the instruction
+- Page crossing penalty: Many instructions take an extra cycle when crossing a page boundary
+- Variable timing: The conditional extra cycle can make timing analysis more complex
+- No additional cycles by default: But adds 1 cycle when crossing a page boundary
+- Write operations (like STA) never take the extra page crossing cycle
+
 #### Implementation and Testing
 
 Our implementation uses a simple approach of reading the base address and adding the X register to it:
@@ -829,6 +901,19 @@ Both Absolute,X and Absolute,Y have the same key properties:
 - May incur an extra cycle when crossing page boundaries
 - Will wrap around if the sum exceeds the address space
 
+#### Advantages and Limitations
+
+**Advantages:**
+- Same benefits as Absolute,X but uses Y register instead
+- Useful when X register is needed for other purposes
+- Provides flexibility for different algorithms and data structures
+
+**Limitations:**
+- Same limitations as Absolute,X 
+- Page crossing penalty: Takes an extra cycle when crossing a page boundary
+- No additional cycles by default: But adds 1 cycle when crossing a page boundary
+- Like Absolute,X, write operations never incur the page boundary penalty
+
 ## Indirect Addressing Mode
 
 ### Concept
@@ -893,6 +978,7 @@ This bug must be emulated for accurate behavior.
 - Limited to JMP instruction only (not used by other instructions)
 - Hardware bug requires special handling for page boundary cases
 - No indexed indirect variants (those are different addressing modes)
+- Adds 2 additional cycles: The double memory lookup requires more time
 
 ### Implementation in Our Emulator
 
@@ -1052,6 +1138,8 @@ The pointer address can never leave the zero page. This means that the two bytes
 - Pointers must be stored in zero page
 - Usually slower than direct addressing modes
 - More prone to coding errors due to complexity
+- Adds 4 additional cycles: The most cycle-intensive addressing mode due to multiple memory accesses
+- No page crossing penalty: Since the final address calculation happens after indirection
 
 ### Implementation in Our Emulator
 
@@ -1220,6 +1308,8 @@ High byte read from: $00 (wraps around within zero page)
 - Base address pointer must be stored in zero page
 - Usually slower than direct addressing modes
 - More prone to coding errors due to complexity
+- No additional cycles by default: But adds 1 cycle when crossing a page boundary
+- Page crossing penalty: Takes an extra cycle when the Y-indexed address crosses a page boundary
 
 ### Implementation in Our Emulator
 
