@@ -545,10 +545,6 @@ fn test_zero_page_y_addressing_mode() {
 
 This test ensures our implementation correctly handles both normal cases and the special wrap-around behavior for the Zero Page,Y addressing mode.
 
-## Next Steps
-
-With immediate, zero page, zero page,X, and zero page,Y addressing modes understood and implemented, we'll next explore the absolute addressing modes, which use a full 16-bit address to access any memory location in the system.
-
 ## Absolute Addressing Mode
 
 ### Concept
@@ -671,11 +667,10 @@ fn test_absolute_addressing_mode() {
     
     // Setup memory:
     // At $0200: Opcode using Absolute addressing
-    // At $0201-$0202: Absolute address $1234 (low byte first)
+    // At $0201-$0202: Absolute address $1234
     // At $1234: The value $42 we want to read
     cpu.write_byte(0x0200, 0xAD); // LDA Absolute opcode
-    cpu.write_byte(0x0201, 0x34); // Low byte of address
-    cpu.write_byte(0x0202, 0x12); // High byte of address
+    cpu.write_word(0x0201, 0x1234); // Address to read from
     cpu.write_byte(0x1234, 0x42); // Value at absolute address $1234
     
     // Set CPU state
@@ -694,17 +689,15 @@ This test verifies that:
 1. The absolute addressing mode correctly calculates the 16-bit address from the two bytes following the opcode
 2. When the CPU reads a byte using this addressing mode, it gets the expected value from that address
 
-## Next Steps
+## Indexed Absolute Addressing Modes
 
-With immediate, zero page, zero page,X, zero page,Y, and absolute addressing modes understood and implemented, we'll next explore the indexed absolute addressing modes (Absolute,X and Absolute,Y), which combine the power of absolute addressing with the flexibility of indexing.
+The Absolute,X and Absolute,Y addressing modes build on the Absolute addressing mode by adding an index register (X or Y) to the 16-bit address. These modes provide flexible access to arrays or tables anywhere in memory.
 
-## Absolute,X Addressing Mode
+### Absolute,X Addressing Mode
 
-### Concept
+#### Concept
 
-Absolute,X addressing builds on the Absolute addressing mode by adding the value in the X register to the 16-bit address. This allows for accessing elements of arrays or tables anywhere in memory, not just in the zero page.
-
-In 6502 assembly language, Absolute,X addressing is written with a full address followed by ",X":
+Absolute,X addressing adds the value in the X register to a 16-bit address. In 6502 assembly language, it's written with a full address followed by ",X":
 
 ```asm
 LDA $1234,X    ; Load from (address $1234 + X) into the accumulator
@@ -712,7 +705,7 @@ STA $5678,X    ; Store accumulator at (address $5678 + X)
 INC $ABCD,X    ; Increment value at (address $ABCD + X)
 ```
 
-### Memory Layout
+#### Memory Layout
 
 Let's visualize how Absolute,X addressing works in memory:
 
@@ -738,62 +731,31 @@ When the CPU executes this instruction:
 6. It loads the value $42 into the accumulator register
 7. It updates the program counter by 3 bytes
 
-### Page Crossing Behavior
+#### Page Crossing Behavior
 
-A notable aspect of Absolute,X addressing (and Absolute,Y as well) is that it may require an additional CPU cycle when the addition of the index register crosses a page boundary. A page in the 6502 is 256 bytes, so a page boundary is crossed when adding the index causes the high byte of the address to change.
+When the addition of the index register crosses a page boundary (changes the high byte of the address), many instructions take an additional CPU cycle. For example:
 
-For example:
 ```
 Base address: $12F0
 X register: $20
 Effective address: $1310 (crosses from page $12 to page $13)
 ```
 
-Many instructions will take an extra cycle when this happens, which is important for cycle-accurate emulation.
+#### Implementation and Testing
 
-### Advantages and Limitations
-
-**Advantages:**
-- Full memory access: Can reference any indexed location in the entire 64KB address space
-- Flexible: Perfect for working with arrays and tables anywhere in memory
-- Common usage: Many 6502 programs use this addressing mode extensively
-
-**Limitations:**
-- Larger instruction size: Takes 3 bytes (vs 2 for zero page,X)
-- Slower execution: Typically requires 1 more cycle than zero page,X, and potentially an extra cycle for page crossing
-- No indirect capability: Cannot be combined with indirection
-
-### Implementation in Our Emulator
-
-Here's how we've implemented Absolute,X addressing:
+Our implementation uses a simple approach of reading the base address and adding the X register to it:
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AddressingMode {
-    // Previous modes...
-    AbsoluteX,
-    // More to come later
-}
-
-impl AddressingMode {
-    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
-        match self {
-            // Previous cases...
-            AddressingMode::AbsoluteX => {
-                // Read the base address and add X register
-                let base_addr = cpu.read_word(cpu.pc + 1);
-                base_addr.wrapping_add(cpu.x as u16)
-            },
-        }
-    }
+AddressingMode::AbsoluteX => {
+    // Read the base address and add X register
+    let base_addr = cpu.read_word(cpu.pc + 1);
+    base_addr.wrapping_add(cpu.x as u16)
 }
 ```
 
-Note that we use `wrapping_add` to handle address overflow correctly when the addition crosses the 64KB boundary.
+We use `wrapping_add` to handle address overflow correctly when the addition crosses the 64KB boundary.
 
-### Testing Absolute,X Addressing
-
-Here's how we test normal operation and page crossing behavior:
+Testing example:
 
 ```rust
 #[test]
@@ -803,8 +765,7 @@ fn test_absolute_x_addressing_mode() {
     
     // Base address $1234, X=$10, effective address=$1244
     cpu.write_byte(0x0200, 0xBD); // LDA Absolute,X opcode
-    cpu.write_byte(0x0201, 0x34); // Low byte of address
-    cpu.write_byte(0x0202, 0x12); // High byte of address
+    cpu.write_word(0x0201, 0x1234); // Base address
     cpu.write_byte(0x1244, 0x42); // Value at effective address $1244
     
     cpu.pc = 0x0200;
@@ -824,8 +785,7 @@ fn test_absolute_x_addressing_mode_page_crossing() {
     
     // Base address $12F0, X=$20, effective address=$1310 (page boundary crossed)
     cpu.write_byte(0x0200, 0xBD); // LDA Absolute,X opcode
-    cpu.write_byte(0x0201, 0xF0); // Low byte of address
-    cpu.write_byte(0x0202, 0x12); // High byte of address
+    cpu.write_word(0x0201, 0x12F0); // Base address
     cpu.write_byte(0x1310, 0x42); // Value at effective address $1310
     
     cpu.pc = 0x0200;
@@ -839,13 +799,11 @@ fn test_absolute_x_addressing_mode_page_crossing() {
 }
 ```
 
-## Absolute,Y Addressing Mode
+### Absolute,Y Addressing Mode
 
-### Concept
+Absolute,Y addressing works identically to Absolute,X, except it uses the Y register for indexing instead of the X register. This provides flexibility for different algorithms or when the X register is already in use.
 
-Absolute,Y addressing is nearly identical to Absolute,X but uses the Y register for indexing instead of the X register. This provides flexibility for different types of data structures or operations that specifically need to use the Y register.
-
-In 6502 assembly language, Absolute,Y addressing is written with a full address followed by ",Y":
+#### Syntax and Usage
 
 ```asm
 LDA $1234,Y    ; Load from (address $1234 + Y) into the accumulator
@@ -853,105 +811,23 @@ STA $5678,Y    ; Store accumulator at (address $5678 + Y)
 CMP $ABCD,Y    ; Compare accumulator with value at (address $ABCD + Y)
 ```
 
-### Memory Layout
+#### Implementation
 
-Let's visualize how Absolute,Y addressing works in memory:
-
-```
-Memory Address | Content      | Description
----------------|--------------|--------------------------
-$0200          | $B9          | LDA Absolute,Y opcode
-$0201          | $34          | Low byte of address ($34)
-$0202          | $12          | High byte of address ($12)
-$0203          | (next opcode) | Next instruction...
-... ... ...    |              |
-(CPU Y register) | $15        | Y register contains $15
-... ... ...    |              |
-$1249          | $42          | Value at effective address ($1234 + $15 = $1249)
-```
-
-The execution steps are the same as for Absolute,X, just using the Y register instead.
-
-### Wrap-Around Behavior
-
-Just like with Absolute,X, Absolute,Y addressing will wrap around when the sum of the base address and the Y register exceeds the 64KB address space:
-
-```
-Base address: $FFFA
-Y register: $10
-Effective address: $000A (wraps from $FFFA + $10 = $1000A to $000A)
-```
-
-### Advantages and Limitations
-
-The advantages and limitations are identical to Absolute,X, with the key difference being the use of the Y register, which might be preferred for certain algorithms or when the X register is already in use.
-
-### Implementation in Our Emulator
-
-Our implementation of Absolute,Y addressing is very similar to Absolute,X:
+The implementation is nearly identical to Absolute,X:
 
 ```rust
-impl AddressingMode {
-    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
-        match self {
-            // Previous cases...
-            AddressingMode::AbsoluteY => {
-                // Read the base address and add Y register
-                let base_addr = cpu.read_word(cpu.pc + 1);
-                base_addr.wrapping_add(cpu.y as u16)
-            },
-        }
-    }
+AddressingMode::AbsoluteY => {
+    // Read the base address and add Y register
+    let base_addr = cpu.read_word(cpu.pc + 1);
+    base_addr.wrapping_add(cpu.y as u16)
 }
 ```
 
-### Testing Absolute,Y Addressing
-
-We test both normal operation and wrap-around behavior:
-
-```rust
-#[test]
-fn test_absolute_y_addressing_mode() {
-    let memory = MockMemory::new();
-    let mut cpu = Cpu::new(Box::new(memory));
-    
-    // Base address $1234, Y=$15, effective address=$1249
-    cpu.write_byte(0x0200, 0xB9); // LDA Absolute,Y opcode
-    cpu.write_byte(0x0201, 0x34); // Low byte of address
-    cpu.write_byte(0x0202, 0x12); // High byte of address
-    cpu.write_byte(0x1249, 0x42); // Value at effective address $1249
-    
-    cpu.pc = 0x0200;
-    cpu.y = 0x15;
-    
-    let addr = AddressingMode::AbsoluteY.get_operand_address(&cpu);
-    assert_eq!(addr, 0x1249);
-    
-    let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteY);
-    assert_eq!(value, 0x42);
-}
-
-#[test]
-fn test_absolute_y_addressing_mode_wrap_around() {
-    let memory = MockMemory::new();
-    let mut cpu = Cpu::new(Box::new(memory));
-    
-    // Base address $FFFA, Y=$10, effective address=$000A (wrap around)
-    cpu.write_byte(0x0200, 0xB9); // LDA Absolute,Y opcode
-    cpu.write_byte(0x0201, 0xFA); // Low byte of address
-    cpu.write_byte(0x0202, 0xFF); // High byte of address
-    cpu.write_byte(0x000A, 0x42); // Value at wrapped address $000A
-    
-    cpu.pc = 0x0200;
-    cpu.y = 0x10;
-    
-    let addr = AddressingMode::AbsoluteY.get_operand_address(&cpu);
-    assert_eq!(addr, 0x000A);
-    
-    let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteY);
-    assert_eq!(value, 0x42);
-}
-```
+Both Absolute,X and Absolute,Y have the same key properties:
+- Can access the entire 64KB address space
+- Take 3 bytes for the instruction
+- May incur an extra cycle when crossing page boundaries
+- Will wrap around if the sum exceeds the address space
 
 ## Indirect Addressing Mode
 
@@ -1065,12 +941,10 @@ fn test_indirect_addressing_mode() {
     
     // JMP ($1234) - Jump to the address stored at $1234
     cpu.write_byte(0x0200, 0x6C); // JMP Indirect opcode
-    cpu.write_byte(0x0201, 0x34); // Low byte of indirect pointer
-    cpu.write_byte(0x0202, 0x12); // High byte of indirect pointer
+    cpu.write_word(0x0201, 0x1234); // Pointer address
     
     // At $1234-$1235, store the target address $ABCD
-    cpu.write_byte(0x1234, 0xCD); // Low byte of target address
-    cpu.write_byte(0x1235, 0xAB); // High byte of target address
+    cpu.write_word(0x1234, 0xABCD); // Target address
     
     cpu.pc = 0x0200;
     
@@ -1087,10 +961,10 @@ fn test_indirect_addressing_mode_page_boundary_bug() {
     // JMP ($12FF) - Jump to the address formed by $12FF and $1200
     // due to the 6502 JMP indirect bug
     cpu.write_byte(0x0200, 0x6C); // JMP Indirect opcode
-    cpu.write_byte(0x0201, 0xFF); // Low byte of indirect pointer
-    cpu.write_byte(0x0202, 0x12); // High byte of indirect pointer
+    cpu.write_word(0x0201, 0x12FF); // Pointer address
     
-    // The pointer straddles a page boundary:
+    // The pointer straddles a page boundary - need to keep this as individual bytes
+    // due to the hardware bug we're testing
     cpu.write_byte(0x12FF, 0xCD); // Low byte comes from $12FF
     cpu.write_byte(0x1200, 0xAB); // High byte comes from $1200 (same page, not $1300)
     // For comparison, what would be expected without the bug:
@@ -1103,15 +977,6 @@ fn test_indirect_addressing_mode_page_boundary_bug() {
     assert_eq!(addr, 0xABCD, "Indirect addressing with page boundary bug should return $ABCD");
 }
 ```
-
-## Next Steps
-
-With most of the addressing modes implemented and understood, we'll next tackle the final two complex addressing modes:
-
-1. **Indexed Indirect (X,ind)**: This combines zero page addressing with X-register indexing and indirection.
-2. **Indirect Indexed (ind,Y)**: This combines zero page indirection with Y-register indexing.
-
-These last two modes are the most complex in the 6502's arsenal but are essential for many programming tasks, especially when working with arrays of pointers or similar data structures.
 
 ## Indexed Indirect (X,ind) Addressing Mode
 
@@ -1234,8 +1099,7 @@ fn test_indexed_indirect_addressing_mode() {
     cpu.write_byte(0x0201, 0x80); // Zero page pointer base
     
     // At zero page address $84-$85 (after adding X), we store the target address $1234
-    cpu.write_byte(0x0084, 0x34); // Low byte of target address
-    cpu.write_byte(0x0085, 0x12); // High byte of target address
+    cpu.write_word(0x0084, 0x1234); // Target address at effective zero page location
     
     // The actual value we want to read is at $1234
     cpu.write_byte(0x1234, 0x42); 
@@ -1263,8 +1127,7 @@ fn test_indexed_indirect_addressing_mode_wrap_around() {
     
     // At zero page address $01-$02 (after adding X and wrap-around), 
     // we store the target address $ABCD
-    cpu.write_byte(0x0001, 0xCD); // Low byte of target address
-    cpu.write_byte(0x0002, 0xAB); // High byte of target address
+    cpu.write_word(0x0001, 0xABCD); // Target address
     
     // The actual value we want to read is at $ABCD
     cpu.write_byte(0xABCD, 0x42); 
@@ -1369,7 +1232,7 @@ impl AddressingMode {
             // Previous cases...
             AddressingMode::IndirectIndexed => {
                 // 1. Get the zero page pointer from the instruction
-                let zp_ptr = cpu.read_byte(cpu.pc + 1) as u16;
+                let zp_ptr = cpu.read_byte(cpu.pc + 1);
                 
                 // 2. Read the base address from zero page (wrapping around for high byte)
                 let low_byte = cpu.read_byte(zp_ptr) as u16;
@@ -1403,8 +1266,7 @@ fn test_indirect_indexed_addressing_mode() {
     cpu.write_byte(0x0201, 0x80); // Zero page pointer
     
     // At zero page address $80-$81, we store the base address $1234
-    cpu.write_byte(0x0080, 0x34); // Low byte of base address
-    cpu.write_byte(0x0081, 0x12); // High byte of base address
+    cpu.write_word(0x0080, 0x1234); // Base address in zero page
     
     // The actual value we want to read is at $1244 (after adding Y)
     cpu.write_byte(0x1244, 0x42); 
@@ -1432,8 +1294,7 @@ fn test_indirect_indexed_addressing_mode_page_crossing() {
     cpu.write_byte(0x0201, 0x80); // Zero page pointer
     
     // At zero page address $80-$81, we store the base address $1234
-    cpu.write_byte(0x0080, 0x34); // Low byte of base address
-    cpu.write_byte(0x0081, 0x12); // High byte of base address
+    cpu.write_word(0x0080, 0x1234); // Base address in zero page
     
     // The actual value we want to read is at $1324 (after adding Y, crossing a page)
     cpu.write_byte(0x1324, 0x42); 

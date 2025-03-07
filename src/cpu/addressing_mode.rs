@@ -283,8 +283,7 @@ mod tests {
         
         // Setup memory with Absolute addressing
         cpu.write_byte(0x0200, 0xAD); // LDA Absolute opcode
-        cpu.write_byte(0x0201, 0x34); // Low byte of address
-        cpu.write_byte(0x0202, 0x12); // High byte of address
+        cpu.write_word(0x0201, 0x1234); // Address to read from
         cpu.write_byte(0x1234, 0x42); // Value at absolute address $1234
         
         // Set CPU state
@@ -305,8 +304,7 @@ mod tests {
         
         // Base address $1234, X=$10, effective address=$1244
         cpu.write_byte(0x0200, 0xBD); // LDA Absolute,X opcode
-        cpu.write_byte(0x0201, 0x34); // Low byte of address
-        cpu.write_byte(0x0202, 0x12); // High byte of address
+        cpu.write_word(0x0201, 0x1234); // Base address
         cpu.write_byte(0x1244, 0x42); // Value at effective address $1244
         
         cpu.pc = 0x0200;
@@ -326,8 +324,7 @@ mod tests {
         
         // Base address $12F0, X=$20, effective address=$1310 (page boundary crossed)
         cpu.write_byte(0x0200, 0xBD); // LDA Absolute,X opcode
-        cpu.write_byte(0x0201, 0xF0); // Low byte of address
-        cpu.write_byte(0x0202, 0x12); // High byte of address
+        cpu.write_word(0x0201, 0x12F0); // Base address
         cpu.write_byte(0x1310, 0x42); // Value at effective address $1310
         
         cpu.pc = 0x0200;
@@ -347,8 +344,7 @@ mod tests {
         
         // Base address $1234, Y=$15, effective address=$1249
         cpu.write_byte(0x0200, 0xB9); // LDA Absolute,Y opcode
-        cpu.write_byte(0x0201, 0x34); // Low byte of address
-        cpu.write_byte(0x0202, 0x12); // High byte of address
+        cpu.write_word(0x0201, 0x1234); // Base address
         cpu.write_byte(0x1249, 0x42); // Value at effective address $1249
         
         cpu.pc = 0x0200;
@@ -368,8 +364,7 @@ mod tests {
         
         // Base address $FFFA, Y=$10, effective address=$000A (wrap around)
         cpu.write_byte(0x0200, 0xB9); // LDA Absolute,Y opcode
-        cpu.write_byte(0x0201, 0xFA); // Low byte of address
-        cpu.write_byte(0x0202, 0xFF); // High byte of address
+        cpu.write_word(0x0201, 0xFFFA); // Base address
         cpu.write_byte(0x000A, 0x42); // Value at wrapped address $000A
         
         cpu.pc = 0x0200;
@@ -389,12 +384,10 @@ mod tests {
         
         // JMP ($1234) - Jump to the address stored at $1234
         cpu.write_byte(0x0200, 0x6C); // JMP Indirect opcode
-        cpu.write_byte(0x0201, 0x34); // Low byte of indirect pointer
-        cpu.write_byte(0x0202, 0x12); // High byte of indirect pointer
+        cpu.write_word(0x0201, 0x1234); // Indirect pointer
         
         // At $1234-$1235, store the target address $ABCD
-        cpu.write_byte(0x1234, 0xCD); // Low byte of target address
-        cpu.write_byte(0x1235, 0xAB); // High byte of target address
+        cpu.write_word(0x1234, 0xABCD); // Target address
         
         cpu.pc = 0x0200;
         
@@ -411,10 +404,10 @@ mod tests {
         // JMP ($12FF) - Jump to the address formed by $12FF and $1200
         // due to the 6502 JMP indirect bug
         cpu.write_byte(0x0200, 0x6C); // JMP Indirect opcode
-        cpu.write_byte(0x0201, 0xFF); // Low byte of indirect pointer
-        cpu.write_byte(0x0202, 0x12); // High byte of indirect pointer
+        cpu.write_word(0x0201, 0x12FF); // Indirect pointer
         
-        // The pointer straddles a page boundary:
+        // The pointer straddles a page boundary - need to keep this as individual bytes
+        // due to the hardware bug we're testing
         cpu.write_byte(0x12FF, 0xCD); // Low byte comes from $12FF
         cpu.write_byte(0x1200, 0xAB); // High byte comes from $1200 (same page, not $1300)
         // For comparison, what would be expected without the bug:
@@ -438,8 +431,7 @@ mod tests {
         cpu.write_byte(0x0201, 0x80); // Zero page pointer base
         
         // At zero page address $84-$85 (after adding X), we store the target address $1234
-        cpu.write_byte(0x0084, 0x34); // Low byte of target address
-        cpu.write_byte(0x0085, 0x12); // High byte of target address
+        cpu.write_word(0x0084, 0x1234); // Target address at effective zero page location
         
         // The actual value we want to read is at $1234
         cpu.write_byte(0x1234, 0x42); 
@@ -467,8 +459,7 @@ mod tests {
         
         // At zero page address $01-$02 (after adding X and wrap-around), 
         // we store the target address $ABCD
-        cpu.write_byte(0x0001, 0xCD); // Low byte of target address
-        cpu.write_byte(0x0002, 0xAB); // High byte of target address
+        cpu.write_word(0x0001, 0xABCD); // Target address
         
         // The actual value we want to read is at $ABCD
         cpu.write_byte(0xABCD, 0x42); 
@@ -496,8 +487,7 @@ mod tests {
         cpu.write_byte(0x0201, 0x80); // Zero page pointer
         
         // At zero page address $80-$81, we store the base address $1234
-        cpu.write_byte(0x0080, 0x34); // Low byte of base address
-        cpu.write_byte(0x0081, 0x12); // High byte of base address
+        cpu.write_word(0x0080, 0x1234); // Base address in zero page
         
         // The actual value we want to read is at $1244 (after adding Y)
         cpu.write_byte(0x1244, 0x42); 
@@ -525,8 +515,7 @@ mod tests {
         cpu.write_byte(0x0201, 0x80); // Zero page pointer
         
         // At zero page address $80-$81, we store the base address $1234
-        cpu.write_byte(0x0080, 0x34); // Low byte of base address
-        cpu.write_byte(0x0081, 0x12); // High byte of base address
+        cpu.write_word(0x0080, 0x1234); // Base address in zero page
         
         // The actual value we want to read is at $1324 (after adding Y, crossing a page)
         cpu.write_byte(0x1324, 0x42); 
@@ -553,6 +542,7 @@ mod tests {
         cpu.write_byte(0x0201, 0xFF); // Zero page pointer at $FF (will wrap for high byte)
         
         // Store the base address split between $FF and $00 (wrap-around in zero page)
+        // Need to keep as individual bytes to test the zero page wrap behavior
         cpu.write_byte(0x00FF, 0x34); // Low byte at $FF
         cpu.write_byte(0x0000, 0x12); // High byte at $00 (wrapped around)
         
