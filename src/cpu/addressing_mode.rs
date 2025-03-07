@@ -8,6 +8,8 @@ pub enum AddressingMode {
     ZeroPageX,
     ZeroPageY,
     Absolute,
+    AbsoluteX,
+    AbsoluteY,
     // We'll add more modes later
 }
 
@@ -44,13 +46,18 @@ impl AddressingMode {
                 effective_addr
             },
             AddressingMode::Absolute => {
-                // Absolute addressing uses a full 16-bit address
-                // Read the low byte and high byte from the instruction
-                let low_byte = cpu.read_byte(cpu.pc + 1) as u16;
-                let high_byte = cpu.read_byte(cpu.pc + 2) as u16;
-                
-                // Combine them into a 16-bit address (little-endian)
-                (high_byte << 8) | low_byte
+                // Read a full 16-bit address (little-endian)
+                cpu.read_word(cpu.pc + 1)
+            },
+            AddressingMode::AbsoluteX => {
+                // Read the base address and add X register
+                let base_addr = cpu.read_word(cpu.pc + 1);
+                base_addr.wrapping_add(cpu.x as u16)
+            },
+            AddressingMode::AbsoluteY => {
+                // Read the base address and add Y register
+                let base_addr = cpu.read_word(cpu.pc + 1);
+                base_addr.wrapping_add(cpu.y as u16)
             }
         }
     }
@@ -224,10 +231,7 @@ mod tests {
         let memory = MockMemory::new();
         let mut cpu = Cpu::new(Box::new(memory));
         
-        // Setup memory:
-        // At $0200: Opcode using Absolute addressing
-        // At $0201-$0202: Absolute address $1234 (low byte first)
-        // At $1234: The value $42 we want to read
+        // Setup memory with Absolute addressing
         cpu.write_byte(0x0200, 0xAD); // LDA Absolute opcode
         cpu.write_byte(0x0201, 0x34); // Low byte of address
         cpu.write_byte(0x0202, 0x12); // High byte of address
@@ -242,5 +246,89 @@ mod tests {
         
         let value = cpu.read_byte_using_mode(AddressingMode::Absolute);
         assert_eq!(value, 0x42, "Value at absolute address $1234 should be $42");
+    }
+    
+    #[test]
+    fn test_absolute_x_addressing_mode() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // Base address $1234, X=$10, effective address=$1244
+        cpu.write_byte(0x0200, 0xBD); // LDA Absolute,X opcode
+        cpu.write_byte(0x0201, 0x34); // Low byte of address
+        cpu.write_byte(0x0202, 0x12); // High byte of address
+        cpu.write_byte(0x1244, 0x42); // Value at effective address $1244
+        
+        cpu.pc = 0x0200;
+        cpu.x = 0x10;
+        
+        let addr = AddressingMode::AbsoluteX.get_operand_address(&cpu);
+        assert_eq!(addr, 0x1244);
+        
+        let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteX);
+        assert_eq!(value, 0x42);
+    }
+    
+    #[test]
+    fn test_absolute_x_addressing_mode_page_crossing() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // Base address $12F0, X=$20, effective address=$1310 (page boundary crossed)
+        cpu.write_byte(0x0200, 0xBD); // LDA Absolute,X opcode
+        cpu.write_byte(0x0201, 0xF0); // Low byte of address
+        cpu.write_byte(0x0202, 0x12); // High byte of address
+        cpu.write_byte(0x1310, 0x42); // Value at effective address $1310
+        
+        cpu.pc = 0x0200;
+        cpu.x = 0x20;
+        
+        let addr = AddressingMode::AbsoluteX.get_operand_address(&cpu);
+        assert_eq!(addr, 0x1310);
+        
+        let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteX);
+        assert_eq!(value, 0x42);
+    }
+    
+    #[test]
+    fn test_absolute_y_addressing_mode() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // Base address $1234, Y=$15, effective address=$1249
+        cpu.write_byte(0x0200, 0xB9); // LDA Absolute,Y opcode
+        cpu.write_byte(0x0201, 0x34); // Low byte of address
+        cpu.write_byte(0x0202, 0x12); // High byte of address
+        cpu.write_byte(0x1249, 0x42); // Value at effective address $1249
+        
+        cpu.pc = 0x0200;
+        cpu.y = 0x15;
+        
+        let addr = AddressingMode::AbsoluteY.get_operand_address(&cpu);
+        assert_eq!(addr, 0x1249);
+        
+        let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteY);
+        assert_eq!(value, 0x42);
+    }
+    
+    #[test]
+    fn test_absolute_y_addressing_mode_wrap_around() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // Base address $FFFA, Y=$10, effective address=$000A (wrap around)
+        cpu.write_byte(0x0200, 0xB9); // LDA Absolute,Y opcode
+        cpu.write_byte(0x0201, 0xFA); // Low byte of address
+        cpu.write_byte(0x0202, 0xFF); // High byte of address
+        cpu.write_byte(0x000A, 0x42); // Value at wrapped address $000A
+        
+        cpu.pc = 0x0200;
+        cpu.y = 0x10;
+        
+        let addr = AddressingMode::AbsoluteY.get_operand_address(&cpu);
+        assert_eq!(addr, 0x000A);
+        
+        let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteY);
+        assert_eq!(value, 0x42);
     }
 }

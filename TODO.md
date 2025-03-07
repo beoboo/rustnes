@@ -42,8 +42,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement zero page,X addressing
 - [x] Implement zero page,Y addressing
 - [x] Implement absolute addressing
-- [ ] Implement absolute,X addressing
-- [ ] Implement absolute,Y addressing
+- [x] Implement absolute,X addressing
+- [x] Implement absolute,Y addressing
 - [ ] Implement indirect addressing
 - [ ] Implement indexed indirect (indirect,X) addressing
 - [ ] Implement indirect indexed (indirect,Y) addressing
@@ -53,6 +53,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Document zero page,X addressing mode in book
 - [x] Document zero page,Y addressing mode in book
 - [x] Document absolute addressing mode in book
+- [ ] Document absolute,X addressing mode in book
+- [ ] Document absolute,Y addressing mode in book
 - [ ] Document cycle costs for each addressing mode
 
 ### Chapter 5: Implementing Instructions
