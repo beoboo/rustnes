@@ -111,6 +111,55 @@ impl AddressingMode {
             }
         }
     }
+    
+    /// Checks if the addressing mode crosses a page boundary
+    pub fn crosses_page_boundary(&self, cpu: &Cpu) -> bool {
+        match self {
+            // Only these modes can cross page boundaries
+            AddressingMode::AbsoluteX => {
+                let base_addr = cpu.read_word(cpu.pc + 1);
+                Self::crosses_boundary(base_addr, cpu.x as u16)
+            },
+            AddressingMode::AbsoluteY => {
+                let base_addr = cpu.read_word(cpu.pc + 1);
+                Self::crosses_boundary(base_addr, cpu.y as u16)
+            },
+            AddressingMode::IndirectIndexed => {
+                let zp_ptr = cpu.read_byte(cpu.pc + 1) as u16;
+                let low_byte = cpu.read_byte(zp_ptr) as u16;
+                let high_byte = cpu.read_byte(zp_ptr.wrapping_add(1) & 0xFF) as u16;
+                let base_addr = (high_byte << 8) | low_byte;
+                Self::crosses_boundary(base_addr, cpu.y as u16)
+            },
+            // All other modes never cross page boundaries
+            _ => false,
+        }
+    }
+    
+    /// Helper function to check if adding an offset to a base address crosses a page boundary
+    fn crosses_boundary(base_addr: u16, offset: u16) -> bool {
+        (base_addr & 0xFF00) != ((base_addr.wrapping_add(offset)) & 0xFF00)
+    }
+    
+    /// Returns the additional cycles required for the addressing mode
+    pub fn get_additional_cycles(&self, page_crossed: bool) -> u8 {
+        match self {
+            // Modes that always have additional cycles
+            AddressingMode::ZeroPageX | AddressingMode::ZeroPageY => 1,
+            AddressingMode::Indirect => 2,
+            AddressingMode::IndexedIndirect => 4,
+            
+            // Modes with page crossing penalties
+            AddressingMode::AbsoluteX | 
+            AddressingMode::AbsoluteY | 
+            AddressingMode::IndirectIndexed => {
+                if page_crossed { 1 } else { 0 }
+            },
+            
+            // All other modes (Immediate, ZeroPage, Absolute)
+            _ => 0,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -558,5 +607,113 @@ mod tests {
         
         let value = cpu.read_byte_using_mode(AddressingMode::IndirectIndexed);
         assert_eq!(value, 0x42, "Value with ZP wrap-around should be $42");
+    }
+    
+    #[test]
+    fn test_crosses_page_boundary() {
+        let mut cpu = Cpu::new(Box::new(MockMemory::new()));
+        
+        // Test modes that can cross page boundaries
+        
+        // 1. Test AbsoluteX
+        cpu.pc = 0x0200;
+        cpu.x = 0x10;
+        
+        // Set up for crossing page boundary: $12F0 + $10 = $1300
+        cpu.write_word(0x0201, 0x12F0);
+        assert!(AddressingMode::AbsoluteX.crosses_page_boundary(&cpu),
+            "AbsoluteX should detect page boundary crossing");
+        
+        // Set up for not crossing: $1280 + $10 = $1290
+        cpu.write_word(0x0201, 0x1280);
+        assert!(!AddressingMode::AbsoluteX.crosses_page_boundary(&cpu),
+            "AbsoluteX should detect when page boundary is not crossed");
+        
+        // 2. Test AbsoluteY
+        cpu.pc = 0x0200;
+        cpu.y = 0x20;
+        
+        // Set up for crossing page boundary: $12F0 + $20 = $1310
+        cpu.write_word(0x0201, 0x12F0);
+        assert!(AddressingMode::AbsoluteY.crosses_page_boundary(&cpu),
+            "AbsoluteY should detect page boundary crossing");
+        
+        // Set up for not crossing: $1280 + $20 = $12A0
+        cpu.write_word(0x0201, 0x1280);
+        assert!(!AddressingMode::AbsoluteY.crosses_page_boundary(&cpu),
+            "AbsoluteY should detect when page boundary is not crossed");
+        
+        // 3. Test IndirectIndexed
+        cpu.pc = 0x0200;
+        cpu.y = 0x20;
+        cpu.write_byte(0x0201, 0x80); // Zero page pointer
+        
+        // Set up for crossing page boundary: $12F0 + $20 = $1310
+        cpu.write_word(0x0080, 0x12F0);
+        assert!(AddressingMode::IndirectIndexed.crosses_page_boundary(&cpu),
+            "IndirectIndexed should detect page boundary crossing");
+        
+        // Set up for not crossing: $1280 + $20 = $12A0
+        cpu.write_word(0x0080, 0x1280);
+        assert!(!AddressingMode::IndirectIndexed.crosses_page_boundary(&cpu),
+            "IndirectIndexed should detect when page boundary is not crossed");
+        
+        // Test modes that never cross page boundaries
+        let modes_never_crossing = vec![
+            AddressingMode::Immediate,
+            AddressingMode::ZeroPage,
+            AddressingMode::ZeroPageX,
+            AddressingMode::ZeroPageY,
+            AddressingMode::Absolute,
+            AddressingMode::Indirect,
+            AddressingMode::IndexedIndirect,
+        ];
+        
+        for mode in modes_never_crossing {
+            assert!(!mode.crosses_page_boundary(&cpu),
+                "Mode {:?} should never cross page boundary", mode);
+        }
+    }
+    
+    #[test]
+    fn test_get_additional_cycles() {
+        // Structure: (addressing_mode, page_crossed, expected_cycles)
+        let test_cases = vec![
+            // Modes with fixed additional cycles (page crossing doesn't matter)
+            (AddressingMode::ZeroPageX, false, 1),
+            (AddressingMode::ZeroPageX, true, 1),
+            (AddressingMode::ZeroPageY, false, 1),
+            (AddressingMode::ZeroPageY, true, 1),
+            (AddressingMode::Indirect, false, 2),
+            (AddressingMode::Indirect, true, 2),
+            (AddressingMode::IndexedIndirect, false, 4),
+            (AddressingMode::IndexedIndirect, true, 4),
+            
+            // Modes with page boundary penalties
+            (AddressingMode::AbsoluteX, false, 0),
+            (AddressingMode::AbsoluteX, true, 1),
+            (AddressingMode::AbsoluteY, false, 0),
+            (AddressingMode::AbsoluteY, true, 1),
+            (AddressingMode::IndirectIndexed, false, 0),
+            (AddressingMode::IndirectIndexed, true, 1),
+            
+            // Modes with no additional cycles
+            (AddressingMode::Immediate, false, 0),
+            (AddressingMode::Immediate, true, 0),
+            (AddressingMode::ZeroPage, false, 0),
+            (AddressingMode::ZeroPage, true, 0),
+            (AddressingMode::Absolute, false, 0),
+            (AddressingMode::Absolute, true, 0),
+        ];
+        
+        for (mode, page_crossed, expected_cycles) in test_cases {
+            let actual_cycles = mode.get_additional_cycles(page_crossed);
+            assert_eq!(
+                actual_cycles, 
+                expected_cycles,
+                "Mode {:?} with page_crossed={} should take {} additional cycles, got {}",
+                mode, page_crossed, expected_cycles, actual_cycles
+            );
+        }
     }
 }

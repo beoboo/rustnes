@@ -57,8 +57,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Document absolute,Y addressing mode in book
 - [x] Document indirect addressing mode in book
 - [x] Document indexed indirect addressing mode in book
-- [x] Document indirect indexed addressing mode in book
-- [ ] Document cycle costs for each addressing mode
+- [x] Document cycle costs for each addressing mode
 
 ### Chapter 5: Implementing Instructions
 - [ ] Create instruction decoder
