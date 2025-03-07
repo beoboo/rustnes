@@ -403,18 +403,6 @@ fn test_zero_page_x_addressing_mode() {
     
     let value = cpu.read_byte_using_mode(AddressingMode::ZeroPageX);
     assert_eq!(value, 0x37, "Value at zero page,X address $45 should be $37");
-    
-    // Test wrap-around behavior
-    cpu.write_byte(0x0201, 0xFE); // Zero page address $FE
-    cpu.x = 0x05;  // X register is $05
-    // Effective address should be $03 (0xFE + 0x05 = 0x103, which wraps to 0x03)
-    cpu.write_byte(0x0003, 0x42); // Value at wrapped address $03
-    
-    let addr = AddressingMode::ZeroPageX.get_operand_address(&cpu);
-    assert_eq!(addr, 0x0003, "Zero page,X address should wrap to $0003");
-    
-    let value = cpu.read_byte_using_mode(AddressingMode::ZeroPageX);
-    assert_eq!(value, 0x42, "Value at wrapped address $03 should be $42");
 }
 ```
 
@@ -709,3 +697,815 @@ This test verifies that:
 ## Next Steps
 
 With immediate, zero page, zero page,X, zero page,Y, and absolute addressing modes understood and implemented, we'll next explore the indexed absolute addressing modes (Absolute,X and Absolute,Y), which combine the power of absolute addressing with the flexibility of indexing.
+
+## Absolute,X Addressing Mode
+
+### Concept
+
+Absolute,X addressing builds on the Absolute addressing mode by adding the value in the X register to the 16-bit address. This allows for accessing elements of arrays or tables anywhere in memory, not just in the zero page.
+
+In 6502 assembly language, Absolute,X addressing is written with a full address followed by ",X":
+
+```asm
+LDA $1234,X    ; Load from (address $1234 + X) into the accumulator
+STA $5678,X    ; Store accumulator at (address $5678 + X)
+INC $ABCD,X    ; Increment value at (address $ABCD + X)
+```
+
+### Memory Layout
+
+Let's visualize how Absolute,X addressing works in memory:
+
+```
+Memory Address | Content      | Description
+---------------|--------------|--------------------------
+$0200          | $BD          | LDA Absolute,X opcode
+$0201          | $34          | Low byte of address ($34)
+$0202          | $12          | High byte of address ($12)
+$0203          | (next opcode) | Next instruction...
+... ... ...    |              |
+(CPU X register) | $10        | X register contains $10
+... ... ...    |              |
+$1244          | $42          | Value at effective address ($1234 + $10 = $1244)
+```
+
+When the CPU executes this instruction:
+1. It reads the opcode $BD at the program counter
+2. It identifies this as LDA with Absolute,X addressing
+3. It reads the next two bytes ($34, $12) as the base address $1234
+4. It adds the X register ($10) to get the effective address $1244
+5. It reads the value at memory address $1244, which contains $42
+6. It loads the value $42 into the accumulator register
+7. It updates the program counter by 3 bytes
+
+### Page Crossing Behavior
+
+A notable aspect of Absolute,X addressing (and Absolute,Y as well) is that it may require an additional CPU cycle when the addition of the index register crosses a page boundary. A page in the 6502 is 256 bytes, so a page boundary is crossed when adding the index causes the high byte of the address to change.
+
+For example:
+```
+Base address: $12F0
+X register: $20
+Effective address: $1310 (crosses from page $12 to page $13)
+```
+
+Many instructions will take an extra cycle when this happens, which is important for cycle-accurate emulation.
+
+### Advantages and Limitations
+
+**Advantages:**
+- Full memory access: Can reference any indexed location in the entire 64KB address space
+- Flexible: Perfect for working with arrays and tables anywhere in memory
+- Common usage: Many 6502 programs use this addressing mode extensively
+
+**Limitations:**
+- Larger instruction size: Takes 3 bytes (vs 2 for zero page,X)
+- Slower execution: Typically requires 1 more cycle than zero page,X, and potentially an extra cycle for page crossing
+- No indirect capability: Cannot be combined with indirection
+
+### Implementation in Our Emulator
+
+Here's how we've implemented Absolute,X addressing:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AddressingMode {
+    // Previous modes...
+    AbsoluteX,
+    // More to come later
+}
+
+impl AddressingMode {
+    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
+        match self {
+            // Previous cases...
+            AddressingMode::AbsoluteX => {
+                // Read the base address and add X register
+                let base_addr = cpu.read_word(cpu.pc + 1);
+                base_addr.wrapping_add(cpu.x as u16)
+            },
+        }
+    }
+}
+```
+
+Note that we use `wrapping_add` to handle address overflow correctly when the addition crosses the 64KB boundary.
+
+### Testing Absolute,X Addressing
+
+Here's how we test normal operation and page crossing behavior:
+
+```rust
+#[test]
+fn test_absolute_x_addressing_mode() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // Base address $1234, X=$10, effective address=$1244
+    cpu.write_byte(0x0200, 0xBD); // LDA Absolute,X opcode
+    cpu.write_byte(0x0201, 0x34); // Low byte of address
+    cpu.write_byte(0x0202, 0x12); // High byte of address
+    cpu.write_byte(0x1244, 0x42); // Value at effective address $1244
+    
+    cpu.pc = 0x0200;
+    cpu.x = 0x10;
+    
+    let addr = AddressingMode::AbsoluteX.get_operand_address(&cpu);
+    assert_eq!(addr, 0x1244);
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteX);
+    assert_eq!(value, 0x42);
+}
+
+#[test]
+fn test_absolute_x_addressing_mode_page_crossing() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // Base address $12F0, X=$20, effective address=$1310 (page boundary crossed)
+    cpu.write_byte(0x0200, 0xBD); // LDA Absolute,X opcode
+    cpu.write_byte(0x0201, 0xF0); // Low byte of address
+    cpu.write_byte(0x0202, 0x12); // High byte of address
+    cpu.write_byte(0x1310, 0x42); // Value at effective address $1310
+    
+    cpu.pc = 0x0200;
+    cpu.x = 0x20;
+    
+    let addr = AddressingMode::AbsoluteX.get_operand_address(&cpu);
+    assert_eq!(addr, 0x1310);
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteX);
+    assert_eq!(value, 0x42);
+}
+```
+
+## Absolute,Y Addressing Mode
+
+### Concept
+
+Absolute,Y addressing is nearly identical to Absolute,X but uses the Y register for indexing instead of the X register. This provides flexibility for different types of data structures or operations that specifically need to use the Y register.
+
+In 6502 assembly language, Absolute,Y addressing is written with a full address followed by ",Y":
+
+```asm
+LDA $1234,Y    ; Load from (address $1234 + Y) into the accumulator
+STA $5678,Y    ; Store accumulator at (address $5678 + Y)
+CMP $ABCD,Y    ; Compare accumulator with value at (address $ABCD + Y)
+```
+
+### Memory Layout
+
+Let's visualize how Absolute,Y addressing works in memory:
+
+```
+Memory Address | Content      | Description
+---------------|--------------|--------------------------
+$0200          | $B9          | LDA Absolute,Y opcode
+$0201          | $34          | Low byte of address ($34)
+$0202          | $12          | High byte of address ($12)
+$0203          | (next opcode) | Next instruction...
+... ... ...    |              |
+(CPU Y register) | $15        | Y register contains $15
+... ... ...    |              |
+$1249          | $42          | Value at effective address ($1234 + $15 = $1249)
+```
+
+The execution steps are the same as for Absolute,X, just using the Y register instead.
+
+### Wrap-Around Behavior
+
+Just like with Absolute,X, Absolute,Y addressing will wrap around when the sum of the base address and the Y register exceeds the 64KB address space:
+
+```
+Base address: $FFFA
+Y register: $10
+Effective address: $000A (wraps from $FFFA + $10 = $1000A to $000A)
+```
+
+### Advantages and Limitations
+
+The advantages and limitations are identical to Absolute,X, with the key difference being the use of the Y register, which might be preferred for certain algorithms or when the X register is already in use.
+
+### Implementation in Our Emulator
+
+Our implementation of Absolute,Y addressing is very similar to Absolute,X:
+
+```rust
+impl AddressingMode {
+    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
+        match self {
+            // Previous cases...
+            AddressingMode::AbsoluteY => {
+                // Read the base address and add Y register
+                let base_addr = cpu.read_word(cpu.pc + 1);
+                base_addr.wrapping_add(cpu.y as u16)
+            },
+        }
+    }
+}
+```
+
+### Testing Absolute,Y Addressing
+
+We test both normal operation and wrap-around behavior:
+
+```rust
+#[test]
+fn test_absolute_y_addressing_mode() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // Base address $1234, Y=$15, effective address=$1249
+    cpu.write_byte(0x0200, 0xB9); // LDA Absolute,Y opcode
+    cpu.write_byte(0x0201, 0x34); // Low byte of address
+    cpu.write_byte(0x0202, 0x12); // High byte of address
+    cpu.write_byte(0x1249, 0x42); // Value at effective address $1249
+    
+    cpu.pc = 0x0200;
+    cpu.y = 0x15;
+    
+    let addr = AddressingMode::AbsoluteY.get_operand_address(&cpu);
+    assert_eq!(addr, 0x1249);
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteY);
+    assert_eq!(value, 0x42);
+}
+
+#[test]
+fn test_absolute_y_addressing_mode_wrap_around() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // Base address $FFFA, Y=$10, effective address=$000A (wrap around)
+    cpu.write_byte(0x0200, 0xB9); // LDA Absolute,Y opcode
+    cpu.write_byte(0x0201, 0xFA); // Low byte of address
+    cpu.write_byte(0x0202, 0xFF); // High byte of address
+    cpu.write_byte(0x000A, 0x42); // Value at wrapped address $000A
+    
+    cpu.pc = 0x0200;
+    cpu.y = 0x10;
+    
+    let addr = AddressingMode::AbsoluteY.get_operand_address(&cpu);
+    assert_eq!(addr, 0x000A);
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteY);
+    assert_eq!(value, 0x42);
+}
+```
+
+## Indirect Addressing Mode
+
+### Concept
+
+Indirect addressing is a powerful mode where the instruction contains a 16-bit pointer to the actual address to be used. Think of it as a memory-based pointer dereference: the instruction specifies where to find the address, not the address itself.
+
+In the 6502, indirect addressing is primarily used by the JMP instruction, allowing for dynamic jumps to addresses determined at runtime.
+
+In 6502 assembly language, indirect addressing is written with parentheses around the address:
+
+```asm
+JMP ($1234)    ; Jump to the address stored at memory locations $1234-$1235
+```
+
+### Memory Layout
+
+Let's visualize how indirect addressing works in memory:
+
+```
+Memory Address | Content      | Description
+---------------|--------------|--------------------------
+$0200          | $6C          | JMP Indirect opcode
+$0201          | $34          | Low byte of pointer address ($34)
+$0202          | $12          | High byte of pointer address ($12)
+$0203          | (next opcode) | Next instruction (not executed due to jump)
+... ... ...    |              |
+$1234          | $CD          | Low byte of target address
+$1235          | $AB          | High byte of target address
+... ... ...    |              |
+$ABCD          | (opcode)     | Jump target (execution continues here)
+```
+
+When the CPU executes this instruction:
+1. It reads the opcode $6C at the program counter
+2. It identifies this as JMP with indirect addressing
+3. It reads the next two bytes ($34, $12) as the pointer address $1234
+4. It reads two bytes from that address: the low byte $CD from $1234 and the high byte $AB from $1235
+5. It forms the effective address $ABCD
+6. It jumps to that address, setting the program counter to $ABCD
+
+### The JMP Indirect Bug
+
+The 6502 CPU has a well-known hardware bug in the implementation of the JMP indirect instruction. If the indirect pointer address falls on a page boundary (e.g., $12FF), the processor incorrectly fetches the high byte from the start of the same page ($1200) rather than the start of the next page ($1300).
+
+For example:
+```
+Instruction: JMP ($12FF)
+Low byte fetched from $12FF (correct)
+High byte fetched from $1200 (bug - should be $1300)
+```
+
+This bug must be emulated for accurate behavior.
+
+### Advantages and Limitations
+
+**Advantages:**
+- Dynamic execution: Enables jumping to addresses determined at runtime
+- Facilitates function pointers and jump tables
+- Essential for more complex programming techniques
+
+**Limitations:**
+- Limited to JMP instruction only (not used by other instructions)
+- Hardware bug requires special handling for page boundary cases
+- No indexed indirect variants (those are different addressing modes)
+
+### Implementation in Our Emulator
+
+Our implementation of Indirect addressing includes special handling for the JMP indirect bug:
+
+```rust
+impl AddressingMode {
+    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
+        match self {
+            // Previous cases...
+            AddressingMode::Indirect => {
+                // Get the pointer address from the instruction
+                let ptr_addr = cpu.read_word(cpu.pc + 1);
+                
+                // Handle the 6502 JMP indirect bug:
+                // If the pointer address ends in $xxFF (page boundary),
+                // the second byte is fetched from $xx00 instead of $xx+1:00
+                if (ptr_addr & 0x00FF) == 0x00FF {
+                    // Get the low byte from the given address
+                    let low_byte = cpu.read_byte(ptr_addr) as u16;
+                    
+                    // Get the high byte from the same page (wrap around)
+                    let high_byte = cpu.read_byte(ptr_addr & 0xFF00) as u16;
+                    
+                    // Combine into the effective address
+                    (high_byte << 8) | low_byte
+                } else {
+                    // Normal case - just read the word from the pointer address
+                    cpu.read_word(ptr_addr)
+                }
+            }
+        }
+    }
+}
+```
+
+### Testing Indirect Addressing
+
+We test both the normal case and the page boundary bug case:
+
+```rust
+#[test]
+fn test_indirect_addressing_mode() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // JMP ($1234) - Jump to the address stored at $1234
+    cpu.write_byte(0x0200, 0x6C); // JMP Indirect opcode
+    cpu.write_byte(0x0201, 0x34); // Low byte of indirect pointer
+    cpu.write_byte(0x0202, 0x12); // High byte of indirect pointer
+    
+    // At $1234-$1235, store the target address $ABCD
+    cpu.write_byte(0x1234, 0xCD); // Low byte of target address
+    cpu.write_byte(0x1235, 0xAB); // High byte of target address
+    
+    cpu.pc = 0x0200;
+    
+    // Test indirect addressing
+    let addr = AddressingMode::Indirect.get_operand_address(&cpu);
+    assert_eq!(addr, 0xABCD, "Indirect addressing should return $ABCD");
+}
+
+#[test]
+fn test_indirect_addressing_mode_page_boundary_bug() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // JMP ($12FF) - Jump to the address formed by $12FF and $1200
+    // due to the 6502 JMP indirect bug
+    cpu.write_byte(0x0200, 0x6C); // JMP Indirect opcode
+    cpu.write_byte(0x0201, 0xFF); // Low byte of indirect pointer
+    cpu.write_byte(0x0202, 0x12); // High byte of indirect pointer
+    
+    // The pointer straddles a page boundary:
+    cpu.write_byte(0x12FF, 0xCD); // Low byte comes from $12FF
+    cpu.write_byte(0x1200, 0xAB); // High byte comes from $1200 (same page, not $1300)
+    // For comparison, what would be expected without the bug:
+    cpu.write_byte(0x1300, 0xEF); // This should NOT be used
+    
+    cpu.pc = 0x0200;
+    
+    // Test the JMP indirect bug
+    let addr = AddressingMode::Indirect.get_operand_address(&cpu);
+    assert_eq!(addr, 0xABCD, "Indirect addressing with page boundary bug should return $ABCD");
+}
+```
+
+## Next Steps
+
+With most of the addressing modes implemented and understood, we'll next tackle the final two complex addressing modes:
+
+1. **Indexed Indirect (X,ind)**: This combines zero page addressing with X-register indexing and indirection.
+2. **Indirect Indexed (ind,Y)**: This combines zero page indirection with Y-register indexing.
+
+These last two modes are the most complex in the 6502's arsenal but are essential for many programming tasks, especially when working with arrays of pointers or similar data structures.
+
+## Indexed Indirect (X,ind) Addressing Mode
+
+### Concept
+
+Indexed Indirect addressing (also called "pre-indexed indirect" or "Indirect,X") is a complex mode that combines zero page addressing, indexing with the X register, and indirection. This mode is particularly useful for working with tables of pointers stored in the zero page.
+
+The operation sequence is:
+1. Take a zero page address from the instruction
+2. Add the X register to this address (with zero page wrap-around)
+3. Read two bytes from the resulting zero page location as a 16-bit address
+4. Use that 16-bit address to access memory
+
+In 6502 assembly language, Indexed Indirect addressing is written with parentheses and an ",X" suffix:
+
+```asm
+LDA ($80,X)    ; Load the accumulator from the address stored at ($80 + X)
+STA ($40,X)    ; Store the accumulator to the address stored at ($40 + X)
+EOR ($FF,X)    ; XOR accumulator with value at address stored at ($FF + X)
+```
+
+### Memory Layout
+
+Let's visualize how Indexed Indirect addressing works in memory:
+
+```
+Memory Address | Content      | Description
+---------------|--------------|--------------------------
+$0200          | $A1          | LDA (Indirect,X) opcode
+$0201          | $80          | Zero page base address ($80)
+$0202          | (next opcode) | Next instruction...
+... ... ...    |              |
+(CPU X register) | $04        | X register contains $04
+... ... ...    |              |
+$0084          | $34          | Low byte of pointer ($84 = $80 + $04)
+$0085          | $12          | High byte of pointer
+... ... ...    |              |
+$1234          | $42          | The target value at $1234
+```
+
+When the CPU executes this instruction:
+1. It reads the opcode $A1 at the program counter
+2. It identifies this as LDA with Indexed Indirect addressing
+3. It reads the next byte ($80) as the zero page base address
+4. It adds the X register ($04) to get the effective zero page pointer $84
+5. It reads two bytes from $84-$85, giving the address $1234
+6. It reads the value at memory address $1234, which contains $42
+7. It loads the value $42 into the accumulator register
+
+### Zero Page Wrap-Around Behavior
+
+A key aspect of Indexed Indirect addressing is that the addition of the X register to the zero page address always wraps around within the zero page:
+
+```
+Zero page base address: $FF
+X register: $02
+Effective zero page pointer: $01 (wraps from $FF + $02 = $101 to $01)
+```
+
+The pointer address can never leave the zero page. This means that the two bytes of the pointer are always read from addresses $00-$FF.
+
+### Advantages and Limitations
+
+**Advantages:**
+- Flexible indirection: Perfect for working with tables of pointers
+- Efficient for implementing data structures like arrays of records
+- Compact instruction size (2 bytes)
+- Full 16-bit addressing range for the final memory access
+
+**Limitations:**
+- Complex to understand and use
+- Limited to the X register only (not Y)
+- Pointers must be stored in zero page
+- Usually slower than direct addressing modes
+- More prone to coding errors due to complexity
+
+### Implementation in Our Emulator
+
+Here's how we've implemented Indexed Indirect addressing:
+
+```rust
+impl AddressingMode {
+    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
+        match self {
+            // Previous cases...
+            AddressingMode::IndexedIndirect => {
+                // 1. Get the zero page pointer base from the instruction
+                let base_ptr = cpu.read_byte(cpu.pc + 1);
+                
+                // 2. Add X register to get the effective pointer (with zero page wrap-around)
+                let eff_ptr = base_ptr.wrapping_add(cpu.x);
+                
+                // 3. Read the target address from the zero page (with wrap-around for the high byte)
+                let low_byte = cpu.read_byte(eff_ptr as u16) as u16;
+                let high_byte = cpu.read_byte(eff_ptr.wrapping_add(1) as u16) as u16;
+                
+                // 4. Combine to form the final address
+                (high_byte << 8) | low_byte
+            }
+        }
+    }
+}
+```
+
+Note that we use `wrapping_add` to handle address overflow correctly for the zero page pointer calculation and for reading the high byte of the indirect address, ensuring correct wrap-around behavior.
+
+### Testing Indexed Indirect Addressing
+
+Here's how we test normal operation and zero page wrap-around:
+
+```rust
+#[test]
+fn test_indexed_indirect_addressing_mode() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // LDA ($80,X) with X=$04
+    // So the pointer address is at zero page address $84
+    cpu.write_byte(0x0200, 0xA1); // LDA (Indirect,X) opcode
+    cpu.write_byte(0x0201, 0x80); // Zero page pointer base
+    
+    // At zero page address $84-$85 (after adding X), we store the target address $1234
+    cpu.write_byte(0x0084, 0x34); // Low byte of target address
+    cpu.write_byte(0x0085, 0x12); // High byte of target address
+    
+    // The actual value we want to read is at $1234
+    cpu.write_byte(0x1234, 0x42); 
+    
+    cpu.pc = 0x0200;
+    cpu.x = 0x04;
+    
+    // Test indexed indirect addressing
+    let addr = AddressingMode::IndexedIndirect.get_operand_address(&cpu);
+    assert_eq!(addr, 0x1234, "Indexed indirect address should be $1234");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::IndexedIndirect);
+    assert_eq!(value, 0x42, "Value at indexed indirect address $1234 should be $42");
+}
+
+#[test]
+fn test_indexed_indirect_addressing_mode_wrap_around() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // LDA ($FF,X) with X=$02
+    // So the pointer wraps around to zero page address $01-$02
+    cpu.write_byte(0x0200, 0xA1); // LDA (Indirect,X) opcode
+    cpu.write_byte(0x0201, 0xFF); // Zero page pointer base
+    
+    // At zero page address $01-$02 (after adding X and wrap-around), 
+    // we store the target address $ABCD
+    cpu.write_byte(0x0001, 0xCD); // Low byte of target address
+    cpu.write_byte(0x0002, 0xAB); // High byte of target address
+    
+    // The actual value we want to read is at $ABCD
+    cpu.write_byte(0xABCD, 0x42); 
+    
+    cpu.pc = 0x0200;
+    cpu.x = 0x02;
+    
+    // Test indexed indirect addressing with wrap-around
+    let addr = AddressingMode::IndexedIndirect.get_operand_address(&cpu);
+    assert_eq!(addr, 0xABCD, "Indexed indirect with wrap-around should point to $ABCD");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::IndexedIndirect);
+    assert_eq!(value, 0x42, "Value at wrapped indexed indirect address $ABCD should be $42");
+}
+```
+
+## Indirect Indexed (ind,Y) Addressing Mode
+
+### Concept
+
+Indirect Indexed addressing (also called "post-indexed indirect" or "Indirect,Y") is another complex mode that combines zero page indirection with Y-register indexing. Unlike Indexed Indirect, the indexing happens *after* the indirection, which makes it particularly useful for working with arrays where the base address is stored in zero page.
+
+The operation sequence is:
+1. Take a zero page address from the instruction
+2. Read two bytes from that zero page location as a 16-bit base address
+3. Add the Y register to this 16-bit address
+4. Use the resulting address to access memory
+
+In 6502 assembly language, Indirect Indexed addressing is written with parentheses around the zero page address, followed by ",Y":
+
+```asm
+LDA ($80),Y    ; Load the accumulator from the address stored at $80 plus Y
+STA ($40),Y    ; Store the accumulator to the address stored at $40 plus Y
+CMP ($FF),Y    ; Compare accumulator with value at address stored at $FF plus Y
+```
+
+### Memory Layout
+
+Let's visualize how Indirect Indexed addressing works in memory:
+
+```
+Memory Address | Content      | Description
+---------------|--------------|--------------------------
+$0200          | $B1          | LDA (Indirect),Y opcode
+$0201          | $80          | Zero page pointer address ($80)
+$0202          | (next opcode) | Next instruction...
+... ... ...    |              |
+(CPU Y register) | $10        | Y register contains $10
+... ... ...    |              |
+$0080          | $34          | Low byte of base address
+$0081          | $12          | High byte of base address
+... ... ...    |              |
+$1244          | $42          | The target value ($1234 + $10 = $1244)
+```
+
+When the CPU executes this instruction:
+1. It reads the opcode $B1 at the program counter
+2. It identifies this as LDA with Indirect Indexed addressing
+3. It reads the next byte ($80) as the zero page pointer address
+4. It reads two bytes from $80-$81, giving the base address $1234
+5. It adds the Y register ($10) to get the effective address $1244
+6. It reads the value at memory address $1244, which contains $42
+7. It loads the value $42 into the accumulator register
+
+### Page Crossing and Zero Page Wrap-Around
+
+Indirect Indexed addressing has two notable behaviors:
+
+1. **Page Crossing Penalty**: When the addition of the Y register causes a page boundary to be crossed, many instructions will take an extra cycle to execute. This is important for cycle-accurate emulation.
+
+2. **Zero Page Pointer Wrap-Around**: If the zero page pointer address is at the end of the zero page (e.g., $FF), the high byte for the indirect address is read from address $00, not from $100.
+
+```
+Zero page pointer: $FF
+Low byte read from: $FF
+High byte read from: $00 (wraps around within zero page)
+```
+
+### Advantages and Limitations
+
+**Advantages:**
+- Perfect for array access: Pointer to array base + Y as index
+- Efficient for string operations and table lookups
+- Compact instruction size (2 bytes)
+- Full 16-bit addressing range for the final memory access
+
+**Limitations:**
+- Complex to understand and use
+- Limited to the Y register only (not X)
+- Base address pointer must be stored in zero page
+- Usually slower than direct addressing modes
+- More prone to coding errors due to complexity
+
+### Implementation in Our Emulator
+
+Here's how we've implemented Indirect Indexed addressing:
+
+```rust
+impl AddressingMode {
+    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
+        match self {
+            // Previous cases...
+            AddressingMode::IndirectIndexed => {
+                // 1. Get the zero page pointer from the instruction
+                let zp_ptr = cpu.read_byte(cpu.pc + 1) as u16;
+                
+                // 2. Read the base address from zero page (wrapping around for high byte)
+                let low_byte = cpu.read_byte(zp_ptr) as u16;
+                let high_byte = cpu.read_byte(zp_ptr.wrapping_add(1) & 0xFF) as u16;
+                let base_addr = (high_byte << 8) | low_byte;
+                
+                // 3. Add Y register to get the final effective address
+                base_addr.wrapping_add(cpu.y as u16)
+            }
+        }
+    }
+}
+```
+
+Note that we handle the zero page wrap-around by using `zp_ptr.wrapping_add(1) & 0xFF` to ensure that the high byte is always read from the zero page.
+
+### Testing Indirect Indexed Addressing
+
+We test normal operation, page crossing, and zero page wrap-around:
+
+```rust
+#[test]
+fn test_indirect_indexed_addressing_mode() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // LDA ($80),Y with Y=$10
+    // The zero page pointer $80-$81 contains $1234
+    // Final effective address is $1234 + $10 = $1244
+    cpu.write_byte(0x0200, 0xB1); // LDA (Indirect),Y opcode
+    cpu.write_byte(0x0201, 0x80); // Zero page pointer
+    
+    // At zero page address $80-$81, we store the base address $1234
+    cpu.write_byte(0x0080, 0x34); // Low byte of base address
+    cpu.write_byte(0x0081, 0x12); // High byte of base address
+    
+    // The actual value we want to read is at $1244 (after adding Y)
+    cpu.write_byte(0x1244, 0x42); 
+    
+    cpu.pc = 0x0200;
+    cpu.y = 0x10;
+    
+    // Test indirect indexed addressing
+    let addr = AddressingMode::IndirectIndexed.get_operand_address(&cpu);
+    assert_eq!(addr, 0x1244, "Indirect indexed address should be $1244");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::IndirectIndexed);
+    assert_eq!(value, 0x42, "Value at indirect indexed address $1244 should be $42");
+}
+
+#[test]
+fn test_indirect_indexed_addressing_mode_page_crossing() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // LDA ($80),Y with Y=$F0
+    // The zero page pointer $80-$81 contains $1234
+    // Final effective address crosses a page: $1234 + $F0 = $1324
+    cpu.write_byte(0x0200, 0xB1); // LDA (Indirect),Y opcode
+    cpu.write_byte(0x0201, 0x80); // Zero page pointer
+    
+    // At zero page address $80-$81, we store the base address $1234
+    cpu.write_byte(0x0080, 0x34); // Low byte of base address
+    cpu.write_byte(0x0081, 0x12); // High byte of base address
+    
+    // The actual value we want to read is at $1324 (after adding Y, crossing a page)
+    cpu.write_byte(0x1324, 0x42); 
+    
+    cpu.pc = 0x0200;
+    cpu.y = 0xF0;
+    
+    // Test indirect indexed addressing with page crossing
+    let addr = AddressingMode::IndirectIndexed.get_operand_address(&cpu);
+    assert_eq!(addr, 0x1324, "Indirect indexed with page crossing should be $1324");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::IndirectIndexed);
+    assert_eq!(value, 0x42, "Value after page crossing should be $42");
+}
+
+#[test]
+fn test_indirect_indexed_addressing_mode_zero_page_wrap() {
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // LDA ($FF),Y with Y=$10
+    // The zero page pointer wraps from $FF to $00 for the high byte
+    cpu.write_byte(0x0200, 0xB1); // LDA (Indirect),Y opcode
+    cpu.write_byte(0x0201, 0xFF); // Zero page pointer at $FF (will wrap for high byte)
+    
+    // Store the base address split between $FF and $00 (wrap-around in zero page)
+    cpu.write_byte(0x00FF, 0x34); // Low byte at $FF
+    cpu.write_byte(0x0000, 0x12); // High byte at $00 (wrapped around)
+    
+    // The actual value we want to read is at $1244 (after adding Y)
+    cpu.write_byte(0x1244, 0x42); 
+    
+    cpu.pc = 0x0200;
+    cpu.y = 0x10;
+    
+    // Test indirect indexed addressing with zero page wrap-around
+    let addr = AddressingMode::IndirectIndexed.get_operand_address(&cpu);
+    assert_eq!(addr, 0x1244, "Indirect indexed with ZP wrap should be $1244");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::IndirectIndexed);
+    assert_eq!(value, 0x42, "Value with ZP wrap-around should be $42");
+}
+```
+
+## Conclusion
+
+With all addressing modes now implemented and tested, we have completed a critical component of our 6502 CPU emulation. These addressing modes form the foundation for all 6502 instructions and are essential for accurately emulating how the processor accesses memory.
+
+Let's recap the addressing modes we've implemented:
+
+1. **Immediate**: The operand is the byte following the instruction
+2. **Zero Page**: The operand is at a single-byte address in the zero page
+3. **Zero Page,X**: Zero page address + X register (with wrap-around)
+4. **Zero Page,Y**: Zero page address + Y register (with wrap-around)
+5. **Absolute**: The operand is at a full 16-bit address
+6. **Absolute,X**: 16-bit address + X register
+7. **Absolute,Y**: 16-bit address + Y register
+8. **Indirect**: The operand is at the address stored at a 16-bit pointer
+9. **Indexed Indirect (X,ind)**: Zero page address + X, then indirection
+10. **Indirect Indexed (ind,Y)**: Zero page indirection, then add Y
+
+Each of these modes has unique characteristics and behaviors that we've carefully implemented to ensure our emulator accurately reflects the original hardware.
+
+In the next chapter, we'll build on this foundation to implement the actual instructions that use these addressing modes, bringing our 6502 CPU emulation to life.
+
+## Further Enhancements
+
+There are several ways we could enhance our addressing mode implementation:
+
+1. **Cycle Counting**: Add timing information to calculate the correct number of cycles each addressing mode takes
+2. **Page Boundary Detection**: Implement detection of page crossing for timing-sensitive operations
+3. **Optimization**: Refine the implementation for performance while maintaining accuracy
+4. **Debugging Support**: Add tracing and debugging functionality to visualize addressing mode operations
+
+These enhancements will be addressed in later chapters as we continue to refine our emulator.

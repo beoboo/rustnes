@@ -10,6 +10,9 @@ pub enum AddressingMode {
     Absolute,
     AbsoluteX,
     AbsoluteY,
+    Indirect,
+    IndexedIndirect, // (Indirect,X) - Pre-indexed indirect
+    IndirectIndexed, // (Indirect),Y - Post-indexed indirect
     // We'll add more modes later
 }
 
@@ -57,6 +60,53 @@ impl AddressingMode {
             AddressingMode::AbsoluteY => {
                 // Read the base address and add Y register
                 let base_addr = cpu.read_word(cpu.pc + 1);
+                base_addr.wrapping_add(cpu.y as u16)
+            },
+            AddressingMode::Indirect => {
+                // Get the pointer address from the instruction
+                let ptr_addr = cpu.read_word(cpu.pc + 1);
+                
+                // Handle the 6502 JMP indirect bug:
+                // If the pointer address ends in $xxFF (page boundary),
+                // the second byte is fetched from $xx00 instead of $xx+1:00
+                if (ptr_addr & 0x00FF) == 0x00FF {
+                    // Get the low byte from the given address
+                    let low_byte = cpu.read_byte(ptr_addr) as u16;
+                    
+                    // Get the high byte from the same page (wrap around)
+                    let high_byte = cpu.read_byte(ptr_addr & 0xFF00) as u16;
+                    
+                    // Combine into the effective address
+                    (high_byte << 8) | low_byte
+                } else {
+                    // Normal case - just read the word from the pointer address
+                    cpu.read_word(ptr_addr)
+                }
+            },
+            AddressingMode::IndexedIndirect => {
+                // 1. Get the zero page pointer base from the instruction
+                let base_ptr = cpu.read_byte(cpu.pc + 1);
+                
+                // 2. Add X register to get the effective pointer (with zero page wrap-around)
+                let eff_ptr = base_ptr.wrapping_add(cpu.x);
+                
+                // 3. Read the target address from the zero page (with wrap-around for the high byte)
+                let low_byte = cpu.read_byte(eff_ptr as u16) as u16;
+                let high_byte = cpu.read_byte(eff_ptr.wrapping_add(1) as u16) as u16;
+                
+                // 4. Combine to form the final address
+                (high_byte << 8) | low_byte
+            },
+            AddressingMode::IndirectIndexed => {
+                // 1. Get the zero page pointer from the instruction
+                let zp_ptr = cpu.read_byte(cpu.pc + 1) as u16;
+                
+                // 2. Read the base address from zero page (wrapping around for high byte)
+                let low_byte = cpu.read_byte(zp_ptr) as u16;
+                let high_byte = cpu.read_byte(zp_ptr.wrapping_add(1) & 0xFF) as u16;
+                let base_addr = (high_byte << 8) | low_byte;
+                
+                // 3. Add Y register to get the final effective address
                 base_addr.wrapping_add(cpu.y as u16)
             }
         }
@@ -330,5 +380,193 @@ mod tests {
         
         let value = cpu.read_byte_using_mode(AddressingMode::AbsoluteY);
         assert_eq!(value, 0x42);
+    }
+    
+    #[test]
+    fn test_indirect_addressing_mode() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // JMP ($1234) - Jump to the address stored at $1234
+        cpu.write_byte(0x0200, 0x6C); // JMP Indirect opcode
+        cpu.write_byte(0x0201, 0x34); // Low byte of indirect pointer
+        cpu.write_byte(0x0202, 0x12); // High byte of indirect pointer
+        
+        // At $1234-$1235, store the target address $ABCD
+        cpu.write_byte(0x1234, 0xCD); // Low byte of target address
+        cpu.write_byte(0x1235, 0xAB); // High byte of target address
+        
+        cpu.pc = 0x0200;
+        
+        // Test indirect addressing
+        let addr = AddressingMode::Indirect.get_operand_address(&cpu);
+        assert_eq!(addr, 0xABCD, "Indirect addressing should return $ABCD");
+    }
+    
+    #[test]
+    fn test_indirect_addressing_mode_page_boundary_bug() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // JMP ($12FF) - Jump to the address formed by $12FF and $1200
+        // due to the 6502 JMP indirect bug
+        cpu.write_byte(0x0200, 0x6C); // JMP Indirect opcode
+        cpu.write_byte(0x0201, 0xFF); // Low byte of indirect pointer
+        cpu.write_byte(0x0202, 0x12); // High byte of indirect pointer
+        
+        // The pointer straddles a page boundary:
+        cpu.write_byte(0x12FF, 0xCD); // Low byte comes from $12FF
+        cpu.write_byte(0x1200, 0xAB); // High byte comes from $1200 (same page, not $1300)
+        // For comparison, what would be expected without the bug:
+        cpu.write_byte(0x1300, 0xEF); // This should NOT be used
+        
+        cpu.pc = 0x0200;
+        
+        // Test the JMP indirect bug
+        let addr = AddressingMode::Indirect.get_operand_address(&cpu);
+        assert_eq!(addr, 0xABCD, "Indirect addressing with page boundary bug should return $ABCD");
+    }
+    
+    #[test]
+    fn test_indexed_indirect_addressing_mode() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // LDA ($80,X) with X=$04
+        // So the pointer address is at zero page address $84
+        cpu.write_byte(0x0200, 0xA1); // LDA (Indirect,X) opcode
+        cpu.write_byte(0x0201, 0x80); // Zero page pointer base
+        
+        // At zero page address $84-$85 (after adding X), we store the target address $1234
+        cpu.write_byte(0x0084, 0x34); // Low byte of target address
+        cpu.write_byte(0x0085, 0x12); // High byte of target address
+        
+        // The actual value we want to read is at $1234
+        cpu.write_byte(0x1234, 0x42); 
+        
+        cpu.pc = 0x0200;
+        cpu.x = 0x04;
+        
+        // Test indexed indirect addressing
+        let addr = AddressingMode::IndexedIndirect.get_operand_address(&cpu);
+        assert_eq!(addr, 0x1234, "Indexed indirect address should be $1234");
+        
+        let value = cpu.read_byte_using_mode(AddressingMode::IndexedIndirect);
+        assert_eq!(value, 0x42, "Value at indexed indirect address $1234 should be $42");
+    }
+    
+    #[test]
+    fn test_indexed_indirect_addressing_mode_wrap_around() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // LDA ($FF,X) with X=$02
+        // So the pointer wraps around to zero page address $01-$02
+        cpu.write_byte(0x0200, 0xA1); // LDA (Indirect,X) opcode
+        cpu.write_byte(0x0201, 0xFF); // Zero page pointer base
+        
+        // At zero page address $01-$02 (after adding X and wrap-around), 
+        // we store the target address $ABCD
+        cpu.write_byte(0x0001, 0xCD); // Low byte of target address
+        cpu.write_byte(0x0002, 0xAB); // High byte of target address
+        
+        // The actual value we want to read is at $ABCD
+        cpu.write_byte(0xABCD, 0x42); 
+        
+        cpu.pc = 0x0200;
+        cpu.x = 0x02;
+        
+        // Test indexed indirect addressing with wrap-around
+        let addr = AddressingMode::IndexedIndirect.get_operand_address(&cpu);
+        assert_eq!(addr, 0xABCD, "Indexed indirect with wrap-around should point to $ABCD");
+        
+        let value = cpu.read_byte_using_mode(AddressingMode::IndexedIndirect);
+        assert_eq!(value, 0x42, "Value at wrapped indexed indirect address $ABCD should be $42");
+    }
+    
+    #[test]
+    fn test_indirect_indexed_addressing_mode() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // LDA ($80),Y with Y=$10
+        // The zero page pointer $80-$81 contains $1234
+        // Final effective address is $1234 + $10 = $1244
+        cpu.write_byte(0x0200, 0xB1); // LDA (Indirect),Y opcode
+        cpu.write_byte(0x0201, 0x80); // Zero page pointer
+        
+        // At zero page address $80-$81, we store the base address $1234
+        cpu.write_byte(0x0080, 0x34); // Low byte of base address
+        cpu.write_byte(0x0081, 0x12); // High byte of base address
+        
+        // The actual value we want to read is at $1244 (after adding Y)
+        cpu.write_byte(0x1244, 0x42); 
+        
+        cpu.pc = 0x0200;
+        cpu.y = 0x10;
+        
+        // Test indirect indexed addressing
+        let addr = AddressingMode::IndirectIndexed.get_operand_address(&cpu);
+        assert_eq!(addr, 0x1244, "Indirect indexed address should be $1244");
+        
+        let value = cpu.read_byte_using_mode(AddressingMode::IndirectIndexed);
+        assert_eq!(value, 0x42, "Value at indirect indexed address $1244 should be $42");
+    }
+    
+    #[test]
+    fn test_indirect_indexed_addressing_mode_page_crossing() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // LDA ($80),Y with Y=$F0
+        // The zero page pointer $80-$81 contains $1234
+        // Final effective address crosses a page: $1234 + $F0 = $1324
+        cpu.write_byte(0x0200, 0xB1); // LDA (Indirect),Y opcode
+        cpu.write_byte(0x0201, 0x80); // Zero page pointer
+        
+        // At zero page address $80-$81, we store the base address $1234
+        cpu.write_byte(0x0080, 0x34); // Low byte of base address
+        cpu.write_byte(0x0081, 0x12); // High byte of base address
+        
+        // The actual value we want to read is at $1324 (after adding Y, crossing a page)
+        cpu.write_byte(0x1324, 0x42); 
+        
+        cpu.pc = 0x0200;
+        cpu.y = 0xF0;
+        
+        // Test indirect indexed addressing with page crossing
+        let addr = AddressingMode::IndirectIndexed.get_operand_address(&cpu);
+        assert_eq!(addr, 0x1324, "Indirect indexed with page crossing should be $1324");
+        
+        let value = cpu.read_byte_using_mode(AddressingMode::IndirectIndexed);
+        assert_eq!(value, 0x42, "Value after page crossing should be $42");
+    }
+    
+    #[test]
+    fn test_indirect_indexed_addressing_mode_zero_page_wrap() {
+        let memory = MockMemory::new();
+        let mut cpu = Cpu::new(Box::new(memory));
+        
+        // LDA ($FF),Y with Y=$10
+        // The zero page pointer wraps from $FF to $00 for the high byte
+        cpu.write_byte(0x0200, 0xB1); // LDA (Indirect),Y opcode
+        cpu.write_byte(0x0201, 0xFF); // Zero page pointer at $FF (will wrap for high byte)
+        
+        // Store the base address split between $FF and $00 (wrap-around in zero page)
+        cpu.write_byte(0x00FF, 0x34); // Low byte at $FF
+        cpu.write_byte(0x0000, 0x12); // High byte at $00 (wrapped around)
+        
+        // The actual value we want to read is at $1244 (after adding Y)
+        cpu.write_byte(0x1244, 0x42); 
+        
+        cpu.pc = 0x0200;
+        cpu.y = 0x10;
+        
+        // Test indirect indexed addressing with zero page wrap-around
+        let addr = AddressingMode::IndirectIndexed.get_operand_address(&cpu);
+        assert_eq!(addr, 0x1244, "Indirect indexed with ZP wrap should be $1244");
+        
+        let value = cpu.read_byte_using_mode(AddressingMode::IndirectIndexed);
+        assert_eq!(value, 0x42, "Value with ZP wrap-around should be $42");
     }
 }
