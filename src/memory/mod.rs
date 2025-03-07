@@ -1,3 +1,9 @@
+#[cfg(test)]
+mod mock;
+
+#[cfg(test)]
+pub use mock::MockMemory;
+
 /// Memory interface trait
 /// 
 /// This trait defines how components interact with memory in the NES.

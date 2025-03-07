@@ -11,8 +11,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Set up GitHub repository
 - [ ] Configure CI/CD pipeline
 - [ ] Add benchmark infrastructure
-- [ ] Create initial documentation structure
-- [ ] Set up book framework with mdBook
+- [x] Create initial documentation structure
+- [x] Set up book framework with mdBook
 
 ### Chapter 2: NES Architecture Overview
 - [ ] Document NES hardware components

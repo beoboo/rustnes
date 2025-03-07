@@ -1,5 +1,8 @@
 use crate::memory::Memory;
 
+mod addressing;
+pub use addressing::AddressingMode;
+
 /// CPU status flags
 #[derive(Debug, Clone, Copy)]
 pub enum CpuFlag {
@@ -124,6 +127,12 @@ impl Cpu {
         
         // Reset takes 7 cycles
         self.cycles = 7;
+    }
+    
+    /// Read a byte using the specified addressing mode
+    pub fn read_byte_using_mode(&self, mode: AddressingMode) -> u8 {
+        let addr = mode.get_operand_address(self.pc);
+        self.memory.read_byte(addr)
     }
 }
 
