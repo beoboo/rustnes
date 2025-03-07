@@ -85,9 +85,9 @@ pub enum AddressingMode {
 }
 
 impl AddressingMode {
-    pub fn get_operand_address(&self, program_counter: u16) -> u16 {
+    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
         match self {
-            AddressingMode::Immediate => program_counter + 1,
+            AddressingMode::Immediate => cpu.pc + 1,
         }
     }
 }
@@ -99,7 +99,7 @@ When the CPU executes an instruction with immediate addressing, it calls this me
 
 ```rust
 pub fn read_byte_using_mode(&self, mode: AddressingMode) -> u8 {
-    let addr = mode.get_operand_address(self.pc);
+    let addr = mode.get_operand_address(self);
     self.read_byte(addr)
 }
 ```
@@ -138,7 +138,7 @@ fn test_immediate_addressing_mode() {
     
     // Test addressing mode
     let value = cpu.read_byte_using_mode(AddressingMode::Immediate);
-    assert_eq!(value, 0x42);
+    assert_eq!(value, 0x42, "Immediate addressing mode should read the value after PC");
 }
 ```
 
@@ -272,6 +272,154 @@ This test verifies that:
 1. The zero page addressing mode correctly calculates the memory address ($0042)
 2. When the CPU reads a byte using this addressing mode, it gets the expected value ($37)
 
+## Zero Page,X Addressing Mode
+
+### Concept
+
+Zero Page,X addressing builds on the Zero Page mode by adding the content of the X register to the zero page address. This allows for accessing a range of memory locations with a single instruction, which is particularly useful for array-like structures or tables in the zero page.
+
+In 6502 assembly language, Zero Page,X addressing is written like this:
+
+```asm
+LDA $40,X    ; Load value from (zero page address $40 + X) into the accumulator
+STA $20,X    ; Store accumulator value at (zero page address $20 + X)
+INC $30,X    ; Increment value at (zero page address $30 + X)
+```
+
+An important characteristic of Zero Page,X addressing is that it always stays within the zero page. If adding X to the address would exceed $FF, it wraps around to stay within the zero page.
+
+### Memory Layout
+
+Let's visualize how Zero Page,X addressing works in memory:
+
+```
+Memory Address | Content      | Description
+---------------|--------------|--------------------------
+$0200          | $B5          | LDA Zero Page,X opcode
+$0201          | $40          | Zero page base address $40
+$0202          | (next opcode) | Next instruction...
+... ... ...    |              |
+(CPU X register) | $05        | X register contains $05
+... ... ...    |              |
+$0045          | $37          | Value at effective address ($40 + $05) = $45
+```
+
+When the CPU executes this instruction:
+1. It reads the opcode $B5 at the program counter
+2. It identifies this as LDA with Zero Page,X addressing
+3. It reads the next byte ($40) as the zero page base address
+4. It adds the X register ($05) to get the effective address $45
+5. It reads the value at memory address $0045, which contains $37
+6. It loads the value $37 into the accumulator register
+7. It updates the program counter by 2 bytes
+
+### Wrap-Around Behavior
+
+If adding X to the zero page address exceeds $FF, the address wraps around to stay in the zero page:
+
+```
+Zero page address: $FE
+X register: $05
+Effective address: ($FE + $05) & $FF = $03
+```
+
+### Advantages and Limitations
+
+**Advantages:**
+- Memory efficient: Instructions are still only 2 bytes
+- Flexible: Can access a range of addresses with a single instruction
+- Useful for arrays: Perfect for iterating through sequential memory
+
+**Limitations:**
+- Still limited to the zero page
+- Potential wrap-around can be confusing if not handled carefully
+
+### Implementation in Our Emulator
+
+Our implementation of Zero Page,X addressing:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AddressingMode {
+    Immediate,
+    ZeroPage,
+    ZeroPageX,
+    // More to come later
+}
+
+impl AddressingMode {
+    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
+        match self {
+            AddressingMode::Immediate => cpu.pc + 1,
+            AddressingMode::ZeroPage => {
+                let zero_page_addr = cpu.read_byte(cpu.pc + 1) as u16;
+                zero_page_addr
+            },
+            AddressingMode::ZeroPageX => {
+                // Get the zero page address from the byte after the opcode
+                let zero_page_addr = cpu.read_byte(cpu.pc + 1);
+                
+                // Add the X register to it (with wrap-around in the zero page)
+                let effective_addr = (zero_page_addr.wrapping_add(cpu.x)) as u16;
+                
+                // The high byte is always 0 since we stay in the zero page
+                effective_addr
+            }
+        }
+    }
+}
+```
+
+The critical part here is using `wrapping_add` to ensure we get the correct wrap-around behavior when the sum exceeds 255.
+
+### Testing Zero Page,X Addressing
+
+We test both normal addressing and wrap-around behavior:
+
+```rust
+#[test]
+fn test_zero_page_x_addressing_mode() {
+    // Create a CPU with mock memory
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // Setup memory:
+    // At $0200: Opcode using Zero Page,X addressing
+    // At $0201: Zero page address $40
+    // CPU X register: $05
+    // Effective address: $45
+    // At $0045: The value $37 we want to read
+    cpu.write_byte(0x0200, 0xB5); // LDA Zero Page,X opcode
+    cpu.write_byte(0x0201, 0x40); // Zero page address $40
+    cpu.write_byte(0x0045, 0x37); // Value at effective address $45
+    
+    // Set CPU state
+    cpu.pc = 0x0200;
+    cpu.x = 0x05;  // Set X register
+    
+    // Test zero page,X addressing mode
+    let addr = AddressingMode::ZeroPageX.get_operand_address(&cpu);
+    assert_eq!(addr, 0x0045, "Zero page,X address should be $0045");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::ZeroPageX);
+    assert_eq!(value, 0x37, "Value at zero page,X address $45 should be $37");
+    
+    // Test wrap-around behavior
+    cpu.write_byte(0x0201, 0xFE); // Zero page address $FE
+    cpu.x = 0x05;  // X register is $05
+    // Effective address should be $03 (0xFE + 0x05 = 0x103, which wraps to 0x03)
+    cpu.write_byte(0x0003, 0x42); // Value at wrapped address $03
+    
+    let addr = AddressingMode::ZeroPageX.get_operand_address(&cpu);
+    assert_eq!(addr, 0x0003, "Zero page,X address should wrap to $0003");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::ZeroPageX);
+    assert_eq!(value, 0x42, "Value at wrapped address $03 should be $42");
+}
+```
+
+This ensures our implementation correctly handles both normal cases and the special wrap-around behavior of the 6502 CPU.
+
 ## Next Steps
 
-With immediate and zero page addressing understood and implemented, we'll next explore the indexed zero page addressing modes (Zero Page,X and Zero Page,Y), which add the ability to access a range of zero page memory locations with a single instruction.
+With immediate, zero page, and zero page,X addressing modes understood and implemented, we'll next explore the Zero Page,Y addressing mode, which is similar to Zero Page,X but uses the Y register for indexing.

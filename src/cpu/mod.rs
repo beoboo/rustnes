@@ -1,7 +1,7 @@
 use crate::memory::Memory;
 
-mod addressing;
-pub use addressing::AddressingMode;
+mod addressing_mode;
+pub use addressing_mode::AddressingMode;
 
 /// CPU status flags
 #[derive(Debug, Clone, Copy)]
