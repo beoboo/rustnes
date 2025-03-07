@@ -128,15 +128,13 @@ To ensure our immediate addressing mode works correctly, we test it by setting u
 fn test_immediate_addressing_mode() {
     // Create CPU with mock memory
     let mut cpu = Cpu::new(Box::new(MockMemory::new()));
-    let mut memory = MockMemory::new();
     
     // Set up memory with LDA #$42
-    memory.write_byte(0x0200, 0xA9); // LDA immediate opcode
-    memory.write_byte(0x0201, 0x42); // The immediate value
+    cpu.write_byte(0x0200, 0xA9); // LDA immediate opcode
+    cpu.write_byte(0x0201, 0x42); // The immediate value
     
     // Configure CPU
     cpu.pc = 0x0200;
-    cpu.memory = Box::new(memory);
     
     // Test addressing mode
     let value = cpu.read_byte_using_mode(AddressingMode::Immediate);
@@ -146,8 +144,134 @@ fn test_immediate_addressing_mode() {
 
 This test verifies that when the CPU reads a byte using immediate addressing, it correctly retrieves the value that immediately follows the current instruction.
 
+## Zero Page Addressing Mode
+
+### Concept
+
+Zero Page addressing is a memory-efficient addressing mode that allows the CPU to access the first 256 bytes of memory (addresses $0000-$00FF) using only a single byte for the address. This region is called the "zero page" because the high byte of the address is always zero.
+
+In 6502 assembly language, zero page addressing is written simply with the address:
+
+```asm
+LDA $42    ; Load the value from zero page address $42 into the accumulator
+STA $30    ; Store the accumulator value at zero page address $30
+INC $55    ; Increment the value at zero page address $55
+```
+
+### Memory Layout
+
+Let's visualize how zero page addressing works in memory:
+
+```
+Memory Address | Content      | Description
+---------------|--------------|--------------------------
+$0200          | $A5          | LDA zero page opcode
+$0201          | $42          | Zero page address $42
+$0202          | (next opcode) | Next instruction...
+... ... ...    |              |
+$0042          | $37          | Value stored at zero page address $42
+```
+
+When the CPU executes this instruction:
+1. It reads the opcode $A5 at the program counter (PC) position
+2. It identifies this as LDA with zero page addressing
+3. It reads the next byte ($42) as the zero page address
+4. It reads the value at memory address $0042, which contains $37
+5. It loads the value $37 into the accumulator register
+6. It updates the program counter by 2 bytes to point to the next instruction
+
+### Advantages and Limitations
+
+**Advantages:**
+- Memory efficient: Instructions are only 2 bytes (vs 3 for absolute addressing)
+- Faster execution: Typically requires 1 fewer cycle than absolute addressing
+- Important area: The zero page was heavily used for variables and pointers in 6502 programming
+
+**Limitations:**
+- Limited range: Can only access the first 256 bytes of memory
+- Prime real estate: The zero page is limited and in high demand
+
+### Implementation in Our Emulator
+
+In our Rust NES emulator, we've implemented zero page addressing by extending our enum:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AddressingMode {
+    Immediate,
+    ZeroPage,
+    // We'll add more modes later
+}
+
+impl AddressingMode {
+    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
+        match self {
+            AddressingMode::Immediate => cpu.pc + 1,
+            AddressingMode::ZeroPage => {
+                // Read the zero page address from the byte after the opcode
+                let zero_page_addr = cpu.read_byte(cpu.pc + 1) as u16;
+                zero_page_addr
+            }
+        }
+    }
+}
+```
+
+For zero page addressing, we:
+1. Read the byte after the opcode (at PC+1)
+2. Use that byte as a memory address in the range $0000-$00FF
+
+### Example Usage
+
+Let's look at a concrete example of how zero page addressing executes:
+
+```
+Instruction: LDA $42 (Load the value at zero page address $42 into the accumulator)
+```
+
+Execution steps:
+1. CPU fetches opcode $A5 at PC ($0200)
+2. CPU identifies this as LDA with zero page addressing
+3. CPU reads the zero page address at PC+1 ($0201), which contains $42
+4. CPU reads memory at address $0042, getting the value $37
+5. CPU loads the value $37 into the accumulator register
+6. CPU advances PC by 2 bytes to $0202
+
+### Testing Zero Page Addressing
+
+To ensure our zero page addressing mode works correctly, we test it by setting up a CPU with memory that contains both the instruction and the target data:
+
+```rust
+#[test]
+fn test_zero_page_addressing_mode() {
+    // Create a CPU with mock memory
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // Setup memory:
+    // At $0200: Opcode that uses zero page addressing
+    // At $0201: Zero page address $42
+    // At $0042: The value $37 we want to read
+    cpu.write_byte(0x0200, 0xA5); // LDA Zero Page opcode
+    cpu.write_byte(0x0201, 0x42); // Zero page address $42
+    cpu.write_byte(0x0042, 0x37); // Value at zero page address $42
+    
+    // Set CPU state
+    cpu.pc = 0x0200;
+    
+    // Test zero page addressing mode
+    let addr = AddressingMode::ZeroPage.get_operand_address(&cpu);
+    assert_eq!(addr, 0x0042, "Zero page address should be $0042");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::ZeroPage);
+    assert_eq!(value, 0x37, "Value at zero page address $42 should be $37");
+}
+```
+
+This test verifies that:
+1. The zero page addressing mode correctly calculates the memory address ($0042)
+2. When the CPU reads a byte using this addressing mode, it gets the expected value ($37)
+
 ## Next Steps
 
-With immediate addressing understood and implemented, we'll next explore the Zero Page addressing mode, which offers an efficient way to access the first 256 bytes of memory with just a single byte address.
-
-As we continue building our 6502 CPU emulator, we'll implement each addressing mode and integrate them with our instruction set implementation, gradually building up the full functionality of the NES's CPU.
+With immediate and zero page addressing understood and implemented, we'll next explore the indexed zero page addressing modes (Zero Page,X and Zero Page,Y), which add the ability to access a range of zero page memory locations with a single instruction.

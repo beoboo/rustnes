@@ -131,7 +131,7 @@ impl Cpu {
     
     /// Read a byte using the specified addressing mode
     pub fn read_byte_using_mode(&self, mode: AddressingMode) -> u8 {
-        let addr = mode.get_operand_address(self.pc);
+        let addr = mode.get_operand_address(self);
         self.memory.read_byte(addr)
     }
 }
