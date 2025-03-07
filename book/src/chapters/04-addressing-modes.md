@@ -420,6 +420,292 @@ fn test_zero_page_x_addressing_mode() {
 
 This ensures our implementation correctly handles both normal cases and the special wrap-around behavior of the 6502 CPU.
 
+## Zero Page,Y Addressing Mode
+
+### Concept
+
+Zero Page,Y addressing is similar to Zero Page,X, but it uses the Y register for indexing instead of the X register. This mode allows accessing data in the zero page with an offset stored in the Y register, which is useful for different types of data structures that are indexed by Y.
+
+In 6502 assembly language, Zero Page,Y addressing is written like this:
+
+```asm
+LDX $40,Y    ; Load value from (zero page address $40 + Y) into the X register
+STX $20,Y    ; Store X register value at (zero page address $20 + Y)
+INC $30,Y    ; Increment value at (zero page address $30 + Y)
+```
+
+Note that fewer instructions support Zero Page,Y compared to Zero Page,X. For example, the LDA instruction doesn't have a Zero Page,Y mode, but LDX does.
+
+### Memory Layout
+
+Let's visualize how Zero Page,Y addressing works in memory:
+
+```
+Memory Address | Content      | Description
+---------------|--------------|--------------------------
+$0200          | $B6          | LDX Zero Page,Y opcode
+$0201          | $40          | Zero page base address $40
+$0202          | (next opcode) | Next instruction...
+... ... ...    |              |
+(CPU Y register) | $07        | Y register contains $07
+... ... ...    |              |
+$0047          | $37          | Value at effective address ($40 + $07) = $47
+```
+
+When the CPU executes this instruction:
+1. It reads the opcode $B6 at the program counter
+2. It identifies this as LDX with Zero Page,Y addressing
+3. It reads the next byte ($40) as the zero page base address
+4. It adds the Y register ($07) to get the effective address $47
+5. It reads the value at memory address $0047, which contains $37
+6. It loads the value $37 into the X register
+7. It updates the program counter by 2 bytes
+
+### Wrap-Around Behavior
+
+Just like Zero Page,X, the Zero Page,Y addressing mode also exhibits wrap-around behavior when the sum of the base address and Y register exceeds $FF:
+
+```
+Zero page address: $FB
+Y register: $07
+Effective address: ($FB + $07) & $FF = $02
+```
+
+### Advantages and Limitations
+
+**Advantages:**
+- Memory efficient: Instructions are only 2 bytes
+- Provides Y-indexed access to the zero page
+- Complements Zero Page,X for different access patterns
+
+**Limitations:**
+- Available in fewer instructions than Zero Page,X
+- Still limited to the zero page
+- Same wrap-around considerations as Zero Page,X
+
+### Implementation in Our Emulator
+
+Our implementation of Zero Page,Y addressing:
+
+```rust
+impl AddressingMode {
+    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
+        match self {
+            // Previous addressing modes...
+            AddressingMode::ZeroPageY => {
+                // Get the zero page address from the byte after the opcode
+                let zero_page_addr = cpu.read_byte(cpu.pc + 1);
+                
+                // Add the Y register to it (with wrap-around in the zero page)
+                let effective_addr = (zero_page_addr.wrapping_add(cpu.y)) as u16;
+                
+                // The high byte is always 0 since we stay in the zero page
+                effective_addr
+            }
+        }
+    }
+}
+```
+
+Note how similar this is to the Zero Page,X implementation, with the only difference being the use of `cpu.y` instead of `cpu.x`.
+
+### Testing Zero Page,Y Addressing
+
+We test both normal addressing and wrap-around behavior:
+
+```rust
+#[test]
+fn test_zero_page_y_addressing_mode() {
+    // Create a CPU with mock memory
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // Setup memory:
+    // At $0200: Opcode using Zero Page,Y addressing
+    // At $0201: Zero page address $40
+    // CPU Y register: $07
+    // Effective address: $47
+    // At $0047: The value $37 we want to read
+    cpu.write_byte(0x0200, 0xB6); // LDX Zero Page,Y opcode
+    cpu.write_byte(0x0201, 0x40); // Zero page address $40
+    cpu.write_byte(0x0047, 0x37); // Value at effective address $47
+    
+    // Set CPU state
+    cpu.pc = 0x0200;
+    cpu.y = 0x07;  // Set Y register
+    
+    // Test zero page,Y addressing mode
+    let addr = AddressingMode::ZeroPageY.get_operand_address(&cpu);
+    assert_eq!(addr, 0x0047, "Zero page,Y address should be $0047");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::ZeroPageY);
+    assert_eq!(value, 0x37, "Value at zero page,Y address $47 should be $37");
+    
+    // Test wrap-around behavior
+    cpu.write_byte(0x0201, 0xFB); // Zero page address $FB
+    cpu.y = 0x07;  // Y register is $07
+    // Effective address should be $02 (0xFB + 0x07 = 0x102, which wraps to 0x02)
+    cpu.write_byte(0x0002, 0x42); // Value at wrapped address $02
+    
+    let addr = AddressingMode::ZeroPageY.get_operand_address(&cpu);
+    assert_eq!(addr, 0x0002, "Zero page,Y address should wrap to $0002");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::ZeroPageY);
+    assert_eq!(value, 0x42, "Value at wrapped address $02 should be $42");
+}
+```
+
+This test ensures our implementation correctly handles both normal cases and the special wrap-around behavior for the Zero Page,Y addressing mode.
+
 ## Next Steps
 
-With immediate, zero page, and zero page,X addressing modes understood and implemented, we'll next explore the Zero Page,Y addressing mode, which is similar to Zero Page,X but uses the Y register for indexing.
+With immediate, zero page, zero page,X, and zero page,Y addressing modes understood and implemented, we'll next explore the absolute addressing modes, which use a full 16-bit address to access any memory location in the system.
+
+## Absolute Addressing Mode
+
+### Concept
+
+Absolute addressing is a powerful mode that allows the CPU to access any memory location within the entire 64KB address space of the 6502. Unlike the zero page modes that can only access the first 256 bytes with a single byte address, absolute addressing uses a full 16-bit address (two bytes) to specify the target memory location.
+
+In 6502 assembly language, absolute addressing is written with a full address:
+
+```asm
+LDA $1234    ; Load the value from address $1234 into the accumulator
+STA $5678    ; Store the accumulator value at address $5678
+JMP $ABCD    ; Jump to address $ABCD
+```
+
+### Memory Layout
+
+Let's visualize how absolute addressing works in memory:
+
+```
+Memory Address | Content      | Description
+---------------|--------------|--------------------------
+$0200          | $AD          | LDA Absolute opcode
+$0201          | $34          | Low byte of address ($34)
+$0202          | $12          | High byte of address ($12)
+$0203          | (next opcode) | Next instruction...
+... ... ...    |              |
+$1234          | $42          | Value stored at absolute address $1234
+```
+
+When the CPU executes this instruction:
+1. It reads the opcode $AD at the program counter (PC) position
+2. It identifies this as LDA with absolute addressing
+3. It reads the next two bytes ($34, $12) as the low and high bytes of the address
+4. It forms the full address $1234 (in little-endian order)
+5. It reads the value at memory address $1234, which contains $42
+6. It loads the value $42 into the accumulator register
+7. It updates the program counter by 3 bytes to point to the next instruction
+
+### Little-Endian Byte Order
+
+The 6502 uses little-endian byte order, which means that the least significant byte (the low byte) comes first in memory, followed by the most significant byte (the high byte). For example, the 16-bit address $1234 is stored in memory as $34 $12.
+
+### Advantages and Limitations
+
+**Advantages:**
+- Full access: Can reference any memory location in the entire 64KB address space
+- Versatility: Used by almost all instructions and essential for accessing memory outside the zero page
+- Direct: Provides a straightforward way to access a specific known address
+
+**Limitations:**
+- Larger instruction size: Takes 3 bytes (vs 2 bytes for zero page addressing)
+- Slower execution: Typically requires 1 more cycle than zero page addressing
+- Fixed target: Points to a specific address rather than a calculated one (without indexing)
+
+### Implementation in Our Emulator
+
+Here's how we've implemented absolute addressing:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AddressingMode {
+    Immediate,
+    ZeroPage,
+    ZeroPageX,
+    ZeroPageY,
+    Absolute,
+    // We'll add more modes later
+}
+
+impl AddressingMode {
+    pub fn get_operand_address(&self, cpu: &Cpu) -> u16 {
+        match self {
+            // Previous addressing modes...
+            AddressingMode::Absolute => {
+                // Read the low byte and high byte from the instruction
+                let low_byte = cpu.read_byte(cpu.pc + 1) as u16;
+                let high_byte = cpu.read_byte(cpu.pc + 2) as u16;
+                
+                // Combine them into a 16-bit address (little-endian)
+                (high_byte << 8) | low_byte
+            }
+        }
+    }
+}
+```
+
+For absolute addressing, we:
+1. Read the low byte from the byte after the opcode (at PC+1)
+2. Read the high byte from the byte after that (at PC+2)
+3. Combine them into a 16-bit address with the high byte shifted left by 8 bits
+4. This gives us a full 16-bit address anywhere in the 6502's address space
+
+### Example Usage
+
+Let's look at a concrete example of how absolute addressing executes:
+
+```
+Instruction: LDA $1234 (Load the value at address $1234 into the accumulator)
+```
+
+Execution steps:
+1. CPU fetches opcode $AD at PC ($0200)
+2. CPU identifies this as LDA with absolute addressing
+3. CPU reads the low byte at PC+1 ($0201), which contains $34
+4. CPU reads the high byte at PC+2 ($0202), which contains $12
+5. CPU forms the address $1234 and reads memory at that address, getting the value $42
+6. CPU loads the value $42 into the accumulator register
+7. CPU advances PC by 3 bytes to $0203
+
+### Testing Absolute Addressing
+
+Here's how we test our absolute addressing mode implementation:
+
+```rust
+#[test]
+fn test_absolute_addressing_mode() {
+    // Create a CPU with mock memory
+    let memory = MockMemory::new();
+    let mut cpu = Cpu::new(Box::new(memory));
+    
+    // Setup memory:
+    // At $0200: Opcode using Absolute addressing
+    // At $0201-$0202: Absolute address $1234 (low byte first)
+    // At $1234: The value $42 we want to read
+    cpu.write_byte(0x0200, 0xAD); // LDA Absolute opcode
+    cpu.write_byte(0x0201, 0x34); // Low byte of address
+    cpu.write_byte(0x0202, 0x12); // High byte of address
+    cpu.write_byte(0x1234, 0x42); // Value at absolute address $1234
+    
+    // Set CPU state
+    cpu.pc = 0x0200;
+    
+    // Test absolute addressing mode
+    let addr = AddressingMode::Absolute.get_operand_address(&cpu);
+    assert_eq!(addr, 0x1234, "Absolute address should be $1234");
+    
+    let value = cpu.read_byte_using_mode(AddressingMode::Absolute);
+    assert_eq!(value, 0x42, "Value at absolute address $1234 should be $42");
+}
+```
+
+This test verifies that:
+1. The absolute addressing mode correctly calculates the 16-bit address from the two bytes following the opcode
+2. When the CPU reads a byte using this addressing mode, it gets the expected value from that address
+
+## Next Steps
+
+With immediate, zero page, zero page,X, zero page,Y, and absolute addressing modes understood and implemented, we'll next explore the indexed absolute addressing modes (Absolute,X and Absolute,Y), which combine the power of absolute addressing with the flexibility of indexing.
