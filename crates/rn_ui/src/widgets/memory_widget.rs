@@ -65,7 +65,7 @@ impl MemoryWidget {
     /// Render the memory widget using the given UI and memory
     pub fn ui<M: Memory>(&mut self, ui: &mut Ui, memory: &mut M) {
         ui.heading("Memory Viewer");
-        
+
         // Navigation controls
         ui.horizontal(|ui| {
             // Address input field
@@ -76,7 +76,7 @@ impl MemoryWidget {
                     self.start_address = addr;
                 }
             }
-            
+
             // Navigation buttons
             if ui.button("⏮️ Start").clicked() {
                 self.start_address = 0x0000;
@@ -100,9 +100,9 @@ impl MemoryWidget {
                 self.start_address = u16::MAX - bytes_to_display + 1;
             }
         });
-        
+
         ui.separator();
-        
+
         // Memory contents display
         Grid::new("memory_grid")
             .num_columns(self.bytes_per_row as usize + 1) // Address + bytes
@@ -115,19 +115,25 @@ impl MemoryWidget {
                     ui.label(RichText::new(format!("{:X}", col)).strong());
                 }
                 ui.end_row();
-                
+
                 // Memory rows
                 for row in 0..self.rows {
-                    let row_addr = self.start_address.saturating_add(row as u16 * self.bytes_per_row as u16);
-                    
+                    let row_addr = self
+                        .start_address
+                        .saturating_add(row as u16 * self.bytes_per_row as u16);
+
                     // Row address
-                    ui.label(RichText::new(format!("{:04X}", row_addr)).monospace().color(Color32::GOLD));
-                    
+                    ui.label(
+                        RichText::new(format!("{:04X}", row_addr))
+                            .monospace()
+                            .color(Color32::GOLD),
+                    );
+
                     // Bytes in this row
                     for col in 0..self.bytes_per_row {
                         let addr = row_addr.saturating_add(col as u16);
                         let byte = memory.read_byte(addr);
-                        
+
                         // Check if this byte is being edited
                         if let Some((edit_addr, ref mut buf)) = self.edit_buffer {
                             if edit_addr == addr {
@@ -135,9 +141,9 @@ impl MemoryWidget {
                                 let response = ui.add(
                                     TextEdit::singleline(buf)
                                         .desired_width(24.0)
-                                        .font(egui::TextStyle::Monospace)
+                                        .font(egui::TextStyle::Monospace),
                                 );
-                                
+
                                 if response.lost_focus() {
                                     // Try to parse and update the value
                                     if let Ok(value) = u8::from_str_radix(buf, 16) {
@@ -148,13 +154,16 @@ impl MemoryWidget {
                                 continue;
                             }
                         }
-                        
+
                         // Normal display
                         let byte_text = RichText::new(format!("{:02X}", byte)).monospace();
-                        
+
                         if self.editable {
                             // Clickable if editable
-                            if ui.add(egui::Label::new(byte_text).sense(egui::Sense::click())).clicked() {
+                            if ui
+                                .add(egui::Label::new(byte_text).sense(egui::Sense::click()))
+                                .clicked()
+                            {
                                 self.edit_buffer = Some((addr, format!("{:02X}", byte)));
                             }
                         } else {
@@ -164,11 +173,11 @@ impl MemoryWidget {
                     }
                     ui.end_row();
                 }
-                
+
                 // ASCII representation (as a future enhancement)
                 // This could be added as an extra column or separate grid
             });
-        
+
         // Memory region selector
         ui.add_space(8.0);
         ui.horizontal(|ui| {
@@ -193,4 +202,4 @@ impl MemoryWidget {
             }
         });
     }
-} 
+}

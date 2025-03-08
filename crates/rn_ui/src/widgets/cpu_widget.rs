@@ -37,7 +37,7 @@ impl CpuWidget {
     /// Render the CPU widget using the given UI and CPU
     pub fn ui(&mut self, ui: &mut Ui, cpu: &mut Cpu) {
         ui.heading("CPU State");
-        
+
         Grid::new("cpu_registers_grid")
             .num_columns(2)
             .spacing([40.0, 4.0])
@@ -49,11 +49,13 @@ impl CpuWidget {
                     let response = ui.add(
                         TextEdit::singleline(&mut self.edit_buffer)
                             .desired_width(50.0)
-                            .hint_text(format!("${:02X}", cpu.a))
+                            .hint_text(format!("${:02X}", cpu.a)),
                     );
-                    
+
                     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(value) = u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16) {
+                        if let Ok(value) =
+                            u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16)
+                        {
                             cpu.a = value;
                         }
                         self.editing = None;
@@ -70,11 +72,13 @@ impl CpuWidget {
                     let response = ui.add(
                         TextEdit::singleline(&mut self.edit_buffer)
                             .desired_width(50.0)
-                            .hint_text(format!("${:02X}", cpu.x))
+                            .hint_text(format!("${:02X}", cpu.x)),
                     );
-                    
+
                     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(value) = u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16) {
+                        if let Ok(value) =
+                            u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16)
+                        {
                             cpu.x = value;
                         }
                         self.editing = None;
@@ -91,11 +95,13 @@ impl CpuWidget {
                     let response = ui.add(
                         TextEdit::singleline(&mut self.edit_buffer)
                             .desired_width(50.0)
-                            .hint_text(format!("${:02X}", cpu.y))
+                            .hint_text(format!("${:02X}", cpu.y)),
                     );
-                    
+
                     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(value) = u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16) {
+                        if let Ok(value) =
+                            u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16)
+                        {
                             cpu.y = value;
                         }
                         self.editing = None;
@@ -112,11 +118,13 @@ impl CpuWidget {
                     let response = ui.add(
                         TextEdit::singleline(&mut self.edit_buffer)
                             .desired_width(50.0)
-                            .hint_text(format!("${:02X}", cpu.sp))
+                            .hint_text(format!("${:02X}", cpu.sp)),
                     );
-                    
+
                     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(value) = u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16) {
+                        if let Ok(value) =
+                            u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16)
+                        {
                             cpu.sp = value;
                         }
                         self.editing = None;
@@ -133,11 +141,13 @@ impl CpuWidget {
                     let response = ui.add(
                         TextEdit::singleline(&mut self.edit_buffer)
                             .desired_width(50.0)
-                            .hint_text(format!("${:04X}", cpu.pc))
+                            .hint_text(format!("${:04X}", cpu.pc)),
                     );
-                    
+
                     if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(value) = u16::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16) {
+                        if let Ok(value) =
+                            u16::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16)
+                        {
                             cpu.pc = value;
                         }
                         self.editing = None;
@@ -147,20 +157,20 @@ impl CpuWidget {
                     self.editing = Some(EditTarget::RegPC);
                 }
                 ui.end_row();
-                
+
                 // Status register
                 ui.label("Status (P):");
                 ui.label(format!("${:02X}", cpu.status));
                 ui.end_row();
-                
+
                 // Cycles
                 ui.label("Cycles:");
                 ui.label(format!("{}", cpu.cycles));
                 ui.end_row();
             });
-        
+
         ui.separator();
-        
+
         // Display Status flags with checkboxes
         ui.heading("Status Flags");
         Grid::new("cpu_flags_grid")
@@ -177,15 +187,28 @@ impl CpuWidget {
                 ui.label("Z");
                 ui.label("C");
                 ui.end_row();
-                
+
                 // Flag checkboxes for editing
                 let flag_masks = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
-                let flag_names = ["Negative", "Overflow", "Unused", "Break", "Decimal", "Interrupt Disable", "Zero", "Carry"];
-                
-                // Check and update each flag separately 
+                let flag_names = [
+                    "Negative",
+                    "Overflow",
+                    "Unused",
+                    "Break",
+                    "Decimal",
+                    "Interrupt Disable",
+                    "Zero",
+                    "Carry",
+                ];
+
+                // Check and update each flag separately
                 for (i, &mask) in flag_masks.iter().enumerate() {
                     let mut checked = (cpu.status & mask) != 0;
-                    if ui.checkbox(&mut checked, "").on_hover_text(flag_names[i]).changed() {
+                    if ui
+                        .checkbox(&mut checked, "")
+                        .on_hover_text(flag_names[i])
+                        .changed()
+                    {
                         if checked {
                             cpu.status |= mask;
                         } else {
@@ -194,7 +217,7 @@ impl CpuWidget {
                     }
                 }
                 ui.end_row();
-                
+
                 // Flag descriptions in a new row
                 ui.label("Sign");
                 ui.label("Overflow");
@@ -207,4 +230,4 @@ impl CpuWidget {
                 ui.end_row();
             });
     }
-} 
+}

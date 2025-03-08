@@ -5,15 +5,16 @@ pub use addressing_mode::AddressingMode;
 
 /// CPU status flags
 #[derive(Debug, Clone, Copy)]
+#[rustfmt::skip]
 pub enum CpuFlag {
-    Carry      = 0b00000001,
-    Zero       = 0b00000010,
+    Carry            = 0b00000001,
+    Zero             = 0b00000010,
     InterruptDisable = 0b00000100,
-    DecimalMode = 0b00001000, // Not used in NES, but part of the 6502 spec
-    Break      = 0b00010000, // Not a real flag, used during CPU stack operations
-    Unused     = 0b00100000, // Bit 5 is unused, always set to 1
-    Overflow   = 0b01000000,
-    Negative   = 0b10000000,
+    DecimalMode      = 0b00001000, // Not used in NES, but part of the 6502 spec
+    Break            = 0b00010000, // Not a real flag, used during CPU stack operations
+    Unused           = 0b00100000, // Bit 5 is unused, always set to 1
+    Overflow         = 0b01000000,
+    Negative         = 0b10000000,
 }
 
 /// The 6502 CPU implementation for the NES (Ricoh 2A03)
@@ -25,10 +26,10 @@ pub struct Cpu {
     pub sp: u8,     // Stack pointer (0x00-0xFF, 0x100-0x1FF in memory)
     pub pc: u16,    // Program counter
     pub status: u8, // Status register (flags)
-    
+
     // CPU cycle count
     pub cycles: u64,
-    
+
     // Memory connection
     memory: Box<dyn Memory>,
 }
@@ -42,19 +43,19 @@ impl Cpu {
             a: 0,
             x: 0,
             y: 0,
-            sp: 0xFD, // Initial stack pointer
-            pc: 0,    // Will be set to the reset vector
+            sp: 0xFD,     // Initial stack pointer
+            pc: 0,        // Will be set to the reset vector
             status: 0x34, // 0b00110100 - Unused bit and Interrupt disable set
             cycles: 0,
             memory,
         }
     }
-    
+
     /// Get the value of a specific CPU flag
     pub fn get_flag(&self, flag: CpuFlag) -> bool {
         (self.status & flag as u8) != 0
     }
-    
+
     /// Set a specific CPU flag to the given value
     pub fn set_flag(&mut self, flag: CpuFlag, value: bool) {
         if value {
@@ -63,41 +64,41 @@ impl Cpu {
             self.status &= !(flag as u8);
         }
     }
-    
+
     /// Read a byte from memory
     pub fn read_byte(&self, address: u16) -> u8 {
         self.memory.read_byte(address)
     }
-    
+
     /// Write a byte to memory
     pub fn write_byte(&mut self, address: u16, value: u8) {
         self.memory.write_byte(address, value);
     }
-    
+
     /// Read a word (16-bits) from memory
     pub fn read_word(&self, address: u16) -> u16 {
         self.memory.read_word(address)
     }
-    
+
     /// Write a word (16-bits) to memory
     pub fn write_word(&mut self, address: u16, value: u16) {
         self.memory.write_word(address, value);
     }
-    
+
     /// Push a byte onto the stack
     pub fn push_byte(&mut self, value: u8) {
         let stack_addr = 0x0100 | (self.sp as u16);
         self.write_byte(stack_addr, value);
         self.sp = self.sp.wrapping_sub(1);
     }
-    
+
     /// Pop a byte from the stack
     pub fn pop_byte(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
         let stack_addr = 0x0100 | (self.sp as u16);
         self.read_byte(stack_addr)
     }
-    
+
     /// Push a word onto the stack (high byte first, then low byte)
     pub fn push_word(&mut self, value: u16) {
         let high = (value >> 8) as u8;
@@ -105,14 +106,14 @@ impl Cpu {
         self.push_byte(high);
         self.push_byte(low);
     }
-    
+
     /// Pop a word from the stack (low byte first, then high byte)
     pub fn pop_word(&mut self) -> u16 {
         let low = self.pop_byte() as u16;
         let high = self.pop_byte() as u16;
         (high << 8) | low
     }
-    
+
     /// Reset the CPU
     pub fn reset(&mut self) {
         // Set registers to their initial values
@@ -121,14 +122,14 @@ impl Cpu {
         self.y = 0;
         self.sp = 0xFD;
         self.status = 0x34;
-        
+
         // Read the reset vector from 0xFFFC-0xFFFD
         self.pc = self.read_word(0xFFFC);
-        
+
         // Reset takes 7 cycles
         self.cycles = 7;
     }
-    
+
     /// Read a byte using the specified addressing mode
     pub fn read_byte_using_mode(&self, mode: AddressingMode) -> u8 {
         let addr = mode.get_operand_address(self);
@@ -140,67 +141,67 @@ impl Cpu {
 mod tests {
     use super::*;
     use crate::memory::Ram;
-    
+
     #[test]
     fn test_cpu_flags() {
         let ram = Ram::new();
         let mut cpu = Cpu::new(Box::new(ram));
-        
+
         // Test flag is initially not set
         assert!(!cpu.get_flag(CpuFlag::Zero));
-        
+
         // Test setting a flag
         cpu.set_flag(CpuFlag::Zero, true);
         assert!(cpu.get_flag(CpuFlag::Zero));
-        
+
         // Test clearing a flag
         cpu.set_flag(CpuFlag::Zero, false);
         assert!(!cpu.get_flag(CpuFlag::Zero));
     }
-    
+
     #[test]
     fn test_cpu_memory_interaction() {
         let ram = Ram::new();
         let mut cpu = Cpu::new(Box::new(ram));
-        
+
         // Test writing and reading bytes
         cpu.write_byte(0x1000, 0x42);
         assert_eq!(cpu.read_byte(0x1000), 0x42);
-        
+
         // Test writing and reading words
         cpu.write_word(0x2000, 0x1234);
         assert_eq!(cpu.read_word(0x2000), 0x1234);
     }
-    
+
     #[test]
     fn test_stack_operations() {
         let ram = Ram::new();
         let mut cpu = Cpu::new(Box::new(ram));
-        
+
         // Test push and pop byte
         cpu.push_byte(0x42);
         assert_eq!(cpu.sp, 0xFC);
         assert_eq!(cpu.pop_byte(), 0x42);
         assert_eq!(cpu.sp, 0xFD);
-        
+
         // Test push and pop word
         cpu.push_word(0x1234);
         assert_eq!(cpu.sp, 0xFB);
         assert_eq!(cpu.pop_word(), 0x1234);
         assert_eq!(cpu.sp, 0xFD);
     }
-    
+
     #[test]
     fn test_reset() {
         let mut ram = Ram::new();
-        
+
         // Set reset vector
         ram.write_byte(0xFFFC, 0x34);
         ram.write_byte(0xFFFD, 0x12);
-        
+
         let mut cpu = Cpu::new(Box::new(ram));
         cpu.reset();
-        
+
         // Check if PC was set to the reset vector
         assert_eq!(cpu.pc, 0x1234);
         // Check if SP was set to 0xFD

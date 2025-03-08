@@ -1,5 +1,8 @@
 use eframe::egui;
-use rn_core::{cpu::Cpu, memory::{Memory, Ram}};
+use rn_core::{
+    cpu::Cpu,
+    memory::{Memory, Ram},
+};
 
 // Import widgets module
 mod widgets;
@@ -11,8 +14,7 @@ fn main() -> Result<(), eframe::Error> {
 
     // Create native window options
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1024.0, 768.0]), // Larger window for both widgets
+        viewport: egui::ViewportBuilder::default().with_inner_size([1024.0, 768.0]), // Larger window for both widgets
         ..Default::default()
     };
 
@@ -43,14 +45,14 @@ impl Default for RustNESApp {
     fn default() -> Self {
         // Create memory with some test values
         let mut memory = Ram::new();
-        
+
         // Fill memory with some test patterns
         for i in 0..256 {
             memory.write_byte(i, i as u8); // 0x00-0xFF in zero page
             memory.write_byte(0x0100 + i, 0xFF - i as u8); // Descending pattern in stack page
             memory.write_byte(0x0200 + i, (i * 2) as u8); // Multiples of 2 in next page
         }
-        
+
         // Write some test program at 0x8000 (common starting point for NES ROMs)
         memory.write_byte(0x8000, 0xA9); // LDA immediate
         memory.write_byte(0x8001, 0x42); // #$42
@@ -59,18 +61,18 @@ impl Default for RustNESApp {
         memory.write_byte(0x8004, 0x02); // $0200 (high byte)
         memory.write_byte(0x8005, 0xA9); // LDA immediate
         memory.write_byte(0x8006, 0xFF); // #$FF
-        
+
         // Create CPU with initialized memory
         let mut cpu = Cpu::new(Box::new(Ram::new())); // This RAM won't be used directly
-        
+
         // Set some example values
-        cpu.a = 0x42;    // Accumulator
-        cpu.x = 0x10;    // X register
-        cpu.y = 0x20;    // Y register
+        cpu.a = 0x42; // Accumulator
+        cpu.x = 0x10; // X register
+        cpu.y = 0x20; // Y register
         cpu.pc = 0x8000; // Program counter
-        cpu.sp = 0xFD;   // Stack pointer
+        cpu.sp = 0xFD; // Stack pointer
         cpu.status = 0x24; // Status flags
-        
+
         Self {
             cpu,
             memory,
@@ -91,20 +93,20 @@ impl eframe::App for RustNESApp {
             ui.horizontal(|ui| {
                 ui.heading("RustNES Debugger");
                 ui.add_space(32.0);
-                
+
                 ui.selectable_value(&mut self.selected_tab, Tab::Cpu, "CPU");
                 ui.selectable_value(&mut self.selected_tab, Tab::Memory, "Memory");
             });
         });
-        
+
         egui::CentralPanel::default().show(ctx, |ui| {
             match self.selected_tab {
                 Tab::Cpu => {
                     // Show CPU state and controls
                     self.cpu_widget.ui(ui, &mut self.cpu);
-                    
+
                     ui.add_space(16.0);
-                    
+
                     // We don't need these manual controls anymore since the registers are directly editable
                     ui.heading("CPU Instructions");
                     ui.horizontal(|ui| {
@@ -116,9 +118,9 @@ impl eframe::App for RustNESApp {
                 Tab::Memory => {
                     // Show memory viewer
                     self.memory_widget.ui(ui, &mut self.memory);
-                    
+
                     ui.add_space(16.0);
-                    
+
                     // Add some example memory operations
                     ui.heading("Memory Operations");
                     ui.horizontal(|ui| {
@@ -133,4 +135,4 @@ impl eframe::App for RustNESApp {
             }
         });
     }
-} 
+}
