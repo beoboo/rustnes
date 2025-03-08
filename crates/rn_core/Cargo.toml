@@ -1,0 +1,10 @@
+[package]
+name = "rn_core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Core NES emulation engine"
+license.workspace = true
+
+[dependencies]
+# Any specific dependencies for rn_core 

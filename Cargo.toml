@@ -1,6 +1,21 @@
-[package]
-name = "rustnes3"
+[workspace]
+members = [
+    "crates/rn_core",
+    "crates/rn_ui",
+]
+resolver = "2"
+
+# Workspace-wide configuration and optimization
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
+authors = ["Your Name"]
+description = "NES emulator written in Rust"
+repository = "https://github.com/yourusername/rustnes3"
+license = "MIT OR Apache-2.0"
 
-[dependencies]
+# Common dependencies for workspace members
+[workspace.dependencies]
+egui = "0.31.0"
+eframe = "0.31.0"
+tracing-subscriber = "0.3.18"

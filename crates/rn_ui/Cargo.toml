@@ -1,0 +1,18 @@
+[package]
+name = "rn_ui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "UI components for the RustNES emulator"
+license.workspace = true
+
+[[bin]]
+name = "rn_ui"
+path = "src/main.rs"
+
+[dependencies]
+rn_core = { path = "../rn_core" }
+eframe.workspace = true
+egui.workspace = true
+tracing-subscriber.workspace = true
+# Will add UI-specific dependencies later 
