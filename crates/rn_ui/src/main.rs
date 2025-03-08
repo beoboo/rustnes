@@ -109,19 +109,7 @@ impl eframe::App for RustNESApp {
                     ui.heading("CPU Instructions");
                     ui.horizontal(|ui| {
                         if ui.button("Reset CPU").clicked() {
-                            self.cpu.a = 0;
-                            self.cpu.x = 0;
-                            self.cpu.y = 0;
-                            self.cpu.sp = 0xFD;
-                            self.cpu.pc = 0x8000;
-                            self.cpu.status = 0x24;
-                            self.cpu.cycles = 0;
-                        }
-                        if ui.button("Set A to 0xFF").clicked() {
-                            self.cpu.a = 0xFF;
-                        }
-                        if ui.button("Clear Flags").clicked() {
-                            self.cpu.status = 0x20; // Only keep unused flag set
+                            self.cpu.reset();
                         }
                     });
                 }
@@ -134,11 +122,6 @@ impl eframe::App for RustNESApp {
                     // Add some example memory operations
                     ui.heading("Memory Operations");
                     ui.horizontal(|ui| {
-                        if ui.button("Fill Zero Page").clicked() {
-                            for i in 0..256 {
-                                self.memory.write_byte(i, i as u8);
-                            }
-                        }
                         if ui.button("Clear Current Page").clicked() {
                             let page_start = self.memory_widget.start_address() & 0xFF00;
                             for i in 0..256 {

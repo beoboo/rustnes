@@ -62,11 +62,6 @@ impl MemoryWidget {
         self.start_address
     }
 
-    /// Set the start address
-    pub fn set_start_address(&mut self, addr: u16) {
-        self.start_address = addr;
-    }
-
     /// Render the memory widget using the given UI and memory
     pub fn ui<M: Memory>(&mut self, ui: &mut Ui, memory: &mut M) {
         ui.heading("Memory Viewer");
