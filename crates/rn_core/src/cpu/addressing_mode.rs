@@ -13,7 +13,6 @@ pub enum AddressingMode {
     Indirect,
     IndexedIndirect, // (Indirect,X) - Pre-indexed indirect
     IndirectIndexed, // (Indirect),Y - Post-indexed indirect
-                     // We'll add more modes later
 }
 
 impl AddressingMode {

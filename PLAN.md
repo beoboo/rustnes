@@ -17,93 +17,97 @@ RustNES is a Nintendo Entertainment System (NES) emulator written in Rust, follo
 - **Readability Over Performance**: While performance is important, code readability takes precedence
 - **Clean Code Principles**: Concise methods, idiomatic Rust, easily testable code, solid error management
 
+## Multi-Track Learning Approach 🛤️
+
+This project supports multiple learning tracks, allowing readers to progress at different paces based on their interests:
+
+### Track 1: Pixel Display [T1]
+Focus on implementing just enough to display a single pixel:
+- Basic CPU with essential instructions
+- Simple memory mapping
+- Fundamental PPU registers
+- NROM (Mapper 0)
+- Basic rendering pipeline
+
+**Milestone:** Display a colored pixel using a test ROM
+
+### Track 2: Pattern & Sprite Rendering [T2]
+Build on Track 1 by adding:
+- Extended CPU instructions
+- Tile and pattern rendering
+- Sprite capabilities
+- Animation support
+- More complete PPU implementation
+
+**Milestone:** Display and animate sprites on screen
+
+### Track 3: Interactive Graphics [T3]
+Expand functionality with:
+- Complete CPU instruction set
+- Full background rendering with scrolling
+- Controller input
+- Game-like demo capabilities
+- Additional mappers
+
+**Milestone:** Create an interactive demo with controller input
+
+### Track 4: Complete NES [T4]
+Finalize the emulator with:
+- Audio Processing Unit
+- All memory mappers
+- Cycle-accurate timing
+- Full game compatibility
+- Debugging tools
+- Performance optimizations
+
+**Milestone:** Play commercial NES games with full compatibility
+
 ## Implementation Phases 📊
 
-### Phase 1: Core Architecture (10%) 🏗️
+### Phase 1: Core Architecture [T1]
+- 6502 CPU implementation (essential instructions)
+- Memory management (basic mapping)
+- Address decoding (fundamental)
+- NROM mapper support
+- PPU registers and minimal rendering
 
-1. **CPU Implementation**
-   - 6502 instruction set emulation
-   - Memory management
-   - Address decoding
-   - Clock cycle accuracy tests
+### Phase 2: Basic Rendering [T1-T2]
+- PPU implementation (tile and sprite rendering)
+- Pattern tables
+- Background/playfield basics
+- Palette handling
+- Simple animation capabilities
 
-2. **Initial Project Setup**
-   - Project structure
-   - Testing framework
-   - CI/CD pipeline
-   - Documentation structure
+### Phase 3: Enhanced Graphics [T2-T3]
+- Full background rendering
+- Sprite collision
+- Scrolling implementation
+- Name table handling
+- Advanced PPU features
 
-### Phase 2: Basic Rendering (20%) 🖼️
+### Phase 4: Input & Interaction [T3]
+- Controller emulation
+- Input mapping
+- UI for configuration
+- Interactive demo capabilities
 
-3. **PPU (Picture Processing Unit) Implementation**
-   - Tile rendering
-   - Background/playfield rendering
-   - Sprite rendering
-   - Palette handling
+### Phase 5: Audio & Advanced Features [T4]
+- APU implementation
+- Sound channels
+- Mixer and output
+- Additional mappers
+- Cycle-accurate timing
 
-4. **Memory Mappers**
-   - Implement basic memory mapping (NROM)
-   - Test with simple ROMs
+### Phase 6: Debugging & Polish [T4]
+- Debugging tools
+- Performance optimizations
+- Full game compatibility
+- Enhanced features
 
-### Phase 3: Audio & Input (30%) 🔊
-
-5. **APU (Audio Processing Unit) Implementation**
-   - Sound channels
-   - Mixer
-   - Timing
-
-6. **Input System**
-   - Controller emulation
-   - Input mapping
-
-### Phase 4: Advanced Features (50%) 🚀
-
-7. **Advanced Memory Mappers**
-   - MMC1, MMC3, and other popular mappers
-   - Bank switching
-   - Extended RAM
-
-8. **Special Effects Support**
-   - Mid-frame PPU register changes
-   - Split-screen scrolling
-   - Other hardware tricks
-
-### Phase 5: Platform Support (70%) 💻
-
-9. **Desktop UI**
-   - Cross-platform window management
-   - UI for debugging and configuration
-   - ROM loading interface
-
-10. **WebAssembly Support**
-    - Web-based emulator
-    - Browser integration
-    - Performance optimizations for web
-
-### Phase 6: Debugging & Polish (90%) 🔍
-
-11. **Debugging Tools**
-    - Memory viewer/editor
-    - CPU state inspector
-    - Breakpoints and watchpoints
-    - PPU visualization
-
-12. **Performance Optimizations**
-    - Profiling
-    - Critical path optimizations
-    - Caching strategies
-
-### Phase 7: Documentation & Release (100%) 📚
-
-13. **Documentation**
-    - User guide
-    - Developer documentation
-    - Book content drafting
-
-14. **Release Management**
-    - Packaging
-    - Distribution
-    - Community feedback incorporation
+### Phase 7: Documentation & Release [T4]
+- Complete documentation
+- Book finalization
+- Community feedback
 
 ## Component Architecture 🧩
 
@@ -112,16 +116,16 @@ rustnes/
 ├── src/
 │   ├── cpu/         # 6502 CPU emulation
 │   ├── ppu/         # Picture Processing Unit
-│   ├── apu/         # Audio Processing Unit
+│   ├── apu/         # Audio Processing Unit [T4]
 │   ├── mappers/     # Memory mapper implementations
-│   ├── input/       # Controller input handling
+│   ├── input/       # Controller input handling [T3]
 │   ├── memory/      # Memory management
-│   ├── debugger/    # Debugging tools
-│   ├── ui/          # User interface (desktop)
-│   ├── web/         # WebAssembly-specific code
+│   ├── debugger/    # Debugging tools [T4]
+│   ├── ui/          # User interface (desktop) [T3-T4]
+│   ├── web/         # WebAssembly-specific code [T4]
 │   └── main.rs      # Application entry point
 ├── tests/           # Integration tests
-├── benches/         # Performance benchmarks
+├── benches/         # Performance benchmarks [T4]
 └── examples/        # Example usage
 ```
 
@@ -137,23 +141,39 @@ rustnes/
    - Verify system-wide behaviors
    - ROM test suites (nestest, etc.)
 
-3. **Acceptance Tests**
+3. **Track Milestone Tests**
+   - Specific test ROMs for each track milestone
+   - Verification of track completion requirements
+   - Self-assessment checkpoints
+
+4. **Acceptance Tests**
    - End-to-end emulator testing
    - Known game compatibility
    - Performance benchmarks
 
 ## Milestones & Deliverables 📅
 
-1. **M1: CPU Emulation** - Basic 6502 CPU running with tests
-2. **M2: PPU Implementation** - Static graphics rendering
-3. **M3: Basic Game Support** - Simple games working (e.g., Donkey Kong)
-4. **M4: Audio Support** - Sound channels implemented
-5. **M5: Advanced Mapper Support** - Broader game compatibility
-6. **M6: Desktop UI** - Full desktop application
-7. **M7: Web Support** - Browser-based emulation
-8. **M8: Debugging Tools** - Complete debugging capabilities
-9. **M9: Full NES Feature Set** - All NES capabilities supported
-10. **M10: Release Version** - Polished, documented release
+1. **M1: Display a Pixel [T1]** - Single pixel rendering with minimal components
+2. **M2: Pattern & Sprite Display [T2]** - Static and animated graphics
+3. **M3: Interactive Demo [T3]** - User-controlled sprites and scrolling
+4. **M4: Basic Game Support** - Simple games working (e.g., Donkey Kong)
+5. **M5: Audio Support [T4]** - Sound channels implemented
+6. **M6: Advanced Mapper Support [T4]** - Broader game compatibility
+7. **M7: Desktop UI [T4]** - Full desktop application
+8. **M8: Web Support [T4]** - Browser-based emulation
+9. **M9: Debugging Tools [T4]** - Complete debugging capabilities
+10. **M10: Full Release [T4]** - Polished, documented release
+
+## Book Structure
+
+The book will follow the multi-track approach with chapters organized to support both fast-track and comprehensive learning:
+
+1. Each chapter will have sections clearly marked with track indicators [T1-T4]
+2. Track milestone points will be highlighted with:
+   - Self-assessment questions
+   - Component checklists
+   - Skip-ahead guidance for fast-track readers
+3. Track convergence points will provide catch-up guidance for readers who took the fast track
 
 ## Dependencies 📦
 
@@ -174,9 +194,17 @@ The project will use minimal dependencies, with a focus on:
 
 ## Success Criteria ✅
 
-1. All commercial NES games run correctly
-2. Performance exceeds real-time requirements (60fps) on modest hardware
-3. Passes standard test ROMs
-4. Usable debugging interface
-5. Code is well-documented and maintainable
-6. Web version runs smoothly in modern browsers 
+1. **Technical Success:**
+   - All commercial NES games run correctly
+   - Performance exceeds real-time requirements (60fps) on modest hardware
+   - Passes standard test ROMs
+   - Usable debugging interface
+   - Code is well-documented and maintainable
+   - Web version runs smoothly in modern browsers
+
+2. **Educational Success:**
+   - Readers can follow either learning track successfully
+   - Each track milestone provides satisfying results
+   - Code remains professional and well-architected despite track divisions
+   - Readers gain deep understanding of NES architecture
+   - Book provides clear, engaging explanations of emulation concepts 
