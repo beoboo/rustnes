@@ -3,6 +3,9 @@ use crate::memory::Memory;
 mod addressing_mode;
 pub use addressing_mode::AddressingMode;
 
+mod instruction;
+pub use instruction::{Instruction, InstructionDecoder, InstructionMetadata};
+
 /// CPU status flags
 #[derive(Debug, Clone, Copy)]
 #[rustfmt::skip]
@@ -32,6 +35,9 @@ pub struct Cpu {
 
     // Memory connection
     memory: Box<dyn Memory>,
+    
+    // Instruction decoder
+    decoder: InstructionDecoder,
 }
 
 impl Cpu {
@@ -48,6 +54,7 @@ impl Cpu {
             status: 0x34, // 0b00110100 - Unused bit and Interrupt disable set
             cycles: 0,
             memory,
+            decoder: InstructionDecoder::new(),
         }
     }
 
@@ -129,11 +136,34 @@ impl Cpu {
         // Reset takes 7 cycles
         self.cycles = 7;
     }
-
-    /// Read a byte using the specified addressing mode
+    
+    /// Read a byte using the specified addressing mode - simplified for tests
     pub fn read_byte_using_mode(&self, mode: AddressingMode) -> u8 {
         let addr = mode.get_operand_address(self);
-        self.memory.read_byte(addr)
+        self.read_byte(addr)
+    }
+
+    /// Execute a single CPU instruction and return the number of cycles used
+    pub fn step(&mut self) -> u8 {
+        // Fetch opcode
+        let opcode = self.fetch();
+        
+        // Decode instruction
+        match self.decoder.decode(opcode) {
+            Some(metadata) => {
+                // Execute instruction and update cycle count
+                let cycles = self.execute(metadata);
+                self.cycles += cycles as u64;
+                cycles
+            }
+            None => {
+                // Unknown opcode - for now, we'll just advance PC (already done in fetch) and use 2 cycles
+                // In a real emulator, we might want to handle this differently
+                println!("Warning: Unknown opcode 0x{:02X} at PC=0x{:04X}", opcode, self.pc - 1);
+                self.cycles += 2;
+                2
+            }
+        }
     }
 }
 
@@ -208,5 +238,45 @@ mod tests {
         assert_eq!(cpu.sp, 0xFD);
         // Check if cycles were set to 7
         assert_eq!(cpu.cycles, 7);
+    }
+    
+    #[test]
+    fn test_step_lda_immediate() {
+        let mut ram = Ram::new();
+        
+        // Set up a simple program: LDA #$42
+        ram.write_byte(0x0000, 0xA9); // LDA immediate
+        ram.write_byte(0x0001, 0x42); // Value to load
+        
+        let mut cpu = Cpu::new(Box::new(ram));
+        cpu.pc = 0x0000; // Set PC to our program
+        
+        // Execute one instruction
+        let cycles = cpu.step();
+        
+        // Verify results
+        assert_eq!(cpu.a, 0x42);
+        assert_eq!(cpu.pc, 0x0002);
+        assert_eq!(cycles, 2);
+        assert_eq!(cpu.cycles, 2);
+    }
+    
+    #[test]
+    fn test_unknown_opcode() {
+        let mut ram = Ram::new();
+        
+        // Set up an unknown opcode (0xFF is not used in 6502)
+        ram.write_byte(0x0000, 0xFF);
+        
+        let mut cpu = Cpu::new(Box::new(ram));
+        cpu.pc = 0x0000;
+        
+        // Execute one instruction
+        let cycles = cpu.step();
+        
+        // Verify results - should just advance PC by 1 and use 2 cycles
+        assert_eq!(cpu.pc, 0x0001);
+        assert_eq!(cycles, 2);
+        assert_eq!(cpu.cycles, 2);
     }
 }

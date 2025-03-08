@@ -47,7 +47,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Write tests for essential addressing modes
 
 ### Essential Instructions [T1]
-- [ ] Create instruction decoder
+- [x] Create instruction decoder
 - [ ] Implement load instructions (LDA, LDX, LDY)
 - [ ] Implement store instructions (STA, STX, STY)
 - [ ] Implement basic jumps (JMP)
@@ -292,4 +292,4 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 3 (Interactive Graphics): 0% complete
 - Track 4 (Complete NES): 0% complete
 
-**Total Progress: 17/150 tasks complete (11.3%)** 
+**Total Progress: 18/150 tasks complete (12.0%)** 

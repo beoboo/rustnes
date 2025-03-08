@@ -167,14 +167,13 @@ impl AddressingMode {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cpu::Cpu, memory::MockMemory};
+    use crate::{cpu::Cpu, memory::Ram};
 
     use super::*;
 
     #[test]
     fn test_immediate_addressing_mode() {
-        // Create a simple setup with a CPU and mock memory
-        let mut cpu = Cpu::new(Box::new(MockMemory::new()));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Setup the memory with an instruction and immediate value
         cpu.write_byte(0x0200, 0xA9); // LDA Immediate opcode
@@ -193,9 +192,7 @@ mod tests {
 
     #[test]
     fn test_zero_page_addressing_mode() {
-        // Create a CPU with mock memory
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Setup memory:
         // At $0200: Opcode that uses zero page addressing
@@ -218,9 +215,7 @@ mod tests {
 
     #[test]
     fn test_zero_page_x_addressing_mode() {
-        // Create a CPU with mock memory
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Setup memory:
         // At $0200: Opcode using Zero Page,X addressing
@@ -249,9 +244,7 @@ mod tests {
 
     #[test]
     fn test_zero_page_x_addressing_mode_wrap_around() {
-        // Create a CPU with mock memory
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Setup memory for wrap-around test:
         // At $0200: Opcode using Zero Page,X addressing
@@ -278,9 +271,7 @@ mod tests {
 
     #[test]
     fn test_zero_page_y_addressing_mode() {
-        // Create a CPU with mock memory
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Setup memory:
         // At $0200: Opcode using Zero Page,Y addressing
@@ -309,9 +300,7 @@ mod tests {
 
     #[test]
     fn test_zero_page_y_addressing_mode_wrap_around() {
-        // Create a CPU with mock memory
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Setup memory for wrap-around test:
         // At $0200: Opcode using Zero Page,Y addressing
@@ -338,9 +327,7 @@ mod tests {
 
     #[test]
     fn test_absolute_addressing_mode() {
-        // Create a CPU with mock memory
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Setup memory with Absolute addressing
         cpu.write_byte(0x0200, 0xAD); // LDA Absolute opcode
@@ -360,8 +347,7 @@ mod tests {
 
     #[test]
     fn test_absolute_x_addressing_mode() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Base address $1234, X=$10, effective address=$1244
         cpu.write_byte(0x0200, 0xBD); // LDA Absolute,X opcode
@@ -380,8 +366,7 @@ mod tests {
 
     #[test]
     fn test_absolute_x_addressing_mode_page_crossing() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Base address $12F0, X=$20, effective address=$1310 (page boundary crossed)
         cpu.write_byte(0x0200, 0xBD); // LDA Absolute,X opcode
@@ -400,8 +385,7 @@ mod tests {
 
     #[test]
     fn test_absolute_y_addressing_mode() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Base address $1234, Y=$15, effective address=$1249
         cpu.write_byte(0x0200, 0xB9); // LDA Absolute,Y opcode
@@ -420,8 +404,7 @@ mod tests {
 
     #[test]
     fn test_absolute_y_addressing_mode_wrap_around() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Base address $FFFA, Y=$10, effective address=$000A (wrap around)
         cpu.write_byte(0x0200, 0xB9); // LDA Absolute,Y opcode
@@ -440,8 +423,7 @@ mod tests {
 
     #[test]
     fn test_indirect_addressing_mode() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // JMP ($1234) - Jump to the address stored at $1234
         cpu.write_byte(0x0200, 0x6C); // JMP Indirect opcode
@@ -459,8 +441,7 @@ mod tests {
 
     #[test]
     fn test_indirect_addressing_mode_page_boundary_bug() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // JMP ($12FF) - Jump to the address formed by $12FF and $1200
         // due to the 6502 JMP indirect bug
@@ -486,8 +467,7 @@ mod tests {
 
     #[test]
     fn test_indexed_indirect_addressing_mode() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // LDA ($80,X) with X=$04
         // So the pointer address is at zero page address $84
@@ -516,8 +496,7 @@ mod tests {
 
     #[test]
     fn test_indexed_indirect_addressing_mode_wrap_around() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // LDA ($FF,X) with X=$02
         // So the pointer wraps around to zero page address $01-$02
@@ -550,8 +529,7 @@ mod tests {
 
     #[test]
     fn test_indirect_indexed_addressing_mode() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // LDA ($80),Y with Y=$10
         // The zero page pointer $80-$81 contains $1234
@@ -581,8 +559,7 @@ mod tests {
 
     #[test]
     fn test_indirect_indexed_addressing_mode_page_crossing() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // LDA ($80),Y with Y=$F0
         // The zero page pointer $80-$81 contains $1234
@@ -612,8 +589,7 @@ mod tests {
 
     #[test]
     fn test_indirect_indexed_addressing_mode_zero_page_wrap() {
-        let memory = MockMemory::new();
-        let mut cpu = Cpu::new(Box::new(memory));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // LDA ($FF),Y with Y=$10
         // The zero page pointer wraps from $FF to $00 for the high byte
@@ -644,7 +620,7 @@ mod tests {
 
     #[test]
     fn test_crosses_page_boundary() {
-        let mut cpu = Cpu::new(Box::new(MockMemory::new()));
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
 
         // Test modes that can cross page boundaries
 
