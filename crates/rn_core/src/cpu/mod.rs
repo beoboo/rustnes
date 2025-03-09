@@ -9,6 +9,9 @@ pub use instruction::{Instruction, InstructionDecoder, InstructionMetadata};
 mod error;
 pub use error::CpuError;
 
+mod parser;
+pub use parser::{InstructionParser, ParseError, ParseResult};
+
 /// CPU status flags
 #[derive(Debug, Clone, Copy)]
 #[rustfmt::skip]

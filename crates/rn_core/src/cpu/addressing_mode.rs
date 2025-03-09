@@ -2,7 +2,7 @@ use super::Cpu;
 use std::fmt;
 
 /// Addressing modes for the 6502 CPU
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AddressingMode {
     Immediate,
     ZeroPage,
