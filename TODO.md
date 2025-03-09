@@ -151,15 +151,16 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### Memory Enhancements [T2]
 - [ ] Implement RAM mirroring ($0800-$1FFF mirrors $0000-$07FF)
-- [ ] Implement PPU register mirroring ($2008-$3FFF mirrors $2000-$2007)
-- [ ] Test mirroring behavior with appropriate test ROMs
 
 ### Essential PPU I/O [T1]
-- [ ] Define `PpuRegister` enum for type-safe register access
-- [ ] Implement `PpuRegisters` adapter for memory-mapped access
-- [ ] Implement PPU register reading with proper side effects
-- [ ] Implement PPU register writing with proper side effects
+- [x] Define `PpuRegister` enum for type-safe register access
+- [x] Implement PPU register reading with proper side effects
+- [x] Implement PPU register writing with proper side effects
 - [ ] Test PPU register access through the bus
+- [ ] Implement `PpuRegisters` adapter for memory-mapped access
+
+### Ppu Enhancements [T2]
+- [ ] Implement PPU register mirroring ($2008-$3FFF mirrors $2000-$2007)
 
 ### Extended Memory Features [T2]
 - [ ] Implement RAM mirroring
@@ -212,17 +213,17 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## PPU Implementation
 
 ### PPU Architecture [T1]
-- [ ] Design PPU component with clear internal interfaces
-- [ ] Implement internal register access methods
-- [ ] Create PPU state struct with proper encapsulation
-- [ ] Implement interior mutability pattern for bus access
-- [ ] Test PPU internal functionality in isolation
+- [x] Design PPU component with clear internal interfaces
+- [x] Implement internal register access methods
+- [x] Create PPU state struct with proper encapsulation
+- [x] Implement interior mutability pattern for bus access
+- [x] Test PPU internal functionality in isolation
 
 ### PPU Basics [T1]
-- [ ] Implement PPU registers
-- [ ] Implement PPU memory map
-- [ ] Implement basic VRAM
-- [ ] Implement color palette
+- [x] Implement PPU registers
+- [x] Implement PPU memory map
+- [x] Implement basic VRAM
+- [x] Implement color palette
 - [ ] Implement basic frame buffer
 - [ ] Test basic pixel rendering
 
@@ -361,4 +362,4 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 3 (Interactive Graphics): 0% complete
 - Track 4 (Complete NES): 0% complete
 
-**Total Progress: 22/182 tasks complete (12.1%)** 
+**Total Progress: 41/182 tasks complete (22.5%)** 
