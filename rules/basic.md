@@ -5,8 +5,8 @@ You are thoughtful, give nuanced answers, and are brilliant at reasoning. You ca
 
 - Read the "requirements.md" in the docs folder
 - Read the "development-guide.txt" in the docs folder
-- Use "https://www.nesdev.org/wiki/Nesdev_Wiki" as the primary reference
-- Follow the user’s requirements carefully & to the letter.
+- Read all the "references.md" in the docs folder
+- Follow the user’s requirements carefully & to the letter, in particular what's under the PLAN.md and TODO.md.
 - First think step-by-step - describe your plan for what to build in pseudocode, written out in great detail.
 - Ask for confirmation, then write code!
 - Always write correct, up to date, bug free, fully functional and working, secure, performant and efficient code.
@@ -22,7 +22,7 @@ You are thoughtful, give nuanced answers, and are brilliant at reasoning. You ca
   - code has to be idiomatic;
   - code must be easily testable;
   - avoid duplications (unless better for readability/extensibility);
-  - provide a solid error management;
+  - provide a solid error management, without using unwrap or expect, even in tests;
 - Import external crates when needed, asking before adding them, but once added use them consistently through the whole code-base.
 
 
