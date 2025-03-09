@@ -14,6 +14,7 @@ pub enum AddressingMode {
     Indirect,
     IndexedIndirect, // (Indirect,X) - Pre-indexed indirect
     IndirectIndexed, // (Indirect),Y - Post-indexed indirect
+    Implied,        // Implied addressing mode (no operand)
 }
 
 impl fmt::Display for AddressingMode {
@@ -29,6 +30,7 @@ impl fmt::Display for AddressingMode {
             AddressingMode::Indirect => "Indirect mode",
             AddressingMode::IndexedIndirect => "Indexed Indirect (X) mode",
             AddressingMode::IndirectIndexed => "Indirect Indexed (Y) mode",
+            AddressingMode::Implied => "Implied mode",
         };
         write!(f, "{}", description)
     }
@@ -127,6 +129,11 @@ impl AddressingMode {
                 // 3. Add Y register to get the final effective address
                 base_addr.wrapping_add(cpu.y as u16)
             }
+            AddressingMode::Implied => {
+                // Implied addressing mode doesn't use an operand address
+                // Return the current PC for consistency
+                cpu.pc
+            }
         }
     }
 
@@ -178,7 +185,7 @@ impl AddressingMode {
                 }
             }
 
-            // All other modes (Immediate, ZeroPage, Absolute)
+            // All other modes (Immediate, ZeroPage, Absolute, Implied)
             _ => 0,
         }
     }

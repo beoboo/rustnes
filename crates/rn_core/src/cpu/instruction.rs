@@ -14,6 +14,8 @@ pub enum Instruction {
     STX, // Store X Register
     STY, // Store Y Register
     JMP, // Jump to new location
+    JSR, // Jump to Subroutine
+    RTS, // Return from Subroutine
 }
 
 /// Instruction metadata containing the opcode, instruction type, addressing mode,
@@ -78,6 +80,12 @@ impl InstructionDecoder {
         // JMP - Jump to new location
         self.add_instruction(0x4C, Instruction::JMP, AddressingMode::Absolute, 3, 3);  // JMP Absolute
         self.add_instruction(0x6C, Instruction::JMP, AddressingMode::Indirect, 3, 5);  // JMP Indirect
+        
+        // JSR - Jump to Subroutine
+        self.add_instruction(0x20, Instruction::JSR, AddressingMode::Absolute, 3, 6);  // JSR Absolute
+        
+        // RTS - Return from Subroutine
+        self.add_instruction(0x60, Instruction::RTS, AddressingMode::Implied, 1, 6);   // RTS Implied
     }
 
     /// Add an instruction to the lookup tables
@@ -140,10 +148,14 @@ impl Cpu {
             Instruction::STX => self.stx(instruction_metadata.addressing_mode),
             Instruction::STY => self.sty(instruction_metadata.addressing_mode),
             Instruction::JMP => self.jmp(instruction_metadata.addressing_mode),
+            Instruction::JSR => self.jsr(instruction_metadata.addressing_mode),
+            Instruction::RTS => self.rts(),
         }
 
-        // Increment PC for non-jump instructions (already incremented by 1 in fetch)
-        if instruction_metadata.instruction != Instruction::JMP {
+        // Increment PC for non-jump/call instructions (already incremented by 1 in fetch)
+        if instruction_metadata.instruction != Instruction::JMP && 
+           instruction_metadata.instruction != Instruction::JSR &&
+           instruction_metadata.instruction != Instruction::RTS {
             self.pc = self.pc.wrapping_add((instruction_metadata.bytes - 1) as u16);
         }
 
@@ -215,6 +227,34 @@ impl Cpu {
         self.pc = target_address;
         
         // Note: JMP does not affect any processor flags
+    }
+    
+    /// JSR - Jump to Subroutine
+    pub fn jsr(&mut self, addressing_mode: AddressingMode) {
+        // Get the target address from the addressing mode
+        let target_address = addressing_mode.get_operand_address(self);
+        
+        // Push the return address (PC+2-1) onto the stack
+        // PC currently points to the first byte of the operand, which is PC+1
+        // So we need PC+2 for the next instruction after JSR
+        let return_address = self.pc + 1;
+        self.push_word(return_address);
+        
+        // Set the program counter to the target address
+        self.pc = target_address;
+        
+        // Note: JSR does not affect any processor flags
+    }
+    
+    /// RTS - Return from Subroutine
+    pub fn rts(&mut self) {
+        // Pull the return address from the stack
+        let return_address = self.pop_word();
+        
+        // Return address points to the last byte of JSR, so add 1 to get to the next instruction
+        self.pc = return_address.wrapping_add(1);
+        
+        // Note: RTS does not affect any processor flags
     }
 }
 
@@ -631,5 +671,130 @@ mod tests {
         }
         
         Ok(())
+    }
+
+    #[test]
+    fn test_instruction_decoder() {
+        let decoder = InstructionDecoder::new();
+        
+        // Test LDA Immediate
+        let metadata = decoder.decode(0xA9).unwrap();
+        assert_eq!(metadata.instruction, Instruction::LDA);
+        assert_eq!(metadata.addressing_mode, AddressingMode::Immediate);
+        assert_eq!(metadata.bytes, 2);
+        assert_eq!(metadata.cycles, 2);
+        
+        // Test LDA Zero Page
+        let metadata = decoder.decode(0xA5).unwrap();
+        assert_eq!(metadata.instruction, Instruction::LDA);
+        assert_eq!(metadata.addressing_mode, AddressingMode::ZeroPage);
+        assert_eq!(metadata.bytes, 2);
+        assert_eq!(metadata.cycles, 3);
+        
+        // Test LDA Absolute
+        let metadata = decoder.decode(0xAD).unwrap();
+        assert_eq!(metadata.instruction, Instruction::LDA);
+        assert_eq!(metadata.addressing_mode, AddressingMode::Absolute);
+        assert_eq!(metadata.bytes, 3);
+        assert_eq!(metadata.cycles, 4);
+        
+        // Test JMP Absolute
+        let metadata = decoder.decode(0x4C).unwrap();
+        assert_eq!(metadata.instruction, Instruction::JMP);
+        assert_eq!(metadata.addressing_mode, AddressingMode::Absolute);
+        assert_eq!(metadata.bytes, 3);
+        assert_eq!(metadata.cycles, 3);
+        
+        // Test JMP Indirect
+        let metadata = decoder.decode(0x6C).unwrap();
+        assert_eq!(metadata.instruction, Instruction::JMP);
+        assert_eq!(metadata.addressing_mode, AddressingMode::Indirect);
+        assert_eq!(metadata.bytes, 3);
+        assert_eq!(metadata.cycles, 5);
+        
+        // Test JSR Absolute
+        let metadata = decoder.decode(0x20).unwrap();
+        assert_eq!(metadata.instruction, Instruction::JSR);
+        assert_eq!(metadata.addressing_mode, AddressingMode::Absolute);
+        assert_eq!(metadata.bytes, 3);
+        assert_eq!(metadata.cycles, 6);
+        
+        // Test RTS Implied
+        let metadata = decoder.decode(0x60).unwrap();
+        assert_eq!(metadata.instruction, Instruction::RTS);
+        assert_eq!(metadata.addressing_mode, AddressingMode::Implied);
+        assert_eq!(metadata.bytes, 1);
+        assert_eq!(metadata.cycles, 6);
+    }
+    
+    #[test]
+    fn test_jsr_rts() {
+        let ram = Ram::new();
+        let mut cpu = Cpu::new(Box::new(ram));
+        
+        // Set up a simple program:
+        // 0x0200: JSR $0210 (20 10 02)
+        // 0x0203: LDA #$42  (A9 42)
+        // ...
+        // 0x0210: LDX #$24  (A2 24)
+        // 0x0212: RTS       (60)
+        
+        // JSR instruction
+        cpu.write_byte(0x0200, 0x20);
+        cpu.write_byte(0x0201, 0x10);
+        cpu.write_byte(0x0202, 0x02);
+        
+        // LDA #$42
+        cpu.write_byte(0x0203, 0xA9);
+        cpu.write_byte(0x0204, 0x42);
+        
+        // LDX #$24
+        cpu.write_byte(0x0210, 0xA2);
+        cpu.write_byte(0x0211, 0x24);
+        
+        // RTS
+        cpu.write_byte(0x0212, 0x60);
+        
+        // Set initial PC and execute
+        cpu.pc = 0x0200;
+        
+        // Execute JSR
+        let opcode = cpu.fetch();
+        let metadata = cpu.decoder.decode(opcode).unwrap();
+        cpu.execute(metadata);
+        
+        // Check PC jumped to subroutine
+        assert_eq!(cpu.pc, 0x0210);
+        
+        // Check return address pushed to stack
+        let stack_addr = 0x0100 | (cpu.sp.wrapping_add(1) as u16);
+        let return_addr_lo = cpu.read_byte(stack_addr);
+        let return_addr_hi = cpu.read_byte(stack_addr.wrapping_add(1));
+        let return_addr = (return_addr_hi as u16) << 8 | (return_addr_lo as u16);
+        assert_eq!(return_addr, 0x0202); // Points to the last byte of JSR instruction
+        
+        // Execute LDX at the subroutine
+        let opcode = cpu.fetch();
+        let metadata = cpu.decoder.decode(opcode).unwrap();
+        cpu.execute(metadata);
+        
+        // Check X register loaded
+        assert_eq!(cpu.x, 0x24);
+        
+        // Execute RTS
+        let opcode = cpu.fetch();
+        let metadata = cpu.decoder.decode(opcode).unwrap();
+        cpu.execute(metadata);
+        
+        // Check PC returned to instruction after JSR
+        assert_eq!(cpu.pc, 0x0203);
+        
+        // Execute LDA after return
+        let opcode = cpu.fetch();
+        let metadata = cpu.decoder.decode(opcode).unwrap();
+        cpu.execute(metadata);
+        
+        // Check A register loaded
+        assert_eq!(cpu.a, 0x42);
     }
 }

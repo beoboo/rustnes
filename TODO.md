@@ -51,7 +51,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement load instructions (LDA, LDX, LDY)
 - [x] Implement store instructions (STA, STX, STY)
 - [x] Implement basic jumps (JMP)
-- [ ] Implement subroutine calls (JSR, RTS)
+- [x] Implement subroutine calls (JSR, RTS)
 - [ ] Write tests for essential instructions
 
 ### Extended Addressing Modes [T2]
