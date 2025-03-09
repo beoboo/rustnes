@@ -199,7 +199,7 @@ mod tests {
 
     /// Helper function to set up a CPU with memory for testing
     fn setup_cpu() -> Cpu {
-        Cpu::new(Box::new(Ram::new()))
+        Cpu::new(Box::new(Ram::default()))
     }
 
     /// Helper function to set up a test case for addressing modes

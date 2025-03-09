@@ -1,4 +1,4 @@
-use crate::memory::Memory;
+use crate::memory::Addressable;
 
 mod addressing_mode;
 pub use addressing_mode::AddressingMode;
@@ -26,7 +26,7 @@ pub enum CpuFlag {
     Negative         = 0b10000000,
 }
 
-/// The 6502 CPU implementation for the NES (Ricoh 2A03)
+/// MOS 6502 CPU implementation
 pub struct Cpu {
     // Registers
     pub a: u8,      // Accumulator
@@ -40,7 +40,7 @@ pub struct Cpu {
     pub cycles: u64,
 
     // Memory connection
-    memory: Box<dyn Memory>,
+    memory: Box<dyn Addressable>,
     
     // Instruction decoder
     decoder: InstructionDecoder,
@@ -48,7 +48,7 @@ pub struct Cpu {
 
 impl Cpu {
     /// Create a new CPU instance initialized to power-up state with the provided memory
-    pub fn new(memory: Box<dyn Memory>) -> Self {
+    pub fn new(memory: Box<dyn Addressable>) -> Self {
         // Initial state according to NES specs
         // See: https://www.nesdev.org/wiki/CPU_power_up_state
         Self {
@@ -171,10 +171,14 @@ mod tests {
     use crate::memory::Ram;
     use anyhow::Result;
 
+    /// Helper function to set up a CPU with memory for testing
+    fn setup_cpu() -> Cpu {
+        Cpu::new(Box::new(Ram::default()))
+    }
+
     #[test]
     fn test_cpu_flags() {
-        let ram = Ram::new();
-        let mut cpu = Cpu::new(Box::new(ram));
+        let mut cpu = setup_cpu();
 
         // Test flag is initially not set
         assert!(!cpu.get_flag(CpuFlag::Zero));
@@ -190,8 +194,7 @@ mod tests {
 
     #[test]
     fn test_cpu_memory_interaction() {
-        let ram = Ram::new();
-        let mut cpu = Cpu::new(Box::new(ram));
+        let mut cpu = setup_cpu();
 
         // Test writing and reading bytes
         cpu.write_byte(0x1000, 0x42);
@@ -204,8 +207,7 @@ mod tests {
 
     #[test]
     fn test_stack_operations() {
-        let ram = Ram::new();
-        let mut cpu = Cpu::new(Box::new(ram));
+        let mut cpu = setup_cpu();
 
         // Test push and pop byte
         cpu.push_byte(0x42);
@@ -222,7 +224,8 @@ mod tests {
 
     #[test]
     fn test_reset() {
-        let mut ram = Ram::new();
+        // Use RAM with full address space (0x0000-0xFFFF) for testing
+        let mut ram = Ram::default();
 
         // Set reset vector
         ram.write_byte(0xFFFC, 0x34);
@@ -241,7 +244,7 @@ mod tests {
     
     #[test]
     fn test_step_lda_immediate() -> Result<()> {
-        let mut ram = Ram::new();
+        let mut ram = Ram::default();
         
         // Set up a simple program: LDA #$42
         ram.write_byte(0x0000, 0xA9); // LDA immediate
@@ -264,7 +267,7 @@ mod tests {
     
     #[test]
     fn test_unknown_opcode() -> Result<()> {
-        let mut ram = Ram::new();
+        let mut ram = Ram::default();
         
         // Set up an unknown opcode (0xFF is not used in 6502)
         ram.write_byte(0x0000, 0xFF);

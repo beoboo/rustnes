@@ -1,15 +1,42 @@
-/// Memory interface trait
+/// Addressable interface trait
 ///
-/// This trait defines how components interact with memory in the NES.
-/// The NES has a 16-bit address bus, allowing for 64KB of addressable memory.
-pub trait Memory {
-    /// Read a byte from memory at the specified address
+/// This trait defines how components can be accessed via memory addresses in the NES.
+/// Components can either handle the entire address space (like RAM) or specific
+/// address ranges (like memory-mapped devices).
+pub trait Addressable {
+    /// Returns true if this component handles the specified address
+    ///
+    /// Default implementation returns true for all addresses, which is appropriate
+    /// for components like RAM that handle the entire address space.
+    ///
+    /// Components that only handle specific address ranges should override this method.
+    fn handles_address(&self, _address: u16) -> bool {
+        true
+    }
+
+    /// Read a byte from the specified address
+    ///
+    /// This method should only be called for addresses where `handles_address`
+    /// returns true. Implementations can assume the address is valid.
+    ///
+    /// # Side Effects
+    ///
+    /// Reading from certain addresses may have side effects in hardware devices.
+    /// For example, reading from certain PPU registers clears status flags.
     fn read_byte(&self, address: u16) -> u8;
 
-    /// Write a byte to memory at the specified address
+    /// Write a byte to the specified address
+    ///
+    /// This method should only be called for addresses where `handles_address`
+    /// returns true. Implementations can assume the address is valid.
+    ///
+    /// # Side Effects
+    ///
+    /// Writing to certain addresses may have side effects in hardware devices.
+    /// For example, writing to certain registers might trigger DMA transfers.
     fn write_byte(&mut self, address: u16, value: u8);
 
-    /// Read a word (16-bits) from memory at the specified address
+    /// Read a word (16-bits) from the specified address
     /// NES is little-endian, so the lower byte is at the lower address
     fn read_word(&self, address: u16) -> u16 {
         let low = self.read_byte(address) as u16;
@@ -17,65 +44,24 @@ pub trait Memory {
         (high << 8) | low
     }
 
-    /// Write a word (16-bits) to memory at the specified address
+    /// Write a word (16-bits) to the specified address
     fn write_word(&mut self, address: u16, value: u16) {
         let low = (value & 0xFF) as u8;
         let high = (value >> 8) as u8;
         self.write_byte(address, low);
         self.write_byte(address.wrapping_add(1), high);
     }
+    
+    /// Reset the component to its initial state
+    ///
+    /// This method is called when the system is reset. The default
+    /// implementation does nothing.
+    fn reset(&mut self) {}
 }
 
-/// A simple RAM implementation for testing
-pub struct Ram {
-    data: [u8; 0x10000], // 64KB of memory
-}
+// Submodules and re-exports
+mod ram;
+mod bus;
 
-impl Ram {
-    pub fn new() -> Self {
-        Ram { data: [0; 0x10000] }
-    }
-
-    pub fn reset(&mut self) {
-        self.data = [0; 0x10000];
-    }
-}
-
-impl Memory for Ram {
-    fn read_byte(&self, address: u16) -> u8 {
-        self.data[address as usize]
-    }
-
-    fn write_byte(&mut self, address: u16, value: u8) {
-        self.data[address as usize] = value;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_ram_read_write_byte() {
-        let mut ram = Ram::new();
-
-        // Test write and read
-        ram.write_byte(0x1000, 0x42);
-        assert_eq!(ram.read_byte(0x1000), 0x42);
-
-        // Test different address
-        ram.write_byte(0x0500, 0xFF);
-        assert_eq!(ram.read_byte(0x0500), 0xFF);
-    }
-
-    #[test]
-    fn test_ram_read_write_word() {
-        let mut ram = Ram::new();
-
-        // Test write and read word (little-endian)
-        ram.write_word(0x1000, 0x1234);
-        assert_eq!(ram.read_byte(0x1000), 0x34); // Low byte
-        assert_eq!(ram.read_byte(0x1001), 0x12); // High byte
-        assert_eq!(ram.read_word(0x1000), 0x1234);
-    }
-}
+pub use ram::Ram;
+pub use bus::Bus;

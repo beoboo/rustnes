@@ -1,5 +1,5 @@
 use egui::{Color32, Grid, RichText, TextEdit, Ui};
-use rn_core::memory::Memory;
+use rn_core::memory::Addressable;
 
 /// Widget for displaying and editing memory contents
 pub struct MemoryWidget {
@@ -63,7 +63,7 @@ impl MemoryWidget {
     }
 
     /// Render the memory widget using the given UI and memory
-    pub fn ui<M: Memory>(&mut self, ui: &mut Ui, memory: &mut M) {
+    pub fn ui<A: Addressable>(&mut self, ui: &mut Ui, addressable: &mut A) {
         ui.heading("Memory Viewer");
 
         // Navigation controls
@@ -132,7 +132,7 @@ impl MemoryWidget {
                     // Bytes in this row
                     for col in 0..self.bytes_per_row {
                         let addr = row_addr.saturating_add(col as u16);
-                        let byte = memory.read_byte(addr);
+                        let byte = addressable.read_byte(addr);
 
                         // Check if this byte is being edited
                         if let Some((edit_addr, ref mut buf)) = self.edit_buffer {
@@ -147,7 +147,7 @@ impl MemoryWidget {
                                 if response.lost_focus() {
                                     // Try to parse and update the value
                                     if let Ok(value) = u8::from_str_radix(buf, 16) {
-                                        memory.write_byte(addr, value);
+                                        addressable.write_byte(addr, value);
                                     }
                                     self.edit_buffer = None;
                                 }

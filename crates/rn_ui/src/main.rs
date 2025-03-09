@@ -1,7 +1,7 @@
 use eframe::egui;
 use rn_core::{
     cpu::Cpu,
-    memory::{Memory, Ram},
+    memory::{Addressable, Ram},
 };
 
 // Import widgets module
@@ -44,7 +44,7 @@ enum Tab {
 impl Default for RustNESApp {
     fn default() -> Self {
         // Create memory with some test values
-        let mut memory = Ram::new();
+        let mut memory = Ram::default();
 
         // Fill memory with some test patterns
         for i in 0..256 {
@@ -63,7 +63,7 @@ impl Default for RustNESApp {
         memory.write_byte(0x8006, 0xFF); // #$FF
 
         // Create CPU with initialized memory
-        let mut cpu = Cpu::new(Box::new(Ram::new())); // This RAM won't be used directly
+        let mut cpu = Cpu::new(Box::new(Ram::default())); // This RAM won't be used directly
 
         // Set some example values
         cpu.a = 0x42; // Accumulator

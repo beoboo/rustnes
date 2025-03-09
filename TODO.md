@@ -32,7 +32,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ### CPU Basics [T1]
 - [x] Implement basic CPU struct with registers
 - [x] Implement CPU flags enum and methods
-- [x] Create Memory trait
+- [x] Create Addressable trait
 - [x] Implement basic RAM struct
 - [x] Write tests for CPU flag operations
 - [x] Write tests for memory operations
@@ -134,16 +134,32 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## Memory System
 
-### Basic Memory Map [T1]
-- [ ] Implement basic RAM ($0000-$07FF)
-- [ ] Implement PPU register mapping ($2000-$2007)
-- [ ] Implement ROM space mapping ($8000-$FFFF)
-- [ ] Test basic memory operations
+### Component-Based Bus Architecture [T1]
+- [x] Refactor `Ram` to its own module for better code organization
+- [x] Implement `Bus` struct as mediator for memory-mapped devices
+- [x] Rename `Memory` trait to `Addressable` for better semantics
+- [x] Refactor `Ram` to work with the new bus architecture
+- [ ] Create memory address range utilities for device registration
+- [ ] Test bus routing and device registration
+
+### Essential Memory Components [T1]
+- [x] Limit RAM to only handle the main memory region ($0000-$1FFF)
+- [x] Make RAM configurable with custom address ranges
+- [ ] Implement PPU component with registers at $2000-$2007
+- [ ] Implement ROM component for cartridge memory ($8000-$FFFF)
+- [ ] Test basic memory component interactions
+
+### Memory Enhancements [T2]
+- [ ] Implement RAM mirroring ($0800-$1FFF mirrors $0000-$07FF)
+- [ ] Implement PPU register mirroring ($2008-$3FFF mirrors $2000-$2007)
+- [ ] Test mirroring behavior with appropriate test ROMs
 
 ### Essential PPU I/O [T1]
-- [ ] Implement PPU register reading
-- [ ] Implement PPU register writing
-- [ ] Test PPU register access
+- [ ] Define `PpuRegister` enum for type-safe register access
+- [ ] Implement `PpuRegisters` adapter for memory-mapped access
+- [ ] Implement PPU register reading with proper side effects
+- [ ] Implement PPU register writing with proper side effects
+- [ ] Test PPU register access through the bus
 
 ### Extended Memory Features [T2]
 - [ ] Implement RAM mirroring
@@ -195,6 +211,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## PPU Implementation
 
+### PPU Architecture [T1]
+- [ ] Design PPU component with clear internal interfaces
+- [ ] Implement internal register access methods
+- [ ] Create PPU state struct with proper encapsulation
+- [ ] Implement interior mutability pattern for bus access
+- [ ] Test PPU internal functionality in isolation
+
 ### PPU Basics [T1]
 - [ ] Implement PPU registers
 - [ ] Implement PPU memory map
@@ -203,7 +226,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement basic frame buffer
 - [ ] Test basic pixel rendering
 
-## MILESTONE 1: Display a Pixel [T1]
+## MILESTONE 1: System Integration [T1]
+- [ ] Implement `NesSystem` struct to coordinate components
+- [ ] Connect CPU, Memory Bus, and PPU through clean interfaces
+- [ ] Design proper ownership model with minimal unsafe code
+- [ ] Test component interaction through system interface
+
+## MILESTONE 2: Display a Pixel [T1]
 - [ ] Create a test ROM that sets a single pixel
 - [ ] Integrate CPU, Memory, and PPU components
 - [ ] Implement basic main loop

@@ -265,10 +265,15 @@ mod tests {
     use anyhow::Result;
     use crate::cpu::parser::InstructionParser;
 
+    /// Helper function to set up a CPU with memory for testing
+    fn setup_cpu() -> Cpu {
+        Cpu::new(Box::new(Ram::default()))
+    }
+
     // Comprehensive tests for LDA to verify the load_register helper
     #[test]
     fn test_lda_immediate_behavior() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         
         // For immediate mode, the operand is at PC
         cpu.pc = 0x0100;
@@ -287,7 +292,7 @@ mod tests {
     
     #[test]
     fn test_lda_zero_page_behavior() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         
         // For zero page mode:
         // 1. The zero page address is read from PC
@@ -307,7 +312,7 @@ mod tests {
     
     #[test]
     fn test_lda_absolute_behavior() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         
         // For absolute mode:
         // 1. The 16-bit address is read from PC and PC+1
@@ -329,7 +334,7 @@ mod tests {
     
     #[test]
     fn test_load_register_flags() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         
         // Test zero flag
         cpu.pc = 0x0100;
@@ -353,7 +358,7 @@ mod tests {
     // Basic tests for LDX (uses the shared load_register helper)
     #[test]
     fn test_ldx_behavior() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         
         // Test immediate mode
         cpu.pc = 0x0100;
@@ -381,7 +386,7 @@ mod tests {
     // Basic tests for LDY (uses the shared load_register helper)
     #[test]
     fn test_ldy_behavior() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         
         // Test immediate mode
         cpu.pc = 0x0100;
@@ -409,7 +414,7 @@ mod tests {
     // Tests for STA - only checking the actual memory writes
     #[test]
     fn test_sta_behavior() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         
         // Test zero page mode
         cpu.pc = 0x0100;
@@ -433,7 +438,7 @@ mod tests {
     // Tests for STX and STY - checking store behavior
     #[test]
     fn test_stx_sty_behavior() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         
         // Test STX zero page
         cpu.pc = 0x0100;
@@ -473,7 +478,7 @@ mod tests {
     // Test for JMP instruction
     #[test]
     fn test_jmp_behavior() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         
         // Test JMP Absolute
         cpu.pc = 0x0100;
@@ -494,7 +499,7 @@ mod tests {
     // Integration test for JMP
     #[test]
     fn test_integration_jmp() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         let parser = InstructionParser::new();
         
         // Program:
@@ -557,7 +562,7 @@ mod tests {
     // Integration tests for various instructions
     #[test]
     fn test_integration_step_lda() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         let parser = InstructionParser::new();
         
         // Set up test with parser
@@ -585,7 +590,7 @@ mod tests {
     
     #[test]
     fn test_integration_step_store_and_load() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        let mut cpu = setup_cpu();
         let parser = InstructionParser::new();
         
         // Set up test with parser
@@ -729,7 +734,7 @@ mod tests {
     
     #[test]
     fn test_jsr_rts() {
-        let ram = Ram::new();
+        let ram = Ram::with_range(0x0000, 0xFFFF);
         let mut cpu = Cpu::new(Box::new(ram));
         
         // Set up a simple program:
