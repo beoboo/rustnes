@@ -48,7 +48,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### Essential Instructions [T1]
 - [x] Create instruction decoder
-- [ ] Implement load instructions (LDA, LDX, LDY)
+- [x] Implement load instructions (LDA, LDX, LDY)
 - [ ] Implement store instructions (STA, STX, STY)
 - [ ] Implement basic jumps (JMP)
 - [ ] Implement subroutine calls (JSR, RTS)
