@@ -6,6 +6,9 @@ pub use addressing_mode::AddressingMode;
 mod instruction;
 pub use instruction::{Instruction, InstructionDecoder, InstructionMetadata};
 
+mod error;
+pub use error::CpuError;
+
 /// CPU status flags
 #[derive(Debug, Clone, Copy)]
 #[rustfmt::skip]
@@ -144,26 +147,18 @@ impl Cpu {
     }
 
     /// Execute a single CPU instruction and return the number of cycles used
-    pub fn step(&mut self) -> u8 {
+    pub fn step(&mut self) -> Result<u8, CpuError> {
         // Fetch opcode
         let opcode = self.fetch();
         
         // Decode instruction
-        match self.decoder.decode(opcode) {
-            Some(metadata) => {
-                // Execute instruction and update cycle count
-                let cycles = self.execute(metadata);
-                self.cycles += cycles as u64;
-                cycles
-            }
-            None => {
-                // Unknown opcode - for now, we'll just advance PC (already done in fetch) and use 2 cycles
-                // In a real emulator, we might want to handle this differently
-                println!("Warning: Unknown opcode 0x{:02X} at PC=0x{:04X}", opcode, self.pc - 1);
-                self.cycles += 2;
-                2
-            }
-        }
+        let metadata = self.decoder.decode(opcode)?;
+        
+        // Execute instruction and update cycle count
+        let cycles = self.execute(metadata);
+        self.cycles += cycles as u64;
+        
+        Ok(cycles)
     }
 }
 
@@ -171,6 +166,7 @@ impl Cpu {
 mod tests {
     use super::*;
     use crate::memory::Ram;
+    use anyhow::Result;
 
     #[test]
     fn test_cpu_flags() {
@@ -241,7 +237,7 @@ mod tests {
     }
     
     #[test]
-    fn test_step_lda_immediate() {
+    fn test_step_lda_immediate() -> Result<()> {
         let mut ram = Ram::new();
         
         // Set up a simple program: LDA #$42
@@ -252,17 +248,19 @@ mod tests {
         cpu.pc = 0x0000; // Set PC to our program
         
         // Execute one instruction
-        let cycles = cpu.step();
+        let cycles = cpu.step()?;
         
         // Verify results
         assert_eq!(cpu.a, 0x42);
         assert_eq!(cpu.pc, 0x0002);
         assert_eq!(cycles, 2);
         assert_eq!(cpu.cycles, 2);
+        
+        Ok(())
     }
     
     #[test]
-    fn test_unknown_opcode() {
+    fn test_unknown_opcode() -> Result<()> {
         let mut ram = Ram::new();
         
         // Set up an unknown opcode (0xFF is not used in 6502)
@@ -271,12 +269,20 @@ mod tests {
         let mut cpu = Cpu::new(Box::new(ram));
         cpu.pc = 0x0000;
         
-        // Execute one instruction
-        let cycles = cpu.step();
+        // Execute one instruction - this should now return an error for the invalid opcode
+        let result = cpu.step();
         
-        // Verify results - should just advance PC by 1 and use 2 cycles
+        // Verify the error is the expected one
+        assert!(result.is_err(), "Expected an error for invalid opcode");
+        if let Err(CpuError::InvalidOpcode(op)) = result {
+            assert_eq!(op, 0xFF);
+        } else {
+            anyhow::bail!("Expected InvalidOpcode error, got: {:?}", result);
+        }
+        
+        // PC should still be incremented because fetch still happened
         assert_eq!(cpu.pc, 0x0001);
-        assert_eq!(cycles, 2);
-        assert_eq!(cpu.cycles, 2);
+        
+        Ok(())
     }
 }

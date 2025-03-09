@@ -198,16 +198,11 @@ mod tests {
     /// Helper function to set up a test case for addressing modes
     fn setup_test_case(
         cpu: &mut Cpu,
-        opcode_addr: u16,
-        opcode: u8,
         operand_addr: u16,
         operand_data: &[u8],
         target_addr: u16,
         target_value: u8,
     ) {
-        // Write the opcode
-        cpu.write_byte(opcode_addr, opcode);
-        
         // Write the operand data (can be 1 or 2 bytes)
         for (i, &byte) in operand_data.iter().enumerate() {
             cpu.write_byte(operand_addr + i as u16, byte);
@@ -216,7 +211,7 @@ mod tests {
         // Write the target value at the target address
         cpu.write_byte(target_addr, target_value);
         
-        // Set PC to point to the operand (after fetch)
+        // Set PC to point to the operand
         cpu.pc = operand_addr;
     }
 
@@ -252,16 +247,14 @@ mod tests {
         // LDA #$42 (Immediate)
         setup_test_case(
             &mut cpu,
-            0x0200,   // opcode address
-            0xA9,          // LDA immediate opcode
-            0x0201,  // operand address
+            0x0200,   // operand address
             &[0x42], // operand data
             0,        // target address (N/A for immediate)
             0,       // target value (N/A for immediate)
         );
 
         // For immediate addressing, the operand is directly at PC
-        assert_address(&cpu, AddressingMode::Immediate, 0x0201);
+        assert_address(&cpu, AddressingMode::Immediate, 0x0200);
         assert_value(&cpu, AddressingMode::Immediate, 0x42);
     }
 
@@ -273,9 +266,7 @@ mod tests {
         // At $0042: The value $37
         setup_test_case(
             &mut cpu,
-            0x0200,   // opcode address
-            0xA5,          // LDA zero page opcode
-            0x0201,  // operand address
+            0x0200,   // operand address
             &[0x42], // zero page address
             0x0042,   // target address
             0x37,    // target value
@@ -294,9 +285,7 @@ mod tests {
         // Effective address: $40 + $05 = $45
         setup_test_case(
             &mut cpu,
-            0x0200,        // opcode address
-            0xB5,          // LDA zero page,X opcode
-            0x0201,        // operand address
+            0x0200,        // operand address
             &[0x40],       // zero page base address
             0x0045,        // target address (base + X)
             0x67,          // target value
@@ -318,9 +307,7 @@ mod tests {
         // Effective address: $F0 + $20 = $10 (wrap around)
         setup_test_case(
             &mut cpu,
-            0x0200,        // opcode address
-            0xB5,          // LDA zero page,X opcode
-            0x0201,        // operand address
+            0x0200,        // operand address
             &[0xF0],       // zero page base address
             0x0010,        // target address (wrapped around)
             0x42,          // target value
@@ -342,9 +329,7 @@ mod tests {
         // Effective address: $40 + $07 = $47
         setup_test_case(
             &mut cpu,
-            0x0200,        // opcode address
-            0xB6,          // LDX zero page,Y opcode
-            0x0201,        // operand address
+            0x0200,        // operand address
             &[0x40],       // zero page base address
             0x0047,        // target address (base + Y)
             0x67,          // target value
@@ -366,9 +351,7 @@ mod tests {
         // Effective address: $F0 + $30 = $20 (wrap around)
         setup_test_case(
             &mut cpu,
-            0x0200,        // opcode address
-            0xB6,          // LDX zero page,Y opcode
-            0x0201,        // operand address
+            0x0200,        // operand address
             &[0xF0],       // zero page base address
             0x0020,        // target address (wrapped around)
             0x42,          // target value
@@ -389,9 +372,7 @@ mod tests {
         // LDA $1234 (Absolute)
         setup_test_case(
             &mut cpu,
-            0x0200,        // opcode address
-            0xAD,          // LDA absolute opcode
-            0x0201,        // operand address
+            0x0200,        // operand address
             &[0x34, 0x12], // absolute address $1234 (little-endian)
             0x1234,        // target address
             0x42,          // target value
@@ -410,9 +391,7 @@ mod tests {
         // Effective address: $1230 + $04 = $1234
         setup_test_case(
             &mut cpu,
-            0x0200,        // opcode address
-            0xBD,          // LDA absolute,X opcode
-            0x0201,        // operand address
+            0x0200,        // operand address
             &[0x30, 0x12], // absolute address $1230 (little-endian)
             0x1234,        // target address (base + X)
             0x42,          // target value
@@ -434,9 +413,7 @@ mod tests {
         // Effective address: $12FF + $01 = $1300
         setup_test_case(
             &mut cpu,
-            0x0200,        // opcode address
-            0xBD,          // LDA absolute,X opcode
-            0x0201,        // operand address
+            0x0200,        // operand address
             &[0xFF, 0x12], // absolute address $12FF (little-endian)
             0x1300,        // target address (crosses page boundary)
             0x42,          // target value
@@ -466,9 +443,7 @@ mod tests {
         // Effective address: $1230 + $05 = $1235
         setup_test_case(
             &mut cpu,
-            0x0200,        // opcode address
-            0xB9,          // LDA absolute,Y opcode
-            0x0201,        // operand address
+            0x0200,        // operand address
             &[0x30, 0x12], // absolute address $1230 (little-endian)
             0x1235,        // target address (base + Y)
             0x42,          // target value
@@ -490,9 +465,7 @@ mod tests {
         // Effective address: $12FF + $10 = $130F
         setup_test_case(
             &mut cpu,
-            0x0200,        // opcode address
-            0xB9,          // LDA absolute,Y opcode
-            0x0201,        // operand address
+            0x0200,        // operand address
             &[0xFF, 0x12], // absolute address $12FF (little-endian)
             0x130F,        // target address (crosses page boundary)
             0x42,          // target value
@@ -521,9 +494,7 @@ mod tests {
         // JMP ($1234) - Jump to the address stored at $1234-$1235
         setup_test_case(
             &mut cpu,
-            0x0200,         // opcode address
-            0x6C,           // JMP indirect opcode
-            0x0201,         // operand address
+            0x0200,         // operand address
             &[0x34, 0x12],  // indirect pointer address $1234
             0,              // target address (N/A for this test)
             0,              // target value (N/A for this test)
@@ -544,9 +515,7 @@ mod tests {
         // JMP ($12FF) - Jump to the address stored at $12FF-$1200 (bug: wraps in page)
         setup_test_case(
             &mut cpu,
-            0x0200,         // opcode address
-            0x6C,           // JMP indirect opcode
-            0x0201,         // operand address
+            0x0200,         // operand address
             &[0xFF, 0x12],  // indirect pointer address $12FF (at page boundary)
             0,              // target address (N/A for this test)
             0,              // target value (N/A for this test)
@@ -570,9 +539,7 @@ mod tests {
         // LDA ($40,X) with X=$05 - Load from address stored at ($40+$05)
         setup_test_case(
             &mut cpu,
-            0x0200,         // opcode address
-            0xA1,           // LDA indexed indirect opcode
-            0x0201,         // operand address
+            0x0200,         // operand address
             &[0x40],        // zero page base pointer
             0xABCD,         // target address (stored at $45-$46)
             0x42,           // target value
@@ -600,9 +567,7 @@ mod tests {
         // LDA ($FF,X) with X=$02 - Tests zero page wrap-around
         setup_test_case(
             &mut cpu,
-            0x0200,         // opcode address
-            0xA1,           // LDA indexed indirect opcode
-            0x0201,         // operand address
+            0x0200,         // operand address
             &[0xFF],        // zero page base pointer
             0xABCD,         // target address (stored at $01-$02 after wrap)
             0x42,           // target value
@@ -631,9 +596,7 @@ mod tests {
         // LDA ($40),Y with Y=$08 - Load from address stored at $40-$41 plus Y
         setup_test_case(
             &mut cpu,
-            0x0200,         // opcode address
-            0xB1,           // LDA indirect indexed opcode
-            0x0201,         // operand address
+            0x0200,         // operand address
             &[0x40],        // zero page pointer
             0x123C,         // target address ($1234 + $08)
             0x42,           // target value
@@ -661,9 +624,7 @@ mod tests {
         // LDA ($40),Y with Y=$20 - Tests page boundary crossing
         setup_test_case(
             &mut cpu,
-            0x0200,         // opcode address
-            0xB1,           // LDA indirect indexed opcode
-            0x0201,         // operand address
+            0x0200,         // operand address
             &[0x40],        // zero page pointer
             0x1310,         // target address ($12F0 + $20, crosses page)
             0x42,           // target value
@@ -696,9 +657,7 @@ mod tests {
         // LDA ($FF),Y with Y=$10 - Tests zero page wrap-around for pointer
         setup_test_case(
             &mut cpu,
-            0x0200,         // opcode address
-            0xB1,           // LDA indirect indexed opcode
-            0x0201,         // operand address
+            0x0200,         // operand address
             &[0xFF],        // zero page pointer (at boundary, will wrap)
             0x1244,         // target address ($1234 + $10)
             0x42,           // target value

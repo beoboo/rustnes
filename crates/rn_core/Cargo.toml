@@ -7,4 +7,5 @@ description = "Core NES emulation engine"
 license.workspace = true
 
 [dependencies]
-# Any specific dependencies for rn_core 
+anyhow.workspace = true
+thiserror.workspace = true

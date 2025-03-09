@@ -1,4 +1,4 @@
-use super::{AddressingMode, Cpu, CpuFlag};
+use super::{AddressingMode, Cpu, CpuFlag, CpuError};
 
 /// 6502 CPU instruction opcodes
 /// Starting with just LDA immediate as a first step
@@ -34,10 +34,12 @@ impl InstructionDecoder {
         decoder
     }
 
-    /// Populate the instruction lookup table with only LDA immediate
+    /// Populate the instruction lookup table with LDA addressing modes for T1
     fn populate_instruction_table(&mut self) {
-        // Just LDA immediate (0xA9) for now
-        self.add_instruction(0xA9, Instruction::LDA, AddressingMode::Immediate, 2, 2);
+        // LDA - Load Accumulator
+        self.add_instruction(0xA9, Instruction::LDA, AddressingMode::Immediate, 2, 2); // LDA Immediate
+        self.add_instruction(0xA5, Instruction::LDA, AddressingMode::ZeroPage, 2, 3);  // LDA Zero Page
+        self.add_instruction(0xAD, Instruction::LDA, AddressingMode::Absolute, 3, 4);  // LDA Absolute
     }
 
     /// Add an instruction to the lookup table
@@ -59,8 +61,9 @@ impl InstructionDecoder {
     }
 
     /// Decode an opcode into instruction metadata
-    pub fn decode(&self, opcode: u8) -> Option<InstructionMetadata> {
+    pub fn decode(&self, opcode: u8) -> Result<InstructionMetadata, CpuError> {
         self.instruction_table[opcode as usize]
+            .ok_or(CpuError::InvalidOpcode(opcode))
     }
 }
 
@@ -87,17 +90,20 @@ impl Cpu {
         cycles
     }
 
-    /// LDA - Load Accumulator (immediate mode only for now)
+    /// LDA - Load Accumulator with support for all addressing modes
     fn lda(&mut self, addressing_mode: AddressingMode) {
-        if addressing_mode == AddressingMode::Immediate {
-            // In immediate mode, the value is the byte after the opcode
-            let value = self.read_byte(self.pc);
-            self.a = value;
-            
-            // Set flags
-            self.set_flag(CpuFlag::Zero, value == 0);
-            self.set_flag(CpuFlag::Negative, (value & 0x80) != 0);
-        }
+        // Use the addressing mode to get the operand address
+        let addr = addressing_mode.get_operand_address(self);
+        
+        // Get the value from the address (immediate mode automatically returns the correct address)
+        let value = self.read_byte(addr);
+        
+        // Set the accumulator
+        self.a = value;
+        
+        // Set flags
+        self.set_flag(CpuFlag::Zero, value == 0);
+        self.set_flag(CpuFlag::Negative, (value & 0x80) != 0);
     }
 }
 
@@ -105,9 +111,10 @@ impl Cpu {
 mod tests {
     use super::*;
     use crate::memory::Ram;
+    use anyhow::Result;
 
     #[test]
-    fn test_lda_immediate() {
+    fn test_lda_immediate() -> Result<()> {
         let mut cpu = Cpu::new(Box::new(Ram::new()));
         
         // Set up test
@@ -118,7 +125,7 @@ mod tests {
         // Execute
         let opcode = cpu.fetch();
         let decoder = InstructionDecoder::new();
-        let metadata = decoder.decode(opcode).unwrap();
+        let metadata = decoder.decode(opcode)?;
         let cycles = cpu.execute(metadata);
         
         // Verify results
@@ -127,5 +134,77 @@ mod tests {
         assert_eq!(cycles, 2);
         assert!(!cpu.get_flag(CpuFlag::Zero));
         assert!(!cpu.get_flag(CpuFlag::Negative));
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_lda_zero_page() -> Result<()> {
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        
+        // Set up test
+        cpu.pc = 0x0100;
+        cpu.write_byte(0x0100, 0xA5); // LDA zero page opcode
+        cpu.write_byte(0x0101, 0x42); // Zero page address
+        cpu.write_byte(0x0042, 0x37); // Value to load from zero page
+        
+        // Execute
+        let opcode = cpu.fetch();
+        let decoder = InstructionDecoder::new();
+        let metadata = decoder.decode(opcode)?;
+        let cycles = cpu.execute(metadata);
+        
+        // Verify results
+        assert_eq!(cpu.a, 0x37);
+        assert_eq!(cpu.pc, 0x0102);
+        assert_eq!(cycles, 3);
+        assert!(!cpu.get_flag(CpuFlag::Zero));
+        assert!(!cpu.get_flag(CpuFlag::Negative));
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_lda_absolute() -> Result<()> {
+        let mut cpu = Cpu::new(Box::new(Ram::new()));
+        
+        // Set up test
+        cpu.pc = 0x0100;
+        cpu.write_byte(0x0100, 0xAD); // LDA absolute opcode
+        cpu.write_word(0x0101, 0x1234); // Address to load from
+        cpu.write_byte(0x1234, 0x80); // Value to load from absolute address (0x80 has bit 7 set)
+        
+        // Execute
+        let opcode = cpu.fetch();
+        let decoder = InstructionDecoder::new();
+        let metadata = decoder.decode(opcode)?;
+        let cycles = cpu.execute(metadata);
+        
+        // Verify results
+        assert_eq!(cpu.a, 0x80);
+        assert_eq!(cpu.pc, 0x0103);
+        assert_eq!(cycles, 4);
+        assert!(!cpu.get_flag(CpuFlag::Zero));
+        assert!(cpu.get_flag(CpuFlag::Negative)); // 0x80 has bit 7 set
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_invalid_opcode() -> Result<()> {
+        let decoder = InstructionDecoder::new();
+        
+        // Test an invalid opcode (0xFF)
+        let result = decoder.decode(0xFF);
+        
+        // Should return an InvalidOpcode error
+        assert!(result.is_err(), "Expected an error for invalid opcode");
+        if let Err(CpuError::InvalidOpcode(opcode)) = result {
+            assert_eq!(opcode, 0xFF);
+        } else {
+            anyhow::bail!("Expected InvalidOpcode error, got: {:?}", result);
+        }
+        
+        Ok(())
     }
 } 

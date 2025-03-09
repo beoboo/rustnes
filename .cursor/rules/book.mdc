@@ -1,6 +1,6 @@
 ---
-description: Book rules
-globs: book/*
+description: 
+globs: book/**/*
 alwaysApply: false
 ---
 # Book Writing Guidelines for RustNES Emulator
