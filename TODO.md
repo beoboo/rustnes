@@ -49,8 +49,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ### Essential Instructions [T1]
 - [x] Create instruction decoder
 - [x] Implement load instructions (LDA, LDX, LDY)
-- [ ] Implement store instructions (STA, STX, STY)
-- [ ] Implement basic jumps (JMP)
+- [x] Implement store instructions (STA, STX, STY)
+- [x] Implement basic jumps (JMP)
 - [ ] Implement subroutine calls (JSR, RTS)
 - [ ] Write tests for essential instructions
 
@@ -98,8 +98,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Create instruction parser module with error handling
 - [x] Implement parsing for basic addressing modes (immediate, zero page, absolute)
 - [x] Implement parsing for essential load instructions (LDA, LDX, LDY)
-- [ ] Implement parsing for essential store instructions (STA, STX, STY)
-- [ ] Implement parsing for basic jumps and subroutines (JMP, JSR, RTS)
+- [x] Implement parsing for essential store instructions (STA, STX, STY)
+- [x] Implement parsing for basic jumps and subroutines (JMP, JSR, RTS) (JMP implemented)
 - [x] Add parser tests for essential instructions
 - [ ] Create basic disassembler for essential instructions
 
@@ -332,4 +332,4 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 3 (Interactive Graphics): 0% complete
 - Track 4 (Complete NES): 0% complete
 
-**Total Progress: 18/182 tasks complete (9.9%)** 
+**Total Progress: 22/182 tasks complete (12.1%)** 
