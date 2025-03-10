@@ -366,6 +366,25 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Demonstrate advanced features
 - [ ] Document full compatibility
 
+## AsmDebugger Tool [T1]
+- [x] Set up basic egui application structure
+- [x] Implement memory visualization (0x0200-0x05FF as pixels)
+- [x] Add assembly code editor with basic controls
+- [x] Connect assembly editor to parser and display assembled code
+- [x] Implement basic CPU state display
+- [x] Implement program loading and execution
+- [x] Move widgets to rn_ui for reuse
+- [ ] Add disassembly view for code
+- [x] Implement step-by-step execution
+- [ ] Add breakpoint support
+- [ ] Implement memory editor
+- [ ] Connect to running emulator instance
+- [ ] Add register modification capabilities
+- [ ] Implement visual memory map
+- [ ] Add support for viewing/editing PPU memory
+- [ ] Create user-friendly UI with dockable panels
+- [ ] Implement performance profiling features
+
 ## Progress Tracking
 - Track 1 (Memory Visualization): 0% complete
 - Track 2 (PPU Pixel Display): 0% complete

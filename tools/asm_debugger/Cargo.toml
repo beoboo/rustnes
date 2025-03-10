@@ -10,4 +10,5 @@ anyhow = { workspace = true }
 egui = { workspace = true }
 eframe = { workspace = true }
 tracing-subscriber = { workspace = true }
-rn_core = { path = "../../crates/rn_core" } 
+rn_core = { path = "../../crates/rn_core" }
+rn_ui = { path = "../../crates/rn_ui" } 

@@ -1,56 +1,38 @@
 use eframe::{egui, App, Frame};
 use rn_core::cpu::Cpu;
-
-// Import our modules
-mod memory_viz;
-use memory_viz::MemoryVisualizer;
-
-mod asm_widget;
-use asm_widget::AsmWidget;
+use rn_core::memory::Ram;
+use rn_ui::widgets::{AsmWidget, CpuWidget, MemoryVisualizer};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Main debugger application
 struct AsmDebugger {
     // Components
     memory_visualizer: MemoryVisualizer,
     asm_widget: AsmWidget,
-    
+    cpu_widget: CpuWidget,
+
     // Emulation state
-    cpu: Option<Cpu>,
-    memory: Vec<u8>, // Mock memory for testing
-    
+    cpu: Rc<RefCell<Cpu>>,
+
     // UI state
     show_memory_viz: bool,
+    show_cpu: bool,
 }
 
 impl AsmDebugger {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        // Create mock memory with some test data
-        let mut memory = vec![0; 0x10000]; // Full 64KB address space
-        
-        // Add some test patterns to the video memory region (0x0200-0x05FF)
-        for i in 0x0200..=0x05FF {
-            let x = (i - 0x0200) % 32;
-            let y = (i - 0x0200) / 32;
-            
-            // Create a checkerboard pattern
-            if (x / 4 + y / 4) % 2 == 0 {
-                memory[i] = 0xFF; // White
-            } else {
-                memory[i] = 0x00; // Black
-            }
-            
-            // Add a gradient in another area
-            if x > 16 && y > 16 {
-                memory[i] = ((x + y) % 255) as u8;
-            }
-        }
-        
+        // Create a shared CPU instance with RAM
+        let ram = Ram::default(); // Use the default 64KB RAM
+        let cpu = Rc::new(RefCell::new(Cpu::new(Box::new(ram))));
+
         Self {
             memory_visualizer: MemoryVisualizer::new(),
-            asm_widget: AsmWidget::new(),
-            cpu: None,
-            memory,
+            asm_widget: AsmWidget::new(cpu.clone()),
+            cpu_widget: CpuWidget::new(),
+            cpu,
             show_memory_viz: true,
+            show_cpu: true,
         }
     }
 }
@@ -68,35 +50,38 @@ impl App for AsmDebugger {
             
             // Simple controls for memory visualization
             ui.checkbox(&mut self.show_memory_viz, "Show Memory Visualization");
-            
-            if ui.button("Fill with test pattern").clicked() {
-                // Regenerate test pattern
-                for i in 0x0200..=0x05FF {
-                    let x = (i - 0x0200) % 32;
-                    let y = (i - 0x0200) / 32;
-                    
-                    // Create a different pattern
-                    if (x / 2 + y / 4) % 2 == 0 {
-                        self.memory[i] = 0xAA;
-                    } else {
-                        self.memory[i] = 0x55;
-                    }
-                }
-            }
+            ui.checkbox(&mut self.show_cpu, "Show CPU State");
         });
-        
+
         // Main central panel
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("RustNES Assembly Debugger");
-            
+
             // Memory visualization
             if self.show_memory_viz {
                 ui.add_space(10.0);
                 ui.heading("Memory Visualization (0x0200-0x05FF)");
                 ui.label("Each byte is represented as a pixel with grayscale value");
                 
+                // Create a buffer of memory from the CPU's memory for visualization
+                let cpu = self.cpu.borrow();
+                let mut memory_buffer = Vec::with_capacity(0x0400); // Only need 0x0200-0x05FF range
+                
+                // We only care about the visualization range (0x0200-0x05FF)
+                for addr in 0x0200..=0x05FF {
+                    memory_buffer.push(cpu.read_byte(addr));
+                }
+                
                 // Show the memory visualization
-                self.memory_visualizer.show(ui, &self.memory);
+                self.memory_visualizer.show(ui, &memory_buffer);
+            }
+
+            // Display CPU state if show_cpu is true and the assembler is running
+            if self.show_cpu {
+                ui.add_space(10.0);
+
+                // Show the CPU widget
+                self.cpu_widget.ui(ui, &mut self.cpu.borrow_mut());
             }
         });
     }
@@ -105,7 +90,7 @@ impl App for AsmDebugger {
 fn main() -> anyhow::Result<()> {
     // Initialize logging
     tracing_subscriber::fmt::init();
-    
+
     // Set up the native options
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -113,13 +98,14 @@ fn main() -> anyhow::Result<()> {
             .with_min_inner_size([800.0, 600.0]),
         ..Default::default()
     };
-    
+
     // Run the app
     eframe::run_native(
         "RustNES Assembly Debugger",
         options,
-        Box::new(|cc| Ok(Box::new(AsmDebugger::new(cc))))
-    ).map_err(|e| anyhow::anyhow!("Application error: {}", e))?;
-    
+        Box::new(|cc| Ok(Box::new(AsmDebugger::new(cc)))),
+    )
+    .map_err(|e| anyhow::anyhow!("Application error: {}", e))?;
+
     Ok(())
-} 
+}

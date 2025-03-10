@@ -27,8 +27,22 @@ impl MemoryVisualizer {
         }
     }
     
+    /// Create a memory visualizer with custom settings
+    pub fn with_range(start_addr: u16, end_addr: u16, width: usize) -> Self {
+        Self {
+            start_addr,
+            end_addr,
+            width,
+            pixel_size: 8.0,
+            zoom: 1.0,
+        }
+    }
+    
     /// Show the memory visualization in the given UI
     pub fn show(&mut self, ui: &mut Ui, memory: &[u8]) -> egui::Response {
+        // Add a description of the color mapping
+        ui.label("Color mapping: $00=Black, $01=White, $02-$0F=NES color palette, others=grayscale");
+        
         // Calculate dimensions based on memory range and settings
         let memory_size = (self.end_addr - self.start_addr + 1) as usize;
         let height = (memory_size + self.width - 1) / self.width; // Ceiling division
@@ -50,7 +64,9 @@ impl MemoryVisualizer {
             
             // Draw memory pixels
             for i in 0..memory_size {
-                if let Some(memory_value) = memory.get((self.start_addr as usize) + i) {
+                // The memory buffer is indexed from 0, but represents addresses from start_addr
+                // So we need to subtract start_addr to get the correct index
+                if let Some(memory_value) = memory.get(i) {
                     // Calculate position in grid
                     let x = (i % self.width) as f32;
                     let y = (i / self.width) as f32;
@@ -61,8 +77,8 @@ impl MemoryVisualizer {
                         Vec2::splat(self.pixel_size * self.zoom),
                     );
                     
-                    // Convert memory value to color (simple grayscale for now)
-                    let color = egui::Color32::from_gray(*memory_value);
+                    // Convert memory value to color using our color mapping
+                    let color = self.byte_to_color(*memory_value);
                     
                     // Draw the pixel
                     painter.rect_filled(pixel_rect, 0.0, color);
@@ -109,6 +125,59 @@ impl MemoryVisualizer {
     pub fn set_pixel_size(&mut self, size: f32) {
         if size > 1.0 && size < 32.0 {
             self.pixel_size = size;
+        }
+    }
+    
+    // Getters
+    pub fn start_addr(&self) -> u16 {
+        self.start_addr
+    }
+    
+    pub fn end_addr(&self) -> u16 {
+        self.end_addr
+    }
+    
+    pub fn width(&self) -> usize {
+        self.width
+    }
+    
+    pub fn zoom(&self) -> f32 {
+        self.zoom
+    }
+    
+    pub fn pixel_size(&self) -> f32 {
+        self.pixel_size
+    }
+
+    /// Convert a byte value to a color
+    fn byte_to_color(&self, value: u8) -> egui::Color32 {
+        // Define a color palette based on common NES colors
+        match value {
+            0x00 => egui::Color32::BLACK,           // Black
+            0x01 => egui::Color32::WHITE,           // White
+            0x02 => egui::Color32::from_rgb(124, 124, 124), // Dark Gray
+            0x03 => egui::Color32::from_rgb(188, 188, 188), // Light Gray
+            0x04 => egui::Color32::from_rgb(248, 56, 0),    // Red
+            0x05 => egui::Color32::from_rgb(252, 160, 68),  // Orange
+            0x06 => egui::Color32::from_rgb(236, 200, 76),  // Yellow
+            0x07 => egui::Color32::from_rgb(116, 208, 0),   // Green
+            0x08 => egui::Color32::from_rgb(0, 120, 248),   // Blue
+            0x09 => egui::Color32::from_rgb(104, 68, 252),  // Purple
+            0x0A => egui::Color32::from_rgb(168, 0, 32),    // Dark Red
+            0x0B => egui::Color32::from_rgb(0, 168, 0),     // Dark Green
+            0x0C => egui::Color32::from_rgb(0, 0, 168),     // Dark Blue
+            0x0D => egui::Color32::from_rgb(0, 168, 168),   // Cyan
+            0x0E => egui::Color32::from_rgb(168, 0, 168),   // Magenta
+            0x0F => egui::Color32::from_rgb(168, 168, 0),   // Yellow-Green
+            // For values outside the defined palette, use a gradient based on the value
+            _ => {
+                let brightness = (value as f32 / 255.0 * 0.7 + 0.3) * 255.0;
+                egui::Color32::from_rgb(
+                    brightness as u8,
+                    brightness as u8,
+                    brightness as u8,
+                )
+            }
         }
     }
 } 

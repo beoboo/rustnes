@@ -143,6 +143,20 @@ impl Cpu {
         self.cycles = 7;
     }
     
+    /// Load a program into memory and set up the reset vector
+    pub fn load_program(&mut self, program: &[u8], load_address: u16) {
+        // Load the program into memory
+        for (i, &byte) in program.iter().enumerate() {
+            self.write_byte(load_address.wrapping_add(i as u16), byte);
+        }
+        
+        // Set the reset vector to point to our program
+        self.write_word(0xFFFC, load_address);
+        
+        // Reset the CPU to prepare it for execution
+        self.reset();
+    }
+    
     /// Read a byte using the specified addressing mode - simplified for tests
     pub fn read_byte_using_mode(&self, mode: AddressingMode) -> u8 {
         let addr = mode.get_operand_address(self);
@@ -288,6 +302,41 @@ mod tests {
         
         // PC should still be incremented because fetch still happened
         assert_eq!(cpu.pc, 0x0001);
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_load_program() -> Result<()> {
+        // Create a RAM instance
+        let mut ram = Ram::default();
+        let mut cpu = Cpu::new(Box::new(ram));
+        
+        // Simple program: LDA #$42, STA $0200, BRK
+        let program = [0xA9, 0x42, 0x8D, 0x00, 0x02, 0x00];
+        let load_address = 0x8000;
+        
+        // Load the program
+        cpu.load_program(&program, load_address);
+        
+        // Verify the program was loaded correctly
+        for (i, &byte) in program.iter().enumerate() {
+            assert_eq!(cpu.read_byte(load_address + i as u16), byte);
+        }
+        
+        // Verify the reset vector was set correctly
+        assert_eq!(cpu.read_word(0xFFFC), load_address);
+        
+        // Verify the CPU was reset and PC points to the program
+        assert_eq!(cpu.pc, load_address);
+        
+        // Execute the first instruction (LDA #$42)
+        cpu.step()?;
+        assert_eq!(cpu.a, 0x42);
+        
+        // Execute the second instruction (STA $0200)
+        cpu.step()?;
+        assert_eq!(cpu.read_byte(0x0200), 0x42);
         
         Ok(())
     }

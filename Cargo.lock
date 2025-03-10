@@ -233,6 +233,7 @@ dependencies = [
  "eframe",
  "egui",
  "rn_core",
+ "rn_ui",
  "tracing-subscriber",
 ]
 
