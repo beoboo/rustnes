@@ -20,13 +20,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Add benchmark infrastructure [T5]
 
 ## NES Architecture Overview [T1]
-- [ ] Document NES hardware components
-- [ ] Create diagrams of system architecture
-- [ ] Document memory map
-- [ ] Document system bus
-- [ ] Research hardware specifications
-- [ ] Collect reference materials
-- [ ] Document hardware limitations and quirks
+- [x] Document NES hardware components
+- [x] Create diagrams of system architecture
+- [x] Document memory map
+- [x] Document system bus
+- [x] Research hardware specifications
+- [x] Collect reference materials
+- [x] Document hardware limitations and quirks
 
 ## CPU Implementation
 
@@ -53,8 +53,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement store instructions (STA, STX, STY)
 - [x] Implement basic jumps (JMP)
 - [x] Implement subroutine calls (JSR, RTS)
-- [ ] Implement BRK instruction for interrupt handling
-- [ ] Write tests for essential instructions
+- [x] Implement BRK instruction for interrupt handling
+- [x] Write tests for essential instructions
 
 ### Extended Addressing Modes [T3]
 - [x] Implement zero page,X addressing
@@ -102,7 +102,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement parsing for essential load instructions (LDA, LDX, LDY)
 - [x] Implement parsing for essential store instructions (STA, STX, STY)
 - [x] Implement parsing for basic jumps and subroutines (JMP, JSR, RTS) (JMP implemented)
-- [ ] Implement parsing for BRK instruction
+- [x] Implement parsing for BRK instruction
 - [x] Add parser tests for essential instructions
 - [ ] Create basic disassembler for essential instructions
 
@@ -142,8 +142,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement `Bus` struct as mediator for memory-mapped devices
 - [x] Rename `Memory` trait to `Addressable` for better semantics
 - [x] Refactor `Ram` to work with the new bus architecture
-- [ ] Create memory address range utilities for device registration
-- [ ] Test bus routing and device registration
+- [x] Create memory address range utilities for device registration
+- [x] Test bus routing and device registration
 
 ### Essential Memory Components [T2]
 - [x] Limit RAM to only handle the main memory region ($0000-$1FFF)
@@ -231,13 +231,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test basic pixel rendering
 
 ## MILESTONE 1: Memory Visualization [T1]
-- [ ] Create a memory visualization component for egui
-- [ ] Map memory range 0x0200-0x05FF to pixels in the visualization
-- [ ] Implement color mapping for memory values
-- [ ] Create a test program that sets specific memory values
-- [ ] Display the memory contents as pixels
-- [ ] Implement real-time updates as memory changes
-- [ ] Document the implementation
+- [x] Create a memory visualization component for egui
+- [x] Map memory range 0x0200-0x05FF to pixels in the visualization
+- [x] Implement color mapping for memory values
+- [x] Create a test program that sets specific memory values
+- [x] Display the memory contents as pixels
+- [x] Implement real-time updates as memory changes
 
 ## MILESTONE 2: System Integration [T2]
 - [ ] Implement `NesSystem` struct to coordinate components
@@ -250,7 +249,6 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Integrate CPU, Memory, and PPU components
 - [ ] Implement basic main loop
 - [ ] Display a colored pixel using the PPU
-- [ ] Document the achievement
 
 ### Pattern Tables [T3]
 - [ ] Implement pattern table access
@@ -378,7 +376,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Move widgets to rn_ui for reuse
 - [ ] Add disassembly view for code
 - [x] Implement step-by-step execution
-- [ ] Add BRK instruction support for program termination
+- [x] Add BRK instruction support for program termination
 - [ ] Add breakpoint support
 - [ ] Implement memory editor
 - [ ] Connect to running emulator instance
@@ -395,4 +393,4 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 4 (Interactive Graphics): 0% complete
 - Track 5 (Complete NES): 0% complete
 
-**Total Progress: 41/182 tasks complete (22.5%)** 
+**Total Progress: 60/182 tasks complete (33.0%)** 
