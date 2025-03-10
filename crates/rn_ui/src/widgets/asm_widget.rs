@@ -19,8 +19,10 @@ pub struct AsmWidget {
     cpu: Rc<RefCell<Cpu>>,
     /// Default load address for the program
     load_address: u16,
-    /// Whether the CPU is running
-    is_running: bool,
+    /// Whether the program is loaded into the CPU
+    is_loaded: bool,
+    /// Whether the CPU is actually executing
+    is_executing: bool,
 }
 
 impl AsmWidget {
@@ -34,7 +36,8 @@ impl AsmWidget {
             assembler: Assembler::new(),
             cpu,
             load_address: 0x8000, // Default load address
-            is_running: false,
+            is_loaded: false,
+            is_executing: false,
         }
     }
 
@@ -54,14 +57,19 @@ impl AsmWidget {
         // Load the program into the CPU
         let mut cpu = self.cpu.borrow_mut();
         cpu.load_program(&self.assembled_bytes, self.load_address);
-        self.is_running = true;
+        
+        // Program is loaded but not executing yet
+        self.is_loaded = true;
+        self.is_executing = false;
     }
     
     /// Run the program until it reaches a halt condition or max steps
     pub fn run_program(&mut self) {
-        if !self.is_running {
+        if !self.is_loaded {
             self.reset_and_load();
         }
+        
+        self.is_executing = true;
         
         // Define a max number of steps to avoid infinite loops
         let max_steps = 100;
@@ -90,7 +98,7 @@ impl AsmWidget {
                 Err(err) => {
                     // Handle error
                     self.error_message = Some(format!("Execution error: {}", err));
-                    self.is_running = false;
+                    self.is_executing = false;
                     break;
                 }
             }
@@ -104,9 +112,11 @@ impl AsmWidget {
     
     /// Execute a single instruction
     pub fn step(&mut self) {
-        if !self.is_running {
-            return;
+        if !self.is_loaded {
+            self.reset_and_load();
         }
+        
+        self.is_executing = true;
         
         let mut cpu = self.cpu.borrow_mut();
         match cpu.step() {
@@ -116,7 +126,7 @@ impl AsmWidget {
             Err(err) => {
                 // Handle error
                 self.error_message = Some(format!("Execution error: {}", err));
-                self.is_running = false;
+                self.is_executing = false;
             }
         }
     }
@@ -131,17 +141,32 @@ impl AsmWidget {
             Ok(bytes) => {
                 self.assembled_bytes = bytes;
                 self.assembled = true;
+                
+                // Load the program but don't run it
+                self.reset_and_load();
             },
             Err(err) => {
                 self.error_message = Some(format!("Assembly error: {}", err));
                 self.assembled = false;
+                self.is_loaded = false;
+                self.is_executing = false;
             }
         }
     }
     
-    /// Check if the CPU is running
+    /// Check if the CPU is running (legacy compatibility)
     pub fn is_running(&self) -> bool {
-        self.is_running
+        self.is_executing
+    }
+    
+    /// Check if the program is loaded
+    pub fn is_loaded(&self) -> bool {
+        self.is_loaded
+    }
+    
+    /// Check if the CPU is executing
+    pub fn is_executing(&self) -> bool {
+        self.is_executing
     }
     
     /// Get the assembled bytes
@@ -159,7 +184,7 @@ impl AsmWidget {
         self.load_address = address;
     }
     
-    /// Display the assembled bytes as hex
+    /// Show the assembled bytes as hex
     fn show_assembled_bytes(&mut self, ui: &mut Ui) {
         if self.assembled_bytes.is_empty() {
             return;
@@ -212,27 +237,35 @@ impl AsmWidget {
         
         // Buttons
         ui.horizontal(|ui| {
-            if ui.button("Assemble").clicked() {
-                self.assemble_code();
-                // Reset CPU state when we assemble new code
-                self.is_running = false;
-            }
+            // "Assemble" enabled when not loaded
+            ui.add_enabled_ui(!self.is_loaded, |ui| {
+                if ui.button("Assemble").clicked() {
+                    self.assemble_code();
+                }
+            });
             
+            // Other buttons enabled when assembled
             ui.add_enabled_ui(self.assembled, |ui| {
-                if ui.button("Run").clicked() {
-                    self.run_program();
-                }
-                
-                if ui.button("Reset").clicked() {
-                    self.reset_and_load();
-                }
-                
-                if ui.button("Step").clicked() {
-                    if !self.is_running {
-                        self.reset_and_load();
+                // "Run" enabled when loaded but not executing
+                ui.add_enabled_ui(self.is_loaded && !self.is_executing, |ui| {
+                    if ui.button("Run").clicked() {
+                        self.run_program();
                     }
-                    self.step();
-                }
+                });
+                
+                // "Reset" enabled when loaded
+                ui.add_enabled_ui(self.is_loaded, |ui| {
+                    if ui.button("Reset").clicked() {
+                        self.full_reset();
+                    }
+                });
+                
+                // "Step" enabled when loaded
+                ui.add_enabled_ui(self.is_loaded, |ui| {
+                    if ui.button("Step").clicked() {
+                        self.step();
+                    }
+                });
             });
         });
         
@@ -247,5 +280,35 @@ impl AsmWidget {
             ui.add_space(10.0);
             self.show_assembled_bytes(ui);
         }
+    }
+
+    /// Fully reset the system and clear memory
+    pub fn full_reset(&mut self) {
+        // Get CPU
+        let mut cpu = self.cpu.borrow_mut();
+        
+        // Clear the memory where the program was loaded
+        if self.assembled {
+            // Zero out the memory where the program was loaded
+            let end_address = self.load_address + self.assembled_bytes.len() as u16;
+            for addr in self.load_address..end_address {
+                cpu.write_byte(addr, 0);
+            }
+            
+            // Also clear the reset vector to prevent auto-loading
+            cpu.write_word(0xFFFC, 0);
+        }
+        
+        // Reset CPU to initial state
+        cpu.reset();
+        
+        // Explicitly set PC to 0 - this will be outside most disassembly views
+        // This is needed because reset reads from the reset vector which might have 
+        // been set by a previous program
+        cpu.pc = 0;
+        
+        // Reset widget state
+        self.is_loaded = false;
+        self.is_executing = false;
     }
 } 

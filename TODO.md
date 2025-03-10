@@ -104,7 +104,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement parsing for basic jumps and subroutines (JMP, JSR, RTS) (JMP implemented)
 - [x] Implement parsing for BRK instruction
 - [x] Add parser tests for essential instructions
-- [ ] Create basic disassembler for essential instructions
+- [x] Create basic disassembler for essential instructions
 
 ### Extended Parser Capabilities [T3]
 - [ ] Implement parsing for extended addressing modes (X/Y indexed)
@@ -237,6 +237,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Create a test program that sets specific memory values
 - [x] Display the memory contents as pixels
 - [x] Implement real-time updates as memory changes
+- [x] Document the implementation
 
 ## MILESTONE 2: System Integration [T2]
 - [ ] Implement `NesSystem` struct to coordinate components
@@ -374,7 +375,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement basic CPU state display
 - [x] Implement program loading and execution
 - [x] Move widgets to rn_ui for reuse
-- [ ] Add disassembly view for code
+- [x] Add disassembly view for code
 - [x] Implement step-by-step execution
 - [x] Add BRK instruction support for program termination
 - [ ] Add breakpoint support

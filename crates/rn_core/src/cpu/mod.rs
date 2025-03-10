@@ -12,6 +12,9 @@ pub use error::CpuError;
 mod assembler;
 pub use assembler::{Assembler, AssembleError, ParseResult};
 
+mod disassembler;
+pub use disassembler::{Disassembler, DisassembleError};
+
 /// CPU status flags
 #[derive(Debug, Clone, Copy)]
 #[rustfmt::skip]

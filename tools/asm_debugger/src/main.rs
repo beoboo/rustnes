@@ -1,7 +1,7 @@
 use eframe::{egui, App, Frame};
 use rn_core::cpu::Cpu;
 use rn_core::memory::Ram;
-use rn_ui::widgets::{AsmWidget, CpuWidget, MemoryVisualizer};
+use rn_ui::widgets::{AsmWidget, CpuWidget, MemoryVisualizer, DisasmWidget};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -11,6 +11,7 @@ struct AsmDebugger {
     memory_visualizer: MemoryVisualizer,
     asm_widget: AsmWidget,
     cpu_widget: CpuWidget,
+    disasm_widget: DisasmWidget,
 
     // Emulation state
     cpu: Rc<RefCell<Cpu>>,
@@ -18,6 +19,7 @@ struct AsmDebugger {
     // UI state
     show_memory_viz: bool,
     show_cpu: bool,
+    show_disasm: bool,
 }
 
 impl AsmDebugger {
@@ -30,18 +32,31 @@ impl AsmDebugger {
             memory_visualizer: MemoryVisualizer::new(),
             asm_widget: AsmWidget::new(cpu.clone()),
             cpu_widget: CpuWidget::new(),
+            disasm_widget: DisasmWidget::new(),
             cpu,
             show_memory_viz: true,
             show_cpu: true,
+            show_disasm: true,
         }
     }
 }
 
 impl App for AsmDebugger {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
-        // Left panel for controls and settings
-
-        egui::SidePanel::left("controls_panel").show(ctx, |ui| {
+        // Update DisasmWidget with program information
+        if self.asm_widget.is_loaded() {
+            self.disasm_widget.set_program_info(
+                self.asm_widget.load_address(),
+                self.asm_widget.assembled_bytes().len() as u16
+            );
+        } else {
+            // When program is not loaded (including after reset), show empty region
+            self.disasm_widget.set_program_info(0x8000, 0);
+        }
+        
+        // Left panel for controls and assembly editor
+        egui::SidePanel::left("left_panel").show(ctx, |ui| {
+            ui.heading("RustNES Assembly Debugger");
             ui.add_space(10.0);
             
             // Show the assembly widget in the side panel
@@ -49,9 +64,17 @@ impl App for AsmDebugger {
 
             ui.separator();
 
-            // Simple controls for memory visualization
+            // Simple controls for display options
             ui.checkbox(&mut self.show_memory_viz, "Show Memory Visualization");
             ui.checkbox(&mut self.show_cpu, "Show CPU State");
+            ui.checkbox(&mut self.show_disasm, "Show Disassembly");
+        });
+        
+        // Right panel for disassembly
+        egui::SidePanel::right("right_panel").show_animated(ctx, self.show_disasm, |ui| {
+            // Show the disassembly widget
+            let cpu_ref = self.cpu.borrow();
+            self.disasm_widget.ui(ui, &cpu_ref);
         });
 
         // Main central panel
@@ -75,7 +98,7 @@ impl App for AsmDebugger {
                 ui.separator();
             }
 
-            // Display CPU state if show_cpu is true and the assembler is running
+            // Display CPU state
             if self.show_cpu {
                 ui.add_space(10.0);
 
