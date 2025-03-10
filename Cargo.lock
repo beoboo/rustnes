@@ -226,6 +226,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "asm_debugger"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "eframe",
+ "egui",
+ "rn_core",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

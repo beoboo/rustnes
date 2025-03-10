@@ -3,10 +3,11 @@
 This document provides a detailed task breakdown for developing the RustNES emulator alongside writing the book, organized by learning tracks.
 
 ## Track System Legend
-- [T1] Track 1: Pixel Display - Minimal components to show a pixel
-- [T2] Track 2: Pattern & Sprite Rendering - Animation capabilities 
-- [T3] Track 3: Interactive Graphics - User input and full graphics
-- [T4] Track 4: Complete NES - Full system emulation
+- [T1] Track 1: Memory Visualization - Display memory contents as pixels in an egui widget
+- [T2] Track 2: PPU Pixel Display - Using the PPU to show pixels 
+- [T3] Track 3: Pattern & Sprite Rendering - Animation capabilities 
+- [T4] Track 4: Interactive Graphics - User input and full graphics
+- [T5] Track 5: Complete NES - Full system emulation
 
 ## Project Setup [T1]
 - [x] Initialize Rust project with Cargo
@@ -15,8 +16,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Set up GitHub repository
 - [x] Create initial documentation structure
 - [x] Set up book framework with mdBook
-- [ ] Configure CI/CD pipeline [T4]
-- [ ] Add benchmark infrastructure [T4]
+- [ ] Configure CI/CD pipeline [T5]
+- [ ] Add benchmark infrastructure [T5]
 
 ## NES Architecture Overview [T1]
 - [ ] Document NES hardware components
@@ -54,39 +55,39 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement subroutine calls (JSR, RTS)
 - [ ] Write tests for essential instructions
 
-### Extended Addressing Modes [T2]
+### Extended Addressing Modes [T3]
 - [x] Implement zero page,X addressing
 - [x] Implement zero page,Y addressing
 - [x] Implement absolute,X addressing
 - [x] Implement absolute,Y addressing
 - [x] Write tests for extended addressing modes
 
-### Control Flow Instructions [T2]
+### Control Flow Instructions [T3]
 - [ ] Implement status flag changes (CLC, CLD, CLI, CLV, SEC, SED, SEI)
 - [ ] Implement branches (BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS)
 - [ ] Implement register transfers (TAX, TAY, TXA, TYA)
 - [ ] Implement stack operations (TSX, TXS, PHA, PHP, PLA, PLP)
 - [ ] Write tests for control flow instructions
 
-### Data Manipulation Instructions [T2]
+### Data Manipulation Instructions [T3]
 - [ ] Implement logical operations (AND, EOR, ORA)
 - [ ] Implement arithmetic operations (ADC, SBC)
 - [ ] Implement increment/decrement (INC, INX, INY, DEC, DEX, DEY)
 - [ ] Write tests for data manipulation instructions
 
-### Advanced Instructions [T3]
+### Advanced Instructions [T4]
 - [ ] Implement shifts/rotates (ASL, LSR, ROL, ROR)
 - [ ] Implement compare operations (CMP, CPX, CPY)
 - [ ] Implement bit test (BIT)
 - [ ] Write tests for advanced instructions
 
-### Advanced Addressing Modes [T3]
+### Advanced Addressing Modes [T4]
 - [x] Implement indirect addressing
 - [x] Implement indexed indirect (indirect,X) addressing
 - [x] Implement indirect indexed (indirect,Y) addressing
 - [x] Write tests for advanced addressing modes
 
-### Special Instructions [T4]
+### Special Instructions [T5]
 - [ ] Implement NOP and unofficial NOPs
 - [ ] Implement other unofficial instructions
 - [ ] Document cycle costs for all instructions
@@ -103,7 +104,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Add parser tests for essential instructions
 - [ ] Create basic disassembler for essential instructions
 
-### Extended Parser Capabilities [T2]
+### Extended Parser Capabilities [T3]
 - [ ] Implement parsing for extended addressing modes (X/Y indexed)
 - [ ] Implement parsing for control flow instructions (branches, flag operations)
 - [ ] Implement parsing for register transfers (TAX, TAY, etc.)
@@ -113,7 +114,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Add parser tests for extended instruction set
 - [ ] Enhance disassembler for extended instruction set
 
-### Advanced Parser Features [T3]
+### Advanced Parser Features [T4]
 - [ ] Implement parsing for advanced addressing modes (indirect modes)
 - [ ] Implement parsing for advanced instructions (shifts, rotates, compares)
 - [ ] Add parsing for relative addressing (for branches)
@@ -122,7 +123,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Add parser tests for advanced instructions
 - [ ] Create full disassembler with machine code to assembly conversion
 
-### Complete Parser System [T4]
+### Complete Parser System [T5]
 - [ ] Implement parsing for all official and unofficial instructions
 - [ ] Add advanced error messages with suggestions
 - [ ] Implement comprehensive validation and diagnostics
@@ -142,32 +143,32 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Create memory address range utilities for device registration
 - [ ] Test bus routing and device registration
 
-### Essential Memory Components [T1]
+### Essential Memory Components [T2]
 - [x] Limit RAM to only handle the main memory region ($0000-$1FFF)
 - [x] Make RAM configurable with custom address ranges
 - [ ] Implement PPU component with registers at $2000-$2007
 - [ ] Implement ROM component for cartridge memory ($8000-$FFFF)
 - [ ] Test basic memory component interactions
 
-### Memory Enhancements [T2]
+### Memory Enhancements [T3]
 - [ ] Implement RAM mirroring ($0800-$1FFF mirrors $0000-$07FF)
 
-### Essential PPU I/O [T1]
+### Essential PPU I/O [T2]
 - [x] Define `PpuRegister` enum for type-safe register access
 - [x] Implement PPU register reading with proper side effects
 - [x] Implement PPU register writing with proper side effects
 - [ ] Test PPU register access through the bus
 - [ ] Implement `PpuRegisters` adapter for memory-mapped access
 
-### Ppu Enhancements [T2]
+### Ppu Enhancements [T3]
 - [ ] Implement PPU register mirroring ($2008-$3FFF mirrors $2000-$2007)
 
-### Extended Memory Features [T2]
+### Extended Memory Features [T3]
 - [ ] Implement RAM mirroring
 - [ ] Implement expanded PPU register access ($2008-$200F)
 - [ ] Test extended memory features
 
-### Controller & DMA [T3]
+### Controller & DMA [T4]
 - [ ] Implement controller register mapping
 - [ ] Implement controller reading
 - [ ] Implement DMA controller
@@ -175,7 +176,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test controller input
 - [ ] Test DMA functionality
 
-### Advanced Memory Features [T4]
+### Advanced Memory Features [T5]
 - [ ] Implement APU register mapping
 - [ ] Implement APU register handling
 - [ ] Implement memory read/write timing
@@ -183,7 +184,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## Cartridge System
 
-### Basic ROM Loading [T1]
+### Basic ROM Loading [T2]
 - [ ] Implement iNES file format parser
 - [ ] Implement basic cartridge interface
 - [ ] Implement PRG ROM access
@@ -191,18 +192,18 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test ROM loading
 - [ ] Test PRG ROM access
 
-### NROM Mapper [T1]
+### NROM Mapper [T2]
 - [ ] Implement Mapper trait
 - [ ] Implement NROM (Mapper 0)
 - [ ] Implement simple test ROMs
 - [ ] Test with NROM games
 
-### Simple Mappers [T3]
+### Simple Mappers [T4]
 - [ ] Implement UxROM (Mapper 2)
 - [ ] Implement CNROM (Mapper 3)
 - [ ] Test with simple mapper games
 
-### Advanced Mappers [T4]
+### Advanced Mappers [T5]
 - [ ] Implement MMC1 (Mapper 1)
 - [ ] Implement MMC3 (Mapper 4)
 - [ ] Implement battery-backed RAM
@@ -212,14 +213,14 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## PPU Implementation
 
-### PPU Architecture [T1]
+### PPU Architecture [T2]
 - [x] Design PPU component with clear internal interfaces
 - [x] Implement internal register access methods
 - [x] Create PPU state struct with proper encapsulation
 - [x] Implement interior mutability pattern for bus access
 - [x] Test PPU internal functionality in isolation
 
-### PPU Basics [T1]
+### PPU Basics [T2]
 - [x] Implement PPU registers
 - [x] Implement PPU memory map
 - [x] Implement basic VRAM
@@ -227,26 +228,35 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement basic frame buffer
 - [ ] Test basic pixel rendering
 
-## MILESTONE 1: System Integration [T1]
+## MILESTONE 1: Memory Visualization [T1]
+- [ ] Create a memory visualization component for egui
+- [ ] Map memory range 0x0200-0x05FF to pixels in the visualization
+- [ ] Implement color mapping for memory values
+- [ ] Create a test program that sets specific memory values
+- [ ] Display the memory contents as pixels
+- [ ] Implement real-time updates as memory changes
+- [ ] Document the implementation
+
+## MILESTONE 2: System Integration [T2]
 - [ ] Implement `NesSystem` struct to coordinate components
 - [ ] Connect CPU, Memory Bus, and PPU through clean interfaces
 - [ ] Design proper ownership model with minimal unsafe code
 - [ ] Test component interaction through system interface
 
-## MILESTONE 2: Display a Pixel [T1]
-- [ ] Create a test ROM that sets a single pixel
+## MILESTONE 3: Display a Pixel with PPU [T2]
+- [ ] Create a test ROM that sets a single pixel using the PPU
 - [ ] Integrate CPU, Memory, and PPU components
 - [ ] Implement basic main loop
-- [ ] Display a colored pixel
+- [ ] Display a colored pixel using the PPU
 - [ ] Document the achievement
 
-### Pattern Tables [T2]
+### Pattern Tables [T3]
 - [ ] Implement pattern table access
 - [ ] Implement tile fetching
 - [ ] Implement palette selection
 - [ ] Test pattern rendering
 
-### Sprites [T2]
+### Sprites [T3]
 - [ ] Implement OAM (Object Attribute Memory)
 - [ ] Implement sprite evaluation
 - [ ] Implement sprite rendering
@@ -254,36 +264,36 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement sprite attributes (flip, palette)
 - [ ] Test sprite rendering
 
-### PPU Timing [T2]
+### PPU Timing [T3]
 - [ ] Implement PPU timing
 - [ ] Implement frame synchronization
 - [ ] Test animation capabilities
 
-## MILESTONE 2: Pattern & Sprite Animation [T2]
+## MILESTONE 3: Pattern & Sprite Animation [T3]
 - [ ] Create a test ROM that animates sprites
 - [ ] Demonstrate pattern table functionality
 - [ ] Show multiple sprites with different attributes
 - [ ] Document the achievement
 
-### Background Rendering [T3]
+### Background Rendering [T4]
 - [ ] Implement name table handling
 - [ ] Implement tile rendering
 - [ ] Implement background priority
 - [ ] Test background rendering
 
-### Scrolling [T3]
+### Scrolling [T4]
 - [ ] Implement scroll registers
 - [ ] Implement fine scrolling
 - [ ] Implement name table switching
 - [ ] Test scrolling functionality
 
-### Advanced PPU Features [T3]
+### Advanced PPU Features [T4]
 - [ ] Implement sprite zero hit detection
 - [ ] Implement sprite overflow
 - [ ] Implement sprite-background interaction
 - [ ] Test advanced PPU features
 
-## Input System [T3]
+## Input System [T4]
 - [ ] Implement controller registers
 - [ ] Implement standard controller (D-pad, A, B, Start, Select)
 - [ ] Implement controller strobe
@@ -292,13 +302,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement key mapping
 - [ ] Implement input configuration
 
-## MILESTONE 3: Interactive Demo [T3]
+## MILESTONE 4: Interactive Demo [T4]
 - [ ] Create a demo with user-controlled sprite
 - [ ] Implement scrolling background
 - [ ] Demonstrate controller input
 - [ ] Document the achievement
 
-## Audio Processing Unit [T4]
+## Audio Processing Unit [T5]
 - [ ] Implement APU framework
 - [ ] Implement APU registers
 - [ ] Implement APU timing
@@ -319,7 +329,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Connect to audio output device
 - [ ] Test audio output with games
 
-## System Integration [T4]
+## System Integration [T5]
 - [ ] Implement full synchronization between components
 - [ ] Optimize performance bottlenecks
 - [ ] Test system with full games
@@ -330,7 +340,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement speed control
 - [ ] Implement cheat codes
 
-## Debugging Tools [T4]
+## Debugging Tools [T5]
 - [ ] Implement memory viewer/editor
 - [ ] Implement CPU state inspector
 - [ ] Implement PPU viewer
@@ -340,7 +350,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement breakpoint system
 - [ ] Implement execution tracing
 
-## WebAssembly Support [T4]
+## WebAssembly Support [T5]
 - [ ] Set up wasm-bindgen
 - [ ] Create WebAssembly build target
 - [ ] Adapt graphics output for web
@@ -350,16 +360,17 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Create web interface
 - [ ] Test in multiple browsers
 
-## MILESTONE 4: Complete NES [T4]
+## MILESTONE 4: Complete NES [T5]
 - [ ] Run commercial games with full compatibility
 - [ ] Verify audio functionality
 - [ ] Demonstrate advanced features
 - [ ] Document full compatibility
 
 ## Progress Tracking
-- Track 1 (Pixel Display): 0% complete
-- Track 2 (Pattern & Sprite Rendering): 0% complete
-- Track 3 (Interactive Graphics): 0% complete
-- Track 4 (Complete NES): 0% complete
+- Track 1 (Memory Visualization): 0% complete
+- Track 2 (PPU Pixel Display): 0% complete
+- Track 3 (Pattern & Sprite Rendering): 0% complete
+- Track 4 (Interactive Graphics): 0% complete
+- Track 5 (Complete NES): 0% complete
 
 **Total Progress: 41/182 tasks complete (22.5%)** 

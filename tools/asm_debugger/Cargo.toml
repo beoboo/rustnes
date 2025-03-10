@@ -1,0 +1,13 @@
+[package]
+name = "asm_debugger"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name"]
+description = "Assembly debugger for RustNES"
+
+[dependencies]
+anyhow = { workspace = true }
+egui = { workspace = true }
+eframe = { workspace = true }
+tracing-subscriber = { workspace = true }
+rn_core = { path = "../../crates/rn_core" } 

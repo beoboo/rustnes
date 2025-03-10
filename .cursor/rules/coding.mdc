@@ -1,6 +1,6 @@
 ---
 description: Coding rules
-globs: crates/**/*
+globs: crates/**/*;tools/**/*;
 alwaysApply: true
 ---
 

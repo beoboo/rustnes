@@ -2,6 +2,7 @@
 members = [
     "crates/rn_core",
     "crates/rn_ui",
+    "tools/asm_debugger",
 ]
 resolver = "2"
 
