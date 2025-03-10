@@ -91,7 +91,6 @@ impl App for AsmDebugger {
 
         // Left panel for controls and assembly editor
         egui::SidePanel::left("left_panel").show(ctx, |ui| {
-            ui.heading("RustNES Assembly Debugger");
             ui.add_space(10.0);
 
             // Show the assembly widget in the side panel
