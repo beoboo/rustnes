@@ -13,13 +13,12 @@ pub struct Ram {
 }
 
 impl Ram {
-   
     /// Create a new RAM instance mapped to a specific address range
     pub fn with_range(start_address: u16, end_address: u16) -> Self {
         if end_address < start_address {
             panic!("End address must be greater than or equal to start address");
         }
-        
+
         let size = end_address as usize - start_address as usize + 1;
         Self {
             data: vec![0; size],
@@ -27,17 +26,17 @@ impl Ram {
             end_address,
         }
     }
-    
+
     /// Get the size of the RAM in bytes
     pub fn size(&self) -> usize {
         self.data.len()
     }
-    
+
     /// Get the start address of this RAM in the memory map
     pub fn start_address(&self) -> u16 {
         self.start_address
     }
-    
+
     /// Get the end address of this RAM in the memory map
     pub fn end_address(&self) -> u16 {
         self.end_address
@@ -46,7 +45,7 @@ impl Ram {
 
 impl Default for Ram {
     fn default() -> Self {
-      Self::with_range(0x0000, 0xFFFF)
+        Self::with_range(0x0000, 0xFFFF)
     }
 }
 
@@ -54,13 +53,13 @@ impl Addressable for Ram {
     fn handles_address(&self, address: u16) -> bool {
         address >= self.start_address && address <= self.end_address
     }
-    
+
     fn read_byte(&self, address: u16) -> u8 {
         if !self.handles_address(address) {
             // This shouldn't happen with proper bus routing, but return 0 just in case
             return 0;
         }
-        
+
         let index = (address - self.start_address) as usize;
         self.data[index]
     }
@@ -70,11 +69,11 @@ impl Addressable for Ram {
             // This shouldn't happen with proper bus routing, but silently ignore
             return;
         }
-        
+
         let index = (address - self.start_address) as usize;
         self.data[index] = value;
     }
-    
+
     fn reset(&mut self) {
         for byte in &mut self.data {
             *byte = 0;
@@ -109,49 +108,49 @@ mod tests {
         assert_eq!(ram.read_byte(0x1001), 0x12); // High byte
         assert_eq!(ram.read_word(0x1000), 0x1234);
     }
-    
+
     #[test]
     fn test_ram_with_custom_range() {
         // Create RAM for $6000-$7FFF (8KB battery-backed RAM area)
         let mut ram = Ram::with_range(0x6000, 0x7FFF);
-        
+
         // Should be 8KB in size
         assert_eq!(ram.size(), 0x2000);
-        
+
         // Should handle addresses in its range
         assert!(ram.handles_address(0x6000));
         assert!(ram.handles_address(0x7000));
         assert!(ram.handles_address(0x7FFF));
-        
+
         // Should not handle addresses outside its range
         assert!(!ram.handles_address(0x5FFF));
         assert!(!ram.handles_address(0x8000));
-        
+
         // Should read/write correctly with the offset applied
         ram.write_byte(0x6000, 0x42);
         assert_eq!(ram.read_byte(0x6000), 0x42);
-        
+
         // The internal index should be 0 for address 0x6000
         assert_eq!(ram.data[0], 0x42);
-        
+
         // Write to end of range
         ram.write_byte(0x7FFF, 0xFF);
         assert_eq!(ram.read_byte(0x7FFF), 0xFF);
-        
+
         // The internal index should be at the end of the data
         assert_eq!(ram.data[0x1FFF], 0xFF);
     }
-    
+
     #[test]
     fn test_ram_out_of_bounds() {
         let mut ram = Ram::with_range(0x6000, 0x7FFF);
-        
+
         // Reading out of bounds should return 0
         assert_eq!(ram.read_byte(0x5FFF), 0);
         assert_eq!(ram.read_byte(0x8000), 0);
-        
+
         // Writing out of bounds should be ignored (no panic)
         ram.write_byte(0x5FFF, 0x42);
         ram.write_byte(0x8000, 0x42);
     }
-} 
+}

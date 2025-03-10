@@ -1,9 +1,36 @@
+use std::{cell::RefCell, rc::Rc};
+
 use eframe::{egui, App, Frame};
-use rn_core::cpu::Cpu;
-use rn_core::memory::Ram;
-use rn_ui::widgets::{AsmWidget, CpuWidget, MemoryVisualizer, DisasmWidget};
-use std::cell::RefCell;
-use std::rc::Rc;
+use rn_core::{
+    cpu::Cpu,
+    memory::{Addressable, Ram},
+};
+use rn_ui::widgets::{AsmWidget, CpuWidget, DisasmWidget, MemoryVisualizer, MemoryWidget};
+
+/// Adapter to use CPU's memory with the memory editor
+struct CpuMemoryAdapter<'a> {
+    cpu: &'a mut Cpu,
+}
+
+impl<'a> CpuMemoryAdapter<'a> {
+    fn new(cpu: &'a mut Cpu) -> Self {
+        Self { cpu }
+    }
+}
+
+impl<'a> Addressable for CpuMemoryAdapter<'a> {
+    fn handles_address(&self, _address: u16) -> bool {
+        true
+    }
+
+    fn read_byte(&self, address: u16) -> u8 {
+        self.cpu.read_byte(address)
+    }
+
+    fn write_byte(&mut self, address: u16, value: u8) {
+        self.cpu.write_byte(address, value);
+    }
+}
 
 /// Main debugger application
 struct AsmDebugger {
@@ -12,6 +39,7 @@ struct AsmDebugger {
     asm_widget: AsmWidget,
     cpu_widget: CpuWidget,
     disasm_widget: DisasmWidget,
+    memory_widget: MemoryWidget,
 
     // Emulation state
     cpu: Rc<RefCell<Cpu>>,
@@ -20,6 +48,7 @@ struct AsmDebugger {
     show_memory_viz: bool,
     show_cpu: bool,
     show_disasm: bool,
+    show_memory_editor: bool,
 }
 
 impl AsmDebugger {
@@ -30,13 +59,19 @@ impl AsmDebugger {
 
         Self {
             memory_visualizer: MemoryVisualizer::new(),
-            asm_widget: AsmWidget::new(cpu.clone()),
+            asm_widget: AsmWidget::new(),
             cpu_widget: CpuWidget::new(),
             disasm_widget: DisasmWidget::new(),
+            memory_widget: MemoryWidget::new()
+                .with_start_address(0x0000)
+                .with_rows(16)
+                .with_bytes_per_row(16)
+                .with_editable(true),
             cpu,
             show_memory_viz: true,
             show_cpu: true,
             show_disasm: true,
+            show_memory_editor: false,
         }
     }
 }
@@ -47,20 +82,21 @@ impl App for AsmDebugger {
         if self.asm_widget.is_loaded() {
             self.disasm_widget.set_program_info(
                 self.asm_widget.load_address(),
-                self.asm_widget.assembled_bytes().len() as u16
+                self.asm_widget.assembled_bytes().len() as u16,
             );
         } else {
             // When program is not loaded (including after reset), show empty region
             self.disasm_widget.set_program_info(0x8000, 0);
         }
-        
+
         // Left panel for controls and assembly editor
         egui::SidePanel::left("left_panel").show(ctx, |ui| {
             ui.heading("RustNES Assembly Debugger");
             ui.add_space(10.0);
-            
+
             // Show the assembly widget in the side panel
-            self.asm_widget.ui(ui);
+            let mut cpu_borrow = self.cpu.borrow_mut();
+            self.asm_widget.ui(ui, &mut *cpu_borrow);
 
             ui.separator();
 
@@ -68,8 +104,9 @@ impl App for AsmDebugger {
             ui.checkbox(&mut self.show_memory_viz, "Show Memory Visualization");
             ui.checkbox(&mut self.show_cpu, "Show CPU State");
             ui.checkbox(&mut self.show_disasm, "Show Disassembly");
+            ui.checkbox(&mut self.show_memory_editor, "Show Memory Editor");
         });
-        
+
         // Right panel for disassembly
         egui::SidePanel::right("right_panel").show_animated(ctx, self.show_disasm, |ui| {
             // Show the disassembly widget
@@ -94,6 +131,20 @@ impl App for AsmDebugger {
 
                 // Show the memory visualization
                 self.memory_visualizer.ui(ui, &memory_buffer);
+
+                ui.separator();
+            }
+
+            // Memory editor
+            if self.show_memory_editor {
+                ui.add_space(5.0);
+
+                // Create an adapter to access CPU memory with the memory editor
+                let mut cpu_borrow = self.cpu.borrow_mut();
+                let mut adapter = CpuMemoryAdapter::new(&mut *cpu_borrow);
+
+                // Show the memory editor widget with access to CPU memory
+                self.memory_widget.ui(ui, &mut adapter);
 
                 ui.separator();
             }

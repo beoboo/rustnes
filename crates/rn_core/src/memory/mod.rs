@@ -51,7 +51,7 @@ pub trait Addressable {
         self.write_byte(address, low);
         self.write_byte(address.wrapping_add(1), high);
     }
-    
+
     /// Reset the component to its initial state
     ///
     /// This method is called when the system is reset. The default
@@ -60,8 +60,8 @@ pub trait Addressable {
 }
 
 // Submodules and re-exports
-mod ram;
 mod bus;
+mod ram;
 
-pub use ram::Ram;
 pub use bus::Bus;
+pub use ram::Ram;

@@ -1,0 +1,15 @@
+edition = "2021"
+unstable_features = true
+
+#fn_single_line = true
+#ignore = []
+group_imports="StdExternalCrate"
+imports_granularity="Crate"
+imports_indent="Block"
+imports_layout = "HorizontalVertical"
+match_block_trailing_comma = true
+max_width = 120
+# report_fixme = "Always"
+# report_todo = "Always"
+use_field_init_shorthand = true
+use_try_shorthand = true

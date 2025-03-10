@@ -1,5 +1,6 @@
-use super::Cpu;
 use std::fmt;
+
+use super::Cpu;
 
 /// Addressing modes for the 6502 CPU
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -14,7 +15,7 @@ pub enum AddressingMode {
     Indirect,
     IndexedIndirect, // (Indirect,X) - Pre-indexed indirect
     IndirectIndexed, // (Indirect),Y - Post-indexed indirect
-    Implied,        // Implied addressing mode (no operand)
+    Implied,         // Implied addressing mode (no operand)
 }
 
 impl fmt::Display for AddressingMode {
@@ -47,7 +48,7 @@ impl AddressingMode {
                 // We read that byte and use it as an address in the range $0000-$00FF
                 let zero_page_addr = cpu.read_byte(cpu.pc) as u16;
                 zero_page_addr
-            }
+            },
             AddressingMode::ZeroPageX => {
                 // Get the zero page address from the current PC
                 let zero_page_addr = cpu.read_byte(cpu.pc);
@@ -57,7 +58,7 @@ impl AddressingMode {
 
                 // The high byte is always 0 since we stay in the zero page
                 effective_addr
-            }
+            },
             AddressingMode::ZeroPageY => {
                 // Get the zero page address from the current PC
                 let zero_page_addr = cpu.read_byte(cpu.pc);
@@ -67,21 +68,21 @@ impl AddressingMode {
 
                 // The high byte is always 0 since we stay in the zero page
                 effective_addr
-            }
+            },
             AddressingMode::Absolute => {
                 // Read a full 16-bit address (little-endian)
                 cpu.read_word(cpu.pc)
-            }
+            },
             AddressingMode::AbsoluteX => {
                 // Read the base address and add X register
                 let base_addr = cpu.read_word(cpu.pc);
                 base_addr.wrapping_add(cpu.x as u16)
-            }
+            },
             AddressingMode::AbsoluteY => {
                 // Read the base address and add Y register
                 let base_addr = cpu.read_word(cpu.pc);
                 base_addr.wrapping_add(cpu.y as u16)
-            }
+            },
             AddressingMode::Indirect => {
                 // Get the pointer address from the current PC
                 let ptr_addr = cpu.read_word(cpu.pc);
@@ -102,7 +103,7 @@ impl AddressingMode {
                     // Normal case - just read the word from the pointer address
                     cpu.read_word(ptr_addr)
                 }
-            }
+            },
             AddressingMode::IndexedIndirect => {
                 // 1. Get the zero page pointer base from the current PC
                 let base_ptr = cpu.read_byte(cpu.pc);
@@ -116,7 +117,7 @@ impl AddressingMode {
 
                 // 4. Combine to form the final address
                 (high_byte << 8) | low_byte
-            }
+            },
             AddressingMode::IndirectIndexed => {
                 // 1. Get the zero page pointer from the current PC
                 let zp_ptr = cpu.read_byte(cpu.pc) as u16;
@@ -128,12 +129,12 @@ impl AddressingMode {
 
                 // 3. Add Y register to get the final effective address
                 base_addr.wrapping_add(cpu.y as u16)
-            }
+            },
             AddressingMode::Implied => {
                 // Implied addressing mode doesn't use an operand address
                 // Return the current PC for consistency
                 cpu.pc
-            }
+            },
         }
     }
 
@@ -144,18 +145,18 @@ impl AddressingMode {
             AddressingMode::AbsoluteX => {
                 let base_addr = cpu.read_word(cpu.pc);
                 Self::crosses_boundary(base_addr, cpu.x as u16)
-            }
+            },
             AddressingMode::AbsoluteY => {
                 let base_addr = cpu.read_word(cpu.pc);
                 Self::crosses_boundary(base_addr, cpu.y as u16)
-            }
+            },
             AddressingMode::IndirectIndexed => {
                 let zp_ptr = cpu.read_byte(cpu.pc) as u16;
                 let low_byte = cpu.read_byte(zp_ptr) as u16;
                 let high_byte = cpu.read_byte(zp_ptr.wrapping_add(1) & 0xFF) as u16;
                 let base_addr = (high_byte << 8) | low_byte;
                 Self::crosses_boundary(base_addr, cpu.y as u16)
-            }
+            },
             // All other modes never cross page boundaries
             _ => false,
         }
@@ -175,15 +176,13 @@ impl AddressingMode {
             AddressingMode::IndexedIndirect => 4,
 
             // Modes with page crossing penalties
-            AddressingMode::AbsoluteX
-            | AddressingMode::AbsoluteY
-            | AddressingMode::IndirectIndexed => {
+            AddressingMode::AbsoluteX | AddressingMode::AbsoluteY | AddressingMode::IndirectIndexed => {
                 if page_crossed {
                     1
                 } else {
                     0
                 }
-            }
+            },
 
             // All other modes (Immediate, ZeroPage, Absolute, Implied)
             _ => 0,
@@ -193,9 +192,8 @@ impl AddressingMode {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cpu::Cpu, memory::Ram};
-
     use super::*;
+    use crate::{cpu::Cpu, memory::Ram};
 
     /// Helper function to set up a CPU with memory for testing
     fn setup_cpu() -> Cpu {
@@ -203,21 +201,15 @@ mod tests {
     }
 
     /// Helper function to set up a test case for addressing modes
-    fn setup_test_case(
-        cpu: &mut Cpu,
-        operand_addr: u16,
-        operand_data: &[u8],
-        target_addr: u16,
-        target_value: u8,
-    ) {
+    fn setup_test_case(cpu: &mut Cpu, operand_addr: u16, operand_data: &[u8], target_addr: u16, target_value: u8) {
         // Write the operand data (can be 1 or 2 bytes)
         for (i, &byte) in operand_data.iter().enumerate() {
             cpu.write_byte(operand_addr + i as u16, byte);
         }
-        
+
         // Write the target value at the target address
         cpu.write_byte(target_addr, target_value);
-        
+
         // Set PC to point to the operand
         cpu.pc = operand_addr;
     }
@@ -250,13 +242,13 @@ mod tests {
     #[test]
     fn test_immediate_addressing_mode() {
         let mut cpu = setup_cpu();
-        
+
         // LDA #$42 (Immediate)
         setup_test_case(
             &mut cpu,
-            0x0200,   // operand address
+            0x0200,  // operand address
             &[0x42], // operand data
-            0,        // target address (N/A for immediate)
+            0,       // target address (N/A for immediate)
             0,       // target value (N/A for immediate)
         );
 
@@ -268,14 +260,14 @@ mod tests {
     #[test]
     fn test_zero_page_addressing_mode() {
         let mut cpu = setup_cpu();
-        
+
         // LDA $42 (Zero Page)
         // At $0042: The value $37
         setup_test_case(
             &mut cpu,
-            0x0200,   // operand address
+            0x0200,  // operand address
             &[0x42], // zero page address
-            0x0042,   // target address
+            0x0042,  // target address
             0x37,    // target value
         );
 
@@ -287,17 +279,17 @@ mod tests {
     #[test]
     fn test_zero_page_x_addressing_mode() {
         let mut cpu = setup_cpu();
-        
+
         // LDA $40,X with X=$05 (Zero Page,X)
         // Effective address: $40 + $05 = $45
         setup_test_case(
             &mut cpu,
-            0x0200,        // operand address
-            &[0x40],       // zero page base address
-            0x0045,        // target address (base + X)
-            0x67,          // target value
+            0x0200,  // operand address
+            &[0x40], // zero page base address
+            0x0045,  // target address (base + X)
+            0x67,    // target value
         );
-        
+
         // Set X register
         cpu.x = 0x05;
 
@@ -309,17 +301,17 @@ mod tests {
     #[test]
     fn test_zero_page_x_addressing_mode_wrap_around() {
         let mut cpu = setup_cpu();
-        
+
         // LDA $F0,X with X=$20 (Zero Page,X with wrap-around)
         // Effective address: $F0 + $20 = $10 (wrap around)
         setup_test_case(
             &mut cpu,
-            0x0200,        // operand address
-            &[0xF0],       // zero page base address
-            0x0010,        // target address (wrapped around)
-            0x42,          // target value
+            0x0200,  // operand address
+            &[0xF0], // zero page base address
+            0x0010,  // target address (wrapped around)
+            0x42,    // target value
         );
-        
+
         // Set X register
         cpu.x = 0x20;
 
@@ -331,17 +323,17 @@ mod tests {
     #[test]
     fn test_zero_page_y_addressing_mode() {
         let mut cpu = setup_cpu();
-        
+
         // LDX $40,Y with Y=$07 (Zero Page,Y)
         // Effective address: $40 + $07 = $47
         setup_test_case(
             &mut cpu,
-            0x0200,        // operand address
-            &[0x40],       // zero page base address
-            0x0047,        // target address (base + Y)
-            0x67,          // target value
+            0x0200,  // operand address
+            &[0x40], // zero page base address
+            0x0047,  // target address (base + Y)
+            0x67,    // target value
         );
-        
+
         // Set Y register
         cpu.y = 0x07;
 
@@ -353,17 +345,17 @@ mod tests {
     #[test]
     fn test_zero_page_y_addressing_mode_wrap_around() {
         let mut cpu = setup_cpu();
-        
+
         // LDX $F0,Y with Y=$30 (Zero Page,Y with wrap-around)
         // Effective address: $F0 + $30 = $20 (wrap around)
         setup_test_case(
             &mut cpu,
-            0x0200,        // operand address
-            &[0xF0],       // zero page base address
-            0x0020,        // target address (wrapped around)
-            0x42,          // target value
+            0x0200,  // operand address
+            &[0xF0], // zero page base address
+            0x0020,  // target address (wrapped around)
+            0x42,    // target value
         );
-        
+
         // Set Y register
         cpu.y = 0x30;
 
@@ -375,7 +367,7 @@ mod tests {
     #[test]
     fn test_absolute_addressing_mode() {
         let mut cpu = setup_cpu();
-        
+
         // LDA $1234 (Absolute)
         setup_test_case(
             &mut cpu,
@@ -403,7 +395,7 @@ mod tests {
             0x1234,        // target address (base + X)
             0x42,          // target value
         );
-        
+
         // Set X register
         cpu.x = 0x04;
 
@@ -425,7 +417,7 @@ mod tests {
             0x1300,        // target address (crosses page boundary)
             0x42,          // target value
         );
-        
+
         // Set X register
         cpu.x = 0x01;
 
@@ -436,7 +428,7 @@ mod tests {
         // Test address calculation and value reading
         assert_address(&cpu, AddressingMode::AbsoluteX, 0x1300);
         assert_value(&cpu, AddressingMode::AbsoluteX, 0x42);
-        
+
         // Verify additional cycles for page crossing
         let additional_cycles = AddressingMode::AbsoluteX.get_additional_cycles(crosses_page);
         assert_eq!(additional_cycles, 1, "Page crossing should add 1 cycle");
@@ -455,7 +447,7 @@ mod tests {
             0x1235,        // target address (base + Y)
             0x42,          // target value
         );
-        
+
         // Set Y register
         cpu.y = 0x05;
 
@@ -477,7 +469,7 @@ mod tests {
             0x130F,        // target address (crosses page boundary)
             0x42,          // target value
         );
-        
+
         // Set Y register
         cpu.y = 0x10;
 
@@ -488,7 +480,7 @@ mod tests {
         // Test address calculation
         assert_address(&cpu, AddressingMode::AbsoluteY, 0x130F);
         assert_value(&cpu, AddressingMode::AbsoluteY, 0x42);
-        
+
         // Verify additional cycles for page crossing
         let additional_cycles = AddressingMode::AbsoluteY.get_additional_cycles(crosses_page);
         assert_eq!(additional_cycles, 1, "Page crossing should add 1 cycle");
@@ -501,12 +493,12 @@ mod tests {
         // JMP ($1234) - Jump to the address stored at $1234-$1235
         setup_test_case(
             &mut cpu,
-            0x0200,         // operand address
-            &[0x34, 0x12],  // indirect pointer address $1234
-            0,              // target address (N/A for this test)
-            0,              // target value (N/A for this test)
+            0x0200,        // operand address
+            &[0x34, 0x12], // indirect pointer address $1234
+            0,             // target address (N/A for this test)
+            0,             // target value (N/A for this test)
         );
-        
+
         // At $1234-$1235, store the target address $ABCD
         write_word_at(&mut cpu, 0x1234, 0xABCD);
 
@@ -522,21 +514,24 @@ mod tests {
         // JMP ($12FF) - Jump to the address stored at $12FF-$1200 (bug: wraps in page)
         setup_test_case(
             &mut cpu,
-            0x0200,         // operand address
-            &[0xFF, 0x12],  // indirect pointer address $12FF (at page boundary)
-            0,              // target address (N/A for this test)
-            0,              // target value (N/A for this test)
+            0x0200,        // operand address
+            &[0xFF, 0x12], // indirect pointer address $12FF (at page boundary)
+            0,             // target address (N/A for this test)
+            0,             // target value (N/A for this test)
         );
-        
+
         // At $12FF, store the low byte $CD
         cpu.write_byte(0x12FF, 0xCD);
-        
+
         // At $1200 (not $1300), store the high byte $AB due to the page boundary bug
         cpu.write_byte(0x1200, 0xAB);
 
         // Test indirect addressing with page boundary bug
         let addr = AddressingMode::Indirect.get_operand_address(&cpu);
-        assert_eq!(addr, 0xABCD, "Indirect addressing with page boundary bug should return $ABCD");
+        assert_eq!(
+            addr, 0xABCD,
+            "Indirect addressing with page boundary bug should return $ABCD"
+        );
     }
 
     #[test]
@@ -546,15 +541,15 @@ mod tests {
         // LDA ($40,X) with X=$05 - Load from address stored at ($40+$05)
         setup_test_case(
             &mut cpu,
-            0x0200,         // operand address
-            &[0x40],        // zero page base pointer
-            0xABCD,         // target address (stored at $45-$46)
-            0x42,           // target value
+            0x0200,  // operand address
+            &[0x40], // zero page base pointer
+            0xABCD,  // target address (stored at $45-$46)
+            0x42,    // target value
         );
-        
+
         // Set X register
         cpu.x = 0x05;
-        
+
         // Store target address $ABCD at $45-$46 (zero page + X)
         cpu.write_byte(0x0045, 0xCD); // Low byte
         cpu.write_byte(0x0046, 0xAB); // High byte
@@ -574,15 +569,15 @@ mod tests {
         // LDA ($FF,X) with X=$02 - Tests zero page wrap-around
         setup_test_case(
             &mut cpu,
-            0x0200,         // operand address
-            &[0xFF],        // zero page base pointer
-            0xABCD,         // target address (stored at $01-$02 after wrap)
-            0x42,           // target value
+            0x0200,  // operand address
+            &[0xFF], // zero page base pointer
+            0xABCD,  // target address (stored at $01-$02 after wrap)
+            0x42,    // target value
         );
-        
+
         // Set X register
         cpu.x = 0x02;
-        
+
         // Effective ZP pointer = $FF + $02 = $01 (with zero page wrap)
         // Store target address $ABCD at $01-$02
         cpu.write_byte(0x0001, 0xCD); // Low byte
@@ -603,15 +598,15 @@ mod tests {
         // LDA ($40),Y with Y=$08 - Load from address stored at $40-$41 plus Y
         setup_test_case(
             &mut cpu,
-            0x0200,         // operand address
-            &[0x40],        // zero page pointer
-            0x123C,         // target address ($1234 + $08)
-            0x42,           // target value
+            0x0200,  // operand address
+            &[0x40], // zero page pointer
+            0x123C,  // target address ($1234 + $08)
+            0x42,    // target value
         );
-        
+
         // Set Y register
         cpu.y = 0x08;
-        
+
         // Store base address $1234 at zero page $40-$41
         cpu.write_byte(0x0040, 0x34); // Low byte
         cpu.write_byte(0x0041, 0x12); // High byte
@@ -631,15 +626,15 @@ mod tests {
         // LDA ($40),Y with Y=$20 - Tests page boundary crossing
         setup_test_case(
             &mut cpu,
-            0x0200,         // operand address
-            &[0x40],        // zero page pointer
-            0x1310,         // target address ($12F0 + $20, crosses page)
-            0x42,           // target value
+            0x0200,  // operand address
+            &[0x40], // zero page pointer
+            0x1310,  // target address ($12F0 + $20, crosses page)
+            0x42,    // target value
         );
-        
+
         // Set Y register
         cpu.y = 0x20;
-        
+
         // Store base address $12F0 at zero page $40-$41
         cpu.write_byte(0x0040, 0xF0); // Low byte
         cpu.write_byte(0x0041, 0x12); // High byte
@@ -647,11 +642,11 @@ mod tests {
         // Test indirect indexed addressing with page crossing
         let crosses_page = AddressingMode::IndirectIndexed.crosses_page_boundary(&cpu);
         assert!(crosses_page, "IndirectIndexed should detect page boundary crossing");
-        
+
         // Verify address calculation and value
         assert_address(&cpu, AddressingMode::IndirectIndexed, 0x1310);
         assert_value(&cpu, AddressingMode::IndirectIndexed, 0x42);
-        
+
         // Verify additional cycles for page crossing
         let additional_cycles = AddressingMode::IndirectIndexed.get_additional_cycles(crosses_page);
         assert_eq!(additional_cycles, 1, "Page crossing should add 1 cycle");
@@ -664,15 +659,15 @@ mod tests {
         // LDA ($FF),Y with Y=$10 - Tests zero page wrap-around for pointer
         setup_test_case(
             &mut cpu,
-            0x0200,         // operand address
-            &[0xFF],        // zero page pointer (at boundary, will wrap)
-            0x1244,         // target address ($1234 + $10)
-            0x42,           // target value
+            0x0200,  // operand address
+            &[0xFF], // zero page pointer (at boundary, will wrap)
+            0x1244,  // target address ($1234 + $10)
+            0x42,    // target value
         );
-        
+
         // Set Y register
         cpu.y = 0x10;
-        
+
         // Store the base address split between $FF and $00 (wrap-around in zero page)
         cpu.write_byte(0x00FF, 0x34); // Low byte at $FF
         cpu.write_byte(0x0000, 0x12); // High byte at $00 (wrapped around)
@@ -690,28 +685,32 @@ mod tests {
         let cpu = setup_cpu();
 
         // Helper function to set up and test page boundary crossing
-        let test_page_crossing = |mode: AddressingMode, pc: u16, base_addr: u16, 
-                                 offset_reg: &str, offset_val: u8, 
-                                 should_cross: bool, zp_addr_value: Option<u16>| {
+        let test_page_crossing = |mode: AddressingMode,
+                                  pc: u16,
+                                  base_addr: u16,
+                                  offset_reg: &str,
+                                  offset_val: u8,
+                                  should_cross: bool,
+                                  zp_addr_value: Option<u16>| {
             // Create a fresh CPU for each test to avoid borrow issues
             let mut test_cpu = setup_cpu();
-            
+
             // Set PC and register values
             test_cpu.pc = pc;
             match offset_reg {
                 "X" => test_cpu.x = offset_val,
                 "Y" => test_cpu.y = offset_val,
-                _ => {}
+                _ => {},
             }
-            
+
             // For AbsoluteX and AbsoluteY, set the base address in memory
             if mode == AddressingMode::AbsoluteX || mode == AddressingMode::AbsoluteY {
                 write_word_at(&mut test_cpu, pc, base_addr);
-            } 
+            }
             // For IndirectIndexed, set up the zero page pointer and target
             else if mode == AddressingMode::IndirectIndexed {
                 test_cpu.write_byte(pc, base_addr as u8); // ZP pointer
-                
+
                 // Write the value at the zero page address
                 if let Some(value) = zp_addr_value {
                     write_word_at(&mut test_cpu, base_addr as u16, value);
@@ -719,33 +718,55 @@ mod tests {
                     write_word_at(&mut test_cpu, base_addr as u16, 0x12F0); // Default base address
                 }
             }
-            
+
             // Test crossing detection
             let crosses = mode.crosses_page_boundary(&test_cpu);
-            assert_eq!(crosses, should_cross, 
-                "{:?} with base {:04X} + {} = {:02X} should {} cross page boundary", 
-                mode, base_addr, offset_reg, offset_val, 
-                if should_cross { "" } else { "not " });
+            assert_eq!(
+                crosses,
+                should_cross,
+                "{:?} with base {:04X} + {} = {:02X} should {} cross page boundary",
+                mode,
+                base_addr,
+                offset_reg,
+                offset_val,
+                if should_cross { "" } else { "not " }
+            );
         };
-        
+
         // 1. Test AbsoluteX
         // Cross: $12F0 + $10 = $1300
         test_page_crossing(AddressingMode::AbsoluteX, 0x0201, 0x12F0, "X", 0x10, true, None);
         // No cross: $1280 + $10 = $1290
         test_page_crossing(AddressingMode::AbsoluteX, 0x0201, 0x1280, "X", 0x10, false, None);
-        
+
         // 2. Test AbsoluteY
         // Cross: $12F0 + $20 = $1310
         test_page_crossing(AddressingMode::AbsoluteY, 0x0201, 0x12F0, "Y", 0x20, true, None);
         // No cross: $1280 + $20 = $12A0
         test_page_crossing(AddressingMode::AbsoluteY, 0x0201, 0x1280, "Y", 0x20, false, None);
-        
+
         // 3. Test IndirectIndexed
         // Cross: $12F0 + $20 = $1310
-        test_page_crossing(AddressingMode::IndirectIndexed, 0x0201, 0x80, "Y", 0x20, true, Some(0x12F0));
+        test_page_crossing(
+            AddressingMode::IndirectIndexed,
+            0x0201,
+            0x80,
+            "Y",
+            0x20,
+            true,
+            Some(0x12F0),
+        );
         // No cross: $1280 + $20 = $12A0
-        test_page_crossing(AddressingMode::IndirectIndexed, 0x0201, 0x80, "Y", 0x20, false, Some(0x1280));
-        
+        test_page_crossing(
+            AddressingMode::IndirectIndexed,
+            0x0201,
+            0x80,
+            "Y",
+            0x20,
+            false,
+            Some(0x1280),
+        );
+
         // Test modes that never cross page boundaries
         let non_crossing_modes = [
             AddressingMode::Immediate,
@@ -756,10 +777,13 @@ mod tests {
             AddressingMode::Indirect,
             AddressingMode::IndexedIndirect,
         ];
-        
+
         for mode in non_crossing_modes {
-            assert!(!mode.crosses_page_boundary(&cpu), 
-                    "{:?} should never cross page boundaries", mode);
+            assert!(
+                !mode.crosses_page_boundary(&cpu),
+                "{:?} should never cross page boundaries",
+                mode
+            );
         }
     }
 
@@ -776,7 +800,6 @@ mod tests {
             (AddressingMode::Indirect, true, 2),
             (AddressingMode::IndexedIndirect, false, 4),
             (AddressingMode::IndexedIndirect, true, 4),
-            
             // Modes with additional cycles when page boundary is crossed
             (AddressingMode::AbsoluteX, true, 1),
             (AddressingMode::AbsoluteX, false, 0),
@@ -784,7 +807,6 @@ mod tests {
             (AddressingMode::AbsoluteY, false, 0),
             (AddressingMode::IndirectIndexed, true, 1),
             (AddressingMode::IndirectIndexed, false, 0),
-            
             // Modes with no additional cycles
             (AddressingMode::Immediate, false, 0),
             (AddressingMode::Immediate, true, 0),

@@ -378,14 +378,16 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Add disassembly view for code
 - [x] Implement step-by-step execution
 - [x] Add BRK instruction support for program termination
-- [ ] Add breakpoint support
-- [ ] Implement memory editor
-- [ ] Connect to running emulator instance
-- [ ] Add register modification capabilities
-- [ ] Implement visual memory map
-- [ ] Add support for viewing/editing PPU memory
-- [ ] Create user-friendly UI with dockable panels
-- [ ] Implement performance profiling features
+- [x] Implement register modification capabilities
+- [x] Connect existing memory editor widget to debugger
+
+### AsmDebugger Improvements [Future]
+- [ ] Add breakpoint support [T3]
+- [ ] Connect to running emulator instance [T4]
+- [ ] Implement visual memory map (showing NES memory regions graphically) [T3]
+- [ ] Create user-friendly UI with dockable panels [T4]
+- [ ] Implement performance profiling features [T5]
+- [ ] Add support for viewing/editing PPU memory [T3]
 
 ## Progress Tracking
 - Track 1 (Memory Visualization): 0% complete

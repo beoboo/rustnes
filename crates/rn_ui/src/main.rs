@@ -114,7 +114,7 @@ impl eframe::App for RustNESApp {
                             self.cpu.reset();
                         }
                     });
-                }
+                },
                 Tab::Memory => {
                     // Show memory viewer
                     self.memory_widget.ui(ui, &mut self.memory);
@@ -131,7 +131,7 @@ impl eframe::App for RustNESApp {
                             }
                         }
                     });
-                }
+                },
             }
         });
     }
