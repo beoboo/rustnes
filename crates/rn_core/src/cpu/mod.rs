@@ -308,9 +308,7 @@ mod tests {
     
     #[test]
     fn test_load_program() -> Result<()> {
-        // Create a RAM instance
-        let mut ram = Ram::default();
-        let mut cpu = Cpu::new(Box::new(ram));
+        let mut cpu = setup_cpu();
         
         // Simple program: LDA #$42, STA $0200, BRK
         let program = [0xA9, 0x42, 0x8D, 0x00, 0x02, 0x00];

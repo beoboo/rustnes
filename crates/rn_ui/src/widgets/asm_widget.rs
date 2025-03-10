@@ -21,15 +21,13 @@ pub struct AsmWidget {
     load_address: u16,
     /// Whether the CPU is running
     is_running: bool,
-    /// Optional callback for when memory is updated
-    memory_update_callback: Option<Box<dyn FnMut(u16, u8)>>,
 }
 
 impl AsmWidget {
     /// Create a new AsmWidget
     pub fn new(cpu: Rc<RefCell<Cpu>>) -> Self {
         Self {
-            code: String::from("; Enter your 6502 assembly code here\n\nLDA #$01\nSTA $0200\nJMP $F000"),
+            code: String::from("; Enter your 6502 assembly code here\n\nLDA #$01\nSTA $0200\nBRK"),
             assembled: false,
             assembled_bytes: Vec::new(),
             error_message: None,
@@ -37,7 +35,6 @@ impl AsmWidget {
             cpu,
             load_address: 0x8000, // Default load address
             is_running: false,
-            memory_update_callback: None,
         }
     }
 
@@ -46,14 +43,6 @@ impl AsmWidget {
         let mut widget = Self::new(cpu);
         widget.code = code.to_string();
         widget
-    }
-    
-    /// Set a callback for when memory is updated
-    pub fn set_memory_update_callback<F>(&mut self, callback: F)
-    where
-        F: FnMut(u16, u8) + 'static,
-    {
-        self.memory_update_callback = Some(Box::new(callback));
     }
     
     /// Reset the CPU and load the assembled program
@@ -89,9 +78,12 @@ impl AsmWidget {
                     let pc = cpu.pc;
                     let opcode = cpu.read_byte(pc);
                     
-                    // BRK instruction or we reached our JMP $F000
+                    // BRK instruction (0x00) or we reached our stop address
                     if opcode == 0x00 || pc >= 0xF000 {
                         println!("Program halted at ${:04X} after {} steps", pc, step_count);
+                        if opcode == 0x00 {
+                            println!("BRK instruction encountered - program terminated normally");
+                        }
                         break;
                     }
                 },
@@ -106,6 +98,7 @@ impl AsmWidget {
         
         if step_count >= max_steps {
             println!("Program reached maximum steps ({})", max_steps);
+            self.error_message = Some(format!("Program reached maximum of {} steps - possible infinite loop", max_steps));
         }
     }
     
@@ -144,11 +137,6 @@ impl AsmWidget {
                 self.assembled = false;
             }
         }
-    }
-    
-    /// Get the CPU instance
-    pub fn cpu(&self) -> Rc<RefCell<Cpu>> {
-        self.cpu.clone()
     }
     
     /// Check if the CPU is running
@@ -210,10 +198,10 @@ impl AsmWidget {
     }
     
     /// Show the widget in the given UI
-    pub fn show(&mut self, ui: &mut Ui) {
+    pub fn ui(&mut self, ui: &mut Ui) {
         // Code editor
         ui.heading("Assembly Code");
-        
+
         let text_edit = egui::TextEdit::multiline(&mut self.code)
             .code_editor()
             .desired_rows(20)

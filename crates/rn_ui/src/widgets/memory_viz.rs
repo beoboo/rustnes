@@ -39,7 +39,10 @@ impl MemoryVisualizer {
     }
     
     /// Show the memory visualization in the given UI
-    pub fn show(&mut self, ui: &mut Ui, memory: &[u8]) -> egui::Response {
+    pub fn ui(&mut self, ui: &mut Ui, memory: &[u8]) -> egui::Response {
+        ui.heading("Memory Visualization (0x0200-0x05FF)");
+        ui.label("Each byte is represented as a pixel with grayscale value");
+        
         // Add a description of the color mapping
         ui.label("Color mapping: $00=Black, $01=White, $02-$0F=NES color palette, others=grayscale");
         

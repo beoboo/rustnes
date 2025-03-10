@@ -169,8 +169,6 @@ impl CpuWidget {
                 ui.end_row();
             });
 
-        ui.separator();
-
         // Display Status flags with checkboxes
         ui.heading("Status Flags");
         Grid::new("cpu_flags_grid")

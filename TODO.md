@@ -53,6 +53,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement store instructions (STA, STX, STY)
 - [x] Implement basic jumps (JMP)
 - [x] Implement subroutine calls (JSR, RTS)
+- [ ] Implement BRK instruction for interrupt handling
 - [ ] Write tests for essential instructions
 
 ### Extended Addressing Modes [T3]
@@ -101,6 +102,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement parsing for essential load instructions (LDA, LDX, LDY)
 - [x] Implement parsing for essential store instructions (STA, STX, STY)
 - [x] Implement parsing for basic jumps and subroutines (JMP, JSR, RTS) (JMP implemented)
+- [ ] Implement parsing for BRK instruction
 - [x] Add parser tests for essential instructions
 - [ ] Create basic disassembler for essential instructions
 
@@ -376,6 +378,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Move widgets to rn_ui for reuse
 - [ ] Add disassembly view for code
 - [x] Implement step-by-step execution
+- [ ] Add BRK instruction support for program termination
 - [ ] Add breakpoint support
 - [ ] Implement memory editor
 - [ ] Connect to running emulator instance

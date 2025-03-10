@@ -16,6 +16,7 @@ pub enum Instruction {
     JMP, // Jump to new location
     JSR, // Jump to Subroutine
     RTS, // Return from Subroutine
+    BRK, // Break/interrupt
 }
 
 /// Instruction metadata containing the opcode, instruction type, addressing mode,
@@ -86,6 +87,9 @@ impl InstructionDecoder {
         
         // RTS - Return from Subroutine
         self.add_instruction(0x60, Instruction::RTS, AddressingMode::Implied, 1, 6);   // RTS Implied
+        
+        // BRK - Break/interrupt
+        self.add_instruction(0x00, Instruction::BRK, AddressingMode::Implied, 1, 7);   // BRK Implied
     }
 
     /// Add an instruction to the lookup tables
@@ -150,12 +154,11 @@ impl Cpu {
             Instruction::JMP => self.jmp(instruction_metadata.addressing_mode),
             Instruction::JSR => self.jsr(instruction_metadata.addressing_mode),
             Instruction::RTS => self.rts(),
+            Instruction::BRK => self.brk(),
         }
 
         // Increment PC for non-jump/call instructions (already incremented by 1 in fetch)
-        if instruction_metadata.instruction != Instruction::JMP && 
-           instruction_metadata.instruction != Instruction::JSR &&
-           instruction_metadata.instruction != Instruction::RTS {
+        if !matches!(instruction_metadata.instruction, Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK) {
             self.pc = self.pc.wrapping_add((instruction_metadata.bytes - 1) as u16);
         }
 
@@ -255,6 +258,27 @@ impl Cpu {
         self.pc = return_address.wrapping_add(1);
         
         // Note: RTS does not affect any processor flags
+    }
+
+    /// BRK - Break/interrupt
+    pub fn brk(&mut self) {
+        // BRK pushes PC+2 to the stack (PC+1 for the opcode fetch, +1 for the padding byte)
+        // The 6502 BRK instruction is 2 bytes long (opcode + padding)
+        let pc_to_push = self.pc.wrapping_add(1);
+        
+        self.push_word(pc_to_push);
+        
+        // Push status register with Break flag set
+        // The B flag (bit 4) is set in the status byte pushed to the stack
+        let status_with_break = self.status | CpuFlag::Break as u8 | CpuFlag::Unused as u8;
+        
+        self.push_byte(status_with_break);
+        
+        // Set the interrupt disable flag
+        self.set_flag(CpuFlag::InterruptDisable, true);
+        
+        // Load the IRQ/BRK vector (0xFFFE-0xFFFF) into PC
+        self.pc = self.read_word(0xFFFE);
     }
 }
 
@@ -773,10 +797,8 @@ mod tests {
         
         // Check return address pushed to stack
         let stack_addr = 0x0100 | (cpu.sp.wrapping_add(1) as u16);
-        let return_addr_lo = cpu.read_byte(stack_addr);
-        let return_addr_hi = cpu.read_byte(stack_addr.wrapping_add(1));
-        let return_addr = (return_addr_hi as u16) << 8 | (return_addr_lo as u16);
-        assert_eq!(return_addr, 0x0202); // Points to the last byte of JSR instruction
+        let pushed_pc = cpu.read_word(stack_addr);
+        assert_eq!(pushed_pc, 0x0202, "Return address should be pushed to stack");
         
         // Execute LDX at the subroutine
         let opcode = cpu.fetch();
@@ -801,5 +823,55 @@ mod tests {
         
         // Check A register loaded
         assert_eq!(cpu.a, 0x42);
+    }
+
+    #[test]
+    fn test_brk_instruction() -> Result<()> {
+        let mut cpu = Cpu::new(Box::new(Ram::default()));
+        
+        // Set initial state
+        cpu.pc = 0x8000;
+        cpu.sp = 0xFD;
+        cpu.status = 0x20; // Just the unused bit set
+        
+        // Set up the IRQ/BRK vector
+        cpu.write_word(0xFFFE, 0x1234);
+        
+        // Set up a BRK instruction at 0x8000
+        cpu.write_byte(0x8000, 0x00); // BRK opcode
+        
+        // Execute one instruction
+        let cycles = cpu.step()?;
+        
+        // Verify the CPU state after BRK
+        assert_eq!(cpu.pc, 0x1234, "PC should be set to IRQ/BRK vector");
+        assert_eq!(cpu.sp, 0xFA, "SP should be decreased by 3 (2 for PC, 1 for status)");
+        assert!(cpu.get_flag(CpuFlag::InterruptDisable), "Interrupt disable should be set");
+        
+        // After BRK, the stack should contain:
+        // 0x01FB: status byte (last pushed)
+        // 0x01FC: PC low byte (second pushed)
+        // 0x01FD: PC high byte (first pushed)
+        // And the SP will be 0xFA (pointing to the next available slot)
+        
+        // Verify stack contents
+        // The status byte is at 0x01FB (last pushed value)
+        let stack_status_addr = 0x01FB;
+        let stack_status = cpu.read_byte(stack_status_addr);
+        
+        // The expected status value is the original (0x20) + Break (0x10) + Unused (0x20)
+        let expected_status = 0x20 | CpuFlag::Break as u8 | CpuFlag::Unused as u8;
+
+        // Direct assertion on the expected full status value
+        assert_eq!(stack_status, expected_status, "Status on stack should be 0x30");
+        
+        let pushed_pc = cpu.read_word(0x01FC);
+        
+        assert_eq!(pushed_pc, 0x8002, "PC+1 should be pushed to stack");
+        
+        // Verify the cycle count
+        assert_eq!(cycles, 7, "BRK should take 7 cycles");
+        
+        Ok(())
     }
 }

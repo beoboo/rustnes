@@ -56,6 +56,12 @@ impl Assembler {
         let instruction = parts[0].parse::<Instruction>()
             .map_err(|_| AssembleError::UnknownMnemonic(parts[0].to_string()))?;
         
+        // Check for implied addressing mode instructions (no operand)
+        if instruction == Instruction::BRK || instruction == Instruction::RTS {
+            return self.decoder.lookup(instruction, AddressingMode::Implied)
+                .map_err(|_| AssembleError::InvalidAddressingMode(format!("{instruction} does not support implied mode")));
+        }
+        
         // Extract and parse the operand if it exists
         if parts.len() < 2 {
             return Err(AssembleError::InvalidSyntax("Missing operand".to_string()));
@@ -107,8 +113,17 @@ impl Assembler {
         let metadata = self.parse_instruction(input)?;
         let mut bytes = vec![metadata.opcode];
         
+        // For implied addressing mode, no operands to add
+        if metadata.addressing_mode == AddressingMode::Implied {
+            return Ok(bytes);
+        }
+        
         // Extract operand value from input string to add correct bytes
         let parts: Vec<&str> = input.trim().splitn(2, ' ').collect();
+        if parts.len() < 2 {
+            return Err(AssembleError::InvalidSyntax("Missing operand".to_string()));
+        }
+        
         let operand = parts[1].trim();
         let (_, operand_value) = self.parse_addressing_mode(operand)?;
         

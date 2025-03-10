@@ -40,14 +40,15 @@ impl AsmDebugger {
 impl App for AsmDebugger {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         // Left panel for controls and settings
+
         egui::SidePanel::left("controls_panel").show(ctx, |ui| {
-            ui.heading("Assembly");
+            ui.add_space(10.0);
             
             // Show the assembly widget in the side panel
-            self.asm_widget.show(ui);
-            
+            self.asm_widget.ui(ui);
+
             ui.separator();
-            
+
             // Simple controls for memory visualization
             ui.checkbox(&mut self.show_memory_viz, "Show Memory Visualization");
             ui.checkbox(&mut self.show_cpu, "Show CPU State");
@@ -55,25 +56,23 @@ impl App for AsmDebugger {
 
         // Main central panel
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("RustNES Assembly Debugger");
-
             // Memory visualization
             if self.show_memory_viz {
-                ui.add_space(10.0);
-                ui.heading("Memory Visualization (0x0200-0x05FF)");
-                ui.label("Each byte is represented as a pixel with grayscale value");
-                
+                ui.add_space(5.0);
+
                 // Create a buffer of memory from the CPU's memory for visualization
                 let cpu = self.cpu.borrow();
                 let mut memory_buffer = Vec::with_capacity(0x0400); // Only need 0x0200-0x05FF range
-                
+
                 // We only care about the visualization range (0x0200-0x05FF)
                 for addr in 0x0200..=0x05FF {
                     memory_buffer.push(cpu.read_byte(addr));
                 }
-                
+
                 // Show the memory visualization
-                self.memory_visualizer.show(ui, &memory_buffer);
+                self.memory_visualizer.ui(ui, &memory_buffer);
+
+                ui.separator();
             }
 
             // Display CPU state if show_cpu is true and the assembler is running
@@ -82,6 +81,8 @@ impl App for AsmDebugger {
 
                 // Show the CPU widget
                 self.cpu_widget.ui(ui, &mut self.cpu.borrow_mut());
+
+                ui.separator();
             }
         });
     }
