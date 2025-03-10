@@ -9,8 +9,8 @@ pub use instruction::{Instruction, InstructionDecoder, InstructionMetadata};
 mod error;
 pub use error::CpuError;
 
-mod parser;
-pub use parser::{InstructionParser, ParseError, ParseResult};
+mod assembler;
+pub use assembler::{Assembler, AssembleError, ParseResult};
 
 /// CPU status flags
 #[derive(Debug, Clone, Copy)]
