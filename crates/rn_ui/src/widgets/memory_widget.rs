@@ -1,6 +1,8 @@
 use egui::{Color32, Grid, RichText, TextEdit, Ui};
 use rn_core::memory::Addressable;
 
+use crate::widgets::{HexEditText, ValueType};
+
 /// Widget for displaying and editing memory contents
 pub struct MemoryWidget {
     /// Starting address for memory display
@@ -11,8 +13,10 @@ pub struct MemoryWidget {
     bytes_per_row: u8,
     /// Whether editing is allowed
     editable: bool,
-    /// Temporary buffer for editing
-    edit_buffer: Option<(u16, String)>,
+    /// Register edit widgets for each cell (created on demand)
+    cell_editors: Vec<HexEditText>,
+    /// Start address editor widget
+    start_address_editor: HexEditText,
 }
 
 impl Default for MemoryWidget {
@@ -22,7 +26,8 @@ impl Default for MemoryWidget {
             rows: 16,
             bytes_per_row: 16,
             editable: true,
-            edit_buffer: None,
+            cell_editors: Vec::new(),
+            start_address_editor: HexEditText::new(),
         }
     }
 }
@@ -51,7 +56,7 @@ impl MemoryWidget {
         self
     }
 
-    /// Set whether memory is editable
+    /// Configure whether memory is editable
     pub fn with_editable(mut self, editable: bool) -> Self {
         self.editable = editable;
         self
@@ -62,59 +67,75 @@ impl MemoryWidget {
         self.start_address
     }
 
-    /// Render the memory widget using the given UI and memory
+    /// Show the memory widget UI
     pub fn ui<A: Addressable>(&mut self, ui: &mut Ui, addressable: &mut A) {
-        ui.heading("Memory Viewer");
-
-        // Navigation controls
+        // Controls for navigation
         ui.horizontal(|ui| {
-            // Address input field
-            ui.label("Address:");
-            let mut addr_str = format!("{:04X}", self.start_address);
-            if ui.text_edit_singleline(&mut addr_str).changed() {
-                if let Ok(addr) = u16::from_str_radix(&addr_str, 16) {
-                    self.start_address = addr;
-                }
+            // Use HexEditText for the start address
+            if self.start_address_editor.ui(
+                ui,
+                "Start Address:",
+                &mut self.start_address,
+                ValueType::Bit16,
+                Some("First memory address to display"),
+            ) {
+                // Value already updated in start_address
             }
 
-            // Navigation buttons
-            if ui.button("⏮️ Start").clicked() {
-                self.start_address = 0x0000;
+            // Address navigation buttons
+            if ui.button("◄").clicked() {
+                // Go back one page
+                self.start_address = self
+                    .start_address
+                    .saturating_sub((self.rows as u16) * (self.bytes_per_row as u16));
             }
-            if ui.button("⬅️ -256").clicked() {
-                self.start_address = self.start_address.saturating_sub(0x0100);
+
+            if ui.button("◼").clicked() {
+                // Go to 0
+                self.start_address = 0;
             }
-            if ui.button("⬅️ -16").clicked() {
-                self.start_address = self.start_address.saturating_sub(0x0010);
+
+            if ui.button("►").clicked() {
+                // Go forward one page
+                self.start_address = self
+                    .start_address
+                    .saturating_add((self.rows as u16) * (self.bytes_per_row as u16));
             }
-            if ui.button("➡️ +16").clicked() {
-                self.start_address = self.start_address.saturating_add(0x0010);
-            }
-            if ui.button("➡️ +256").clicked() {
-                self.start_address = self.start_address.saturating_add(0x0100);
-            }
-            if ui.button("⏭️ End").clicked() {
-                // Go to last possible page of memory (64KB - display rows)
-                // We need to be careful with u16 overflow
-                let bytes_to_display = (self.rows as u16) * (self.bytes_per_row as u16);
-                self.start_address = u16::MAX - bytes_to_display + 1;
+
+            // Row configuration
+            ui.separator();
+            ui.label("Rows:");
+            let mut rows_str = self.rows.to_string();
+            if ui.text_edit_singleline(&mut rows_str).changed() {
+                if let Ok(rows) = rows_str.parse::<u8>() {
+                    if rows > 0 {
+                        self.rows = rows;
+                    }
+                }
             }
         });
 
-        ui.separator();
-
-        // Memory contents display
+        // Memory display grid
         Grid::new("memory_grid")
-            .num_columns(self.bytes_per_row as usize + 1) // Address + bytes
             .striped(true)
-            .spacing([8.0, 4.0])
+            .spacing([4.0, 4.0])
             .show(ui, |ui| {
-                // Header row with column numbers
-                ui.label(RichText::new("Addr").strong());
+                // Header row
+                ui.label(""); // Empty cell for address column
                 for col in 0..self.bytes_per_row {
-                    ui.label(RichText::new(format!("{:X}", col)).strong());
+                    ui.label(
+                        RichText::new(format!("+{:X}", col))
+                            .monospace()
+                            .color(Color32::LIGHT_BLUE),
+                    );
                 }
                 ui.end_row();
+
+                // Ensure we have enough cell editors
+                let total_cells = self.rows as usize * self.bytes_per_row as usize;
+                if self.cell_editors.len() < total_cells {
+                    self.cell_editors.resize_with(total_cells, HexEditText::new);
+                }
 
                 // Memory rows
                 for row in 0..self.rows {
@@ -132,74 +153,31 @@ impl MemoryWidget {
                     // Bytes in this row
                     for col in 0..self.bytes_per_row {
                         let addr = row_addr.saturating_add(col as u16);
+                        let editor_idx = row as usize * self.bytes_per_row as usize + col as usize;
+
+                        // Get the byte value and create a mutable copy for the widget
                         let byte = addressable.read_byte(addr);
+                        let mut byte_value = byte as u16;
 
-                        // Check if this byte is being edited
-                        if let Some((edit_addr, ref mut buf)) = self.edit_buffer {
-                            if edit_addr == addr {
-                                // Show text edit field
-                                let response = ui.add(
-                                    TextEdit::singleline(buf)
-                                        .desired_width(24.0)
-                                        .font(egui::TextStyle::Monospace),
-                                );
-
-                                if response.lost_focus() {
-                                    // Try to parse and update the value
-                                    if let Ok(value) = u8::from_str_radix(buf, 16) {
-                                        addressable.write_byte(addr, value);
-                                    }
-                                    self.edit_buffer = None;
-                                }
-                                continue;
-                            }
-                        }
-
-                        // Normal display
-                        let byte_text = RichText::new(format!("{:02X}", byte)).monospace();
-
+                        // Use the HexEditText to edit the byte
                         if self.editable {
-                            // Clickable if editable
-                            if ui
-                                .add(egui::Label::new(byte_text).sense(egui::Sense::click()))
-                                .clicked()
-                            {
-                                self.edit_buffer = Some((addr, format!("{:02X}", byte)));
+                            if self.cell_editors[editor_idx].ui(
+                                ui,
+                                "", // No label for memory cells
+                                &mut byte_value,
+                                ValueType::Bit8,
+                                Some(&format!("Address: ${:04X}", addr)),
+                            ) {
+                                // Value changed, update memory
+                                addressable.write_byte(addr, byte_value as u8);
                             }
                         } else {
-                            // Just display if not editable
-                            ui.label(byte_text);
+                            // Just display the value without editing
+                            ui.label(RichText::new(format!("{:02X}", byte)).monospace());
                         }
                     }
                     ui.end_row();
                 }
-
-                // ASCII representation (as a future enhancement)
-                // This could be added as an extra column or separate grid
             });
-
-        // Memory region selector
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.label("Jump to region:");
-            if ui.button("Zero Page").clicked() {
-                self.start_address = 0x0000;
-            }
-            if ui.button("Stack").clicked() {
-                self.start_address = 0x0100;
-            }
-            if ui.button("RAM").clicked() {
-                self.start_address = 0x0200;
-            }
-            if ui.button("PPU Regs").clicked() {
-                self.start_address = 0x2000;
-            }
-            if ui.button("APU Regs").clicked() {
-                self.start_address = 0x4000;
-            }
-            if ui.button("Cart").clicked() {
-                self.start_address = 0x8000;
-            }
-        });
     }
 }

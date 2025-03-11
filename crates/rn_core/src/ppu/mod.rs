@@ -82,11 +82,135 @@ impl Ppu {
             if self.scanline > 261 {
                 self.scanline = -1;
                 self.frame_count += 1;
+
+                // For T2 track minimal implementation:
+                // If rendering is enabled (mask bits 3 or 4 set), update the frame buffer based on our patterns
+                if (self.mask & (registers::MASK_SHOW_BACKGROUND | registers::MASK_SHOW_SPRITES)) != 0 {
+                    self.render_frame();
+                }
             }
         }
+    }
 
-        // TODO: Implement actual rendering logic
-        // This will involve sprite evaluation, background fetching, etc.
+    /// Minimal frame rendering for T2 track
+    ///
+    /// This simplified implementation just checks for pattern #1 in the nametable
+    /// and renders it according to the first palette entry.
+    fn render_frame(&mut self) {
+        // Clear the frame buffer
+        for pixel in self.frame_buffer.iter_mut() {
+            *pixel = 0;
+        }
+
+        // Simple implementation for T2 track - render pattern #1 wherever it's found in the nametable
+        for tile_y in 0..30 {
+            for tile_x in 0..32 {
+                // Calculate nametable address for this tile
+                let nt_addr = 0x2000 + tile_y * 32 + tile_x;
+                let tile_id = self.read_ppu_memory(nt_addr as u16);
+
+                // If tile is our special pattern #1, render it
+                if tile_id == 1 {
+                    // Get palette color
+                    let palette_entry = self.read_ppu_memory(0x3F00);
+                    let rgb = self.palette_to_rgb(palette_entry);
+
+                    // Get pattern data for tile #1
+                    for y in 0..8 {
+                        let pattern_addr = 0x0000 + 1 * 16 + y; // Pattern table 0, tile #1, row y
+                        let pattern = self.read_ppu_memory(pattern_addr as u16);
+
+                        for x in 0..8 {
+                            if (pattern & (1 << (7 - x))) != 0 {
+                                // Calculate pixel position in frame buffer
+                                let px = tile_x * 8 + x;
+                                let py = tile_y * 8 + y;
+                                let idx = (py * 256 + px) * 3;
+
+                                if idx < self.frame_buffer.len() - 2 {
+                                    self.frame_buffer[idx] = rgb[0];
+                                    self.frame_buffer[idx + 1] = rgb[1];
+                                    self.frame_buffer[idx + 2] = rgb[2];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Convert a palette entry to RGB values
+    fn palette_to_rgb(&self, palette_entry: u8) -> [u8; 3] {
+        // Simple NES palette conversion
+        // These are approximate RGB values for the NES palette
+        match palette_entry & 0x3F {
+            0x00 => [0x75, 0x75, 0x75], // Gray
+            0x01 => [0x27, 0x1B, 0x8F], // Dark Blue
+            0x02 => [0x00, 0x00, 0xAB], // Blue
+            0x03 => [0x47, 0x00, 0x9F], // Purple
+            0x04 => [0x8F, 0x00, 0x77], // Pink
+            0x05 => [0xAB, 0x00, 0x13], // Red
+            0x06 => [0xA7, 0x00, 0x00], // Dark Red
+            0x07 => [0x7F, 0x0B, 0x00], // Brown
+            0x08 => [0x43, 0x2F, 0x00], // Dark Brown
+            0x09 => [0x00, 0x47, 0x00], // Green
+            0x0A => [0x00, 0x51, 0x00], // Dark Green
+            0x0B => [0x00, 0x3F, 0x17], // Teal
+            0x0C => [0x1B, 0x3F, 0x5F], // Dark Cyan
+            0x0D => [0x00, 0x00, 0x00], // Black
+            0x0E => [0x00, 0x00, 0x00], // Black
+            0x0F => [0x00, 0x00, 0x00], // Black
+            0x10 => [0xBC, 0xBC, 0xBC], // Light Gray
+            0x11 => [0x00, 0x73, 0xEF], // Light Blue
+            0x12 => [0x23, 0x3B, 0xEF], // Bright Blue
+            0x13 => [0x83, 0x00, 0xF3], // Bright Purple
+            0x14 => [0xBF, 0x00, 0xBF], // Magenta
+            0x15 => [0xE7, 0x00, 0x5B], // Pink Red
+            0x16 => [0xDB, 0x2B, 0x00], // Orange Red
+            0x17 => [0xCB, 0x4F, 0x0F], // Orange
+            0x18 => [0x8B, 0x73, 0x00], // Light Brown
+            0x19 => [0x00, 0x97, 0x00], // Light Green
+            0x1A => [0x00, 0xAB, 0x00], // Bright Green
+            0x1B => [0x00, 0x93, 0x3B], // Sea Green
+            0x1C => [0x00, 0x83, 0x8B], // Light Cyan
+            0x1D => [0x00, 0x00, 0x00], // Black
+            0x1E => [0x00, 0x00, 0x00], // Black
+            0x1F => [0x00, 0x00, 0x00], // Black
+            0x20 => [0xFF, 0xFF, 0xFF], // White
+            0x21 => [0x3F, 0xBF, 0xFF], // Sky Blue
+            0x22 => [0x5F, 0x97, 0xFF], // Light Blue
+            0x23 => [0xA7, 0x8B, 0xFD], // Lavender
+            0x24 => [0xF7, 0x7B, 0xFF], // Light Pink
+            0x25 => [0xFF, 0x77, 0xB7], // Light Red
+            0x26 => [0xFF, 0x77, 0x63], // Light Orange
+            0x27 => [0xFF, 0x9B, 0x3B], // Peach
+            0x28 => [0xF3, 0xBF, 0x3F], // Yellow
+            0x29 => [0x83, 0xD3, 0x13], // Light Green
+            0x2A => [0x4F, 0xDF, 0x4B], // Bright Green
+            0x2B => [0x58, 0xF8, 0x98], // Seafoam Green
+            0x2C => [0x00, 0xEB, 0xDB], // Light Cyan
+            0x2D => [0x00, 0x00, 0x00], // Black
+            0x2E => [0x00, 0x00, 0x00], // Black
+            0x2F => [0x00, 0x00, 0x00], // Black
+            0x30 => [0xFF, 0xFF, 0xFF], // White
+            0x31 => [0xAB, 0xE7, 0xFF], // Pale Blue
+            0x32 => [0xC7, 0xD7, 0xFF], // Pale Lavender
+            0x33 => [0xD7, 0xCB, 0xFF], // Pale Purple
+            0x34 => [0xFF, 0xC7, 0xFF], // Pale Pink
+            0x35 => [0xFF, 0xC7, 0xDB], // Pale Red
+            0x36 => [0xFF, 0xBF, 0xB3], // Pale Orange
+            0x37 => [0xFF, 0xDB, 0xAB], // Pale Yellow
+            0x38 => [0xFF, 0xE7, 0xA3], // Pale Yellow Green
+            0x39 => [0xE3, 0xFF, 0xA3], // Pale Green
+            0x3A => [0xAB, 0xF3, 0xBF], // Pale Sea Green
+            0x3B => [0xB3, 0xFF, 0xCF], // Pale Cyan
+            0x3C => [0x9F, 0xFF, 0xF3], // Pale Blue Green
+            0x3D => [0x00, 0x00, 0x00], // Black
+            0x3E => [0x00, 0x00, 0x00], // Black
+            0x3F => [0x00, 0x00, 0x00], // Black
+            _ => [0x00, 0x00, 0x00],    // Default to black
+        }
     }
 
     /// Get the current frame buffer
@@ -323,6 +447,10 @@ impl Default for Ppu {
 
 // Define register bit constants
 pub mod registers {
+    use std::{cell::RefCell, rc::Rc};
+
+    use crate::{memory::Addressable, ppu::Ppu};
+
     // PPUCTRL ($2000) bits
     pub const CTRL_NAMETABLE_X: u8 = 0x01; // 0: Select nametable at $2000; 1: Select nametable at $2400
     pub const CTRL_NAMETABLE_Y: u8 = 0x02; // 0: Select nametable at $2000; 1: Select nametable at $2800
@@ -347,6 +475,53 @@ pub mod registers {
     pub const STATUS_SPRITE_OVERFLOW: u8 = 0x20; // Sprite overflow occurred
     pub const STATUS_SPRITE_ZERO_HIT: u8 = 0x40; // Sprite 0 hit occurred
     pub const STATUS_VBLANK: u8 = 0x80; // In vblank
+
+    /// Adapter to connect PPU registers to the memory bus
+    ///
+    /// This component handles memory-mapped I/O for the PPU registers
+    /// at addresses $2000-$2007.
+    pub struct PpuRegisters {
+        /// Reference to the PPU
+        ppu: Rc<RefCell<Ppu>>,
+    }
+
+    impl PpuRegisters {
+        /// Create a new PPU registers adapter
+        pub fn new(ppu: Rc<RefCell<Ppu>>) -> Self {
+            Self { ppu }
+        }
+    }
+
+    impl Addressable for PpuRegisters {
+        /// Check if the address is in the PPU register range ($2000-$2007)
+        fn handles_address(&self, address: u16) -> bool {
+            address >= 0x2000 && address <= 0x2007
+        }
+
+        /// Read from a PPU register
+        ///
+        /// This forwards the read operation to the PPU's read_register method.
+        /// Note that reading from some PPU registers may have side effects.
+        fn read_byte(&self, address: u16) -> u8 {
+            self.ppu.borrow_mut().read_register(address)
+        }
+
+        /// Write to a PPU register
+        ///
+        /// This forwards the write operation to the PPU's write_register method.
+        /// Note that writing to some PPU registers may have side effects.
+        fn write_byte(&mut self, address: u16, value: u8) {
+            self.ppu.borrow_mut().write_register(address, value);
+        }
+
+        /// Reset the PPU registers
+        ///
+        /// This is called when the system is reset. It forwards the reset
+        /// operation to the PPU.
+        fn reset(&mut self) {
+            self.ppu.borrow_mut().reset();
+        }
+    }
 }
 
 #[cfg(test)]

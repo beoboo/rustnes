@@ -1,29 +1,26 @@
 use egui::{Grid, TextEdit, Ui};
 use rn_core::cpu::Cpu;
 
+use crate::widgets::{HexEditText, ValueType};
+
 /// Widget for displaying CPU state
 pub struct CpuWidget {
-    // Single edit buffer
-    edit_buffer: String,
-    // Currently editing register (if any)
-    editing: Option<EditTarget>,
-}
-
-/// Identifies what is being edited
-#[derive(PartialEq, Copy, Clone)]
-enum EditTarget {
-    RegA,
-    RegX,
-    RegY,
-    RegSP,
-    RegPC,
+    // Register edit widgets
+    a_register: HexEditText,
+    x_register: HexEditText,
+    y_register: HexEditText,
+    sp_register: HexEditText,
+    pc_register: HexEditText,
 }
 
 impl Default for CpuWidget {
     fn default() -> Self {
         Self {
-            edit_buffer: String::new(),
-            editing: None,
+            a_register: HexEditText::new(),
+            x_register: HexEditText::new(),
+            y_register: HexEditText::new(),
+            sp_register: HexEditText::new(),
+            pc_register: HexEditText::new(),
         }
     }
 }
@@ -44,111 +41,70 @@ impl CpuWidget {
             .striped(true)
             .show(ui, |ui| {
                 // A register
-                ui.label("A (Accumulator):");
-                if self.editing == Some(EditTarget::RegA) {
-                    let response = ui.add(
-                        TextEdit::singleline(&mut self.edit_buffer)
-                            .desired_width(50.0)
-                            .hint_text(format!("${:02X}", cpu.a)),
-                    );
-
-                    if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(value) = u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16) {
-                            cpu.a = value;
-                        }
-                        self.editing = None;
-                    }
-                } else if ui.button(format!("${:02X}", cpu.a)).clicked() {
-                    self.edit_buffer = format!("{:02X}", cpu.a);
-                    self.editing = Some(EditTarget::RegA);
+                let mut a_value = cpu.a as u16;
+                if self.a_register.ui(
+                    ui,
+                    "A (Accumulator):",
+                    &mut a_value,
+                    ValueType::Bit8,
+                    Some("Accumulator Register"),
+                ) {
+                    cpu.a = a_value as u8;
                 }
                 ui.end_row();
 
                 // X register
-                ui.label("X (Index X):");
-                if self.editing == Some(EditTarget::RegX) {
-                    let response = ui.add(
-                        TextEdit::singleline(&mut self.edit_buffer)
-                            .desired_width(50.0)
-                            .hint_text(format!("${:02X}", cpu.x)),
-                    );
-
-                    if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(value) = u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16) {
-                            cpu.x = value;
-                        }
-                        self.editing = None;
-                    }
-                } else if ui.button(format!("${:02X}", cpu.x)).clicked() {
-                    self.edit_buffer = format!("{:02X}", cpu.x);
-                    self.editing = Some(EditTarget::RegX);
+                let mut x_value = cpu.x as u16;
+                if self.x_register.ui(
+                    ui,
+                    "X (Index X):",
+                    &mut x_value,
+                    ValueType::Bit8,
+                    Some("X Index Register"),
+                ) {
+                    cpu.x = x_value as u8;
                 }
                 ui.end_row();
 
                 // Y register
-                ui.label("Y (Index Y):");
-                if self.editing == Some(EditTarget::RegY) {
-                    let response = ui.add(
-                        TextEdit::singleline(&mut self.edit_buffer)
-                            .desired_width(50.0)
-                            .hint_text(format!("${:02X}", cpu.y)),
-                    );
-
-                    if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(value) = u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16) {
-                            cpu.y = value;
-                        }
-                        self.editing = None;
-                    }
-                } else if ui.button(format!("${:02X}", cpu.y)).clicked() {
-                    self.edit_buffer = format!("{:02X}", cpu.y);
-                    self.editing = Some(EditTarget::RegY);
+                let mut y_value = cpu.y as u16;
+                if self.y_register.ui(
+                    ui,
+                    "Y (Index Y):",
+                    &mut y_value,
+                    ValueType::Bit8,
+                    Some("Y Index Register"),
+                ) {
+                    cpu.y = y_value as u8;
                 }
                 ui.end_row();
 
                 // Stack Pointer
-                ui.label("SP (Stack Pointer):");
-                if self.editing == Some(EditTarget::RegSP) {
-                    let response = ui.add(
-                        TextEdit::singleline(&mut self.edit_buffer)
-                            .desired_width(50.0)
-                            .hint_text(format!("${:02X}", cpu.sp)),
-                    );
-
-                    if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(value) = u8::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16) {
-                            cpu.sp = value;
-                        }
-                        self.editing = None;
-                    }
-                } else if ui.button(format!("${:02X}", cpu.sp)).clicked() {
-                    self.edit_buffer = format!("{:02X}", cpu.sp);
-                    self.editing = Some(EditTarget::RegSP);
+                let mut sp_value = cpu.sp as u16;
+                if self.sp_register.ui(
+                    ui,
+                    "SP (Stack Pointer):",
+                    &mut sp_value,
+                    ValueType::Bit8,
+                    Some("Stack Pointer Register"),
+                ) {
+                    cpu.sp = sp_value as u8;
                 }
                 ui.end_row();
 
                 // Program Counter
-                ui.label("PC (Program Counter):");
-                if self.editing == Some(EditTarget::RegPC) {
-                    let response = ui.add(
-                        TextEdit::singleline(&mut self.edit_buffer)
-                            .desired_width(50.0)
-                            .hint_text(format!("${:04X}", cpu.pc)),
-                    );
-
-                    if response.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(value) = u16::from_str_radix(self.edit_buffer.trim_start_matches("$"), 16) {
-                            cpu.pc = value;
-                        }
-                        self.editing = None;
-                    }
-                } else if ui.button(format!("${:04X}", cpu.pc)).clicked() {
-                    self.edit_buffer = format!("{:04X}", cpu.pc);
-                    self.editing = Some(EditTarget::RegPC);
+                if self.pc_register.ui(
+                    ui,
+                    "PC (Program Counter):",
+                    &mut cpu.pc,
+                    ValueType::Bit16,
+                    Some("Program Counter Register"),
+                ) {
+                    // PC updated directly
                 }
                 ui.end_row();
 
-                // Status register
+                // Status register - this is shown as read-only with individual flags below
                 ui.label("Status (P):");
                 ui.label(format!("${:02X}", cpu.status));
                 ui.end_row();
@@ -161,57 +117,54 @@ impl CpuWidget {
 
         // Display Status flags with checkboxes
         ui.heading("Status Flags");
-        Grid::new("cpu_flags_grid")
-            .num_columns(8)
-            .spacing([10.0, 4.0])
-            .show(ui, |ui| {
-                // Flag names
-                ui.label("N");
-                ui.label("V");
-                ui.label("-");
-                ui.label("B");
-                ui.label("D");
-                ui.label("I");
-                ui.label("Z");
-                ui.label("C");
-                ui.end_row();
 
-                // Flag checkboxes for editing
-                let flag_masks = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
-                let flag_names = [
-                    "Negative",
-                    "Overflow",
-                    "Unused",
-                    "Break",
-                    "Decimal",
-                    "Interrupt Disable",
-                    "Zero",
-                    "Carry",
-                ];
+        // Define flags with their masks, labels, and tooltips
+        let flags = [
+            (0x80, "N", "Negative"),
+            (0x40, "V", "Overflow"),
+            (0x20, "-", "Unused"),
+            (0x10, "B", "Break"),
+            (0x08, "D", "Decimal"),
+            (0x04, "I", "Interrupt Disable"),
+            (0x02, "Z", "Zero"),
+            (0x01, "C", "Carry"),
+        ];
 
-                // Check and update each flag separately
-                for (i, &mask) in flag_masks.iter().enumerate() {
+        // Ultra-compact grid layout
+        ui.horizontal(|ui| {
+            // Reduce UI scale for this section to make everything smaller
+            let original_spacing = ui.spacing().clone();
+
+            // Minimize spacing between elements
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+
+            for &(mask, label, tooltip) in &flags {
+                ui.vertical(|ui| {
+                    // Set very small minimum width
+                    ui.set_min_width(16.0);
+                    ui.set_max_width(16.0);
+
+                    // Centered small label
+                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(label).text_style(egui::TextStyle::Small));
+                    });
+
+                    // Tight checkbox placement
                     let mut checked = (cpu.status & mask) != 0;
-                    if ui.checkbox(&mut checked, "").on_hover_text(flag_names[i]).changed() {
+                    let response = ui.checkbox(&mut checked, "").on_hover_text(tooltip);
+
+                    if response.changed() {
                         if checked {
                             cpu.status |= mask;
                         } else {
                             cpu.status &= !mask;
                         }
                     }
-                }
-                ui.end_row();
+                });
+            }
 
-                // Flag descriptions in a new row
-                ui.label("Sign");
-                ui.label("Overflow");
-                ui.label("Unused");
-                ui.label("Break");
-                ui.label("BCD");
-                ui.label("IRQ Dis");
-                ui.label("Zero");
-                ui.label("Carry");
-                ui.end_row();
-            });
+            // Restore original spacing
+            *ui.spacing_mut() = original_spacing;
+        });
     }
 }

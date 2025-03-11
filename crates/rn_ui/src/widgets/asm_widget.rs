@@ -2,6 +2,8 @@
 use egui::{self, Color32, Ui};
 use rn_core::cpu::{Assembler, Cpu};
 
+use crate::widgets::{HexEditText, ValueType};
+
 /// A widget for editing and executing 6502 assembly code
 pub struct AsmWidget {
     /// The assembly code being edited
@@ -22,6 +24,8 @@ pub struct AsmWidget {
     is_running: bool,
     /// Whether the program has finished execution (hit BRK)
     is_finished: bool,
+    /// Load address editor widget
+    load_address_editor: HexEditText,
 }
 
 impl AsmWidget {
@@ -37,6 +41,7 @@ impl AsmWidget {
             is_loaded: false,
             is_running: false,
             is_finished: false,
+            load_address_editor: HexEditText::new(),
         }
     }
 
@@ -203,24 +208,9 @@ impl AsmWidget {
             }
         });
 
-        // Show total size and load address
+        // Show total size
         ui.add_space(5.0);
         ui.label(format!("Total size: {} bytes", self.assembled_bytes.len()));
-        ui.label(format!("Load address: ${:04X}", self.load_address));
-
-        // Show input for changing load address
-        if !self.is_loaded {
-            ui.horizontal(|ui| {
-                ui.label("Load address:");
-                let mut addr_string = format!("{:04X}", self.load_address);
-                if ui.text_edit_singleline(&mut addr_string).changed() {
-                    // Try to parse as hex
-                    if let Ok(addr) = u16::from_str_radix(&addr_string, 16) {
-                        self.load_address = addr;
-                    }
-                }
-            });
-        }
     }
 
     /// Show the widget in the given UI
@@ -228,15 +218,45 @@ impl AsmWidget {
         // Code editor
         ui.heading("Assembly Code");
 
-        // Create text editor, disabled if program is loaded
-        let text_edit = egui::TextEdit::multiline(&mut self.code)
-            .code_editor()
-            .desired_rows(20)
-            .lock_focus(true)
-            .desired_width(f32::INFINITY)
-            .interactive(!self.is_loaded);
+        // Wrap just the multi-line editor in a scroll area
+        egui::ScrollArea::vertical()
+            .id_salt("asm_code_editor_scroll")
+            .max_height(300.0)
+            .show(ui, |ui| {
+                // Create text editor, disabled if program is loaded
+                let text_edit = egui::TextEdit::multiline(&mut self.code)
+                    .code_editor()
+                    .desired_rows(20)
+                    .lock_focus(true)
+                    .desired_width(f32::INFINITY)
+                    .interactive(!self.is_loaded);
 
-        ui.add(text_edit);
+                ui.add(text_edit);
+            });
+
+        ui.add_space(10.0);
+
+        // Load address editor - always visible
+        ui.horizontal(|ui| {
+            ui.label("Load address:");
+
+            // Only make it editable if not loaded
+            if !self.is_loaded {
+                if self.load_address_editor.ui(
+                    ui,
+                    "", // Skip the label since we added it above
+                    &mut self.load_address,
+                    ValueType::Bit16,
+                    Some("Program load address in memory"),
+                ) {
+                    // Value already updated in load_address
+                }
+            } else {
+                ui.label(format!("${:04X}", self.load_address));
+            }
+        });
+
+        ui.add_space(5.0);
 
         // Buttons
         ui.horizontal(|ui| {

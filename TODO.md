@@ -148,7 +148,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ### Essential Memory Components [T2]
 - [x] Limit RAM to only handle the main memory region ($0000-$1FFF)
 - [x] Make RAM configurable with custom address ranges
-- [ ] Implement PPU component with registers at $2000-$2007
+- [x] Implement PPU component with registers at $2000-$2007
 - [ ] Implement ROM component for cartridge memory ($8000-$FFFF)
 - [ ] Test basic memory component interactions
 
@@ -160,7 +160,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement PPU register reading with proper side effects
 - [x] Implement PPU register writing with proper side effects
 - [ ] Test PPU register access through the bus
-- [ ] Implement `PpuRegisters` adapter for memory-mapped access
+- [x] Implement `PpuRegisters` adapter for memory-mapped access
+- [x] Create a common `PixelDataProvider` trait for memory and PPU data sources
+- [x] Extend the `MemoryVisualizer` to work with the `PixelDataProvider` trait
 
 ### Ppu Enhancements [T3]
 - [ ] Implement PPU register mirroring ($2008-$3FFF mirrors $2000-$2007)
@@ -227,7 +229,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement PPU memory map
 - [x] Implement basic VRAM
 - [x] Implement color palette
-- [ ] Implement basic frame buffer
+- [x] Implement basic frame buffer rendering logic
+- [x] Implement PPU display widget for the frame buffer
 - [ ] Test basic pixel rendering
 
 ## MILESTONE 1: Memory Visualization [T1]
@@ -241,15 +244,17 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## MILESTONE 2: System Integration [T2]
 - [ ] Implement `NesSystem` struct to coordinate components
-- [ ] Connect CPU, Memory Bus, and PPU through clean interfaces
-- [ ] Design proper ownership model with minimal unsafe code
+- [x] Connect CPU, Memory Bus, and PPU through clean interfaces
+- [x] Design proper ownership model with minimal unsafe code
 - [ ] Test component interaction through system interface
+- [x] Extend AsmDebugger to support both memory and PPU display
 
 ## MILESTONE 3: Display a Pixel with PPU [T2]
-- [ ] Create a test ROM that sets a single pixel using the PPU
-- [ ] Integrate CPU, Memory, and PPU components
+- [x] Create a test ROM that sets a single pixel using the PPU
+- [x] Integrate CPU, Memory, and PPU components
 - [ ] Implement basic main loop
 - [ ] Display a colored pixel using the PPU
+- [x] Add display mode switching in the debugger UI
 
 ### Pattern Tables [T3]
 - [ ] Implement pattern table access
@@ -390,10 +395,10 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Add support for viewing/editing PPU memory [T3]
 
 ## Progress Tracking
-- Track 1 (Memory Visualization): 0% complete
-- Track 2 (PPU Pixel Display): 0% complete
+- Track 1 (Memory Visualization): 100% complete
+- Track 2 (PPU Pixel Display): 60% complete
 - Track 3 (Pattern & Sprite Rendering): 0% complete
 - Track 4 (Interactive Graphics): 0% complete
 - Track 5 (Complete NES): 0% complete
 
-**Total Progress: 60/182 tasks complete (33.0%)** 
+**Total Progress: 70/186 tasks complete (37.6%)** 
