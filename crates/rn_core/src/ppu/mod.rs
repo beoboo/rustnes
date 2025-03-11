@@ -372,14 +372,21 @@ impl Ppu {
         match addr {
             0x0000..=0x1FFF => {
                 // Pattern tables (CHR ROM/RAM) - External
-                // For now, let's return the value stored in VRAM for T2 track
-                // This is a temporary fix to allow pattern table data to be accessed
+                // TEMPORARY IMPLEMENTATION: No ROM component required
+                // --------------------------------------------------
+                // This is a special temporary implementation that doesn't require
+                // an actual ROM/cartridge component. In a real NES, this data would
+                // come from CHR-ROM in the cartridge, but for our simplified testing
+                // we're implementing a hardcoded pattern for pixel rendering.
+                //
+                // This allows us to test PPU functionality without implementing the
+                // ROM component for cartridge memory ($8000-$FFFF).
                 
-                // Map pattern table reads to internal VRAM (only for debugging)
-                // Return the pattern table data set by our program
+                // Return a hardcoded pattern byte for testing pixel rendering
                 if addr == 0x10 {
-                    // When reading the specific pattern for our pixel test
-                    return 0x08; // Return the pattern with a single pixel turned on
+                    // This specific value (0x08 = 0b00001000) turns on a single pixel
+                    // in a pattern tile, allowing us to test basic rendering
+                    return 0x08;
                 }
                 0
             },
@@ -402,6 +409,8 @@ impl Ppu {
         match addr {
             0x0000..=0x1FFF => {
                 // Pattern tables (CHR ROM/RAM) - External
+                // TEMPORARY IMPLEMENTATION: Currently ignoring writes to pattern table
+                // Normally this would write to CHR-RAM if the cartridge supports it
             },
             0x2000..=0x3EFF => {
                 // Nametables and mirrors

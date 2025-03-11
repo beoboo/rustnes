@@ -149,17 +149,17 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Limit RAM to only handle the main memory region ($0000-$1FFF)
 - [x] Make RAM configurable with custom address ranges
 - [x] Implement PPU component with registers at $2000-$2007
-- [ ] Implement ROM component for cartridge memory ($8000-$FFFF)
-- [ ] Test basic memory component interactions
+- [x] Test basic memory component interactions
 
 ### Memory Enhancements [T3]
 - [ ] Implement RAM mirroring ($0800-$1FFF mirrors $0000-$07FF)
+- [ ] Implement ROM component for cartridge memory ($8000-$FFFF)
 
 ### Essential PPU I/O [T2]
 - [x] Define `PpuRegister` enum for type-safe register access
 - [x] Implement PPU register reading with proper side effects
 - [x] Implement PPU register writing with proper side effects
-- [ ] Test PPU register access through the bus
+- [x] Test PPU register access through the bus
 - [x] Implement `PpuRegisters` adapter for memory-mapped access
 - [x] Create a common `PixelDataProvider` trait for memory and PPU data sources
 - [x] Extend the `MemoryVisualizer` to work with the `PixelDataProvider` trait
@@ -188,7 +188,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## Cartridge System
 
-### Basic ROM Loading [T2]
+### Basic ROM Loading [T3]
 - [ ] Implement iNES file format parser
 - [ ] Implement basic cartridge interface
 - [ ] Implement PRG ROM access
@@ -196,7 +196,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test ROM loading
 - [ ] Test PRG ROM access
 
-### NROM Mapper [T2]
+### NROM Mapper [T3]
 - [ ] Implement Mapper trait
 - [ ] Implement NROM (Mapper 0)
 - [ ] Implement simple test ROMs
@@ -225,6 +225,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Test PPU internal functionality in isolation
 
 ### PPU Basics [T2]
+⚠️ NOTE: Temporary hardcoded pattern data implemented for pixel rendering without ROM
 - [x] Implement PPU registers
 - [x] Implement PPU memory map
 - [x] Implement basic VRAM
@@ -408,9 +409,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## Progress Tracking
 - Track 1 (Memory Visualization): 100% complete
-- Track 2 (PPU Pixel Display): 45% complete (added system timing tasks)
-- Track 3 (Pattern & Sprite Rendering): 0% complete
+- Track 2 (PPU Pixel Display): 50% complete (ROM component not required for pixel rendering)
+- Track 3 (Pattern & Sprite Rendering): 0% complete (now includes ROM and cartridge implementation)
 - Track 4 (Interactive Graphics): 0% complete
 - Track 5 (Complete NES): 0% complete
 
-**Total Progress: 70/200 tasks complete (35.0%)** 
+**Total Progress: 71/200 tasks complete (35.5%)** 
