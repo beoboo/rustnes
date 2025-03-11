@@ -1,8 +1,9 @@
 use crate::cpu::Cpu;
 use crate::errors::NesError;
-use crate::ppu::Ppu;
+use crate::ppu::{Ppu, registers::PpuRegisters};
 use crate::system::Bus;
 use crate::memory::Ram;
+use std::{cell::{RefCell, Ref, RefMut}, rc::Rc};
 
 /// NesSystem coordinates the main components of the NES
 pub struct NesSystem {
@@ -10,14 +11,21 @@ pub struct NesSystem {
     cpu: Cpu,
     
     /// The PPU component
-    ppu: Ppu,
+    ppu: Rc<RefCell<Ppu>>,
 }
 
 impl NesSystem {
     /// Create a new NesSystem
     pub fn new() -> Self {
+        // Create a PPU instance with RefCell for sharing
+        let ppu = Rc::new(RefCell::new(Ppu::new()));
+        
         // Create a bus with basic memory mapping
         let mut bus = Bus::new();
+        
+        // Attach PPU registers to the CPU bus at $2000-$2007
+        let ppu_regs = Box::new(PpuRegisters::new(ppu.clone()));
+        bus.attach_component(ppu_regs);
         
         // Add ROM mapping for program memory (0x8000-0xFFFF)
         // This ensures we have a proper place to load programs
@@ -33,9 +41,8 @@ impl NesSystem {
             println!("===========================\n");
         }
         
-        // Create the CPU and PPU
+        // Create the CPU with its bus
         let cpu = Cpu::new(Box::new(bus));
-        let ppu = Ppu::new();
         
         Self { 
             cpu, 
@@ -46,7 +53,7 @@ impl NesSystem {
     /// Reset the system
     pub fn reset(&mut self) -> Result<(), NesError> {
         self.cpu.reset()?;
-        self.ppu.reset();
+        self.ppu.borrow_mut().reset();
         
         Ok(())
     }
@@ -60,7 +67,7 @@ impl NesSystem {
         
         // Run the PPU at 3x the CPU speed
         for _ in 0..cpu_cycles * 3 {
-            self.ppu.tick();
+            self.ppu.borrow_mut().tick();
         }
         
         Ok(cpu_cycles)
@@ -77,13 +84,13 @@ impl NesSystem {
     }
     
     /// Get the PPU
-    pub fn ppu(&self) -> &Ppu {
-        &self.ppu
+    pub fn ppu(&self) -> Ref<Ppu> {
+        self.ppu.borrow()
     }
     
     /// Get mutable access to the PPU
-    pub fn ppu_mut(&mut self) -> &mut Ppu {
-        &mut self.ppu
+    pub fn ppu_mut(&mut self) -> RefMut<Ppu> {
+        self.ppu.borrow_mut()
     }
 }
 

@@ -105,7 +105,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement system-level timing controller for component synchronization
 - [x] Ensure PPU ticks at 3x the CPU rate
 - [x] Improve memory access error handling to fail visibly on invalid accesses
-- [x] Refactor AsmDebugger to use System class for timing control
+- [x] Refactor AsmDebugger to use the NesSystem class for timing control
 - [ ] Implement NOP instruction to support timing-related tests
 - [x] Test correct timing ratios between components
 
@@ -140,11 +140,17 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement basic frame buffer rendering logic
 - [x] Implement PPU display widget for the frame buffer
 
-## MILESTONE 3: Display a Pixel with PPU [T2]
+### System integration [T2]
 - [x] Create a test ROM that sets a single pixel using the PPU
 - [x] Integrate CPU, Memory, and PPU components
-- [ ] Implement basic main loop with proper timing
+- [x] Implement basic main loop with proper timing
 - [x] Add display mode switching in the debugger UI
+
+### [Parser] Label Support [T2]
+- [ ] Add label declaration support in the parser
+- [ ] Implement label resolution for jump instructions
+- [ ] Add tests for label parsing and resolution
+- [ ] Update the AsmDebugger to properly handle infinite loops
 
 ## MILESTONE 3: Pattern & Sprite Animation [T3]
 - [ ] Create a test ROM that animates sprites
@@ -181,6 +187,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement parsing for increment/decrement (INC, INX, etc.)
 - [ ] Add parser tests for extended instruction set
 - [ ] Enhance disassembler for extended instruction set
+- [ ] Support local and global labels
 
 ### [Memory] Memory Enhancements [T3]
 - [ ] Implement RAM mirroring ($0800-$1FFF mirrors $0000-$07FF)
@@ -402,9 +409,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## Progress Tracking
 - Track 1 (Memory Visualization): 100% complete
-- Track 2 (PPU Pixel Display): 50% complete (ROM component not required for pixel rendering)
+- Track 2 (PPU Pixel Display): 50% complete (Label support needed for pixel rendering)
 - Track 3 (Pattern & Sprite Rendering): 0% complete (now includes ROM and cartridge implementation)
 - Track 4 (Interactive Graphics): 0% complete
 - Track 5 (Complete NES): 0% complete
 
-**Total Progress: 71/200 tasks complete (35.5%)** 
+**Total Progress: 71/205 tasks complete (34.6%)** 

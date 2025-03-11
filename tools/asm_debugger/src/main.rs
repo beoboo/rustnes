@@ -207,7 +207,9 @@ impl App for AsmDebugger {
                         let ppu_adapter = PpuPixelAdapter::new(
                             move || {
                                 let system = system_ref.borrow();
-                                system.ppu().frame_buffer().to_vec()
+                                // Create a copy of the frame buffer to avoid borrowing issues
+                                let frame_buffer = system.ppu().frame_buffer().to_vec();
+                                frame_buffer
                             }
                         );
 
