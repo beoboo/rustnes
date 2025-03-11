@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use egui::{Rect, Sense, Ui, Vec2};
 use anyhow::Result;
 use crate::widgets::pixel_provider::PixelDataProvider;
