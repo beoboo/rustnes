@@ -231,6 +231,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement color palette
 - [x] Implement basic frame buffer rendering logic
 - [x] Implement PPU display widget for the frame buffer
+- [ ] Fix pattern table memory access for test ROMs
+- [ ] Update rendering logic to properly read pattern data
+- [ ] Add proper palette and pattern table bit plane handling
 - [ ] Test basic pixel rendering
 
 ## MILESTONE 1: Memory Visualization [T1]
@@ -249,10 +252,17 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test component interaction through system interface
 - [x] Extend AsmDebugger to support both memory and PPU display
 
+### Component Timing System [T2]
+- [ ] Create a Tickable trait for timing-dependent components
+- [ ] Implement system-level timing controller for component synchronization
+- [ ] Ensure PPU ticks at 3x the CPU rate
+- [ ] Refactor AsmDebugger to use System class for timing control
+- [ ] Test correct timing ratios between components
+
 ## MILESTONE 3: Display a Pixel with PPU [T2]
 - [x] Create a test ROM that sets a single pixel using the PPU
 - [x] Integrate CPU, Memory, and PPU components
-- [ ] Implement basic main loop
+- [ ] Implement basic main loop with proper timing
 - [ ] Display a colored pixel using the PPU
 - [x] Add display mode switching in the debugger UI
 
@@ -271,7 +281,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test sprite rendering
 
 ### PPU Timing [T3]
-- [ ] Implement PPU timing
+- [ ] Implement scanline/cycle tracking (261 scanlines, 341 cycles per scanline)
+- [ ] Implement VBLANK flag setting and NMI generation
+- [ ] Test frame timing with appropriate PPU cycles
 - [ ] Implement frame synchronization
 - [ ] Test animation capabilities
 
@@ -396,9 +408,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## Progress Tracking
 - Track 1 (Memory Visualization): 100% complete
-- Track 2 (PPU Pixel Display): 60% complete
+- Track 2 (PPU Pixel Display): 45% complete (added system timing tasks)
 - Track 3 (Pattern & Sprite Rendering): 0% complete
 - Track 4 (Interactive Graphics): 0% complete
 - Track 5 (Complete NES): 0% complete
 
-**Total Progress: 70/186 tasks complete (37.6%)** 
+**Total Progress: 70/200 tasks complete (35.0%)** 

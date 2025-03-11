@@ -142,11 +142,24 @@ impl App for AsmDebugger {
                     self.asm_widget.assemble_code(&mut cpu_borrow);
 
                     println!("Loaded assembly file: {}", file_path.display());
+                    
+                    // Switch to PPU view by default for test files
+                    self.display_mode = DisplayMode::Ppu;
+                    self.show_pixel_display = true;
                 } else {
                     eprintln!("Error reading file: {}", file_path.display());
                 }
             }
             self.initial_file_loaded = true;
+        }
+
+        // Tick the PPU a few times to ensure it renders frames properly
+        {
+            let mut ppu = self.ppu.borrow_mut();
+            // Tick PPU for an entire frame to ensure it renders
+            for _ in 0..10000 {
+                ppu.tick();
+            }
         }
 
         // Update DisasmWidget with program information
