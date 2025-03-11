@@ -2,7 +2,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use egui::Color32;
-use rn_core::{cpu::Cpu, ppu::Ppu};
+use rn_core::{cpu::Cpu, ppu::Ppu, errors::NesError};
 use anyhow::Result;
 /// Trait for providing pixel data for display
 pub trait PixelDataProvider {
@@ -22,26 +22,29 @@ pub trait PixelDataProvider {
     fn description(&self) -> &str;
 }
 
+pub type ProviderFn = Box<dyn Fn(u16) -> Result<u8, NesError>>;
+
 /// Memory pixel adapter that converts memory bytes to RGB format matching the PPU
 pub struct MemoryPixelAdapter {
-    cpu: Rc<RefCell<Cpu>>,
     start_addr: u16,
     end_addr: u16,
     display_width: usize,
     title: String,
     description: String,
+    read_fn: Box<dyn Fn(u16) -> Result<u8, NesError>>,
 }
 
 impl MemoryPixelAdapter {
-    /// Create a new memory pixel adapter
-    pub fn new(cpu: Rc<RefCell<Cpu>>, start_addr: u16, end_addr: u16, width: usize) -> Self {
+    /// Create a new memory pixel adapter using a custom read function
+    pub fn new<F>(read_fn: F, start_addr: u16, end_addr: u16, width: usize) -> Self 
+    where F: Fn(u16) -> Result<u8, NesError> + 'static {
         Self {
-            cpu,
             start_addr,
             end_addr,
             display_width: width,
             title: format!("Memory Visualization ({:#06X}-{:#06X})", start_addr, end_addr),
             description: "Each byte is represented as a pixel with color value".to_string(),
+            read_fn: Box::new(read_fn),
         }
     }
 
@@ -81,9 +84,9 @@ impl PixelDataProvider for MemoryPixelAdapter {
         let mut rgb_data = Vec::with_capacity(memory_size * 3);
 
         // Get memory values and convert to RGB
-        let cpu = self.cpu.borrow();
+        // Use the custom read function if provided
         for addr in self.start_addr..=self.end_addr {
-            let memory_value = cpu.read_byte(addr)?;
+            let memory_value = (self.read_fn)(addr)?;
             let rgb = self.byte_to_rgb(memory_value);
             rgb_data.push(rgb[0]);
             rgb_data.push(rgb[1]);
@@ -113,28 +116,28 @@ impl PixelDataProvider for MemoryPixelAdapter {
 
 /// PPU pixel adapter for displaying the PPU frame buffer
 pub struct PpuPixelAdapter {
-    ppu: Rc<RefCell<Ppu>>,
     title: String,
     description: String,
+    frame_buffer_fn: Box<dyn Fn() -> Vec<u8>>,
 }
 
 impl PpuPixelAdapter {
-    /// Create a new PPU pixel adapter
-    pub fn new(ppu: Rc<RefCell<Ppu>>) -> Self {
+    /// Create a new PPU pixel adapter using a custom frame buffer provider
+    pub fn new<F>(frame_buffer_fn: F) -> Self 
+    where F: Fn() -> Vec<u8> + 'static {
         Self {
-            ppu,
             title: "PPU Display".to_string(),
             description: "NES screen output (256x240)".to_string(),
+            frame_buffer_fn: Box::new(frame_buffer_fn),
         }
     }
 }
 
 impl PixelDataProvider for PpuPixelAdapter {
     fn get_pixel_data(&self) -> Result<Vec<u8>> {
-        // Make a copy of the PPU frame buffer
-        let ppu = self.ppu.borrow();
-        let frame_buffer = ppu.frame_buffer();
-        Ok(frame_buffer.to_vec())
+        let frame_buffer_fn = &self.frame_buffer_fn;
+        
+        Ok(frame_buffer_fn())
     }
 
     fn width(&self) -> usize {

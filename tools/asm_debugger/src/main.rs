@@ -3,7 +3,7 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc};
 use clap::Parser;
 use eframe::{egui, App, Frame};
 use rn_core::{
-    cpu::Cpu, errors::NesError, memory::{Addressable, Ram}, ppu::{registers::PpuRegisters, Ppu}, system::Bus
+    cpu::Cpu, errors::NesError, memory::Addressable, system::NesSystem
 };
 use rn_ui::widgets::{
     AsmWidget,
@@ -69,9 +69,8 @@ struct AsmDebugger {
     memory_widget: MemoryWidget,
 
     // Emulation state
-    cpu: Rc<RefCell<Cpu>>,
-    ppu: Rc<RefCell<Ppu>>,
-
+    system: Rc<RefCell<NesSystem>>,
+    
     // UI state
     show_pixel_display: bool,
     display_mode: DisplayMode,
@@ -85,24 +84,9 @@ struct AsmDebugger {
 
 impl AsmDebugger {
     fn new(_cc: &eframe::CreationContext<'_>, args: Args) -> Self {
-        // Create a PPU instance
-        let ppu = Rc::new(RefCell::new(Ppu::new()));
-
-        // Create a bus for the CPU
-        let mut cpu_bus = Bus::new();
-
-        // Attach PPU registers to the CPU bus
-        let ppu_regs = Box::new(PpuRegisters::new(ppu.clone()));
-        cpu_bus.attach_component(ppu_regs);
-
-        // Add program memory (ROM) area (0x8000-0xFFFF)
-        // For the debugger, we need to be able to load code here
-        let program_ram = Box::new(Ram::with_range(0x8000, 0xFFFF));
-        cpu_bus.attach_component(program_ram);
-
-        // Create the CPU with its own bus
-        let cpu = Rc::new(RefCell::new(Cpu::new(Box::new(cpu_bus))));
-
+        // Create the NES system
+        let system = Rc::new(RefCell::new(NesSystem::new()));
+        
         Self {
             args,
             pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
@@ -114,8 +98,7 @@ impl AsmDebugger {
                 .with_rows(16)
                 .with_bytes_per_row(16)
                 .with_editable(true),
-            cpu,
-            ppu,
+            system,
             show_pixel_display: true,
             display_mode: DisplayMode::Memory, // Default to memory visualization
             show_cpu: true,
@@ -136,8 +119,8 @@ impl App for AsmDebugger {
                     self.asm_widget = AsmWidget::with_code(&file_content);
 
                     // Assemble and load the code
-                    let mut cpu_borrow = self.cpu.borrow_mut();
-                    let _ = self.asm_widget.assemble_code(&mut cpu_borrow);
+                    let mut system_borrow = self.system.borrow_mut();
+                    let _ = self.asm_widget.assemble_code(system_borrow.cpu_mut());
 
                     println!("Loaded assembly file: {}", file_path.display());
 
@@ -151,14 +134,6 @@ impl App for AsmDebugger {
             self.initial_file_loaded = true;
         }
 
-        // Tick the PPU a few times to ensure it renders frames properly
-        {
-            let mut ppu = self.ppu.borrow_mut();
-            // Tick PPU for an entire frame to ensure it renders
-            for _ in 0..10000 {
-                ppu.tick();
-            }
-        }
 
         // Update DisasmWidget with program information
         if self.asm_widget.is_loaded() {
@@ -190,8 +165,9 @@ impl App for AsmDebugger {
 
         // Left panel for CPU state
         egui::SidePanel::left("left_panel").show_animated(ctx, self.show_cpu, |ui| {
-            // Show the CPU widget
-            self.cpu_widget.ui(ui, &mut self.cpu.borrow_mut());
+            // Show the CPU widget with CPU from the system
+            let mut system = self.system.borrow_mut();
+            self.cpu_widget.ui(ui, system.cpu_mut());
         });
 
         // Right panel for pixel display
@@ -205,9 +181,15 @@ impl App for AsmDebugger {
                         let memory_width = 32; // Width of the memory display in pixels
                         let auto_zoom = (available_width / (memory_width as f32 * 2.0)).max(1.0);
 
-                        // Create a memory pixel adapter
-                        let cpu_ref = self.cpu.clone();
-                        let memory_adapter = MemoryPixelAdapter::new(cpu_ref, 0x0200, 0x05FF, 32);
+                        // Create a memory pixel adapter using the system's CPU
+                        // We need to clone the system reference for the closure
+                        let system_ref = self.system.clone();
+                        let memory_adapter = MemoryPixelAdapter::new(
+                            move |addr| {
+                                system_ref.borrow().cpu().read_byte(addr)
+                            },
+                            0x0200, 0x05FF, 32
+                        );
 
                         // Update zoom and show the memory visualization
                         self.pixel_display.set_zoom(auto_zoom);
@@ -219,8 +201,15 @@ impl App for AsmDebugger {
                         let ppu_width = 256; // Width of the PPU display in pixels
                         let auto_zoom = (available_width / (ppu_width as f32 * 2.0)).max(0.5);
 
-                        // Create a PPU pixel adapter
-                        let ppu_adapter = PpuPixelAdapter::new(self.ppu.clone());
+                        // Create a PPU pixel adapter using the system's PPU
+                        // We need to clone the system reference for the closure
+                        let system_ref = self.system.clone();
+                        let ppu_adapter = PpuPixelAdapter::new(
+                            move || {
+                                let system = system_ref.borrow();
+                                system.ppu().frame_buffer().to_vec()
+                            }
+                        );
 
                         // Update zoom and show the PPU display
                         self.pixel_display.set_zoom(auto_zoom);
@@ -233,9 +222,9 @@ impl App for AsmDebugger {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Editor Section
             ui.vertical(|ui| {
-                // Show the assembly widget directly - it handles its own scrolling internally
-                let mut cpu_borrow = self.cpu.borrow_mut();
-                self.asm_widget.ui(ui, &mut *cpu_borrow);
+                // Show the assembly widget with CPU from the system
+                let mut system_borrow = self.system.borrow_mut();
+                self.asm_widget.ui(ui, system_borrow.cpu_mut());
             });
 
             ui.add_space(10.0);
@@ -246,8 +235,8 @@ impl App for AsmDebugger {
                     .id_salt("disassembly_scroll")
                     .max_height(200.0)
                     .show(ui, |ui| {
-                        let cpu_ref = self.cpu.borrow();
-                        let _ = self.disasm_widget.ui(ui, &cpu_ref);
+                        let system_ref = self.system.borrow();
+                        let _ = self.disasm_widget.ui(ui, system_ref.cpu());
                     });
 
                 ui.add_space(5.0);
@@ -260,8 +249,8 @@ impl App for AsmDebugger {
                     .max_height(200.0)
                     .show(ui, |ui| {
                         // Create an adapter to access CPU memory with the memory editor
-                        let mut cpu_borrow = self.cpu.borrow_mut();
-                        let mut adapter = CpuMemoryAdapter::new(&mut *cpu_borrow);
+                        let mut system_borrow = self.system.borrow_mut();
+                        let mut adapter = CpuMemoryAdapter::new(system_borrow.cpu_mut());
 
                         // Show the memory editor widget with access to CPU memory
                         self.memory_widget.ui(ui, &mut adapter);

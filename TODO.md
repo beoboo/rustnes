@@ -105,12 +105,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement system-level timing controller for component synchronization
 - [x] Ensure PPU ticks at 3x the CPU rate
 - [x] Improve memory access error handling to fail visibly on invalid accesses
+- [x] Refactor AsmDebugger to use System class for timing control
 - [ ] Implement NOP instruction to support timing-related tests
-- [ ] Fix NesSystem connectivity issues:
-  - [ ] Connect PPU registers to CPU's bus (like in AsmDebugger)
-  - [ ] Add program memory (ROM/RAM) at 0x8000-0xFFFF
-  - [ ] Ensure proper system component interconnection
-- [ ] Refactor AsmDebugger to use System class for timing control
 - [x] Test correct timing ratios between components
 
 ### [Memory] Essential Memory Components [T2]
