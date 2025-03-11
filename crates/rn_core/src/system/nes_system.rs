@@ -2,6 +2,7 @@ use crate::cpu::Cpu;
 use crate::errors::NesError;
 use crate::ppu::Ppu;
 use crate::system::Bus;
+use crate::memory::Ram;
 
 /// NesSystem coordinates the main components of the NES
 pub struct NesSystem {
@@ -16,7 +17,12 @@ impl NesSystem {
     /// Create a new NesSystem
     pub fn new() -> Self {
         // Create a bus with basic memory mapping
-        let bus = Bus::new();
+        let mut bus = Bus::new();
+        
+        // Add ROM mapping for program memory (0x8000-0xFFFF)
+        // This ensures we have a proper place to load programs
+        let rom = Box::new(Ram::with_range(0x8000, 0xFFFF));
+        bus.attach_component(rom);
         
         // Debug: Print the memory map before attaching to CPU
         // This will help diagnose missing memory components during development

@@ -1,3 +1,8 @@
+mod ram;
+pub use ram::Ram;
+
+use crate::errors::NesError;
+
 /// Trait for components that can be accessed via memory addresses
 ///
 /// This trait defines how components can be accessed via memory addresses.
@@ -60,29 +65,3 @@ pub trait Addressable {
     }
 }
 
-/// Helper function to assert that a memory access is valid
-/// 
-/// This function can be used to add debug assertions for memory accesses.
-/// It will panic in debug mode if the assertion fails, but will do nothing
-/// in release mode.
-/// 
-/// # Arguments
-/// * `condition` - The condition to assert
-/// * `message` - The message to display if the assertion fails
-/// 
-/// # Example
-/// ```
-/// use rn_core::memory::assert_memory;
-/// 
-/// // Assert that the address is valid
-/// assert_memory(address < 0x2000, format!("Invalid address: {:#06X}", address));
-/// ```
-#[inline]
-pub fn assert_memory(condition: bool, message: impl Into<String>) {
-    debug_assert!(condition, "{}", message.into());
-}
-
-mod ram;
-pub use ram::Ram;
-
-use crate::errors::NesError;

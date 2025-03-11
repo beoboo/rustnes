@@ -1,4 +1,4 @@
-use crate::{errors::NesError, memory::{assert_memory, Addressable, Ram}};
+use crate::{errors::NesError, memory::{Addressable, Ram}};
 
 /// Bus for routing memory access to appropriate devices
 ///
@@ -111,11 +111,7 @@ impl Addressable for Bus {
         if let Some(component) = self.find_component_for_address(address) {
             return component.read_byte(address);
         }
-
-        // Debug assertion to catch invalid memory reads
-        assert_memory(false, format!("Read from unmapped memory address: {:#06X}", address));
         
-        // Return 0 only in release builds
         Err(NesError::MemoryAccessError(address))
     }
 
@@ -125,12 +121,7 @@ impl Addressable for Bus {
             component.write_byte(address, value)?;
             return Ok(());
         }
-        
-        // Debug assertion to catch invalid memory writes
-        assert_memory(false, format!("Write to unmapped memory address: {:#06X} (value: {:#04X})", address, value));
-        
-        // In release builds, silently ignore the write
-        Ok(())
+        Err(NesError::MemoryAccessError(address))
     }
 }
 
@@ -318,12 +309,24 @@ mod tests {
         let mut bus = Bus::new();
 
         // Read from unmapped memory (nothing handles 0x6000)
-        let value = bus.read_byte(0x6000)?;
-        assert_eq!(value, 0);
+        let read_result = bus.read_byte(0x6000);
+        assert!(read_result.is_err());
+        
+        if let Err(NesError::MemoryAccessError(addr)) = read_result {
+            assert_eq!(addr, 0x6000);
+        } else {
+            panic!("Expected MemoryAccessError for read from unmapped memory");
+        }
 
-        // Write to unmapped memory should be silently ignored
-        bus.write_byte(0x6000, 0xFF)?;
-        assert_eq!(bus.read_byte(0x6000)?, 0);
+        // Write to unmapped memory should return an error
+        let write_result = bus.write_byte(0x6000, 0xFF);
+        assert!(write_result.is_err());
+        
+        if let Err(NesError::MemoryAccessError(addr)) = write_result {
+            assert_eq!(addr, 0x6000);
+        } else {
+            panic!("Expected MemoryAccessError for write to unmapped memory");
+        }
 
         Ok(())
     }
