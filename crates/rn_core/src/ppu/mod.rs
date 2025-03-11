@@ -113,7 +113,7 @@ impl Ppu {
                     // Find middle of the tile (+3 pixels, +3 pixels)
                     let px = tile_x * 8 + 3; // 4th pixel from the left
                     let py = tile_y * 8 + 3; // 4th pixel from the top
-                    
+
                     let idx = (py * 256 + px) * 3;
                     if idx < self.frame_buffer.len() - 2 {
                         // Set pixel to white for visibility
@@ -208,13 +208,13 @@ impl Ppu {
     pub fn debug_frame_buffer(&self) {
         // Print a small region around where we expect the pixel to be
         println!("Frame buffer dump around (108, 59):");
-        
+
         // Expected pixel region based on our debug output
         let start_x = 100;
         let start_y = 50;
         let width = 16;
         let height = 16;
-        
+
         for y in start_y..(start_y + height) {
             let mut line = String::new();
             for x in start_x..(start_x + width) {
@@ -223,7 +223,7 @@ impl Ppu {
                     let r = self.frame_buffer[idx];
                     let g = self.frame_buffer[idx + 1];
                     let b = self.frame_buffer[idx + 2];
-                    
+
                     // Check if pixel is not black
                     if r > 0 || g > 0 || b > 0 {
                         line.push('■'); // Full block for non-black pixels
@@ -381,7 +381,7 @@ impl Ppu {
                 //
                 // This allows us to test PPU functionality without implementing the
                 // ROM component for cartridge memory ($8000-$FFFF).
-                
+
                 // Return a hardcoded pattern byte for testing pixel rendering
                 if addr == 0x10 {
                     // This specific value (0x08 = 0b00001000) turns on a single pixel

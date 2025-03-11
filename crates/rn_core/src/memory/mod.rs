@@ -1,67 +1,63 @@
-/// Addressable interface trait
+/// Trait for components that can be accessed via memory addresses
 ///
-/// This trait defines how components can be accessed via memory addresses in the NES.
-/// Components can either handle the entire address space (like RAM) or specific
-/// address ranges (like memory-mapped devices).
+/// This trait defines how components can be accessed via memory addresses.
+/// It provides methods for reading and writing to memory, as well as
+/// a method for resetting the component.
 pub trait Addressable {
     /// Returns true if this component handles the specified address
     ///
-    /// Default implementation returns true for all addresses, which is appropriate
-    /// for components like RAM that handle the entire address space.
-    ///
-    /// Components that only handle specific address ranges should override this method.
-    fn handles_address(&self, _address: u16) -> bool {
-        true
-    }
+    /// This is used by the memory bus to determine which component
+    /// should handle a read or write operation.
+    fn handles_address(&self, address: u16) -> bool;
 
     /// Read a byte from the specified address
     ///
-    /// This method should only be called for addresses where `handles_address`
-    /// returns true. Implementations can assume the address is valid.
+    /// # Arguments
+    /// * `address` - The address to read from
     ///
-    /// # Side Effects
-    ///
-    /// Reading from certain addresses may have side effects in hardware devices.
-    /// For example, reading from certain PPU registers clears status flags.
+    /// # Returns
+    /// The byte read from the address
     fn read_byte(&self, address: u16) -> u8;
 
     /// Write a byte to the specified address
     ///
-    /// This method should only be called for addresses where `handles_address`
-    /// returns true. Implementations can assume the address is valid.
-    ///
-    /// # Side Effects
-    ///
-    /// Writing to certain addresses may have side effects in hardware devices.
-    /// For example, writing to certain registers might trigger DMA transfers.
+    /// # Arguments
+    /// * `address` - The address to write to
+    /// * `value` - The byte value to write
     fn write_byte(&mut self, address: u16, value: u8);
 
-    /// Read a word (16-bits) from the specified address
-    /// NES is little-endian, so the lower byte is at the lower address
+    /// Read a 16-bit word (little-endian) from the specified address
+    ///
+    /// # Arguments
+    /// * `address` - The address to read from
+    ///
+    /// # Returns
+    /// The 16-bit word read from the address
     fn read_word(&self, address: u16) -> u16 {
-        let low = self.read_byte(address) as u16;
-        let high = self.read_byte(address.wrapping_add(1)) as u16;
-        (high << 8) | low
+        let lo = self.read_byte(address) as u16;
+        let hi = self.read_byte(address.wrapping_add(1)) as u16;
+        (hi << 8) | lo
     }
 
-    /// Write a word (16-bits) to the specified address
+    /// Write a 16-bit word (little-endian) to the specified address
+    ///
+    /// # Arguments
+    /// * `address` - The address to write to
+    /// * `value` - The 16-bit word to write
     fn write_word(&mut self, address: u16, value: u16) {
-        let low = (value & 0xFF) as u8;
-        let high = (value >> 8) as u8;
-        self.write_byte(address, low);
-        self.write_byte(address.wrapping_add(1), high);
+        let lo = (value & 0xFF) as u8;
+        let hi = (value >> 8) as u8;
+        self.write_byte(address, lo);
+        self.write_byte(address.wrapping_add(1), hi);
     }
 
     /// Reset the component to its initial state
     ///
-    /// This method is called when the system is reset. The default
-    /// implementation does nothing.
-    fn reset(&mut self) {}
+    /// This is called when the system is reset.
+    fn reset(&mut self) {
+        // Default implementation does nothing
+    }
 }
 
-// Submodules and re-exports
-mod bus;
 mod ram;
-
-pub use bus::Bus;
 pub use ram::Ram;

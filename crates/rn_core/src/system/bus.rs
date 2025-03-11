@@ -1,4 +1,4 @@
-use super::{Addressable, Ram};
+use crate::memory::{Addressable, Ram};
 
 /// Bus for routing memory access to appropriate devices
 ///
@@ -95,16 +95,17 @@ impl Addressable for Bus {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+
     use super::*;
 
     // A universal test component that records accesses and can be configured for any address range
     struct TestComponent {
         start_address: u16,
         end_address: u16,
-        memory: Vec<u8>,             // Stores actual memory values
-        read_count: Cell<usize>,     // For internal tracking
-        write_count: Cell<usize>,    // For internal tracking
-        last_address: Cell<u16>,     // For internal tracking
+        memory: Vec<u8>,          // Stores actual memory values
+        read_count: Cell<usize>,  // For internal tracking
+        write_count: Cell<usize>, // For internal tracking
+        last_address: Cell<u16>,  // For internal tracking
     }
 
     impl TestComponent {
@@ -180,15 +181,15 @@ mod tests {
     #[test]
     fn test_cross_component_boundaries() {
         let mut bus = Bus::new();
-        
+
         // Create component that handles PPU registers
         let ppu = Box::new(TestComponent::new(0x2000, 0x2007));
         bus.attach_component(ppu);
-        
+
         // Test boundary between RAM and PPU
         bus.write_byte(0x1FFF, 0x42); // Last RAM address
         bus.write_byte(0x2000, 0x55); // First PPU address
-        
+
         assert_eq!(bus.read_byte(0x1FFF), 0x42);
         assert_eq!(bus.read_byte(0x2000), 0x55);
     }
@@ -196,21 +197,21 @@ mod tests {
     #[test]
     fn test_component_access_counts() {
         let mut bus = Bus::new();
-        
+
         // Create a test component with a unique memory range
         let ppu = Box::new(TestComponent::new(0x2000, 0x2007));
         bus.attach_component(ppu);
-        
+
         // Write and read through the bus multiple times
         bus.write_byte(0x2000, 0x42);
         bus.write_byte(0x2001, 0x43);
         assert_eq!(bus.read_byte(0x2000), 0x42);
         assert_eq!(bus.read_byte(0x2001), 0x43);
-        
+
         // Now verify RAM (built-in component) is being accessed correctly too
         bus.write_byte(0x0100, 0x55);
         assert_eq!(bus.read_byte(0x0100), 0x55);
-        
+
         // A further test verifying distinct component access
         bus.write_byte(0x0200, 0x66); // To RAM
         bus.write_byte(0x2002, 0x77); // To PPU
@@ -236,18 +237,18 @@ mod tests {
     #[test]
     fn test_multiple_components() {
         let mut bus = Bus::new();
-        
+
         // Add components for different memory regions
         bus.attach_component(Box::new(TestComponent::new(0x2000, 0x2007)));
         bus.attach_component(Box::new(TestComponent::new(0x4000, 0x4017)));
         bus.attach_component(Box::new(TestComponent::new(0x8000, 0xFFFF)));
-        
+
         // Test writes to different regions
         bus.write_byte(0x0100, 0x01); // RAM
         bus.write_byte(0x2000, 0x02); // PPU
-        bus.write_byte(0x4000, 0x03); // APU  
+        bus.write_byte(0x4000, 0x03); // APU
         bus.write_byte(0x8000, 0x04); // Cart
-        
+
         // Verify reads from different regions
         assert_eq!(bus.read_byte(0x0100), 0x01);
         assert_eq!(bus.read_byte(0x2000), 0x02);
@@ -258,11 +259,11 @@ mod tests {
     #[test]
     fn test_unmapped_memory() {
         let mut bus = Bus::new();
-        
+
         // Read from unmapped memory (nothing handles 0x6000)
         let value = bus.read_byte(0x6000);
         assert_eq!(value, 0);
-        
+
         // Write to unmapped memory should be silently ignored
         bus.write_byte(0x6000, 0xFF);
         assert_eq!(bus.read_byte(0x6000), 0);

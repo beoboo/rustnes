@@ -4,8 +4,9 @@ use clap::Parser;
 use eframe::{egui, App, Frame};
 use rn_core::{
     cpu::Cpu,
-    memory::{Addressable, Bus, Ram},
+    memory::{Addressable, Ram},
     ppu::{registers::PpuRegisters, Ppu},
+    system::Bus,
 };
 use rn_ui::widgets::{
     AsmWidget,
@@ -142,7 +143,7 @@ impl App for AsmDebugger {
                     self.asm_widget.assemble_code(&mut cpu_borrow);
 
                     println!("Loaded assembly file: {}", file_path.display());
-                    
+
                     // Switch to PPU view by default for test files
                     self.display_mode = DisplayMode::Ppu;
                     self.show_pixel_display = true;
