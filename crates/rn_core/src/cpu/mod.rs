@@ -1,13 +1,9 @@
-use crate::memory::Addressable;
-
+use crate::{errors::NesError, memory::Addressable};
 mod addressing_mode;
 pub use addressing_mode::AddressingMode;
 
 mod instruction;
 pub use instruction::{Instruction, InstructionDecoder, InstructionMetadata};
-
-mod error;
-pub use error::CpuError;
 
 mod assembler;
 pub use assembler::{AssembleError, Assembler, ParseResult};
@@ -82,56 +78,58 @@ impl Cpu {
     }
 
     /// Read a byte from memory
-    pub fn read_byte(&self, address: u16) -> u8 {
+    pub fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         self.memory.read_byte(address)
     }
 
     /// Write a byte to memory
-    pub fn write_byte(&mut self, address: u16, value: u8) {
-        self.memory.write_byte(address, value);
+    pub fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
+        self.memory.write_byte(address, value)
     }
 
     /// Read a word (16-bits) from memory
-    pub fn read_word(&self, address: u16) -> u16 {
+    pub fn read_word(&self, address: u16) -> Result<u16, NesError> {
         self.memory.read_word(address)
     }
 
     /// Write a word (16-bits) to memory
-    pub fn write_word(&mut self, address: u16, value: u16) {
-        self.memory.write_word(address, value);
+    pub fn write_word(&mut self, address: u16, value: u16) -> Result<(), NesError> {
+        self.memory.write_word(address, value)
     }
 
     /// Push a byte onto the stack
-    pub fn push_byte(&mut self, value: u8) {
+    pub fn push_byte(&mut self, value: u8) -> Result<(), NesError> {
         let stack_addr = 0x0100 | (self.sp as u16);
-        self.write_byte(stack_addr, value);
+        self.write_byte(stack_addr, value)?;
         self.sp = self.sp.wrapping_sub(1);
+        Ok(())
     }
 
     /// Pop a byte from the stack
-    pub fn pop_byte(&mut self) -> u8 {
+    pub fn pop_byte(&mut self) -> Result<u8, NesError> {
         self.sp = self.sp.wrapping_add(1);
         let stack_addr = 0x0100 | (self.sp as u16);
         self.read_byte(stack_addr)
     }
 
     /// Push a word onto the stack (high byte first, then low byte)
-    pub fn push_word(&mut self, value: u16) {
+    pub fn push_word(&mut self, value: u16) -> Result<(), NesError> {
         let high = (value >> 8) as u8;
         let low = (value & 0xFF) as u8;
-        self.push_byte(high);
-        self.push_byte(low);
+        self.push_byte(high)?;
+        self.push_byte(low)?;
+        Ok(())
     }
 
     /// Pop a word from the stack (low byte first, then high byte)
-    pub fn pop_word(&mut self) -> u16 {
-        let low = self.pop_byte() as u16;
-        let high = self.pop_byte() as u16;
-        (high << 8) | low
+    pub fn pop_word(&mut self) -> Result<u16, NesError> {
+        let low = self.pop_byte()? as u16;
+        let high = self.pop_byte()? as u16;
+        Ok((high << 8) | low)
     }
 
     /// Reset the CPU
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self) -> Result<(), NesError> {
         // Set registers to their initial values
         self.a = 0;
         self.x = 0;
@@ -140,42 +138,44 @@ impl Cpu {
         self.status = 0x34;
 
         // Read the reset vector from 0xFFFC-0xFFFD
-        self.pc = self.read_word(0xFFFC);
+        self.pc = self.read_word(0xFFFC)?;
 
         // Reset takes 7 cycles
         self.cycles = 7;
+
+        Ok(())
     }
 
     /// Load a program into memory and set up the reset vector
-    pub fn load_program(&mut self, program: &[u8], load_address: u16) {
+    pub fn load_program(&mut self, program: &[u8], load_address: u16) -> Result<(), NesError> {
         // Load the program into memory
         for (i, &byte) in program.iter().enumerate() {
-            self.write_byte(load_address.wrapping_add(i as u16), byte);
+            self.write_byte(load_address.wrapping_add(i as u16), byte)?;
         }
 
         // Set the reset vector to point to our program
-        self.write_word(0xFFFC, load_address);
+        self.write_word(0xFFFC, load_address)?;
 
         // Reset the CPU to prepare it for execution
-        self.reset();
+        self.reset()
     }
 
     /// Read a byte using the specified addressing mode - simplified for tests
-    pub fn read_byte_using_mode(&self, mode: AddressingMode) -> u8 {
-        let addr = mode.get_operand_address(self);
+    pub fn read_byte_using_mode(&self, mode: AddressingMode) -> Result<u8, NesError> {
+        let addr = mode.get_operand_address(self)?;
         self.read_byte(addr)
     }
 
     /// Execute a single CPU instruction and return the number of cycles used
-    pub fn step(&mut self) -> Result<u8, CpuError> {
+    pub fn step(&mut self) -> Result<u8, NesError> {
         // Fetch opcode
-        let opcode = self.fetch();
+        let opcode = self.fetch()?;
 
         // Decode instruction
         let metadata = self.decoder.decode(opcode)?;
 
         // Execute instruction and update cycle count
-        let cycles = self.execute(metadata);
+        let cycles = self.execute(metadata)?;
         self.cycles += cycles as u64;
 
         Ok(cycles)
@@ -211,53 +211,59 @@ mod tests {
     }
 
     #[test]
-    fn test_cpu_memory_interaction() {
+    fn test_cpu_memory_interaction() -> Result<()> {
         let mut cpu = setup_cpu();
 
         // Test writing and reading bytes
-        cpu.write_byte(0x1000, 0x42);
-        assert_eq!(cpu.read_byte(0x1000), 0x42);
+        cpu.write_byte(0x1000, 0x42)?;
+        assert_eq!(cpu.read_byte(0x1000)?, 0x42);
 
         // Test writing and reading words
-        cpu.write_word(0x2000, 0x1234);
-        assert_eq!(cpu.read_word(0x2000), 0x1234);
+        cpu.write_word(0x2000, 0x1234)?;
+        assert_eq!(cpu.read_word(0x2000)?, 0x1234);
+    
+        Ok(())
     }
 
     #[test]
-    fn test_stack_operations() {
+    fn test_stack_operations() -> Result<()> {
         let mut cpu = setup_cpu();
 
         // Test push and pop byte
-        cpu.push_byte(0x42);
+        cpu.push_byte(0x42)?;
         assert_eq!(cpu.sp, 0xFC);
-        assert_eq!(cpu.pop_byte(), 0x42);
+        assert_eq!(cpu.pop_byte()?, 0x42);
         assert_eq!(cpu.sp, 0xFD);
 
         // Test push and pop word
-        cpu.push_word(0x1234);
+        cpu.push_word(0x1234)?;
         assert_eq!(cpu.sp, 0xFB);
-        assert_eq!(cpu.pop_word(), 0x1234);
+        assert_eq!(cpu.pop_word()?, 0x1234);
         assert_eq!(cpu.sp, 0xFD);
+
+        Ok(())
     }
 
     #[test]
-    fn test_reset() {
+    fn test_reset() -> Result<()> {
         // Use RAM with full address space (0x0000-0xFFFF) for testing
         let mut ram = Ram::default();
 
         // Set reset vector
-        ram.write_byte(0xFFFC, 0x34);
-        ram.write_byte(0xFFFD, 0x12);
+        ram.write_byte(0xFFFC, 0x34)?;
+        ram.write_byte(0xFFFD, 0x12)?;
 
         let mut cpu = Cpu::new(Box::new(ram));
-        cpu.reset();
+        cpu.reset()?;
 
         // Check if PC was set to the reset vector
         assert_eq!(cpu.pc, 0x1234);
         // Check if SP was set to 0xFD
         assert_eq!(cpu.sp, 0xFD);
         // Check if cycles were set to 7
-        assert_eq!(cpu.cycles, 7);
+        assert_eq!(cpu.cycles, 7);  
+
+        Ok(())
     }
 
     #[test]
@@ -265,8 +271,8 @@ mod tests {
         let mut ram = Ram::default();
 
         // Set up a simple program: LDA #$42
-        ram.write_byte(0x0000, 0xA9); // LDA immediate
-        ram.write_byte(0x0001, 0x42); // Value to load
+        ram.write_byte(0x0000, 0xA9)?; // LDA immediate
+        ram.write_byte(0x0001, 0x42)?; // Value to load
 
         let mut cpu = Cpu::new(Box::new(ram));
         cpu.pc = 0x0000; // Set PC to our program
@@ -288,7 +294,7 @@ mod tests {
         let mut ram = Ram::default();
 
         // Set up an unknown opcode (0xFF is not used in 6502)
-        ram.write_byte(0x0000, 0xFF);
+        ram.write_byte(0x0000, 0xFF)?;
 
         let mut cpu = Cpu::new(Box::new(ram));
         cpu.pc = 0x0000;
@@ -298,7 +304,7 @@ mod tests {
 
         // Verify the error is the expected one
         assert!(result.is_err(), "Expected an error for invalid opcode");
-        if let Err(CpuError::InvalidOpcode(op)) = result {
+        if let Err(NesError::InvalidOpcode(op)) = result {
             assert_eq!(op, 0xFF);
         } else {
             anyhow::bail!("Expected InvalidOpcode error, got: {:?}", result);
@@ -319,15 +325,15 @@ mod tests {
         let load_address = 0x8000;
 
         // Load the program
-        cpu.load_program(&program, load_address);
+        cpu.load_program(&program, load_address)?;
 
         // Verify the program was loaded correctly
         for (i, &byte) in program.iter().enumerate() {
-            assert_eq!(cpu.read_byte(load_address + i as u16), byte);
+            assert_eq!(cpu.read_byte(load_address + i as u16)?, byte);
         }
 
         // Verify the reset vector was set correctly
-        assert_eq!(cpu.read_word(0xFFFC), load_address);
+        assert_eq!(cpu.read_word(0xFFFC)?, load_address);
 
         // Verify the CPU was reset and PC points to the program
         assert_eq!(cpu.pc, load_address);
@@ -338,7 +344,7 @@ mod tests {
 
         // Execute the second instruction (STA $0200)
         cpu.step()?;
-        assert_eq!(cpu.read_byte(0x0200), 0x42);
+        assert_eq!(cpu.read_byte(0x0200)?, 0x42);
 
         Ok(())
     }

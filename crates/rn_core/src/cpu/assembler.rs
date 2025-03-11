@@ -1,6 +1,8 @@
 use thiserror::Error;
 
-use super::{AddressingMode, CpuError, Instruction, InstructionDecoder, InstructionMetadata};
+use crate::errors::NesError;
+
+use super::{AddressingMode, Instruction, InstructionDecoder, InstructionMetadata};
 
 /// Errors that can occur during instruction parsing
 #[derive(Debug, Error)]
@@ -20,8 +22,8 @@ pub enum AssembleError {
     #[error("Invalid syntax: {0}")]
     InvalidSyntax(String),
 
-    #[error("CPU error: {0}")]
-    CpuError(#[from] CpuError),
+    #[error("NES error: {0}")]
+    NesError(#[from] NesError),
 }
 
 /// Result type for parsing operations

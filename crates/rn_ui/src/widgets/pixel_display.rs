@@ -1,5 +1,5 @@
 use egui::{Rect, Sense, Ui, Vec2};
-
+use anyhow::Result;
 use crate::widgets::pixel_provider::PixelDataProvider;
 
 /// Widget for displaying pixel data from various sources (memory or PPU)
@@ -30,7 +30,7 @@ impl PixelDisplay {
     }
 
     /// Show the pixel display in the given UI
-    pub fn ui<P: PixelDataProvider>(&mut self, ui: &mut Ui, provider: &P) -> egui::Response {
+    pub fn ui<P: PixelDataProvider>(&mut self, ui: &mut Ui, provider: &P) -> Result<egui::Response> {
         ui.heading(provider.title());
         ui.label(provider.description());
 
@@ -54,7 +54,7 @@ impl PixelDisplay {
             painter.rect_filled(rect, 0.0, egui::Color32::BLACK);
 
             // Get pixel data - it's already in RGB format (3 bytes per pixel)
-            let pixel_data = provider.get_pixel_data();
+            let pixel_data = provider.get_pixel_data()?;
 
             // Draw pixels
             for y in 0..height {
@@ -98,7 +98,7 @@ impl PixelDisplay {
             }
         }
 
-        response
+        Ok(response)
     }
 
     // Getters and setters

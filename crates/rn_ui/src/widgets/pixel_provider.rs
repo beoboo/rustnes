@@ -2,11 +2,11 @@ use std::{cell::RefCell, rc::Rc};
 
 use egui::Color32;
 use rn_core::{cpu::Cpu, ppu::Ppu};
-
+use anyhow::Result;
 /// Trait for providing pixel data for display
 pub trait PixelDataProvider {
     /// Get the pixel data to be displayed in RGB format (3 bytes per pixel)
-    fn get_pixel_data(&self) -> Vec<u8>;
+    fn get_pixel_data(&self) -> Result<Vec<u8>>;
 
     /// Get the width of the display in pixels
     fn width(&self) -> usize;
@@ -74,7 +74,7 @@ impl MemoryPixelAdapter {
 }
 
 impl PixelDataProvider for MemoryPixelAdapter {
-    fn get_pixel_data(&self) -> Vec<u8> {
+    fn get_pixel_data(&self) -> Result<Vec<u8>> {
         let memory_size = (self.end_addr - self.start_addr + 1) as usize;
         // Allocate vector with 3 bytes per pixel (RGB)
         let mut rgb_data = Vec::with_capacity(memory_size * 3);
@@ -82,14 +82,14 @@ impl PixelDataProvider for MemoryPixelAdapter {
         // Get memory values and convert to RGB
         let cpu = self.cpu.borrow();
         for addr in self.start_addr..=self.end_addr {
-            let memory_value = cpu.read_byte(addr);
+            let memory_value = cpu.read_byte(addr)?;
             let rgb = self.byte_to_rgb(memory_value);
             rgb_data.push(rgb[0]);
             rgb_data.push(rgb[1]);
             rgb_data.push(rgb[2]);
         }
 
-        rgb_data
+        Ok(rgb_data)
     }
 
     fn width(&self) -> usize {
@@ -129,11 +129,11 @@ impl PpuPixelAdapter {
 }
 
 impl PixelDataProvider for PpuPixelAdapter {
-    fn get_pixel_data(&self) -> Vec<u8> {
+    fn get_pixel_data(&self) -> Result<Vec<u8>> {
         // Make a copy of the PPU frame buffer
         let ppu = self.ppu.borrow();
         let frame_buffer = ppu.frame_buffer();
-        frame_buffer.to_vec()
+        Ok(frame_buffer.to_vec())
     }
 
     fn width(&self) -> usize {

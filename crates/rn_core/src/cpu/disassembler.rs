@@ -1,6 +1,8 @@
 use thiserror::Error;
 
-use super::{AddressingMode, CpuError, Instruction, InstructionDecoder, InstructionMetadata};
+use crate::errors::NesError;
+
+use super::{AddressingMode, Instruction, InstructionDecoder, InstructionMetadata};
 
 /// Errors that can occur during instruction disassembly
 #[derive(Debug, Error)]
@@ -11,8 +13,8 @@ pub enum DisassembleError {
     #[error("Unknown instruction type: {0:?}")]
     UnknownInstruction(Instruction),
 
-    #[error("CPU error: {0}")]
-    CpuError(#[from] CpuError),
+    #[error("NES error: {0}")]
+    NesError(#[from] NesError),
 }
 
 /// Result type for disassembly operations
@@ -34,8 +36,8 @@ impl Disassembler {
     /// Disassembles a single byte into an instruction metadata object
     fn decode_opcode(&self, opcode: u8) -> DisassembleResult<InstructionMetadata> {
         self.decoder.decode(opcode).map_err(|err| match err {
-            CpuError::InvalidOpcode(op) => DisassembleError::InvalidOpcode(op),
-            _ => DisassembleError::CpuError(err),
+            NesError::InvalidOpcode(op) => DisassembleError::InvalidOpcode(op),
+            _ => DisassembleError::NesError(err),
         })
     }
 
@@ -73,7 +75,7 @@ impl Disassembler {
     /// Returns the disassembled instruction string and the number of bytes used.
     pub fn disassemble_instruction(&self, memory: &[u8], offset: usize) -> DisassembleResult<(String, usize)> {
         if memory.is_empty() || offset >= memory.len() {
-            return Err(DisassembleError::CpuError(CpuError::MemoryAccessError(offset as u16)));
+            return Err(DisassembleError::NesError(NesError::MemoryAccessError(offset as u16)));
         }
 
         // Decode the opcode byte

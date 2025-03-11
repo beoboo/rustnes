@@ -483,7 +483,7 @@ impl Default for Ppu {
 pub mod registers {
     use std::{cell::RefCell, rc::Rc};
 
-    use crate::{memory::Addressable, ppu::Ppu};
+    use crate::{errors::NesError, memory::Addressable, ppu::Ppu};
 
     // PPUCTRL ($2000) bits
     pub const CTRL_NAMETABLE_X: u8 = 0x01; // 0: Select nametable at $2000; 1: Select nametable at $2400
@@ -536,16 +536,18 @@ pub mod registers {
         ///
         /// This forwards the read operation to the PPU's read_register method.
         /// Note that reading from some PPU registers may have side effects.
-        fn read_byte(&self, address: u16) -> u8 {
-            self.ppu.borrow_mut().read_register(address)
+        fn read_byte(&self, address: u16) -> Result<u8, NesError> {
+            let value = self.ppu.borrow_mut().read_register(address);
+            Ok(value)
         }
 
         /// Write to a PPU register
         ///
         /// This forwards the write operation to the PPU's write_register method.
         /// Note that writing to some PPU registers may have side effects.
-        fn write_byte(&mut self, address: u16, value: u8) {
+        fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
             self.ppu.borrow_mut().write_register(address, value);
+            Ok(())
         }
 
         /// Reset the PPU registers

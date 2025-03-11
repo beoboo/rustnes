@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use egui::{self, Color32, Ui};
 use rn_core::cpu::{Cpu, Disassembler};
-
+use anyhow::Result;
 /// A widget for disassembling and displaying 6502 machine code
 pub struct DisasmWidget {
     /// Memory range to disassemble
@@ -43,13 +43,13 @@ impl DisasmWidget {
     }
 
     /// Display the disassembly widget
-    pub fn ui(&mut self, ui: &mut Ui, cpu: &Cpu) {
+    pub fn ui(&mut self, ui: &mut Ui, cpu: &Cpu) -> Result<()> {
         ui.heading("Disassembly");
 
         // If no program is loaded, show a message instead of disassembly
         if self.program_size == 0 {
             ui.label("No program loaded. Assemble code to see disassembly.");
-            return;
+            return Ok(());
         }
 
         // Get current PC
@@ -61,7 +61,7 @@ impl DisasmWidget {
         // Collect memory to disassemble
         let mut memory = Vec::with_capacity(self.disasm_length as usize);
         for addr in self.start_address..self.start_address.wrapping_add(self.disasm_length) {
-            memory.push(cpu.read_byte(addr));
+            memory.push(cpu.read_byte(addr)?);
         }
 
         // Disassemble the memory region
@@ -108,5 +108,7 @@ impl DisasmWidget {
                 ui.colored_label(color, line);
             }
         });
+
+        Ok(())
     }
 }

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use egui::{self, Color32, Ui};
 use rn_core::cpu::{Assembler, Cpu};
-
+use anyhow::Result;
 use crate::widgets::{HexEditText, ValueType};
 
 /// A widget for editing and executing 6502 assembly code
@@ -53,30 +53,32 @@ impl AsmWidget {
     }
 
     /// Reset the CPU and load the assembled program
-    fn reset_and_load(&mut self, cpu: &mut Cpu) {
+    fn reset_and_load(&mut self, cpu: &mut Cpu) -> Result<()> {
         if !self.assembled || self.assembled_bytes.is_empty() {
-            return;
+            return Ok(());
         }
 
         // Load the program into the CPU
-        cpu.load_program(&self.assembled_bytes, self.load_address);
+        cpu.load_program(&self.assembled_bytes, self.load_address)?;
 
         // Update state
         self.is_loaded = true;
         self.is_running = false;
         self.is_finished = false;
+
+        Ok(())
     }
 
     /// Step one instruction in the CPU
-    pub fn step(&mut self, cpu: &mut Cpu) {
+    pub fn step(&mut self, cpu: &mut Cpu) -> Result<()> {
         if !self.is_loaded || self.is_running || self.is_finished {
-            return;
+            return Ok(());
         }
 
         match cpu.step() {
             Ok(_) => {
                 // Check if we've hit a BRK instruction (end of program)
-                if cpu.read_byte(cpu.pc) == 0x00 {
+                if cpu.read_byte(cpu.pc)? == 0x00 {
                     println!("BRK instruction encountered at ${:04X}, halting", cpu.pc);
                     self.is_finished = true;
                 }
@@ -87,10 +89,12 @@ impl AsmWidget {
                 self.is_finished = true;
             },
         }
+
+        Ok(())
     }
 
     /// Attempt to assemble the current code and immediately load it
-    pub fn assemble_code(&mut self, cpu: &mut Cpu) {
+    pub fn assemble_code(&mut self, cpu: &mut Cpu) -> Result<()> {
         self.assembled_bytes.clear();
         self.error_message = None;
 
@@ -101,7 +105,7 @@ impl AsmWidget {
                 self.assembled = true;
 
                 // Immediately reset and load the program
-                self.reset_and_load(cpu);
+                self.reset_and_load(cpu)?;
                 println!(
                     "Program assembled and loaded at ${:04X}, {} bytes",
                     self.load_address,
@@ -116,6 +120,8 @@ impl AsmWidget {
                 self.is_finished = false;
             },
         }
+
+        Ok(())
     }
 
     /// Getter for the assembled bytes
@@ -134,9 +140,9 @@ impl AsmWidget {
     }
 
     /// Run the program until completion or error
-    pub fn run_program(&mut self, cpu: &mut Cpu) {
+    pub fn run_program(&mut self, cpu: &mut Cpu) -> Result<()> {
         if !self.is_loaded || self.is_finished {
-            return;
+            return Ok(());
         }
 
         // Mark as running
@@ -155,7 +161,7 @@ impl AsmWidget {
                     steps += 1;
 
                     // Check if we've hit a BRK instruction
-                    if cpu.read_byte(cpu.pc) == 0x00 {
+                    if cpu.read_byte(cpu.pc)? == 0x00 {
                         println!("BRK instruction encountered at ${:04X}, halting", cpu.pc);
                         self.is_finished = true;
                         self.is_running = false;
@@ -180,6 +186,8 @@ impl AsmWidget {
         } else {
             println!("Program terminated after {} steps at ${:04X}", steps, cpu.pc);
         }
+
+        Ok(())
     }
 
     /// Set a custom load address
@@ -259,13 +267,13 @@ impl AsmWidget {
         ui.add_space(5.0);
 
         // Buttons
-        ui.horizontal(|ui| {
+        ui.horizontal(|ui| -> Result<()> {
             // Assemble button - only enabled when not loaded and not running
             if ui
                 .add_enabled(!self.is_running && !self.is_loaded, egui::Button::new("Assemble"))
                 .clicked()
             {
-                self.assemble_code(cpu);
+                self.assemble_code(cpu)?;
             }
 
             // Run button - enabled when loaded and not running or finished
@@ -276,7 +284,7 @@ impl AsmWidget {
                 )
                 .clicked()
             {
-                self.run_program(cpu);
+                self.run_program(cpu)?;
             }
 
             // Step button - enabled when loaded and not running or finished
@@ -287,7 +295,7 @@ impl AsmWidget {
                 )
                 .clicked()
             {
-                self.step(cpu);
+                self.step(cpu)?;
             }
 
             // Reset button - enabled when loaded or finished
@@ -295,8 +303,10 @@ impl AsmWidget {
                 .add_enabled(self.is_loaded || self.is_finished, egui::Button::new("Reset"))
                 .clicked()
             {
-                self.full_reset(cpu);
+                self.full_reset(cpu)?;
             }
+
+            Ok(())
         });
 
         // Display any error message
@@ -313,13 +323,15 @@ impl AsmWidget {
     }
 
     /// Fully reset the system and clear memory
-    pub fn full_reset(&mut self, cpu: &mut Cpu) {
+    pub fn full_reset(&mut self, cpu: &mut Cpu) -> Result<()> {
         // Reset the CPU
-        cpu.reset();
+        cpu.reset()?;
 
         // Also reset our state
         self.is_loaded = false;
         self.is_running = false;
         self.is_finished = false;
+
+        Ok(())
     }
 }

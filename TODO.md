@@ -96,18 +96,22 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Connect existing memory editor widget to debugger
 
 ## MILESTONE 2: System Integration [T2]
-- [ ] Implement `NesSystem` struct to coordinate components
+- [x] Implement `NesSystem` struct to coordinate components
 - [x] Connect CPU, Memory Bus, and PPU through clean interfaces
 - [x] Design proper ownership model with minimal unsafe code
-- [ ] Test component interaction through system interface
 - [x] Extend AsmDebugger to support both memory and PPU display
 
 ### [System] Component Timing System [T2]
-- [ ] Create a Tickable trait for timing-dependent components
-- [ ] Implement system-level timing controller for component synchronization
-- [ ] Ensure PPU ticks at 3x the CPU rate
+- [x] Implement system-level timing controller for component synchronization
+- [x] Ensure PPU ticks at 3x the CPU rate
+- [x] Improve memory access error handling to fail visibly on invalid accesses
+- [ ] Implement NOP instruction to support timing-related tests
+- [ ] Fix NesSystem connectivity issues:
+  - [ ] Connect PPU registers to CPU's bus (like in AsmDebugger)
+  - [ ] Add program memory (ROM/RAM) at 0x8000-0xFFFF
+  - [ ] Ensure proper system component interconnection
 - [ ] Refactor AsmDebugger to use System class for timing control
-- [ ] Test correct timing ratios between components
+- [x] Test correct timing ratios between components
 
 ### [Memory] Essential Memory Components [T2]
 - [x] Limit RAM to only handle the main memory region ($0000-$1FFF)
@@ -316,7 +320,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Document full compatibility
 
 ### [CPU] Special Instructions [T5]
-- [ ] Implement NOP and unofficial NOPs
+- [ ] Implement unofficial NOPs
 - [ ] Implement other unofficial instructions
 - [ ] Document cycle costs for all instructions
 - [ ] Write tests for special instructions

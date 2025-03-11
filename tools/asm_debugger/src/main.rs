@@ -3,10 +3,7 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc};
 use clap::Parser;
 use eframe::{egui, App, Frame};
 use rn_core::{
-    cpu::Cpu,
-    memory::{Addressable, Ram},
-    ppu::{registers::PpuRegisters, Ppu},
-    system::Bus,
+    cpu::Cpu, errors::NesError, memory::{Addressable, Ram}, ppu::{registers::PpuRegisters, Ppu}, system::Bus
 };
 use rn_ui::widgets::{
     AsmWidget,
@@ -43,12 +40,12 @@ impl<'a> Addressable for CpuMemoryAdapter<'a> {
         true
     }
 
-    fn read_byte(&self, address: u16) -> u8 {
+    fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         self.cpu.read_byte(address)
     }
 
-    fn write_byte(&mut self, address: u16, value: u8) {
-        self.cpu.write_byte(address, value);
+    fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
+        self.cpu.write_byte(address, value)
     }
 }
 
@@ -87,7 +84,7 @@ struct AsmDebugger {
 }
 
 impl AsmDebugger {
-    fn new(cc: &eframe::CreationContext<'_>, args: Args) -> Self {
+    fn new(_cc: &eframe::CreationContext<'_>, args: Args) -> Self {
         // Create a PPU instance
         let ppu = Rc::new(RefCell::new(Ppu::new()));
 
@@ -140,7 +137,7 @@ impl App for AsmDebugger {
 
                     // Assemble and load the code
                     let mut cpu_borrow = self.cpu.borrow_mut();
-                    self.asm_widget.assemble_code(&mut cpu_borrow);
+                    let _ = self.asm_widget.assemble_code(&mut cpu_borrow);
 
                     println!("Loaded assembly file: {}", file_path.display());
 
@@ -214,7 +211,7 @@ impl App for AsmDebugger {
 
                         // Update zoom and show the memory visualization
                         self.pixel_display.set_zoom(auto_zoom);
-                        self.pixel_display.ui(ui, &memory_adapter);
+                        let _ = self.pixel_display.ui(ui, &memory_adapter);
                     },
                     DisplayMode::Ppu => {
                         // Calculate auto-zoom based on panel width
@@ -227,7 +224,7 @@ impl App for AsmDebugger {
 
                         // Update zoom and show the PPU display
                         self.pixel_display.set_zoom(auto_zoom);
-                        self.pixel_display.ui(ui, &ppu_adapter);
+                        let _ = self.pixel_display.ui(ui, &ppu_adapter);
                     },
                 }
             });
@@ -250,7 +247,7 @@ impl App for AsmDebugger {
                     .max_height(200.0)
                     .show(ui, |ui| {
                         let cpu_ref = self.cpu.borrow();
-                        self.disasm_widget.ui(ui, &cpu_ref);
+                        let _ = self.disasm_widget.ui(ui, &cpu_ref);
                     });
 
                 ui.add_space(5.0);

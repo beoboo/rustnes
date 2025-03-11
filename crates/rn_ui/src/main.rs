@@ -3,7 +3,7 @@ use rn_core::{
     cpu::Cpu,
     memory::{Addressable, Ram},
 };
-
+use anyhow::Result;
 // Import widgets module
 mod widgets;
 use widgets::{CpuWidget, MemoryWidget};
@@ -43,47 +43,7 @@ enum Tab {
 
 impl Default for RustNESApp {
     fn default() -> Self {
-        // Create memory with some test values
-        let mut memory = Ram::default();
-
-        // Fill memory with some test patterns
-        for i in 0..256 {
-            memory.write_byte(i, i as u8); // 0x00-0xFF in zero page
-            memory.write_byte(0x0100 + i, 0xFF - i as u8); // Descending pattern in stack page
-            memory.write_byte(0x0200 + i, (i * 2) as u8); // Multiples of 2 in next page
-        }
-
-        // Write some test program at 0x8000 (common starting point for NES ROMs)
-        memory.write_byte(0x8000, 0xA9); // LDA immediate
-        memory.write_byte(0x8001, 0x42); // #$42
-        memory.write_byte(0x8002, 0x8D); // STA absolute
-        memory.write_byte(0x8003, 0x00); // $0200 (low byte)
-        memory.write_byte(0x8004, 0x02); // $0200 (high byte)
-        memory.write_byte(0x8005, 0xA9); // LDA immediate
-        memory.write_byte(0x8006, 0xFF); // #$FF
-
-        // Create CPU with initialized memory
-        let mut cpu = Cpu::new(Box::new(Ram::default())); // This RAM won't be used directly
-
-        // Set some example values
-        cpu.a = 0x42; // Accumulator
-        cpu.x = 0x10; // X register
-        cpu.y = 0x20; // Y register
-        cpu.pc = 0x8000; // Program counter
-        cpu.sp = 0xFD; // Stack pointer
-        cpu.status = 0x24; // Status flags
-
-        Self {
-            cpu,
-            memory,
-            cpu_widget: CpuWidget::new(),
-            memory_widget: MemoryWidget::new()
-                .with_start_address(0x8000) // Start at ROM entry point
-                .with_rows(16)
-                .with_bytes_per_row(16)
-                .with_editable(true),
-            selected_tab: Tab::Cpu,
-        }
+        Self::new().expect("Failed to create RustNESApp")
     }
 }
 
@@ -99,7 +59,7 @@ impl eframe::App for RustNESApp {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ctx, |ui| -> Result<()> {
             match self.selected_tab {
                 Tab::Cpu => {
                     // Show CPU state and controls
@@ -109,10 +69,12 @@ impl eframe::App for RustNESApp {
 
                     // We don't need these manual controls anymore since the registers are directly editable
                     ui.heading("CPU Instructions");
-                    ui.horizontal(|ui| {
+                    ui.horizontal(|ui| -> Result<()> {
                         if ui.button("Reset CPU").clicked() {
-                            self.cpu.reset();
+                            self.cpu.reset()?;
                         }
+
+                        Ok(())
                     });
                 },
                 Tab::Memory => {
@@ -123,16 +85,66 @@ impl eframe::App for RustNESApp {
 
                     // Add some example memory operations
                     ui.heading("Memory Operations");
-                    ui.horizontal(|ui| {
+                    ui.horizontal(|ui| -> Result<()> {
                         if ui.button("Clear Current Page").clicked() {
                             let page_start = self.memory_widget.start_address() & 0xFF00;
                             for i in 0..256 {
-                                self.memory.write_byte(page_start + i, 0);
+                                self.memory.write_byte(page_start + i, 0)?;
                             }
                         }
+
+                        Ok(())
                     });
                 },
             }
+
+            Ok(())
         });
+    }
+}
+
+impl RustNESApp {
+    fn new() -> Result<Self> {
+        // Create memory with some test values
+        let mut memory = Ram::default();
+
+        // Fill memory with some test patterns
+        for i in 0..256 {
+            memory.write_byte(i, i as u8)?; // 0x00-0xFF in zero page
+            memory.write_byte(0x0100 + i, 0xFF - i as u8)?; // Descending pattern in stack page
+            memory.write_byte(0x0200 + i, (i * 2) as u8)?; // Multiples of 2 in next page
+        }
+
+        // Write some test program at 0x8000 (common starting point for NES ROMs)
+        memory.write_byte(0x8000, 0xA9)?; // LDA immediate
+        memory.write_byte(0x8001, 0x42)?; // #$42
+        memory.write_byte(0x8002, 0x8D)?; // STA absolute
+        memory.write_byte(0x8003, 0x00)?; // $0200 (low byte)
+        memory.write_byte(0x8004, 0x02)?; // $0200 (high byte)
+        memory.write_byte(0x8005, 0xA9)?; // LDA immediate
+        memory.write_byte(0x8006, 0xFF)?; // #$FF
+
+        // Create CPU with initialized memory
+        let mut cpu = Cpu::new(Box::new(Ram::default())); // This RAM won't be used directly
+
+        // Set some example values
+        cpu.a = 0x42; // Accumulator
+        cpu.x = 0x10; // X register
+        cpu.y = 0x20; // Y register
+        cpu.pc = 0x8000; // Program counter
+        cpu.sp = 0xFD; // Stack pointer
+        cpu.status = 0x24; // Status flags
+
+        Ok(Self {
+            cpu,
+            memory,
+            cpu_widget: CpuWidget::new(),
+            memory_widget: MemoryWidget::new()
+                .with_start_address(0x8000) // Start at ROM entry point
+                .with_rows(16)
+                .with_bytes_per_row(16)
+                .with_editable(true),
+            selected_tab: Tab::Cpu,
+        })
     }
 }

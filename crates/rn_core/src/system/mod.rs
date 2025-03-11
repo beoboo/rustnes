@@ -3,5 +3,7 @@
 /// This module contains components that aren't specific to any one subsystem
 /// but instead coordinate between multiple systems.
 mod bus;
+mod nes_system;
 
 pub use bus::Bus;
+pub use nes_system::NesSystem;

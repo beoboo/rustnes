@@ -1,3 +1,5 @@
+use crate::errors::NesError;
+
 use super::Addressable;
 
 /// A RAM implementation for the NES
@@ -54,24 +56,26 @@ impl Addressable for Ram {
         address >= self.start_address && address <= self.end_address
     }
 
-    fn read_byte(&self, address: u16) -> u8 {
+    fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         if !self.handles_address(address) {
             // This shouldn't happen with proper bus routing, but return 0 just in case
-            return 0;
+            return Err(NesError::MemoryAccessError(address));
         }
 
         let index = (address - self.start_address) as usize;
-        self.data[index]
+        Ok(self.data[index])
     }
 
-    fn write_byte(&mut self, address: u16, value: u8) {
+    fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
         if !self.handles_address(address) {
             // This shouldn't happen with proper bus routing, but silently ignore
-            return;
+            return Err(NesError::MemoryAccessError(address));
         }
 
         let index = (address - self.start_address) as usize;
         self.data[index] = value;
+
+        Ok(())
     }
 
     fn reset(&mut self) {
@@ -84,33 +88,38 @@ impl Addressable for Ram {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
 
     #[test]
-    fn test_ram_read_write_byte() {
+    fn test_ram_read_write_byte() -> Result<()> {
         let mut ram = Ram::default(); // Default $0000-$1FFF
 
         // Test write and read
-        ram.write_byte(0x1000, 0x42);
-        assert_eq!(ram.read_byte(0x1000), 0x42);
+        ram.write_byte(0x1000, 0x42)?;
+        assert_eq!(ram.read_byte(0x1000)?, 0x42);
 
         // Test different address
-        ram.write_byte(0x0500, 0xFF);
-        assert_eq!(ram.read_byte(0x0500), 0xFF);
+        ram.write_byte(0x0500, 0xFF)?;
+        assert_eq!(ram.read_byte(0x0500)?, 0xFF);
+
+        Ok(())
     }
 
     #[test]
-    fn test_ram_read_write_word() {
+    fn test_ram_read_write_word() -> Result<()> {
         let mut ram = Ram::default();
 
         // Test write and read word (little-endian)
-        ram.write_word(0x1000, 0x1234);
-        assert_eq!(ram.read_byte(0x1000), 0x34); // Low byte
-        assert_eq!(ram.read_byte(0x1001), 0x12); // High byte
-        assert_eq!(ram.read_word(0x1000), 0x1234);
+        ram.write_word(0x1000, 0x1234)?;
+        assert_eq!(ram.read_byte(0x1000)?, 0x34); // Low byte
+        assert_eq!(ram.read_byte(0x1001)?, 0x12); // High byte
+        assert_eq!(ram.read_word(0x1000)?, 0x1234);
+
+        Ok(())
     }
 
     #[test]
-    fn test_ram_with_custom_range() {
+    fn test_ram_with_custom_range() -> Result<()> {
         // Create RAM for $6000-$7FFF (8KB battery-backed RAM area)
         let mut ram = Ram::with_range(0x6000, 0x7FFF);
 
@@ -127,30 +136,34 @@ mod tests {
         assert!(!ram.handles_address(0x8000));
 
         // Should read/write correctly with the offset applied
-        ram.write_byte(0x6000, 0x42);
-        assert_eq!(ram.read_byte(0x6000), 0x42);
+        ram.write_byte(0x6000, 0x42)?;
+        assert_eq!(ram.read_byte(0x6000)?, 0x42);
 
         // The internal index should be 0 for address 0x6000
         assert_eq!(ram.data[0], 0x42);
 
         // Write to end of range
-        ram.write_byte(0x7FFF, 0xFF);
-        assert_eq!(ram.read_byte(0x7FFF), 0xFF);
+        ram.write_byte(0x7FFF, 0xFF)?;
+        assert_eq!(ram.read_byte(0x7FFF)?, 0xFF);
 
         // The internal index should be at the end of the data
         assert_eq!(ram.data[0x1FFF], 0xFF);
+
+        Ok(())
     }
 
     #[test]
-    fn test_ram_out_of_bounds() {
+    fn test_ram_out_of_bounds() -> Result<()> {
         let mut ram = Ram::with_range(0x6000, 0x7FFF);
 
         // Reading out of bounds should return 0
-        assert_eq!(ram.read_byte(0x5FFF), 0);
-        assert_eq!(ram.read_byte(0x8000), 0);
+        assert_eq!(ram.read_byte(0x5FFF)?, 0);
+        assert_eq!(ram.read_byte(0x8000)?, 0);
 
         // Writing out of bounds should be ignored (no panic)
-        ram.write_byte(0x5FFF, 0x42);
-        ram.write_byte(0x8000, 0x42);
+        ram.write_byte(0x5FFF, 0x42)?;
+        ram.write_byte(0x8000, 0x42)?;
+
+        Ok(())
     }
 }

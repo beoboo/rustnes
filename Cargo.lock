@@ -2527,6 +2527,7 @@ dependencies = [
 name = "rn_ui"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "eframe",
  "egui",
  "rn_core",

@@ -1,4 +1,4 @@
-use crate::memory::{Addressable, Ram};
+use crate::{errors::NesError, memory::{assert_memory, Addressable, Ram}};
 
 /// Bus for routing memory access to appropriate devices
 ///
@@ -62,6 +62,40 @@ impl Bus {
             .iter_mut()
             .find(|component| component.handles_address(address))
     }
+
+    /// Returns a debugging string showing all attached components and their address ranges
+    /// 
+    /// This is useful for diagnosing memory mapping issues.
+    pub fn debug_memory_map(&self) -> String {
+        let mut result = String::new();
+        result.push_str("Memory Map:\n");
+        
+        // For debugging, test a set of critical addresses and see which component handles them
+        let test_addresses = [
+            (0x0000, "Zero Page"),
+            (0x0100, "Stack"),
+            (0x0200, "RAM"),
+            (0x2000, "PPU Registers"),
+            (0x4000, "APU Registers"),
+            (0x8000, "Program Memory (Low)"),
+            (0xC000, "Program Memory (High)"),
+            (0xFFFA, "NMI Vector"),
+            (0xFFFC, "Reset Vector"),
+            (0xFFFE, "IRQ Vector"),
+        ];
+        
+        for (addr, desc) in test_addresses.iter() {
+            let component = self.find_component_for_address(*addr);
+            result.push_str(&format!(
+                "{}: {:#06X} - {}\n", 
+                desc, 
+                addr, 
+                if component.is_some() { "Mapped" } else { "UNMAPPED!" }
+            ));
+        }
+        
+        result
+    }
 }
 
 impl Addressable for Bus {
@@ -72,30 +106,38 @@ impl Addressable for Bus {
             .any(|component| component.handles_address(address))
     }
 
-    fn read_byte(&self, address: u16) -> u8 {
+    fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         // Find the component that handles this address
         if let Some(component) = self.find_component_for_address(address) {
             return component.read_byte(address);
         }
 
-        // This shouldn't happen with RAM as fallback, but return 0 just in case
-        0
+        // Debug assertion to catch invalid memory reads
+        assert_memory(false, format!("Read from unmapped memory address: {:#06X}", address));
+        
+        // Return 0 only in release builds
+        Err(NesError::MemoryAccessError(address))
     }
 
-    fn write_byte(&mut self, address: u16, value: u8) {
+    fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
         // Find the component that handles this address
         if let Some(component) = self.find_component_for_address_mut(address) {
-            component.write_byte(address, value);
+            component.write_byte(address, value)?;
+            return Ok(());
         }
-
-        // If no component handles it, the write is silently ignored
+        
+        // Debug assertion to catch invalid memory writes
+        assert_memory(false, format!("Write to unmapped memory address: {:#06X} (value: {:#04X})", address, value));
+        
+        // In release builds, silently ignore the write
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-
+    use anyhow::Result;
     use super::*;
 
     // A universal test component that records accesses and can be configured for any address range
@@ -127,39 +169,44 @@ mod tests {
             address >= self.start_address && address <= self.end_address
         }
 
-        fn read_byte(&self, address: u16) -> u8 {
+        fn read_byte(&self, address: u16) -> Result<u8, NesError> {
             self.read_count.set(self.read_count.get() + 1);
             self.last_address.set(address);
             let index = (address - self.start_address) as usize;
-            self.memory[index]
+            
+            Ok(self.memory[index])
         }
 
-        fn write_byte(&mut self, address: u16, value: u8) {
+        fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
             self.write_count.set(self.write_count.get() + 1);
             self.last_address.set(address);
             let index = (address - self.start_address) as usize;
             self.memory[index] = value;
+
+            Ok(())
         }
     }
 
     #[test]
-    fn test_bus_read_write() {
+    fn test_bus_read_write() -> Result<()> {
         let mut bus = Bus::new();
 
         // Test RAM component that's included by default
-        bus.write_byte(0x0100, 0x42);
-        assert_eq!(bus.read_byte(0x0100), 0x42);
+        bus.write_byte(0x0100, 0x42)?;
+        assert_eq!(bus.read_byte(0x0100)?, 0x42);
 
         // Test custom component
         let ppu_regs = Box::new(TestComponent::new(0x2000, 0x2007));
         bus.attach_component(ppu_regs);
 
-        bus.write_byte(0x2000, 0x55);
-        assert_eq!(bus.read_byte(0x2000), 0x55);
+        bus.write_byte(0x2000, 0x55)?;
+        assert_eq!(bus.read_byte(0x2000)?, 0x55);
+
+        Ok(())
     }
 
     #[test]
-    fn test_component_priority_routing() {
+    fn test_component_priority_routing() -> Result<()> {
         let mut bus = Bus::new();
 
         // Add two components with overlapping ranges
@@ -170,16 +217,18 @@ mod tests {
         bus.attach_component(component2);
 
         // Write to the overlapping address - should go to the first component
-        bus.write_byte(0x2000, 0x42);
-        assert_eq!(bus.read_byte(0x2000), 0x42);
+        bus.write_byte(0x2000, 0x42)?;
+        assert_eq!(bus.read_byte(0x2000)?, 0x42);
 
         // Address only in second component's range should go there
-        bus.write_byte(0x2010, 0x55);
-        assert_eq!(bus.read_byte(0x2010), 0x55);
+        bus.write_byte(0x2010, 0x55)?;
+        assert_eq!(bus.read_byte(0x2010)?, 0x55);
+
+        Ok(())
     }
 
     #[test]
-    fn test_cross_component_boundaries() {
+    fn test_cross_component_boundaries() -> Result<()> {
         let mut bus = Bus::new();
 
         // Create component that handles PPU registers
@@ -187,15 +236,17 @@ mod tests {
         bus.attach_component(ppu);
 
         // Test boundary between RAM and PPU
-        bus.write_byte(0x1FFF, 0x42); // Last RAM address
-        bus.write_byte(0x2000, 0x55); // First PPU address
+        bus.write_byte(0x1FFF, 0x42)?; // Last RAM address
+        bus.write_byte(0x2000, 0x55)?; // First PPU address
 
-        assert_eq!(bus.read_byte(0x1FFF), 0x42);
-        assert_eq!(bus.read_byte(0x2000), 0x55);
+        assert_eq!(bus.read_byte(0x1FFF)?, 0x42);
+        assert_eq!(bus.read_byte(0x2000)?, 0x55);
+
+        Ok(())
     }
 
     #[test]
-    fn test_component_access_counts() {
+    fn test_component_access_counts() -> Result<()> {
         let mut bus = Bus::new();
 
         // Create a test component with a unique memory range
@@ -203,39 +254,43 @@ mod tests {
         bus.attach_component(ppu);
 
         // Write and read through the bus multiple times
-        bus.write_byte(0x2000, 0x42);
-        bus.write_byte(0x2001, 0x43);
-        assert_eq!(bus.read_byte(0x2000), 0x42);
-        assert_eq!(bus.read_byte(0x2001), 0x43);
+        bus.write_byte(0x2000, 0x42)?;
+        bus.write_byte(0x2001, 0x43)?;
+        assert_eq!(bus.read_byte(0x2000)?, 0x42);
+        assert_eq!(bus.read_byte(0x2001)?, 0x43);
 
         // Now verify RAM (built-in component) is being accessed correctly too
-        bus.write_byte(0x0100, 0x55);
-        assert_eq!(bus.read_byte(0x0100), 0x55);
+        bus.write_byte(0x0100, 0x55)?;
+        assert_eq!(bus.read_byte(0x0100)?, 0x55);
 
         // A further test verifying distinct component access
-        bus.write_byte(0x0200, 0x66); // To RAM
-        bus.write_byte(0x2002, 0x77); // To PPU
-        assert_eq!(bus.read_byte(0x0200), 0x66); // From RAM
-        assert_eq!(bus.read_byte(0x2002), 0x77); // From PPU
+        bus.write_byte(0x0200, 0x66)?; // To RAM
+        bus.write_byte(0x2002, 0x77)?; // To PPU
+        assert_eq!(bus.read_byte(0x0200)?, 0x66); // From RAM
+        assert_eq!(bus.read_byte(0x2002)?, 0x77); // From PPU
+
+        Ok(())
     }
 
     #[test]
-    fn test_reset() {
+    fn test_reset() -> Result<()> {
         let mut bus = Bus::new();
 
         // Set some values in RAM
-        bus.write_byte(0x0100, 0x42);
-        assert_eq!(bus.read_byte(0x0100), 0x42);
+        bus.write_byte(0x0100, 0x42)?;
+        assert_eq!(bus.read_byte(0x0100)?, 0x42);
 
         // Reset the bus
         bus.reset();
 
         // RAM should be reset
-        assert_eq!(bus.read_byte(0x0100), 0x00);
+        assert_eq!(bus.read_byte(0x0100)?, 0x00);
+
+        Ok(())
     }
 
     #[test]
-    fn test_multiple_components() {
+    fn test_multiple_components() -> Result<()> {
         let mut bus = Bus::new();
 
         // Add components for different memory regions
@@ -244,28 +299,58 @@ mod tests {
         bus.attach_component(Box::new(TestComponent::new(0x8000, 0xFFFF)));
 
         // Test writes to different regions
-        bus.write_byte(0x0100, 0x01); // RAM
-        bus.write_byte(0x2000, 0x02); // PPU
-        bus.write_byte(0x4000, 0x03); // APU
-        bus.write_byte(0x8000, 0x04); // Cart
+        bus.write_byte(0x0100, 0x01)?; // RAM
+        bus.write_byte(0x2000, 0x02)?; // PPU
+        bus.write_byte(0x4000, 0x03)?; // APU
+        bus.write_byte(0x8000, 0x04)?; // Cart
 
         // Verify reads from different regions
-        assert_eq!(bus.read_byte(0x0100), 0x01);
-        assert_eq!(bus.read_byte(0x2000), 0x02);
-        assert_eq!(bus.read_byte(0x4000), 0x03);
-        assert_eq!(bus.read_byte(0x8000), 0x04);
+        assert_eq!(bus.read_byte(0x0100)?, 0x01);
+        assert_eq!(bus.read_byte(0x2000)?, 0x02);
+        assert_eq!(bus.read_byte(0x4000)?, 0x03);
+        assert_eq!(bus.read_byte(0x8000)?, 0x04);
+
+        Ok(())
     }
 
     #[test]
-    fn test_unmapped_memory() {
+    fn test_unmapped_memory() -> Result<()> {
         let mut bus = Bus::new();
 
         // Read from unmapped memory (nothing handles 0x6000)
-        let value = bus.read_byte(0x6000);
+        let value = bus.read_byte(0x6000)?;
         assert_eq!(value, 0);
 
         // Write to unmapped memory should be silently ignored
-        bus.write_byte(0x6000, 0xFF);
-        assert_eq!(bus.read_byte(0x6000), 0);
+        bus.write_byte(0x6000, 0xFF)?;
+        assert_eq!(bus.read_byte(0x6000)?, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_debug_memory_map() {
+        let mut bus = Bus::new();
+        
+        // By default only RAM is mapped
+        let map = bus.debug_memory_map();
+        assert!(map.contains("Zero Page: 0x0000 - Mapped"));
+        assert!(map.contains("RAM: 0x0200 - Mapped"));
+        assert!(map.contains("PPU Registers: 0x2000 - UNMAPPED!"));
+        assert!(map.contains("Program Memory (Low): 0x8000 - UNMAPPED!"));
+        
+        // Add PPU registers
+        let ppu_regs = Box::new(TestComponent::new(0x2000, 0x2007));
+        bus.attach_component(ppu_regs);
+        
+        // Add Program ROM
+        let program_rom = Box::new(TestComponent::new(0x8000, 0xFFFF));
+        bus.attach_component(program_rom);
+        
+        // Now verify the mappings
+        let map = bus.debug_memory_map();
+        assert!(map.contains("PPU Registers: 0x2000 - Mapped"));
+        assert!(map.contains("Program Memory (Low): 0x8000 - Mapped"));
+        assert!(map.contains("Reset Vector: 0xFFFC - Mapped"));
     }
 }

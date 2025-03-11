@@ -1,6 +1,6 @@
 use egui::{Color32, Grid, RichText, TextEdit, Ui};
 use rn_core::memory::Addressable;
-
+use anyhow::Result;
 use crate::widgets::{HexEditText, ValueType};
 
 /// Widget for displaying and editing memory contents
@@ -119,7 +119,7 @@ impl MemoryWidget {
         Grid::new("memory_grid")
             .striped(true)
             .spacing([4.0, 4.0])
-            .show(ui, |ui| {
+            .show(ui, |ui| -> Result<()> {
                 // Header row
                 ui.label(""); // Empty cell for address column
                 for col in 0..self.bytes_per_row {
@@ -156,7 +156,7 @@ impl MemoryWidget {
                         let editor_idx = row as usize * self.bytes_per_row as usize + col as usize;
 
                         // Get the byte value and create a mutable copy for the widget
-                        let byte = addressable.read_byte(addr);
+                        let byte = addressable.read_byte(addr).expect("Failed to read byte");
                         let mut byte_value = byte as u16;
 
                         // Use the HexEditText to edit the byte
@@ -169,7 +169,7 @@ impl MemoryWidget {
                                 Some(&format!("Address: ${:04X}", addr)),
                             ) {
                                 // Value changed, update memory
-                                addressable.write_byte(addr, byte_value as u8);
+                                addressable.write_byte(addr, byte_value as u8)?;
                             }
                         } else {
                             // Just display the value without editing
@@ -178,6 +178,8 @@ impl MemoryWidget {
                     }
                     ui.end_row();
                 }
+
+                Ok(())
             });
     }
 }
