@@ -550,7 +550,7 @@ mod tests {
     #[test]
     fn test_integration_jmp() -> Result<()> {
         let mut cpu = setup_cpu();
-        let parser = Assembler::new();
+        let parser = Assembler::new(0);
 
         // Program:
         // 0x0100: LDA #$42  ; Load 0x42 into A
@@ -560,10 +560,10 @@ mod tests {
         // 0x0108: LDX #$37  ; Load 0x37 into X
 
         // Parse and write instructions
-        let instr1 = parser.assemble_instruction("LDA #$42")?;
-        let instr2 = parser.assemble_instruction("JMP $0108")?;
-        let instr3 = parser.assemble_instruction("LDA #$24")?; // This should be skipped
-        let instr4 = parser.assemble_instruction("LDX #$37")?;
+        let instr1 = parser.assemble_instruction("LDA #$42", None)?;
+        let instr2 = parser.assemble_instruction("JMP $0108", None)?;
+        let instr3 = parser.assemble_instruction("LDA #$24", None)?; // This should be skipped
+        let instr4 = parser.assemble_instruction("LDX #$37", None)?;
 
         // Starting position
         cpu.pc = 0x0100;
@@ -613,13 +613,13 @@ mod tests {
     #[test]
     fn test_integration_step_lda() -> Result<()> {
         let mut cpu = setup_cpu();
-        let parser = Assembler::new();
+        let parser = Assembler::new(0);
 
         // Set up test with parser
         cpu.pc = 0x0100;
 
         // Parse an LDA instruction with immediate addressing mode
-        let bytes = parser.assemble_instruction("LDA #$42")?;
+        let bytes = parser.assemble_instruction("LDA #$42", None)?;
 
         // Write bytes to memory
         for (i, &byte) in bytes.iter().enumerate() {
@@ -641,18 +641,18 @@ mod tests {
     #[test]
     fn test_integration_step_store_and_load() -> Result<()> {
         let mut cpu = setup_cpu();
-        let parser = Assembler::new();
+        let parser = Assembler::new(0);
 
         // Set up test with parser
         cpu.pc = 0x0200;
 
         // Parse and write instructions to memory
-        let instr1 = parser.assemble_instruction("LDA #$42")?; // Load accumulator with 0x42
-        let instr2 = parser.assemble_instruction("STA $1234")?; // Store accumulator to 0x1234
-        let instr3 = parser.assemble_instruction("LDX #$37")?; // Load X with 0x37
-        let instr4 = parser.assemble_instruction("STX $5678")?; // Store X to 0x5678
-        let instr5 = parser.assemble_instruction("LDY #$55")?; // Load Y with 0x55
-        let instr6 = parser.assemble_instruction("STY $90AB")?; // Store Y to 0x90AB
+        let instr1 = parser.assemble_instruction("LDA #$42", None)?; // Load accumulator with 0x42
+        let instr2 = parser.assemble_instruction("STA $1234", None)?; // Store accumulator to 0x1234
+        let instr3 = parser.assemble_instruction("LDX #$37", None)?; // Load X with 0x37
+        let instr4 = parser.assemble_instruction("STX $5678", None)?; // Store X to 0x5678
+        let instr5 = parser.assemble_instruction("LDY #$55", None)?; // Load Y with 0x55
+        let instr6 = parser.assemble_instruction("STY $90AB", None)?; // Store Y to 0x90AB
 
         // Write instructions to memory
         let mut addr = 0x0200;
@@ -910,13 +910,13 @@ mod tests {
     #[test]
     fn test_nop_instruction() -> Result<()> {
         let mut cpu = setup_cpu();
-        let parser = Assembler::new();
+        let parser = Assembler::new(0);
 
         // Set up test with parser
         cpu.pc = 0x0100;
 
         // Parse a NOP instruction
-        let bytes = parser.assemble_instruction("NOP")?;
+        let bytes = parser.assemble_instruction("NOP", None)?;
         assert_eq!(bytes.len(), 1);
         assert_eq!(bytes[0], 0xEA);
 

@@ -187,7 +187,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement parsing for increment/decrement (INC, INX, etc.)
 - [ ] Add parser tests for extended instruction set
 - [ ] Enhance disassembler for extended instruction set
-- [ ] Support local and global labels
+- [ ] Support local labels
 
 ### [Memory] Memory Enhancements [T3]
 - [ ] Implement RAM mirroring ($0800-$1FFF mirrors $0000-$07FF)

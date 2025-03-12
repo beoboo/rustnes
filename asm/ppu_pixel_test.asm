@@ -59,5 +59,5 @@
     STA $2001
 
     ; Loop forever (no need for interrupts in this simple test)
-; loop:
-;     JMP loop 
+loop:
+    JMP loop 

@@ -39,6 +39,16 @@ impl fmt::Display for AddressingMode {
 }
 
 impl AddressingMode {
+    /// Returns the size in bytes of an instruction with this addressing mode
+    pub fn size(&self) -> u16 {
+        match self {
+            Self::Implied => 1,
+            Self::Immediate | Self::ZeroPage | Self::ZeroPageX | Self::ZeroPageY => 2,
+            Self::Absolute | Self::AbsoluteX | Self::AbsoluteY | Self::Indirect |
+            Self::IndexedIndirect | Self::IndirectIndexed => 3,
+        }
+    }
+
     /// Returns the operand address for the given addressing mode
     /// This method assumes PC points to the operand byte (rather than the opcode)
     pub fn get_operand_address(&self, cpu: &Cpu) -> Result<u16, NesError> {

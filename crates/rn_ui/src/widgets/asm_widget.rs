@@ -16,9 +16,7 @@ pub struct AsmWidget {
     /// Error message from assembly process
     pub error_message: Option<String>,
     /// Assembler for 6502 code
-    assembler: Assembler,
-    /// Default load address for the program
-    load_address: u16,
+    pub assembler: Assembler,
     /// Whether the program is loaded into the CPU
     is_loaded: bool,
     /// Whether the CPU is actually executing
@@ -37,8 +35,7 @@ impl AsmWidget {
             assembled: false,
             assembled_bytes: Vec::new(),
             error_message: None,
-            assembler: Assembler::new(),
-            load_address: 0x8000, // Default load address
+            assembler: Assembler::new(0x8000), // Default load address is 0x8000
             is_loaded: false,
             is_running: false,
             is_finished: false,
@@ -60,7 +57,7 @@ impl AsmWidget {
         }
 
         // Load the program into the CPU
-        cpu.load_program(&self.assembled_bytes, self.load_address)?;
+        cpu.load_program(&self.assembled_bytes, self.assembler.load_address)?;
 
         // Update state
         self.is_loaded = true;
@@ -109,7 +106,7 @@ impl AsmWidget {
                 self.reset_and_load(cpu)?;
                 println!(
                     "Program assembled and loaded at ${:04X}, {} bytes",
-                    self.load_address,
+                    self.assembler.load_address,
                     self.assembled_bytes.len()
                 );
             },
@@ -132,7 +129,7 @@ impl AsmWidget {
 
     /// Getter for the load address
     pub fn load_address(&self) -> u16 {
-        self.load_address
+        self.assembler.load_address
     }
 
     /// Getter for loaded state
@@ -151,7 +148,7 @@ impl AsmWidget {
 
         // Execute instructions until we hit a BRK or error
         // Include a safety limit to prevent infinite loops
-        let max_steps = 1000;
+        let max_steps = 1000000;
         let mut steps = 0;
 
         println!("Running program from ${:04X}", cpu.pc);
@@ -193,7 +190,7 @@ impl AsmWidget {
 
     /// Set a custom load address
     pub fn set_load_address(&mut self, address: u16) {
-        self.load_address = address;
+        self.assembler.load_address = address;
     }
 
     /// Show the assembled bytes as hex
@@ -251,17 +248,19 @@ impl AsmWidget {
 
             // Only make it editable if not loaded
             if !self.is_loaded {
+                let mut load_address = self.assembler.load_address;
                 if self.load_address_editor.ui(
                     ui,
                     "", // Skip the label since we added it above
-                    &mut self.load_address,
+                    &mut load_address,
                     ValueType::Bit16,
                     Some("Program load address in memory"),
                 ) {
-                    // Value already updated in load_address
+                    // Update the assembler with the new load address
+                    self.set_load_address(load_address);
                 }
             } else {
-                ui.label(format!("${:04X}", self.load_address));
+                ui.label(format!("${:04X}", self.assembler.load_address));
             }
         });
 
