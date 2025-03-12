@@ -162,12 +162,13 @@ impl App for AsmDebugger {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let system = self.system.borrow();
                     match system.state() {
-                        SystemState::Ready => ui.colored_label(egui::Color32::WHITE, "System: Ready"),
-                        SystemState::Loaded => ui.colored_label(egui::Color32::CYAN, "System: Program Loaded"),
-                        SystemState::Running => ui.colored_label(egui::Color32::YELLOW, "System: Running"),
-                        SystemState::Finished => ui.colored_label(egui::Color32::GREEN, "System: Finished"),
-                        SystemState::Error(pc) => ui.colored_label(egui::Color32::RED, format!("System: Error at ${:04X}", pc)),
+                        SystemState::Ready => ui.colored_label(egui::Color32::WHITE, "Ready"),
+                        SystemState::Loaded => ui.colored_label(egui::Color32::CYAN, "Loaded"),
+                        SystemState::Running => ui.colored_label(egui::Color32::YELLOW, "Running"),
+                        SystemState::Finished => ui.colored_label(egui::Color32::GREEN, "Finished"),
+                        SystemState::Error(pc) => ui.colored_label(egui::Color32::RED, format!("Error at ${:04X}", pc)),
                     };
+                    ui.label("System: ");
                 });
             });
         });
