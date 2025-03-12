@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use anyhow::Result;
 use egui::{self, Color32, Ui};
-use rn_core::{cpu::Cpu, system::NesSystem, cpu::Assembler};
+use rn_core::{cpu::Cpu, system::{NesSystem, SystemState}, cpu::Assembler};
 
 use crate::widgets::{HexEditText, ValueType};
 
@@ -17,12 +17,6 @@ pub struct AsmWidget {
     pub error_message: Option<String>,
     /// Assembler for 6502 code
     pub assembler: Assembler,
-    /// Whether the program is loaded into the CPU
-    is_loaded: bool,
-    /// Whether the CPU is actually executing
-    is_running: bool,
-    /// Whether the program has finished execution (hit BRK)
-    is_finished: bool,
     /// Load address editor widget
     load_address_editor: HexEditText,
 }
@@ -36,9 +30,6 @@ impl AsmWidget {
             assembled_bytes: Vec::new(),
             error_message: None,
             assembler: Assembler::new(0x8000), // Default load address is 0x8000
-            is_loaded: false,
-            is_running: false,
-            is_finished: false,
             load_address_editor: HexEditText::new(),
         }
     }
@@ -50,42 +41,34 @@ impl AsmWidget {
         widget
     }
 
-    /// Reset the CPU and load the assembled program
+    /// Reset the system and load the assembled program
     fn reset_and_load(&mut self, system: &mut NesSystem) -> Result<()> {
         if !self.assembled || self.assembled_bytes.is_empty() {
             return Ok(());
         }
 
-        // Load the program into the CPU
-        system.cpu_mut().load_program(&self.assembled_bytes, self.assembler.load_address)?;
-
-        // Update state
-        self.is_loaded = true;
-        self.is_running = false;
-        self.is_finished = false;
+        // Reset the system first
+        system.reset()?;
+        
+        // Load the program into the system
+        system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
 
         Ok(())
     }
 
-    /// Step one instruction in the CPU
+    /// Step one instruction in the system
     pub fn step(&mut self, system: &mut NesSystem) -> Result<()> {
-        if !self.is_loaded || self.is_running || self.is_finished {
+        // Only step if the system is in the right state
+        if system.state() != SystemState::Loaded && system.state() != SystemState::Running {
             return Ok(());
         }
 
-        match system.step() {
-            Ok(_) => {
-                // Check if we've hit a BRK instruction (end of program)
-                if system.cpu().read_byte(system.cpu().pc)? == 0x00 {
-                    println!("BRK instruction encountered at ${:04X}, halting", system.cpu().pc);
-                    self.is_finished = true;
-                }
-            },
-            Err(err) => {
-                // Handle error
+        // Step the system and capture any error
+        if let Err(err) = system.step() {
+            // Error already set in NesSystem, just ensure we have it in the widget too
+            if self.error_message.is_none() {
                 self.error_message = Some(format!("Execution error: {}", err));
-                self.is_finished = true;
-            },
+            }
         }
 
         Ok(())
@@ -113,9 +96,6 @@ impl AsmWidget {
             Err(err) => {
                 self.error_message = Some(format!("Assembly error: {}", err));
                 self.assembled = false;
-                self.is_loaded = false;
-                self.is_running = false;
-                self.is_finished = false;
             },
         }
 
@@ -134,55 +114,32 @@ impl AsmWidget {
 
     /// Getter for loaded state
     pub fn is_loaded(&self) -> bool {
-        self.is_loaded
+        self.assembled
     }
 
     /// Run the program until completion or error
     pub fn run_program(&mut self, system: &mut NesSystem) -> Result<()> {
-        if !self.is_loaded || self.is_finished {
+        // Only run if the system is in the right state
+        if system.state() != SystemState::Loaded && system.state() != SystemState::Running {
             return Ok(());
         }
 
-        // Mark as running
-        self.is_running = true;
-
-        // Execute instructions until we hit a BRK or error
-        // Include a safety limit to prevent infinite loops
-        let max_steps = 1000000;
-        let mut steps = 0;
-
-        println!("Running program from ${:04X}", system.cpu().pc);
-
-        while self.is_running && steps < max_steps {
-            match system.step() {
-                Ok(_) => {
-                    steps += 1;
-
-                    // Check if we've hit a BRK instruction
-                    if system.cpu().read_byte(system.cpu().pc)? == 0x00 {
-                        println!("BRK instruction encountered at ${:04X}, halting", system.cpu().pc);
-                        self.is_finished = true;
-                        self.is_running = false;
-                        break;
-                    }
-                },
-                Err(err) => {
-                    self.error_message = Some(format!("Execution error at step {}: {}", steps, err));
-                    self.is_running = false;
-                    self.is_finished = true;
-                    println!("Error at step {}: {}", steps, err);
-                    break;
-                },
+        // Run with a reasonable step limit
+        const MAX_STEPS: usize = 1_000_000;
+        
+        match system.run(MAX_STEPS) {
+            Ok(_) => {
+                // Success - system state is already updated
+                if let Some(err_msg) = system.error_message() {
+                    self.error_message = Some(err_msg.to_string());
+                }
+            },
+            Err(err) => {
+                // Error already set in NesSystem, just ensure we have it in the widget too
+                if self.error_message.is_none() {
+                    self.error_message = Some(format!("Execution error: {}", err));
+                }
             }
-        }
-
-        if steps >= max_steps {
-            self.error_message = Some(format!("Program reached maximum step limit of {}", max_steps));
-            println!("Program reached maximum step limit of {}", max_steps);
-            self.is_running = false;
-            self.is_finished = true;
-        } else {
-            println!("Program terminated after {} steps at ${:04X}", steps, system.cpu().pc);
         }
 
         Ok(())
@@ -235,7 +192,7 @@ impl AsmWidget {
                     .desired_rows(20)
                     .lock_focus(true)
                     .desired_width(f32::INFINITY)
-                    .interactive(!self.is_loaded);
+                    .interactive(system.state() == SystemState::Ready); // Only editable when system is ready
 
                 ui.add(text_edit);
             });
@@ -247,7 +204,7 @@ impl AsmWidget {
             ui.label("Load address:");
 
             // Only make it editable if not loaded
-            if !self.is_loaded {
+            if system.state() == SystemState::Ready {
                 let mut load_address = self.assembler.load_address;
                 if self.load_address_editor.ui(
                     ui,
@@ -266,53 +223,65 @@ impl AsmWidget {
 
         ui.add_space(5.0);
 
+        // Status indicator
+        ui.horizontal(|ui| {
+            ui.label("Status: ");
+            match system.state() {
+                SystemState::Ready => ui.colored_label(Color32::WHITE, "Ready"),
+                SystemState::Loaded => ui.colored_label(Color32::CYAN, "Program loaded"),
+                SystemState::Running => ui.colored_label(Color32::YELLOW, "Running"),
+                SystemState::Finished => ui.colored_label(Color32::GREEN, "Finished"),
+                SystemState::Error(pc) => ui.colored_label(Color32::RED, format!("Error at ${:04X}", pc)),
+            };
+        });
+
+        ui.add_space(5.0);
+
         // Buttons
         ui.horizontal(|ui| -> Result<()> {
-            // Assemble button - only enabled when not loaded and not running
+            // Assemble button - only enabled when system is ready
             if ui
-                .add_enabled(!self.is_running && !self.is_loaded, egui::Button::new("Assemble"))
+                .add_enabled(system.state() == SystemState::Ready, egui::Button::new("Assemble"))
                 .clicked()
             {
                 self.assemble_code(system)?;
             }
 
-            // Run button - enabled when loaded and not running or finished
+            // Run button - enabled when system is loaded or running
+            let can_run = system.state() == SystemState::Loaded || system.state() == SystemState::Running;
             if ui
-                .add_enabled(
-                    self.is_loaded && !self.is_running && !self.is_finished,
-                    egui::Button::new("Run"),
-                )
+                .add_enabled(can_run, egui::Button::new("Run"))
                 .clicked()
             {
                 self.run_program(system)?;
             }
 
-            // Step button - enabled when loaded and not running or finished
+            // Step button - enabled when system is loaded or running
             if ui
-                .add_enabled(
-                    self.is_loaded && !self.is_running && !self.is_finished,
-                    egui::Button::new("Step"),
-                )
+                .add_enabled(can_run, egui::Button::new("Step"))
                 .clicked()
             {
                 self.step(system)?;
             }
 
-            // Reset button - enabled when loaded or finished
+            // Reset button - enabled when not in ready state
             if ui
-                .add_enabled(self.is_loaded || self.is_finished, egui::Button::new("Reset"))
+                .add_enabled(system.state() != SystemState::Ready, egui::Button::new("Reset"))
                 .clicked()
             {
-                self.full_reset(system)?;
+                system.reset()?;
             }
 
             Ok(())
         });
 
         // Display any error message
-        if let Some(error) = &self.error_message {
+        if let Some(err_msg) = system.error_message() {
             ui.add_space(5.0);
-            ui.colored_label(Color32::RED, error);
+            ui.colored_label(Color32::RED, err_msg);
+        } else if let Some(err_msg) = &self.error_message {
+            ui.add_space(5.0);
+            ui.colored_label(Color32::RED, err_msg);
         }
 
         // Show assembled bytes if available
@@ -320,18 +289,5 @@ impl AsmWidget {
             ui.add_space(10.0);
             self.show_assembled_bytes(ui);
         }
-    }
-
-    /// Fully reset the system and clear memory
-    pub fn full_reset(&mut self, system: &mut NesSystem) -> Result<()> {
-        // Reset the CPU
-        system.reset()?;
-
-        // Also reset our state
-        self.is_loaded = false;
-        self.is_running = false;
-        self.is_finished = false;
-
-        Ok(())
     }
 }

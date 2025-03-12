@@ -6,4 +6,4 @@ mod bus;
 mod nes_system;
 
 pub use bus::Bus;
-pub use nes_system::NesSystem;
+pub use nes_system::{NesSystem, SystemState};

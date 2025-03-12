@@ -11,6 +11,16 @@ use crate::{
     system::Bus,
 };
 
+/// The possible states of the NES system
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemState {
+    Ready,      // System is reset, no program loaded
+    Loaded,     // Program loaded but not running
+    Running,    // Program is actively running
+    Finished,   // Program has finished execution (hit BRK or error)
+    Error(u16), // System encountered an error (with PC where error occurred)
+}
+
 /// NesSystem coordinates the main components of the NES
 pub struct NesSystem {
     /// The CPU component
@@ -18,6 +28,12 @@ pub struct NesSystem {
 
     /// The PPU component
     ppu: Rc<RefCell<Ppu>>,
+    
+    /// Current system state
+    state: SystemState,
+    
+    /// Error message if in Error state
+    error_message: Option<String>,
 }
 
 impl NesSystem {
@@ -50,14 +66,29 @@ impl NesSystem {
         // Create the CPU with its bus
         let cpu = Cpu::new(Box::new(bus));
 
-        Self { cpu, ppu }
+        Self { 
+            cpu, 
+            ppu,
+            state: SystemState::Ready,
+            error_message: None,
+        }
     }
 
     /// Reset the system
     pub fn reset(&mut self) -> Result<(), NesError> {
         self.cpu.reset()?;
         self.ppu.borrow_mut().reset();
+        self.state = SystemState::Ready;
+        self.error_message = None;
 
+        Ok(())
+    }
+
+    /// Load a program into memory
+    pub fn load_program(&mut self, program: &[u8], address: u16) -> Result<(), NesError> {
+        self.cpu.load_program(program, address)?;
+        self.state = SystemState::Loaded;
+        self.error_message = None;
         Ok(())
     }
 
@@ -65,15 +96,86 @@ impl NesSystem {
     ///
     /// Returns the number of CPU cycles used
     pub fn step(&mut self) -> Result<u8, NesError> {
-        // Step the CPU and get cycles
-        let cpu_cycles = self.cpu.step()?;
-
-        // Run the PPU at 3x the CPU speed
-        for _ in 0..cpu_cycles * 3 {
-            self.ppu.borrow_mut().tick();
+        if self.state == SystemState::Finished || matches!(self.state, SystemState::Error(_)) {
+            return Ok(0); // Don't step if already finished or in error state
         }
+        
+        // Set state to running
+        self.state = SystemState::Running;
 
-        Ok(cpu_cycles)
+        // Step the CPU and get cycles
+        match self.cpu.step() {
+            Ok(cpu_cycles) => {
+                // Run the PPU at 3x the CPU speed
+                for _ in 0..cpu_cycles * 3 {
+                    self.ppu.borrow_mut().tick();
+                }
+
+                // Check if we've hit a BRK instruction (end of program)
+                if self.cpu.read_byte(self.cpu.pc)? == 0x00 {
+                    self.state = SystemState::Finished;
+                    println!("BRK instruction encountered at ${:04X}, halting", self.cpu.pc);
+                }
+                
+                Ok(cpu_cycles)
+            },
+            Err(err) => {
+                // Store the error and set error state
+                self.error_message = Some(format!("Execution error: {}", err));
+                self.state = SystemState::Error(self.cpu.pc);
+                Err(err)
+            }
+        }
+    }
+
+    /// Run the system until completion or error
+    /// 
+    /// Takes a maximum number of steps to prevent infinite loops
+    pub fn run(&mut self, max_steps: usize) -> Result<usize, NesError> {
+        if self.state != SystemState::Loaded && self.state != SystemState::Running {
+            return Ok(0); // Don't run if not loaded or already finished
+        }
+        
+        let mut steps = 0;
+        println!("Running program from ${:04X}", self.cpu.pc);
+        
+        while steps < max_steps {
+            match self.step() {
+                Ok(0) => break, // Got 0 cycles, means we're finished
+                Ok(_) => steps += 1,
+                Err(err) => {
+                    println!("Error at step {}: {}", steps, err);
+                    return Err(err);
+                }
+            }
+            
+            // Check if we've reached the finished state
+            if self.state == SystemState::Finished || matches!(self.state, SystemState::Error(_)) {
+                break;
+            }
+        }
+        
+        if steps >= max_steps {
+            println!("Program reached maximum step limit of {}", max_steps);
+            self.error_message = Some(format!("Program reached maximum step limit of {}", max_steps));
+            self.state = SystemState::Error(self.cpu.pc);
+        } else if self.state == SystemState::Running {
+            // If we broke out of the loop without error or finishing, consider it finished
+            self.state = SystemState::Finished;
+            println!("Program terminated after {} steps at ${:04X}", steps, self.cpu.pc);
+        }
+        
+        Ok(steps)
+    }
+
+    /// Get the current system state
+    pub fn state(&self) -> SystemState {
+        self.state
+    }
+    
+    /// Get the current error message if any
+    pub fn error_message(&self) -> Option<&str> {
+        self.error_message.as_deref()
     }
 
     /// Get the CPU

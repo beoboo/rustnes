@@ -2,7 +2,7 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use clap::Parser;
 use eframe::{egui, App, Frame};
-use rn_core::{cpu::Cpu, errors::NesError, memory::Addressable, system::NesSystem};
+use rn_core::{cpu::Cpu, errors::NesError, memory::Addressable, system::{NesSystem, SystemState}};
 use rn_ui::widgets::{
     AsmWidget,
     CpuWidget,
@@ -156,6 +156,18 @@ impl App for AsmDebugger {
                 ui.menu_button("Display Mode", |ui| {
                     ui.radio_value(&mut self.display_mode, DisplayMode::Memory, "Memory");
                     ui.radio_value(&mut self.display_mode, DisplayMode::Ppu, "PPU");
+                });
+                
+                // Add system state indicator
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let system = self.system.borrow();
+                    match system.state() {
+                        SystemState::Ready => ui.colored_label(egui::Color32::WHITE, "System: Ready"),
+                        SystemState::Loaded => ui.colored_label(egui::Color32::CYAN, "System: Program Loaded"),
+                        SystemState::Running => ui.colored_label(egui::Color32::YELLOW, "System: Running"),
+                        SystemState::Finished => ui.colored_label(egui::Color32::GREEN, "System: Finished"),
+                        SystemState::Error(pc) => ui.colored_label(egui::Color32::RED, format!("System: Error at ${:04X}", pc)),
+                    };
                 });
             });
         });
