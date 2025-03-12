@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 use anyhow::Result;
 use egui::{self, Color32, Ui};
-use rn_core::{cpu::Cpu, system::{NesSystem, SystemState}, cpu::Assembler};
+use rn_core::{
+    cpu::{Assembler, Cpu},
+    system::{NesSystem, SystemState},
+};
 
 use crate::widgets::{HexEditText, ValueType};
 
@@ -49,7 +52,7 @@ impl AsmWidget {
 
         // Reset the system first
         system.reset()?;
-        
+
         // Load the program into the system
         system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
 
@@ -126,7 +129,7 @@ impl AsmWidget {
 
         // Run with a reasonable step limit
         const MAX_STEPS: usize = 1_000_000;
-        
+
         match system.run(MAX_STEPS) {
             Ok(_) => {
                 // Success - system state is already updated
@@ -139,7 +142,7 @@ impl AsmWidget {
                 if self.error_message.is_none() {
                     self.error_message = Some(format!("Execution error: {}", err));
                 }
-            }
+            },
         }
 
         Ok(())
@@ -249,18 +252,12 @@ impl AsmWidget {
 
             // Run button - enabled when system is loaded or running
             let can_run = system.state() == SystemState::Loaded || system.state() == SystemState::Running;
-            if ui
-                .add_enabled(can_run, egui::Button::new("Run"))
-                .clicked()
-            {
+            if ui.add_enabled(can_run, egui::Button::new("Run")).clicked() {
                 self.run_program(system)?;
             }
 
             // Step button - enabled when system is loaded or running
-            if ui
-                .add_enabled(can_run, egui::Button::new("Step"))
-                .clicked()
-            {
+            if ui.add_enabled(can_run, egui::Button::new("Step")).clicked() {
                 self.step(system)?;
             }
 

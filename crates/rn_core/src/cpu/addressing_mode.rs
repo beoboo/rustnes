@@ -44,8 +44,12 @@ impl AddressingMode {
         match self {
             Self::Implied => 1,
             Self::Immediate | Self::ZeroPage | Self::ZeroPageX | Self::ZeroPageY => 2,
-            Self::Absolute | Self::AbsoluteX | Self::AbsoluteY | Self::Indirect |
-            Self::IndexedIndirect | Self::IndirectIndexed => 3,
+            Self::Absolute
+            | Self::AbsoluteX
+            | Self::AbsoluteY
+            | Self::Indirect
+            | Self::IndexedIndirect
+            | Self::IndirectIndexed => 3,
         }
     }
 

@@ -2,7 +2,12 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use clap::Parser;
 use eframe::{egui, App, Frame};
-use rn_core::{cpu::Cpu, errors::NesError, memory::Addressable, system::{NesSystem, SystemState}};
+use rn_core::{
+    cpu::Cpu,
+    errors::NesError,
+    memory::Addressable,
+    system::{NesSystem, SystemState},
+};
 use rn_ui::widgets::{
     AsmWidget,
     CpuWidget,
@@ -157,7 +162,7 @@ impl App for AsmDebugger {
                     ui.radio_value(&mut self.display_mode, DisplayMode::Memory, "Memory");
                     ui.radio_value(&mut self.display_mode, DisplayMode::Ppu, "PPU");
                 });
-                
+
                 // Add system state indicator
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let system = self.system.borrow();

@@ -28,10 +28,10 @@ pub struct NesSystem {
 
     /// The PPU component
     ppu: Rc<RefCell<Ppu>>,
-    
+
     /// Current system state
     state: SystemState,
-    
+
     /// Error message if in Error state
     error_message: Option<String>,
 }
@@ -66,8 +66,8 @@ impl NesSystem {
         // Create the CPU with its bus
         let cpu = Cpu::new(Box::new(bus));
 
-        Self { 
-            cpu, 
+        Self {
+            cpu,
             ppu,
             state: SystemState::Ready,
             error_message: None,
@@ -99,7 +99,7 @@ impl NesSystem {
         if self.state == SystemState::Finished || matches!(self.state, SystemState::Error(_)) {
             return Ok(0); // Don't step if already finished or in error state
         }
-        
+
         // Set state to running
         self.state = SystemState::Running;
 
@@ -116,7 +116,7 @@ impl NesSystem {
                     self.state = SystemState::Finished;
                     println!("BRK instruction encountered at ${:04X}, halting", self.cpu.pc);
                 }
-                
+
                 Ok(cpu_cycles)
             },
             Err(err) => {
@@ -124,21 +124,21 @@ impl NesSystem {
                 self.error_message = Some(format!("Execution error: {}", err));
                 self.state = SystemState::Error(self.cpu.pc);
                 Err(err)
-            }
+            },
         }
     }
 
     /// Run the system until completion or error
-    /// 
+    ///
     /// Takes a maximum number of steps to prevent infinite loops
     pub fn run(&mut self, max_steps: usize) -> Result<usize, NesError> {
         if self.state != SystemState::Loaded && self.state != SystemState::Running {
             return Ok(0); // Don't run if not loaded or already finished
         }
-        
+
         let mut steps = 0;
         println!("Running program from ${:04X}", self.cpu.pc);
-        
+
         while steps < max_steps {
             match self.step() {
                 Ok(0) => break, // Got 0 cycles, means we're finished
@@ -146,15 +146,15 @@ impl NesSystem {
                 Err(err) => {
                     println!("Error at step {}: {}", steps, err);
                     return Err(err);
-                }
+                },
             }
-            
+
             // Check if we've reached the finished state
             if self.state == SystemState::Finished || matches!(self.state, SystemState::Error(_)) {
                 break;
             }
         }
-        
+
         if steps >= max_steps {
             println!("Program reached maximum step limit of {}", max_steps);
             self.error_message = Some(format!("Program reached maximum step limit of {}", max_steps));
@@ -164,7 +164,7 @@ impl NesSystem {
             self.state = SystemState::Finished;
             println!("Program terminated after {} steps at ${:04X}", steps, self.cpu.pc);
         }
-        
+
         Ok(steps)
     }
 
@@ -172,7 +172,7 @@ impl NesSystem {
     pub fn state(&self) -> SystemState {
         self.state
     }
-    
+
     /// Get the current error message if any
     pub fn error_message(&self) -> Option<&str> {
         self.error_message.as_deref()
@@ -234,11 +234,14 @@ mod tests {
         let mut system = NesSystem::new();
 
         // Use assembly code instead of raw bytes
-        let program = assemble_code("
+        let program = assemble_code(
+            "
             LDA #$37    ; Load $37 into accumulator
             STA $0200   ; Store it in memory
             LDA #$42    ; Load $42 into accumulator
-        ", 0x8000);
+        ",
+            0x8000,
+        );
 
         // Load the program
         system.cpu_mut().load_program(&program, 0x8000)?;
@@ -270,10 +273,13 @@ mod tests {
         let mut system = NesSystem::new();
 
         // Use assembly code
-        let program = assemble_code("
+        let program = assemble_code(
+            "
             NOP    ; A NOP takes 2 cycles
-        ", 0x8000);
-        
+        ",
+            0x8000,
+        );
+
         system.cpu_mut().load_program(&program, 0x8000)?;
 
         let cpu_cycles = system.step()?;
@@ -284,123 +290,158 @@ mod tests {
         // For now, we're just verifying the step returns the correct CPU cycles
         Ok(())
     }
-    
+
     #[test]
     fn test_initial_state() {
         let system = NesSystem::new();
         assert_eq!(system.state(), SystemState::Ready, "Initial state should be Ready");
-        assert_eq!(system.error_message(), None, "No error message should be present initially");
+        assert_eq!(
+            system.error_message(),
+            None,
+            "No error message should be present initially"
+        );
     }
 
     #[test]
     fn test_state_transitions() -> Result<()> {
         let mut system = NesSystem::new();
-        
+
         // Initial state should be Ready
         assert_eq!(system.state(), SystemState::Ready);
-        
+
         // After loading a program, state should be Loaded
-        let program = assemble_code("
+        let program = assemble_code(
+            "
             LDA #$42   ; Load $42 into accumulator
             LDA #$43   ; Load $43 into accumulator
             BRK        ; Break instruction
-        ", 0x8000);
-        
+        ",
+            0x8000,
+        );
+
         system.load_program(&program, 0x8000)?;
-        assert_eq!(system.state(), SystemState::Loaded, "State should be Loaded after loading program");
-        
+        assert_eq!(
+            system.state(),
+            SystemState::Loaded,
+            "State should be Loaded after loading program"
+        );
+
         // First step executes LDA #$42, but PC advances to another instruction, not BRK
         system.step()?;
-        assert_eq!(system.state(), SystemState::Running, "State should be Running after first step");
-        
+        assert_eq!(
+            system.state(),
+            SystemState::Running,
+            "State should be Running after first step"
+        );
+
         // Second step executes LDA #$43, and now PC points to BRK
         system.step()?;
         // System detects BRK is next and transitions to Finished
-        assert_eq!(system.state(), SystemState::Finished, "State should be Finished when PC points to BRK");
-        
+        assert_eq!(
+            system.state(),
+            SystemState::Finished,
+            "State should be Finished when PC points to BRK"
+        );
+
         Ok(())
     }
 
     #[test]
     fn test_run_completion() -> Result<()> {
         let mut system = NesSystem::new();
-        
+
         // Use only instructions we know are implemented
-        let program = assemble_code("
+        let program = assemble_code(
+            "
             LDA #$01   ; Load $01 into accumulator
             LDX #$02   ; Load $02 into X register
             LDY #$03   ; Load $03 into Y register
             BRK        ; Break instruction
-        ", 0x8000);
-        
+        ",
+            0x8000,
+        );
+
         system.load_program(&program, 0x8000)?;
         assert_eq!(system.state(), SystemState::Loaded);
-        
+
         // Run the program - should complete and transition to Finished
         let steps = system.run(100)?;
         assert!(steps < 100, "Program should complete in fewer than 100 steps");
-        assert_eq!(system.state(), SystemState::Finished, "State should be Finished after run completes");
-        
+        assert_eq!(
+            system.state(),
+            SystemState::Finished,
+            "State should be Finished after run completes"
+        );
+
         // Verify registers have expected values
         assert_eq!(system.cpu().a, 0x01, "A register should contain $01");
         assert_eq!(system.cpu().x, 0x02, "X register should contain $02");
         assert_eq!(system.cpu().y, 0x03, "Y register should contain $03");
-        
+
         Ok(())
     }
 
     #[test]
     fn test_error_state() -> Result<()> {
         let mut system = NesSystem::new();
-        
+
         // Attempt to execute from unmapped memory
         let pc = 0x4000; // Typically unmapped in our system
-        
+
         // Manually set PC to unmapped region
         system.cpu_mut().pc = pc;
-        
+
         // Step should fail and set Error state
         let result = system.step();
         assert!(result.is_err(), "Step should fail when PC is in unmapped memory");
-        assert!(matches!(system.state(), SystemState::Error(error_pc) if error_pc == pc), 
-                "State should be Error with correct PC");
+        assert!(
+            matches!(system.state(), SystemState::Error(error_pc) if error_pc == pc),
+            "State should be Error with correct PC"
+        );
         assert!(system.error_message().is_some(), "Error message should be present");
-        
+
         Ok(())
     }
 
     #[test]
     fn test_terminal_states() -> Result<()> {
         let mut system = NesSystem::new();
-        
+
         // Set up program that executes BRK immediately
-        let program = assemble_code("
+        let program = assemble_code(
+            "
             BRK        ; Immediate break
-        ", 0x8000);
-        
+        ",
+            0x8000,
+        );
+
         system.load_program(&program, 0x8000)?;
-        
+
         // Execute to reach Finished state
         system.step()?;
         assert_eq!(system.state(), SystemState::Finished);
-        
+
         // Attempting to step again should do nothing
         let original_pc = system.cpu().pc;
         let cycles = system.step()?;
         assert_eq!(cycles, 0, "Step should return 0 cycles when in Finished state");
-        assert_eq!(system.cpu().pc, original_pc, "PC should not change when stepping in Finished state");
+        assert_eq!(
+            system.cpu().pc,
+            original_pc,
+            "PC should not change when stepping in Finished state"
+        );
         assert_eq!(system.state(), SystemState::Finished, "State should remain Finished");
-        
+
         // Reset system
         system.reset()?;
         assert_eq!(system.state(), SystemState::Ready);
-        
+
         // Create an error state
         system.cpu_mut().pc = 0x4000; // Unmapped memory
         let step_result = system.step();
         assert!(step_result.is_err());
         assert!(matches!(system.state(), SystemState::Error(_)));
-        
+
         // Attempting to step in Error state should do nothing
         let error_pc = match system.state() {
             SystemState::Error(pc) => pc,
@@ -408,27 +449,29 @@ mod tests {
         };
         let cycles = system.step()?;
         assert_eq!(cycles, 0, "Step should return 0 cycles when in Error state");
-        assert!(matches!(system.state(), SystemState::Error(pc) if pc == error_pc), 
-                "State should remain Error with same PC");
-        
+        assert!(
+            matches!(system.state(), SystemState::Error(pc) if pc == error_pc),
+            "State should remain Error with same PC"
+        );
+
         Ok(())
     }
 
     #[test]
     fn test_reset_clears_state() -> Result<()> {
         let mut system = NesSystem::new();
-        
+
         // Put system in Error state
         system.cpu_mut().pc = 0x4000; // Unmapped memory
         let _ = system.step();
         assert!(matches!(system.state(), SystemState::Error(_)));
         assert!(system.error_message().is_some());
-        
+
         // Reset should clear state back to Ready
         system.reset()?;
         assert_eq!(system.state(), SystemState::Ready);
         assert_eq!(system.error_message(), None, "Error message should be cleared on reset");
-        
+
         Ok(())
     }
 }
