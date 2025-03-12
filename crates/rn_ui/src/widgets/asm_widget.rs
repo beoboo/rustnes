@@ -1,7 +1,8 @@
 #![allow(dead_code)]
+use anyhow::Result;
 use egui::{self, Color32, Ui};
 use rn_core::cpu::{Assembler, Cpu};
-use anyhow::Result;
+
 use crate::widgets::{HexEditText, ValueType};
 
 /// A widget for editing and executing 6502 assembly code

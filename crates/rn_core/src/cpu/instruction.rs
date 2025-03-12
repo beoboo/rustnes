@@ -1,9 +1,9 @@
 use std::collections::HashMap;
+
 use parse_display::{Display, FromStr};
 
-use crate::errors::NesError;
-
 use super::{AddressingMode, Cpu, CpuFlag};
+use crate::errors::NesError;
 
 /// 6502 CPU instruction opcodes
 /// Starting with just LDA immediate as a first step
@@ -20,6 +20,7 @@ pub enum Instruction {
     JSR, // Jump to Subroutine
     RTS, // Return from Subroutine
     BRK, // Break/interrupt
+    NOP, // No Operation
 }
 
 /// Instruction metadata containing the opcode, instruction type, addressing mode,
@@ -94,6 +95,10 @@ impl InstructionDecoder {
         // BRK - Break/interrupt
         self.add_instruction(0x00, Instruction::BRK, AddressingMode::Implied, 1, 7);
         // BRK Implied
+
+        // NOP - No Operation
+        self.add_instruction(0xEA, Instruction::NOP, AddressingMode::Implied, 1, 2);
+        // NOP Implied
     }
 
     /// Add an instruction to the lookup tables
@@ -158,6 +163,7 @@ impl Cpu {
             Instruction::JSR => self.jsr(instruction_metadata.addressing_mode)?,
             Instruction::RTS => self.rts()?,
             Instruction::BRK => self.brk()?,
+            Instruction::NOP => self.nop(),
         }
 
         // Increment PC for non-jump/call instructions (already incremented by 1 in fetch)
@@ -294,6 +300,11 @@ impl Cpu {
         self.pc = self.read_word(0xFFFE)?;
 
         Ok(())
+    }
+
+    /// NOP - No Operation
+    pub fn nop(&mut self) {
+        // NOP does not affect any processor state
     }
 }
 
@@ -708,7 +719,7 @@ mod tests {
 
         // Should return an InvalidOpcode error
         assert!(result.is_err(), "Expected an error for invalid opcode");
-        
+
         if let Err(NesError::InvalidOpcode(opcode)) = result {
             assert_eq!(opcode, 0xFF);
         } else {
@@ -892,6 +903,33 @@ mod tests {
 
         // Verify the cycle count
         assert_eq!(cycles, 7, "BRK should take 7 cycles");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_nop_instruction() -> Result<()> {
+        let mut cpu = setup_cpu();
+        let parser = Assembler::new();
+
+        // Set up test with parser
+        cpu.pc = 0x0100;
+
+        // Parse a NOP instruction
+        let bytes = parser.assemble_instruction("NOP")?;
+        assert_eq!(bytes.len(), 1);
+        assert_eq!(bytes[0], 0xEA);
+
+        // Write bytes to memory
+        cpu.write_byte(0x0100, bytes[0])?;
+
+        // Execute a full CPU step (fetch-decode-execute)
+        let cycles = cpu.step()?;
+
+        // Verify results - NOP doesn't change any registers but consumes 2 cycles
+        assert_eq!(cpu.pc, 0x0101);
+        assert_eq!(cycles, 2);
+        assert_eq!(cpu.cycles, 2);
 
         Ok(())
     }

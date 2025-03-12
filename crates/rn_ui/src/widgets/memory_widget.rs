@@ -1,6 +1,7 @@
+use anyhow::Result;
 use egui::{Color32, Grid, RichText, TextEdit, Ui};
 use rn_core::memory::Addressable;
-use anyhow::Result;
+
 use crate::widgets::{HexEditText, ValueType};
 
 /// Widget for displaying and editing memory contents

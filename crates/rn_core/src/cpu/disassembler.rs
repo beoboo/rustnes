@@ -1,8 +1,7 @@
 use thiserror::Error;
 
-use crate::errors::NesError;
-
 use super::{AddressingMode, Instruction, InstructionDecoder, InstructionMetadata};
+use crate::errors::NesError;
 
 /// Errors that can occur during instruction disassembly
 #[derive(Debug, Error)]

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
+use anyhow::Result;
 use egui::{self, Color32, Ui};
 use rn_core::cpu::{Cpu, Disassembler};
-use anyhow::Result;
 /// A widget for disassembling and displaying 6502 machine code
 pub struct DisasmWidget {
     /// Memory range to disassemble

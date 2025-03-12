@@ -1,6 +1,5 @@
-use crate::errors::NesError;
-
 use super::Addressable;
+use crate::errors::NesError;
 
 /// A RAM implementation for the NES
 ///
@@ -87,8 +86,9 @@ impl Addressable for Ram {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use anyhow::Result;
+
+    use super::*;
 
     #[test]
     fn test_ram_read_write_byte() -> Result<()> {
@@ -159,16 +159,16 @@ mod tests {
         // Reading out of bounds should return an error
         let read_result_low = ram.read_byte(0x5FFF);
         let read_result_high = ram.read_byte(0x8000);
-        
+
         assert!(read_result_low.is_err());
         assert!(read_result_high.is_err());
-        
+
         if let Err(NesError::MemoryAccessError(addr)) = read_result_low {
             assert_eq!(addr, 0x5FFF);
         } else {
             panic!("Expected MemoryAccessError for low address");
         }
-        
+
         if let Err(NesError::MemoryAccessError(addr)) = read_result_high {
             assert_eq!(addr, 0x8000);
         } else {
@@ -178,16 +178,16 @@ mod tests {
         // Writing out of bounds should return an error
         let write_result_low = ram.write_byte(0x5FFF, 0x42);
         let write_result_high = ram.write_byte(0x8000, 0x42);
-        
+
         assert!(write_result_low.is_err());
         assert!(write_result_high.is_err());
-        
+
         if let Err(NesError::MemoryAccessError(addr)) = write_result_low {
             assert_eq!(addr, 0x5FFF);
         } else {
             panic!("Expected MemoryAccessError for low address");
         }
-        
+
         if let Err(NesError::MemoryAccessError(addr)) = write_result_high {
             assert_eq!(addr, 0x8000);
         } else {

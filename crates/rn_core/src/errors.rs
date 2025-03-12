@@ -14,7 +14,7 @@ pub enum NesError {
     /// Error for memory access issues
     #[error("Memory access error at address {0:#06X}")]
     MemoryAccessError(u16),
-    
+
     /// Error for invalid memory operations
     #[error("Invalid memory operation at address {0:#06X}: {1}")]
     InvalidMemoryOperation(u16, String),

@@ -1,4 +1,7 @@
-use crate::{errors::NesError, memory::{Addressable, Ram}};
+use crate::{
+    errors::NesError,
+    memory::{Addressable, Ram},
+};
 
 /// Bus for routing memory access to appropriate devices
 ///
@@ -64,12 +67,12 @@ impl Bus {
     }
 
     /// Returns a debugging string showing all attached components and their address ranges
-    /// 
+    ///
     /// This is useful for diagnosing memory mapping issues.
     pub fn debug_memory_map(&self) -> String {
         let mut result = String::new();
         result.push_str("Memory Map:\n");
-        
+
         // For debugging, test a set of critical addresses and see which component handles them
         let test_addresses = [
             (0x0000, "Zero Page"),
@@ -83,17 +86,17 @@ impl Bus {
             (0xFFFC, "Reset Vector"),
             (0xFFFE, "IRQ Vector"),
         ];
-        
+
         for (addr, desc) in test_addresses.iter() {
             let component = self.find_component_for_address(*addr);
             result.push_str(&format!(
-                "{}: {:#06X} - {}\n", 
-                desc, 
-                addr, 
+                "{}: {:#06X} - {}\n",
+                desc,
+                addr,
                 if component.is_some() { "Mapped" } else { "UNMAPPED!" }
             ));
         }
-        
+
         result
     }
 }
@@ -111,7 +114,7 @@ impl Addressable for Bus {
         if let Some(component) = self.find_component_for_address(address) {
             return component.read_byte(address);
         }
-        
+
         Err(NesError::MemoryAccessError(address))
     }
 
@@ -128,7 +131,9 @@ impl Addressable for Bus {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+
     use anyhow::Result;
+
     use super::*;
 
     // A universal test component that records accesses and can be configured for any address range
@@ -164,7 +169,7 @@ mod tests {
             self.read_count.set(self.read_count.get() + 1);
             self.last_address.set(address);
             let index = (address - self.start_address) as usize;
-            
+
             Ok(self.memory[index])
         }
 
@@ -311,7 +316,7 @@ mod tests {
         // Read from unmapped memory (nothing handles 0x6000)
         let read_result = bus.read_byte(0x6000);
         assert!(read_result.is_err());
-        
+
         if let Err(NesError::MemoryAccessError(addr)) = read_result {
             assert_eq!(addr, 0x6000);
         } else {
@@ -321,7 +326,7 @@ mod tests {
         // Write to unmapped memory should return an error
         let write_result = bus.write_byte(0x6000, 0xFF);
         assert!(write_result.is_err());
-        
+
         if let Err(NesError::MemoryAccessError(addr)) = write_result {
             assert_eq!(addr, 0x6000);
         } else {
@@ -334,22 +339,22 @@ mod tests {
     #[test]
     fn test_debug_memory_map() {
         let mut bus = Bus::new();
-        
+
         // By default only RAM is mapped
         let map = bus.debug_memory_map();
         assert!(map.contains("Zero Page: 0x0000 - Mapped"));
         assert!(map.contains("RAM: 0x0200 - Mapped"));
         assert!(map.contains("PPU Registers: 0x2000 - UNMAPPED!"));
         assert!(map.contains("Program Memory (Low): 0x8000 - UNMAPPED!"));
-        
+
         // Add PPU registers
         let ppu_regs = Box::new(TestComponent::new(0x2000, 0x2007));
         bus.attach_component(ppu_regs);
-        
+
         // Add Program ROM
         let program_rom = Box::new(TestComponent::new(0x8000, 0xFFFF));
         bus.attach_component(program_rom);
-        
+
         // Now verify the mappings
         let map = bus.debug_memory_map();
         assert!(map.contains("PPU Registers: 0x2000 - Mapped"));

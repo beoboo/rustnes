@@ -1,8 +1,7 @@
-
 use std::fmt;
-use crate::errors::NesError;
 
 use super::Cpu;
+use crate::errors::NesError;
 
 /// Addressing modes for the 6502 CPU
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -192,9 +191,10 @@ impl AddressingMode {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
+
     use super::*;
     use crate::{cpu::Cpu, memory::Ram};
-    use anyhow::Result;
 
     /// Helper function to set up a CPU with memory for testing
     fn setup_cpu() -> Cpu {

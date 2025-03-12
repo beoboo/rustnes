@@ -1,8 +1,7 @@
 use thiserror::Error;
 
-use crate::errors::NesError;
-
 use super::{AddressingMode, Instruction, InstructionDecoder, InstructionMetadata};
+use crate::errors::NesError;
 
 /// Errors that can occur during instruction parsing
 #[derive(Debug, Error)]
@@ -61,7 +60,7 @@ impl Assembler {
             .map_err(|_| AssembleError::UnknownMnemonic(parts[0].to_string()))?;
 
         // Check for implied addressing mode instructions (no operand)
-        if instruction == Instruction::BRK || instruction == Instruction::RTS {
+        if matches!(instruction, Instruction::BRK | Instruction::RTS | Instruction::NOP) {
             return self.decoder.lookup(instruction, AddressingMode::Implied).map_err(|_| {
                 AssembleError::InvalidAddressingMode(format!("{instruction} does not support implied mode"))
             });

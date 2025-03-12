@@ -221,7 +221,7 @@ mod tests {
         // Test writing and reading words
         cpu.write_word(0x2000, 0x1234)?;
         assert_eq!(cpu.read_word(0x2000)?, 0x1234);
-    
+
         Ok(())
     }
 
@@ -261,7 +261,7 @@ mod tests {
         // Check if SP was set to 0xFD
         assert_eq!(cpu.sp, 0xFD);
         // Check if cycles were set to 7
-        assert_eq!(cpu.cycles, 7);  
+        assert_eq!(cpu.cycles, 7);
 
         Ok(())
     }

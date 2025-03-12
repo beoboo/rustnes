@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 use std::{cell::RefCell, rc::Rc};
 
-use egui::Color32;
-use rn_core::{cpu::Cpu, ppu::Ppu, errors::NesError};
 use anyhow::Result;
+use egui::Color32;
+use rn_core::{cpu::Cpu, errors::NesError, ppu::Ppu};
 /// Trait for providing pixel data for display
 pub trait PixelDataProvider {
     /// Get the pixel data to be displayed in RGB format (3 bytes per pixel)
@@ -36,8 +36,10 @@ pub struct MemoryPixelAdapter {
 
 impl MemoryPixelAdapter {
     /// Create a new memory pixel adapter using a custom read function
-    pub fn new<F>(read_fn: F, start_addr: u16, end_addr: u16, width: usize) -> Self 
-    where F: Fn(u16) -> Result<u8, NesError> + 'static {
+    pub fn new<F>(read_fn: F, start_addr: u16, end_addr: u16, width: usize) -> Self
+    where
+        F: Fn(u16) -> Result<u8, NesError> + 'static,
+    {
         Self {
             start_addr,
             end_addr,
@@ -123,8 +125,10 @@ pub struct PpuPixelAdapter {
 
 impl PpuPixelAdapter {
     /// Create a new PPU pixel adapter using a custom frame buffer provider
-    pub fn new<F>(frame_buffer_fn: F) -> Self 
-    where F: Fn() -> Vec<u8> + 'static {
+    pub fn new<F>(frame_buffer_fn: F) -> Self
+    where
+        F: Fn() -> Vec<u8> + 'static,
+    {
         Self {
             title: "PPU Display".to_string(),
             description: "NES screen output (256x240)".to_string(),
@@ -136,7 +140,7 @@ impl PpuPixelAdapter {
 impl PixelDataProvider for PpuPixelAdapter {
     fn get_pixel_data(&self) -> Result<Vec<u8>> {
         let frame_buffer_fn = &self.frame_buffer_fn;
-        
+
         Ok(frame_buffer_fn())
     }
 

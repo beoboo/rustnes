@@ -1,6 +1,7 @@
 #![allow(dead_code)]
-use egui::{Rect, Sense, Ui, Vec2};
 use anyhow::Result;
+use egui::{Rect, Sense, Ui, Vec2};
+
 use crate::widgets::pixel_provider::PixelDataProvider;
 
 /// Widget for displaying pixel data from various sources (memory or PPU)

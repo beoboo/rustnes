@@ -1,9 +1,9 @@
+use anyhow::Result;
 use eframe::egui;
 use rn_core::{
     cpu::Cpu,
     memory::{Addressable, Ram},
 };
-use anyhow::Result;
 // Import widgets module
 mod widgets;
 use widgets::{CpuWidget, MemoryWidget};

@@ -2,9 +2,7 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use clap::Parser;
 use eframe::{egui, App, Frame};
-use rn_core::{
-    cpu::Cpu, errors::NesError, memory::Addressable, system::NesSystem
-};
+use rn_core::{cpu::Cpu, errors::NesError, memory::Addressable, system::NesSystem};
 use rn_ui::widgets::{
     AsmWidget,
     CpuWidget,
@@ -70,7 +68,7 @@ struct AsmDebugger {
 
     // Emulation state
     system: Rc<RefCell<NesSystem>>,
-    
+
     // UI state
     show_pixel_display: bool,
     display_mode: DisplayMode,
@@ -86,7 +84,7 @@ impl AsmDebugger {
     fn new(_cc: &eframe::CreationContext<'_>, args: Args) -> Self {
         // Create the NES system
         let system = Rc::new(RefCell::new(NesSystem::new()));
-        
+
         Self {
             args,
             pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
@@ -133,7 +131,6 @@ impl App for AsmDebugger {
             }
             self.initial_file_loaded = true;
         }
-
 
         // Update DisasmWidget with program information
         if self.asm_widget.is_loaded() {
@@ -185,10 +182,10 @@ impl App for AsmDebugger {
                         // We need to clone the system reference for the closure
                         let system_ref = self.system.clone();
                         let memory_adapter = MemoryPixelAdapter::new(
-                            move |addr| {
-                                system_ref.borrow().cpu().read_byte(addr)
-                            },
-                            0x0200, 0x05FF, 32
+                            move |addr| system_ref.borrow().cpu().read_byte(addr),
+                            0x0200,
+                            0x05FF,
+                            32,
                         );
 
                         // Update zoom and show the memory visualization
@@ -204,14 +201,12 @@ impl App for AsmDebugger {
                         // Create a PPU pixel adapter using the system's PPU
                         // We need to clone the system reference for the closure
                         let system_ref = self.system.clone();
-                        let ppu_adapter = PpuPixelAdapter::new(
-                            move || {
-                                let system = system_ref.borrow();
-                                // Create a copy of the frame buffer to avoid borrowing issues
-                                let frame_buffer = system.ppu().frame_buffer().to_vec();
-                                frame_buffer
-                            }
-                        );
+                        let ppu_adapter = PpuPixelAdapter::new(move || {
+                            let system = system_ref.borrow();
+                            // Create a copy of the frame buffer to avoid borrowing issues
+                            let frame_buffer = system.ppu().frame_buffer().to_vec();
+                            frame_buffer
+                        });
 
                         // Update zoom and show the PPU display
                         self.pixel_display.set_zoom(auto_zoom);

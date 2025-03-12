@@ -64,4 +64,3 @@ pub trait Addressable {
         // Default implementation does nothing
     }
 }
-
