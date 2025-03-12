@@ -118,7 +118,7 @@ impl App for AsmDebugger {
 
                     // Assemble and load the code
                     let mut system_borrow = self.system.borrow_mut();
-                    let _ = self.asm_widget.assemble_code(system_borrow.cpu_mut());
+                    let _ = self.asm_widget.assemble_code(&mut *system_borrow);
 
                     println!("Loaded assembly file: {}", file_path.display());
 
@@ -221,7 +221,7 @@ impl App for AsmDebugger {
             ui.vertical(|ui| {
                 // Show the assembly widget with CPU from the system
                 let mut system_borrow = self.system.borrow_mut();
-                self.asm_widget.ui(ui, system_borrow.cpu_mut());
+                self.asm_widget.ui(ui, &mut *system_borrow);
             });
 
             ui.add_space(10.0);
