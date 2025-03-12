@@ -1,6 +1,6 @@
 ---
 description: General rules
-globs: 
+globs: **/*
 alwaysApply: true
 ---
 ## General rules

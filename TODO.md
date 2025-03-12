@@ -5,8 +5,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## Track System Legend
 - [T1] Track 1: Memory Visualization - Display memory contents as pixels in an egui widget
 - [T2] Track 2: PPU Pixel Display - Using the PPU to show pixels 
-- [T3] Track 3: Pattern & Sprite Rendering - Animation capabilities 
-- [T4] Track 4: Interactive Graphics - User input and full graphics
+- [T3] Track 3: Basic Sprite Rendering - Basic sprite rendering
+- [T4] Track 4: Interactive Graphics & Animation - User input and full graphics
 - [T5] Track 5: Complete NES - Full system emulation
 
 ## MILESTONE 1: Memory Visualization [T1]
@@ -147,109 +147,61 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Add display mode switching in the debugger UI
 
 ### [Parser] Label Support [T2]
-- [ ] Add label declaration support in the parser
-- [ ] Implement label resolution for jump instructions
-- [ ] Add tests for label parsing and resolution
-- [ ] Update the AsmDebugger to properly handle infinite loops
+- [x] Add label declaration support in the parser
+- [x] Implement label resolution for jump instructions
+- [x] Add tests for label parsing and resolution
+- [x] Update the AsmDebugger to properly handle infinite loops
 
-## MILESTONE 3: Pattern & Sprite Animation [T3]
-- [ ] Create a test ROM that animates sprites
-- [ ] Demonstrate pattern table functionality
-- [ ] Show multiple sprites with different attributes
+## MILESTONE 3: Basic Sprite Rendering [T3]
+- [x] Create a test ROM that displays a single sprite
+- [ ] Implement basic sprite rendering functionality
+- [ ] Test sprite rendering with different attributes (palette, position)
 - [ ] Document the achievement
 
-### [CPU] Extended Addressing Modes [T3]
+### [CPU] Extended Addressing Modes [T3] 
 - [x] Implement zero page,X addressing
 - [x] Implement zero page,Y addressing
 - [x] Implement absolute,X addressing
 - [x] Implement absolute,Y addressing
 - [x] Write tests for extended addressing modes
 
-### [CPU] Control Flow Instructions [T3]
-- [ ] Implement status flag changes (CLC, CLD, CLI, CLV, SEC, SED, SEI)
-- [ ] Implement branches (BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS)
-- [ ] Implement register transfers (TAX, TAY, TXA, TYA)
-- [ ] Implement stack operations (TSX, TXS, PHA, PHP, PLA, PLP)
-- [ ] Write tests for control flow instructions
-
-### [CPU] Data Manipulation Instructions [T3]
-- [ ] Implement logical operations (AND, EOR, ORA)
-- [ ] Implement arithmetic operations (ADC, SBC)
-- [ ] Implement increment/decrement (INC, INX, INY, DEC, DEX, DEY)
-- [ ] Write tests for data manipulation instructions
-
-### [Parser] Extended Parser Capabilities [T3]
-- [ ] Implement parsing for extended addressing modes (X/Y indexed)
-- [ ] Implement parsing for control flow instructions (branches, flag operations)
-- [ ] Implement parsing for register transfers (TAX, TAY, etc.)
-- [ ] Implement parsing for stack operations (PHA, PHP, etc.)
-- [ ] Implement parsing for logical/arithmetic operations (AND, EOR, ORA, ADC, SBC)
-- [ ] Implement parsing for increment/decrement (INC, INX, etc.)
-- [ ] Add parser tests for extended instruction set
-- [ ] Enhance disassembler for extended instruction set
-- [ ] Support local labels
-
-### [Memory] Memory Enhancements [T3]
-- [ ] Implement RAM mirroring ($0800-$1FFF mirrors $0000-$07FF)
-- [ ] Implement ROM component for cartridge memory ($8000-$FFFF)
-
-### [PPU] Ppu Enhancements [T3]
-- [ ] Implement PPU register mirroring ($2008-$3FFF mirrors $2000-$2007)
-
-### [Memory] Extended Memory Features [T3]
-- [ ] Implement RAM mirroring
-- [ ] Implement expanded PPU register access ($2008-$200F)
-- [ ] Test extended memory features
-
 ### [PPU] Pattern Tables [T3]
-- [ ] Fix pattern table memory access for actual ROMs
-- [ ] Update rendering logic to properly read pattern data from cartridge
-- [ ] Implement pattern table access
-- [ ] Implement tile fetching
-- [ ] Add proper pattern table bit plane handling
-- [ ] Implement complete palette mapping system
-- [ ] Implement palette selection
+- [x] Implement pattern table memory access for ROM data
+- [ ] Implement pattern table bit plane handling (2 planes → pixel data)
+- [ ] Implement basic palette mapping for sprite pixels
 - [ ] Test pattern rendering
 
-### [PPU] Sprites [T3]
-- [ ] Implement OAM (Object Attribute Memory)
-- [ ] Implement sprite evaluation
-- [ ] Implement sprite rendering
-- [ ] Implement sprite priority
-- [ ] Implement sprite attributes (flip, palette)
-- [ ] Test sprite rendering
-
-### [PPU] PPU Timing [T3]
-- [ ] Implement scanline/cycle tracking (261 scanlines, 341 cycles per scanline)
-- [ ] Implement VBLANK flag setting and NMI generation
-- [ ] Test frame timing with appropriate PPU cycles
-- [ ] Implement frame synchronization
-- [ ] Test animation capabilities
+### [PPU] Basic Sprites [T3]
+- [ ] Implement OAM (Object Attribute Memory) at $0200-$02FF
+- [ ] Track and process writes to OAM memory
+- [ ] Implement basic sprite evaluation (position, tile number, attributes)
+- [ ] Implement single sprite rendering pipeline
+- [ ] Test basic sprite rendering
 
 ### [Cartridge] Basic ROM Loading [T3]
-- [ ] Implement iNES file format parser
-- [ ] Implement basic cartridge interface
-- [ ] Implement PRG ROM access
-- [ ] Implement CHR ROM access
-- [ ] Test ROM loading
-- [ ] Test PRG ROM access
+- [ ] Implement simplified iNES file format parser
+- [ ] Extract CHR ROM data from test ROM
+- [ ] Make CHR ROM data accessible to pattern tables
+- [ ] Test ROM loading with sprite pattern
 
-### [Cartridge] NROM Mapper [T3]
-- [ ] Implement Mapper trait
-- [ ] Implement NROM (Mapper 0)
-- [ ] Implement simple test ROMs
-- [ ] Test with NROM games
-
-### [Debugger] AsmDebugger Improvements [T3]
-- [ ] Add breakpoint support
-- [ ] Implement visual memory map (showing NES memory regions graphically)
-- [ ] Add support for viewing/editing PPU memory
-
-## MILESTONE 4: Interactive Demo [T4]
-- [ ] Create a demo with user-controlled sprite
+## MILESTONE 4: Interactive Graphics & Animation [T4]
+- [ ] Create a demo with animated user-controlled sprite
 - [ ] Implement scrolling background
 - [ ] Demonstrate controller input
 - [ ] Document the achievement
+
+### [CPU] Animation & Control Flow Instructions [T4]
+- [ ] Implement all status flag changes (CLC, SEC, CLD, CLI, CLV, SED, SEI)
+- [ ] Implement all branches (BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS)
+- [ ] Implement register transfers (TAX, TAY, TXA, TYA)
+- [ ] Implement stack operations (TSX, TXS, PHA, PHP, PLA, PLP)
+- [ ] Implement increment/decrement (INC, INX, INY, DEC, DEX, DEY)
+- [ ] Write tests for control flow instructions
+
+### [CPU] Data Manipulation Instructions [T4]
+- [ ] Implement logical operations (AND, EOR, ORA)
+- [ ] Implement arithmetic operations (ADC, SBC)
+- [ ] Write tests for data manipulation instructions
 
 ### [CPU] Advanced Instructions [T4]
 - [ ] Implement shifts/rotates (ASL, LSR, ROL, ROR)
@@ -263,6 +215,17 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement indirect indexed (indirect,Y) addressing
 - [x] Write tests for advanced addressing modes
 
+### [Parser] Extended Parser Capabilities [T4]
+- [ ] Implement parsing for extended addressing modes (X/Y indexed)
+- [ ] Implement parsing for control flow instructions (branches, flag operations)
+- [ ] Implement parsing for register transfers (TAX, TAY, etc.)
+- [ ] Implement parsing for stack operations (PHA, PHP, etc.)
+- [ ] Implement parsing for logical/arithmetic operations (AND, EOR, ORA, ADC, SBC)
+- [ ] Implement parsing for increment/decrement (INC, INX, etc.)
+- [ ] Add parser tests for extended instruction set
+- [ ] Enhance disassembler for extended instruction set
+- [ ] Support local labels
+
 ### [Parser] Advanced Parser Features [T4]
 - [ ] Implement parsing for advanced addressing modes (indirect modes)
 - [ ] Implement parsing for advanced instructions (shifts, rotates, compares)
@@ -272,6 +235,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Add parser tests for advanced instructions
 - [ ] Create full disassembler with machine code to assembly conversion
 
+### [Memory] Memory Enhancements [T4]
+- [ ] Implement RAM mirroring ($0800-$1FFF mirrors $0000-$07FF)
+- [ ] Implement ROM component for cartridge memory ($8000-$FFFF)
+- [ ] Implement expanded PPU register access ($2008-$200F)
+- [ ] Test extended memory features
+
 ### [Memory] Controller & DMA [T4]
 - [ ] Implement controller register mapping
 - [ ] Implement controller reading
@@ -280,10 +249,11 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test controller input
 - [ ] Test DMA functionality
 
-### [Cartridge] Simple Mappers [T4]
-- [ ] Implement UxROM (Mapper 2)
-- [ ] Implement CNROM (Mapper 3)
-- [ ] Test with simple mapper games
+### [PPU] Advanced PPU Features [T4]
+- [ ] Implement PPU register mirroring ($2008-$3FFF mirrors $2000-$2007)
+- [ ] Implement sprite priority
+- [ ] Implement additional sprite attributes (flip, palette)
+- [ ] Test advanced sprite features
 
 ### [PPU] Background Rendering [T4]
 - [ ] Implement name table handling
@@ -297,11 +267,29 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement name table switching
 - [ ] Test scrolling functionality
 
-### [PPU] Advanced PPU Features [T4]
+### [PPU] Advanced Display Features [T4]
 - [ ] Implement sprite zero hit detection
 - [ ] Implement sprite overflow
 - [ ] Implement sprite-background interaction
 - [ ] Test advanced PPU features
+
+### [PPU] PPU Timing [T4]
+- [ ] Implement scanline/cycle tracking (261 scanlines, 341 cycles per scanline)
+- [ ] Implement VBLANK flag setting and NMI generation
+- [ ] Test frame timing with appropriate PPU cycles
+- [ ] Implement frame synchronization
+- [ ] Test animation capabilities
+
+### [Cartridge] NROM Mapper [T4]
+- [ ] Implement Mapper trait
+- [ ] Implement NROM (Mapper 0)
+- [ ] Implement simple test ROMs
+- [ ] Test with NROM games
+
+### [Cartridge] Simple Mappers [T4]
+- [ ] Implement UxROM (Mapper 2)
+- [ ] Implement CNROM (Mapper 3)
+- [ ] Test with simple mapper games
 
 ### [Input] Input System [T4]
 - [ ] Implement controller registers
@@ -315,8 +303,11 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ### [Debugger] AsmDebugger Improvements [T4]
 - [ ] Connect to running emulator instance
 - [ ] Create user-friendly UI with dockable panels
+- [ ] Add breakpoint support
+- [ ] Implement visual memory map (showing NES memory regions graphically)
+- [ ] Add support for viewing/editing PPU memory
 
-## MILESTONE 4: Complete NES [T5]
+## MILESTONE 5: Complete NES [T5]
 - [ ] Run commercial games with full compatibility
 - [ ] Verify audio functionality
 - [ ] Demonstrate advanced features
@@ -409,9 +400,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## Progress Tracking
 - Track 1 (Memory Visualization): 100% complete
-- Track 2 (PPU Pixel Display): 100% complete
-- Track 3 (Pattern & Sprite Rendering): 15% complete
-- Track 4 (Interactive Graphics): 10% complete
+- Track 2 (PPU Pixel Display): 100% complete (All features complete including label support)
+- Track 3 (Basic Sprite Rendering): 15% complete (Extended addressing modes complete)
+- Track 4 (Interactive Graphics & Animation): 10% complete (Advanced addressing modes complete)
 - Track 5 (Complete NES): 0% complete
 
-**Total Progress: 83/205 tasks complete (40.5%)** 🚀 
+**Total Progress: 87/205 tasks complete (42.4%)** 🚀 

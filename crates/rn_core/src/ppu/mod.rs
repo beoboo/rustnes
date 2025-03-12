@@ -25,6 +25,9 @@ pub struct Ppu {
 
     // Rendering output
     frame_buffer: Vec<u8>, // RGB data for the current frame
+    
+    // Cartridge reference (optional)
+    cartridge: Option<std::rc::Rc<std::cell::RefCell<crate::cartridge::Cartridge>>>,
 }
 
 impl Ppu {
@@ -54,6 +57,7 @@ impl Ppu {
 
             // Initialize frame buffer (256x240 pixels, 3 bytes per pixel for RGB)
             frame_buffer: vec![0; 256 * 240 * 3],
+            cartridge: None,
         }
     }
 
@@ -366,29 +370,26 @@ impl Ppu {
     // --- Internal Memory Access ---
 
     /// Read from PPU address space
-    fn read_ppu_memory(&self, address: u16) -> u8 {
+    pub fn read_ppu_memory(&self, address: u16) -> u8 {
         let addr = address & 0x3FFF; // Mirror down to 14 bits
 
         match addr {
             0x0000..=0x1FFF => {
                 // Pattern tables (CHR ROM/RAM) - External
-                // TEMPORARY IMPLEMENTATION: No ROM component required
-                // --------------------------------------------------
-                // This is a special temporary implementation that doesn't require
-                // an actual ROM/cartridge component. In a real NES, this data would
-                // come from CHR-ROM in the cartridge, but for our simplified testing
-                // we're implementing a hardcoded pattern for pixel rendering.
-                //
-                // This allows us to test PPU functionality without implementing the
-                // ROM component for cartridge memory ($8000-$FFFF).
-
-                // Return a hardcoded pattern byte for testing pixel rendering
-                if addr == 0x10 {
-                    // This specific value (0x08 = 0b00001000) turns on a single pixel
-                    // in a pattern tile, allowing us to test basic rendering
-                    return 0x08;
+                if let Some(cart_ref) = &self.cartridge {
+                    // Get the data from the cartridge
+                    let cart = cart_ref.borrow();
+                    cart.read_pattern_table(addr)
+                } else {
+                    // Fallback to the temporary implementation if no cartridge is connected
+                    // This is useful for tests and development
+                    if addr == 0x10 {
+                        // This specific value (0x08 = 0b00001000) turns on a single pixel
+                        // in a pattern tile, allowing us to test basic rendering
+                        return 0x08;
+                    }
+                    0
                 }
-                0
             },
             0x2000..=0x3EFF => {
                 // Nametables and mirrors
@@ -403,14 +404,18 @@ impl Ppu {
     }
 
     /// Write to PPU address space
-    fn write_ppu_memory(&mut self, address: u16, value: u8) {
+    pub fn write_ppu_memory(&mut self, address: u16, value: u8) {
         let addr = address & 0x3FFF; // Mirror down to 14 bits
 
         match addr {
             0x0000..=0x1FFF => {
                 // Pattern tables (CHR ROM/RAM) - External
-                // TEMPORARY IMPLEMENTATION: Currently ignoring writes to pattern table
-                // Normally this would write to CHR-RAM if the cartridge supports it
+                if let Some(cart_ref) = &self.cartridge {
+                    // Only write if the cartridge is present
+                    let mut cart = cart_ref.borrow_mut();
+                    cart.write_pattern_table(addr, value);
+                }
+                // If no cartridge is present, writes are ignored
             },
             0x2000..=0x3EFF => {
                 // Nametables and mirrors
@@ -470,6 +475,16 @@ impl Ppu {
         };
 
         self.palette[addr as usize] = value;
+    }
+
+    /// Connect a cartridge to the PPU
+    pub fn connect_cartridge(&mut self, cartridge: std::rc::Rc<std::cell::RefCell<crate::cartridge::Cartridge>>) {
+        self.cartridge = Some(cartridge);
+    }
+
+    /// Disconnect the cartridge from the PPU
+    pub fn disconnect_cartridge(&mut self) {
+        self.cartridge = None;
     }
 }
 
@@ -563,6 +578,9 @@ pub mod registers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::rc::Rc;
+    use std::cell::RefCell;
+    use crate::cartridge::Cartridge;
 
     #[test]
     fn test_ppu_init() {
@@ -649,5 +667,72 @@ mod tests {
         ppu.write_address(0x20); // High byte
         ppu.write_address(0x05); // Low byte
         assert_eq!(ppu.read_data(), 0xCD); // Actual read
+    }
+    
+    #[test]
+    fn test_pattern_table_access() {
+        // Create a new PPU
+        let mut ppu = Ppu::new();
+        
+        // Create a new cartridge
+        let cart = Rc::new(RefCell::new(Cartridge::new()));
+        
+        // Load some pattern data
+        {
+            let mut cart_mut = cart.borrow_mut();
+            
+            // Create test data: a simple 8x8 tile
+            let mut test_data = vec![0; 0x2000];
+            
+            // Tile 0: A simple pattern that looks like:
+            // ■■■■■■■■
+            // ■■■■■■■■
+            // ■■    ■■
+            // ■■    ■■
+            // ■■    ■■
+            // ■■    ■■
+            // ■■■■■■■■
+            // ■■■■■■■■
+            
+            // Low bit plane (1s define shape)
+            test_data[0x0000] = 0xFF; // Row 1: ■■■■■■■■
+            test_data[0x0001] = 0xFF; // Row 2: ■■■■■■■■
+            test_data[0x0002] = 0xC3; // Row 3: ■■    ■■
+            test_data[0x0003] = 0xC3; // Row 4: ■■    ■■
+            test_data[0x0004] = 0xC3; // Row 5: ■■    ■■
+            test_data[0x0005] = 0xC3; // Row 6: ■■    ■■
+            test_data[0x0006] = 0xFF; // Row 7: ■■■■■■■■
+            test_data[0x0007] = 0xFF; // Row 8: ■■■■■■■■
+            
+            // High bit plane (all 0s for this simple test)
+            test_data[0x0008] = 0x00;
+            test_data[0x0009] = 0x00;
+            test_data[0x000A] = 0x00;
+            test_data[0x000B] = 0x00;
+            test_data[0x000C] = 0x00;
+            test_data[0x000D] = 0x00;
+            test_data[0x000E] = 0x00;
+            test_data[0x000F] = 0x00;
+            
+            cart_mut.load_chr_rom(&test_data);
+        }
+        
+        // Connect the cartridge to the PPU
+        ppu.connect_cartridge(cart);
+        
+        // Test reading from the pattern table
+        assert_eq!(ppu.read_ppu_memory(0x0000), 0xFF); // First byte of tile 0
+        assert_eq!(ppu.read_ppu_memory(0x0001), 0xFF); // Second byte of tile 0
+        assert_eq!(ppu.read_ppu_memory(0x0002), 0xC3); // Third byte of tile 0
+        
+        // Test high bit plane (should be all 0s)
+        assert_eq!(ppu.read_ppu_memory(0x0008), 0x00);
+        
+        // Test disconnecting the cartridge
+        ppu.disconnect_cartridge();
+        
+        // Now we should get the default pattern (0 for most addresses, 0x08 for address 0x10)
+        assert_eq!(ppu.read_ppu_memory(0x0000), 0x00);
+        assert_eq!(ppu.read_ppu_memory(0x0010), 0x08);
     }
 }
