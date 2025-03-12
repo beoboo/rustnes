@@ -120,7 +120,7 @@ impl AsmWidget {
     /// Run the program until completion or error
     pub fn run_program(&mut self, system: &mut NesSystem) -> Result<()> {
         // Only run if the system is in the right state
-        if system.state() != SystemState::Loaded && system.state() != SystemState::Running {
+        if !matches!(system.state(), SystemState::Loaded | SystemState::Running) {
             return Ok(());
         }
 
