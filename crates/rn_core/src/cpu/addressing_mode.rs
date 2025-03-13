@@ -17,6 +17,7 @@ pub enum AddressingMode {
     IndexedIndirect, // (Indirect,X) - Pre-indexed indirect
     IndirectIndexed, // (Indirect),Y - Post-indexed indirect
     Implied,         // Implied addressing mode (no operand)
+    Relative,        // Relative addressing mode (for branch instructions)
 }
 
 impl fmt::Display for AddressingMode {
@@ -33,6 +34,7 @@ impl fmt::Display for AddressingMode {
             AddressingMode::IndexedIndirect => "Indexed Indirect (X) mode",
             AddressingMode::IndirectIndexed => "Indirect Indexed (Y) mode",
             AddressingMode::Implied => "Implied mode",
+            AddressingMode::Relative => "Relative mode",
         };
         write!(f, "{}", description)
     }
@@ -43,7 +45,7 @@ impl AddressingMode {
     pub fn size(&self) -> u16 {
         match self {
             Self::Implied => 1,
-            Self::Immediate | Self::ZeroPage | Self::ZeroPageX | Self::ZeroPageY => 2,
+            Self::Immediate | Self::ZeroPage | Self::ZeroPageX | Self::ZeroPageY | Self::Relative => 2,
             Self::Absolute
             | Self::AbsoluteX
             | Self::AbsoluteY
@@ -145,6 +147,16 @@ impl AddressingMode {
                 // Implied addressing mode doesn't use an operand address
                 // Return the current PC for consistency
                 Ok(cpu.pc)
+            },
+            AddressingMode::Relative => {
+                // For relative addressing, we read a signed byte offset from the current PC
+                // and add it to the PC+2 (PC+1 for the opcode, PC+1 for the offset byte)
+                let offset = cpu.read_byte(cpu.pc)? as i8; // Read as signed byte
+                
+                // Calculate the target address by adding the offset to PC+2
+                let target = ((cpu.pc as i32) + 2 + (offset as i32)) as u16;
+                
+                Ok(target)
             },
         }
     }

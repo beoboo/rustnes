@@ -155,6 +155,10 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## MILESTONE 3: Basic Sprite Rendering [T3]
 - [x] Create a test ROM that displays a single sprite
 - [ ] Implement basic sprite rendering functionality
+- [x] Implement BIT instruction for PPU status checking
+- [x] Implement BPL branch instruction for PPU loop control 
+- [x] Write tests for these PPU-specific instructions
+- [ ] Create examples that use BIT/BPL for PPU synchronization
 - [ ] Test sprite rendering with a single sprite
 - [ ] Support basic NES ROM assembly with essential directives
 - [ ] Document the achievement
@@ -166,6 +170,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement absolute,Y addressing
 - [x] Write tests for extended addressing modes
 
+### [CPU] Essential PPU Instructions [T3]
+- [x] Implement BIT instruction for PPU status checking
+- [x] Implement BPL branch instruction for PPU loop control 
+- [x] Write tests for these PPU-specific instructions
+- [ ] Create examples that use BIT/BPL for PPU synchronization
+
 ### [PPU] Pattern Tables [T3]
 - [x] Implement pattern table memory access for ROM data
 - [x] Implement pattern table bit plane handling (2 planes → pixel data)
@@ -174,8 +184,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test pattern rendering
 
 ### [PPU] Basic Sprites [T3]
-- [ ] Implement OAM (Object Attribute Memory) at $0200-$02FF
-- [ ] Track and process writes to OAM memory
+- [~] Implement OAM (Object Attribute Memory) at $0200-$02FF
+- [~] Track and process writes to OAM memory
 - [ ] Implement basic sprite evaluation (position, tile number, attributes)
 - [ ] Implement single sprite rendering pipeline
 - [ ] Test basic sprite rendering with simple pattern
@@ -187,14 +197,14 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test ROM loading with sprite pattern
 
 ### [Parser] Assembler Directives Support [T3]
-- [ ] Implement `.segment` directive for defining basic sections (HEADER, STARTUP, VECTORS, CHARS)
-- [ ] Implement `.byte` directive for defining byte arrays
-- [ ] Implement `.word` directive for defining word values
-- [ ] Implement `.res` directive for reserving space
-- [ ] Add support for multiple segments with different load addresses
-- [ ] Implement basic NES ROM structure generation with header and layout
-- [ ] Add tests for essential directives
-- [ ] Update AsmDebugger to support simple NES ROM assembly
+- [x] Implement `.segment` directive for defining basic sections (HEADER, STARTUP, VECTORS, CHARS)
+- [x] Implement `.byte` directive for defining byte arrays
+- [x] Implement `.word` directive for defining word values
+- [x] Implement `.res` directive for reserving space
+- [x] Add support for multiple segments with different load addresses
+- [x] Implement basic NES ROM structure generation with header and layout
+- [x] Add tests for essential directives
+- [x] Update AsmDebugger to support simple NES ROM assembly
 
 ## MILESTONE 4: Interactive Graphics & Animation [T4]
 - [ ] Create a demo with animated user-controlled sprite
@@ -205,7 +215,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### [CPU] Animation & Control Flow Instructions [T4]
 - [ ] Implement all status flag changes (CLC, SEC, CLD, CLI, CLV, SED, SEI)
-- [ ] Implement all branches (BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS)
+- [ ] Implement remaining branches (BCC, BCS, BEQ, BMI, BNE, BVC, BVS)
 - [ ] Implement register transfers (TAX, TAY, TXA, TYA)
 - [ ] Implement stack operations (TSX, TXS, PHA, PHP, PLA, PLP)
 - [ ] Implement increment/decrement (INC, INX, INY, DEC, DEX, DEY)
@@ -219,7 +229,6 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ### [CPU] Advanced Instructions [T4]
 - [ ] Implement shifts/rotates (ASL, LSR, ROL, ROR)
 - [ ] Implement compare operations (CMP, CPX, CPY)
-- [ ] Implement bit test (BIT)
 - [ ] Write tests for advanced instructions
 
 ### [CPU] Advanced Addressing Modes [T4]
@@ -433,8 +442,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## Progress Tracking
 - Track 1 (Memory Visualization): 100% complete
 - Track 2 (PPU Pixel Display): 100% complete (All features complete including label support)
-- Track 3 (Basic Sprite Rendering): 15% complete (Extended addressing modes complete)
+- Track 3 (Basic Sprite Rendering): 55% complete (Directives support, pattern table viewing, BIT and BPL instructions working, but sprite rendering incomplete)
 - Track 4 (Interactive Graphics & Animation): 10% complete (Advanced addressing modes complete)
 - Track 5 (Complete NES): 0% complete
 
-**Total Progress: 87/205 tasks complete (42.4%)** 🚀 
+**Total Progress: 99/207 tasks complete (47.8%)** 🚀 

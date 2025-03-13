@@ -138,12 +138,21 @@ impl Assembler {
             .get(operand)
             .ok_or_else(|| AssembleError::LabelError(format!("Undefined label: {}", operand)))?;
 
-        // Use absolute addressing mode for the label
+        // Branch instructions require relative addressing mode
+        let addressing_mode = if instruction.is_branch() {
+            AddressingMode::Relative
+        } else {
+            AddressingMode::Absolute
+        };
+
+        // Look up the instruction with the appropriate addressing mode
         let metadata = self
             .decoder
-            .lookup(instruction, AddressingMode::Absolute)
+            .lookup(instruction, addressing_mode)
             .map_err(|_| {
-                AssembleError::InvalidAddressingMode(format!("{instruction} does not support absolute mode for labels"))
+                AssembleError::InvalidAddressingMode(format!(
+                    "{instruction} does not support {} for labels", addressing_mode
+                ))
             })?;
 
         Ok(Some((metadata, *address)))
@@ -430,10 +439,16 @@ impl Assembler {
         if let Some(labels_map) = labels {
             // First check if this is a known label
             if labels_map.contains_key(&operand) {
-                // It's a verified label reference - use Absolute addressing
-                return self.decoder.lookup(instruction, AddressingMode::Absolute).map_err(|_| {
+                // Use Relative addressing for branch instructions, Absolute for others
+                let addressing_mode = if instruction.is_branch() {
+                    AddressingMode::Relative
+                } else {
+                    AddressingMode::Absolute
+                };
+                
+                return self.decoder.lookup(instruction, addressing_mode).map_err(|_| {
                     AssembleError::InvalidAddressingMode(format!(
-                        "{instruction} does not support absolute mode for labels"
+                        "{instruction} does not support {} for labels", addressing_mode,
                     ))
                 });
             }
@@ -461,8 +476,12 @@ impl Assembler {
         }
 
         // Zero Page: $xx (where xx is 00-FF)
+        // Note: For branch instructions, this could also be a relative address
         if operand.starts_with('$') && operand.len() == 3 {
             let value = parse_value::<u8>(operand)?;
+            
+            // For branch instructions, we'll use Zero Page mode
+            // The instruction decoder will determine if it should be Relative
             return Ok((AddressingMode::ZeroPage, value as u16));
         }
 
@@ -476,7 +495,7 @@ impl Assembler {
     }
 
     /// Calculates the size of an instruction in bytes, assuming directive check has already been done
-    fn calculate_instruction_size_internal(
+    fn calculate_instruction_size(
         &self,
         line: &str,
         labels: Option<&HashMap<String, u16>>,
@@ -577,7 +596,7 @@ impl Assembler {
                 processed_lines.push((code.clone(), current_address));
 
                 // Calculate instruction size to update current_address
-                current_address += self.calculate_instruction_size_internal(&code, None)?;
+                current_address += self.calculate_instruction_size(&code, None)?;
             }
         }
 
@@ -749,6 +768,32 @@ impl Assembler {
         if let Some(labels_map) = labels {
             // Try to handle as a label reference first
             if let Some((metadata, address)) = self.handle_label_reference(instruction, &operand, labels_map)? {
+                if metadata.addressing_mode == AddressingMode::Relative {
+                    // For branch instructions, we need to calculate the offset relative to PC+2
+                    // (PC+2 points to the next instruction after the branch)
+                    
+                    // Get current position (where this instruction will be placed)
+                    let current_position = if let Some(segment_name) = &self.current_segment {
+                        if let Some((base_addr, data)) = self.segments.get(segment_name) {
+                            *base_addr + data.len() as u16
+                        } else {
+                            self.load_address
+                        }
+                    } else {
+                        self.load_address
+                    };
+                    
+                    // Target is PC+2 (after branch instruction) + offset
+                    // So offset = target - (PC+2)
+                    let pc_plus_2 = current_position + 2;
+                    let offset = ((address as i32) - (pc_plus_2 as i32)) as i8;
+                    
+                    return Ok(vec![
+                        metadata.opcode,
+                        offset as u8,  // Store as unsigned byte, will be interpreted as signed during execution
+                    ]);
+                }
+                
                 // Return opcode + 16-bit address (little endian)
                 return Ok(vec![
                     metadata.opcode,
@@ -783,7 +828,7 @@ impl Assembler {
         let mut bytes = vec![opcode];
 
         match addressing_mode {
-            AddressingMode::Immediate | AddressingMode::ZeroPage => {
+            AddressingMode::Immediate | AddressingMode::ZeroPage | AddressingMode::Relative => {
                 bytes.push(operand_value as u8);
             },
             AddressingMode::Absolute => {
@@ -1212,6 +1257,62 @@ mod tests {
         expected.extend(vec![0x34, 0x12, 0x78, 0x56]);
 
         assert_eq!(data_segment, &expected);
+
+        Ok(())
+    }
+
+    /// Test branch instructions with label references
+    #[test]
+    fn test_branch_instruction_with_label() -> Result<()> {
+        let mut assembler = Assembler::new(0x0600);
+
+        // Test program with a label and a branch to that label
+        let program = r#"
+            LDA #$01    ; Set a value
+            BPL target  ; Branch to target (should be encoded as relative)
+            LDA #$FF    ; This shouldn't execute if branch taken
+        target:
+            LDA #$42    ; Target of branch
+        "#;
+
+        let segments = assembler.assemble_program(program)?;
+        let bytes = segments.get("STARTUP").expect("STARTUP segment missing");
+
+        // Expected encoding:
+        // A9 01       ; LDA #$01
+        // 10 05       ; BPL +5 (offset to target)
+        // A9 FF       ; LDA #$FF
+        // A9 42       ; LDA #$42 (target)
+        assert_eq!(
+            bytes,
+            &vec![
+                0xA9, 0x01,       // LDA #$01
+                0x10, 0x05,       // BPL with offset 5 to target
+                0xA9, 0xFF,       // LDA #$FF
+                0xA9, 0x42        // LDA #$42 (target)
+            ]
+        );
+
+        // Now let's test with a backward branch
+        let program = r#"
+        start:
+            LDA #$01    ; Set a value
+            BPL start   ; Branch back to start (negative offset)
+        "#;
+
+        let segments = assembler.assemble_program(program)?;
+        let bytes = segments.get("STARTUP").expect("STARTUP segment missing");
+
+        // Expected encoding:
+        // A9 01       ; LDA #$01
+        // 10 FE       ; BPL -2 (offset to start, negative)
+        assert_eq!(
+            bytes,
+            &vec![
+                0xA9, 0x01,       // LDA #$01
+                0x10, 0xFE,       // BPL with offset -2 (0xFE is -2 in two's complement)
+            ]
+        );
 
         Ok(())
     }

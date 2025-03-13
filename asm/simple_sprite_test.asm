@@ -10,10 +10,20 @@
 
 .segment "STARTUP"
 Reset:
-  ; Minimal initialization
+  ; Minimal initialization - wait for PPU to warm up
   LDX #$00
   STX $2000            ; Disable NMI
   STX $2001            ; Disable rendering
+  
+  ; Wait for first vblank
+  Wait1:
+    BIT $2002
+    BPL Wait1
+  
+  ; Wait for second vblank to ensure PPU is ready
+  Wait2:
+    BIT $2002
+    BPL Wait2
 
   ; ESSENTIAL #1: Set up sprite in OAM (located at $0200)
   LDA #$80              ; Y position = 128 (middle of screen)
@@ -40,9 +50,22 @@ Reset:
   STA $2007
   LDA #$30              ; White
   STA $2007
+  
+  ; Reset PPU address latch
+  LDA $2002
+  
+  ; ESSENTIAL NEW STEP: Set up OAM DMA transfer
+  LDA #$00
+  STA $2003             ; Set OAM address to 0
+  LDA #$02
+  STA $4014             ; Start OAM DMA from $0200
+  
+  ; ESSENTIAL NEW STEP: Configure PPUCTRL
+  LDA #%10000000        ; Enable NMI + Use pattern table 0 for sprites
+  STA $2000
 
   ; ESSENTIAL #3: Enable sprites
-  LDA #%00010000        ; Enable sprites
+  LDA #%00011110        ; Enable sprites + background
   STA $2001
 
   ; Simple infinite loop
