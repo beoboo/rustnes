@@ -9,6 +9,7 @@ description = "NES debugger for RustNES - visualize and debug NES hardware compo
 anyhow = { workspace = true }
 egui = { workspace = true }
 eframe = { workspace = true }
+egui_dock = "0.16"
 tracing-subscriber = { workspace = true }
 clap = { version = "4.4", features = ["derive"] }
 rn_core = { path = "../../crates/rn_core" }

@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::{
+    cartridge::Cartridge,
     cpu::Cpu,
     errors::NesError,
     memory::Ram,
@@ -196,6 +197,15 @@ impl NesSystem {
     /// Get mutable access to the PPU
     pub fn ppu_mut(&mut self) -> RefMut<Ppu> {
         self.ppu.borrow_mut()
+    }
+
+    /// Get access to the cartridge from the PPU (if connected)
+    pub fn cartridge(&self) -> Option<Rc<RefCell<Cartridge>>> {
+        // Get a reference to the PPU
+        let ppu = self.ppu.borrow();
+        
+        // Use the PPU's cartridge method and clone the Rc if present
+        ppu.cartridge().cloned()
     }
 }
 

@@ -2,7 +2,7 @@
 members = [
     "crates/rn_core",
     "crates/rn_ui",
-    "tools/asm_debugger",
+    "tools/nes_debugger",
 ]
 resolver = "2"
 

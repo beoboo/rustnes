@@ -167,7 +167,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### [PPU] Pattern Tables [T3]
 - [x] Implement pattern table memory access for ROM data
-- [ ] Implement pattern table bit plane handling (2 planes → pixel data)
+- [x] Implement pattern table bit plane handling (2 planes → pixel data)
+- [x] Implement a pattern table widget for visualizing tile data
 - [ ] Implement basic palette mapping for sprite pixels
 - [ ] Test pattern rendering
 
@@ -179,9 +180,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test basic sprite rendering
 
 ### [Cartridge] Basic ROM Loading [T3]
-- [ ] Implement simplified iNES file format parser
-- [ ] Extract CHR ROM data from test ROM
-- [ ] Make CHR ROM data accessible to pattern tables
+- [x] Implement simplified iNES file format parser
+- [x] Extract CHR ROM data from test ROM
+- [x] Make CHR ROM data accessible to pattern tables
 - [ ] Test ROM loading with sprite pattern
 
 ## MILESTONE 4: Interactive Graphics & Animation [T4]

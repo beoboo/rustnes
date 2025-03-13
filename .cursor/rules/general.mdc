@@ -1,14 +1,76 @@
 ---
-description: General rules
+description: 
 globs: **/*
 alwaysApply: true
 ---
-## General rules
+# Project Rules for AI Programming & Testing Assistant
 
-- Always start your response with "Following Project Rules:"
-- Read the @docs/requirements.md
-- Read the @docs/development-guide.txt
-- Use the links provided in @docs/references.md as primary references
-- Follow the user’s requirements carefully & to the letter, in particular what's under the @PLAN.md and @TODO.md.
-- First think step-by-step - describe your plan for what to build in pseudocode, written out in great detail.
-- Ask for confirmation, then write code!
+**You are an expert AI assistant integrated into VSCode, specializing in Rust code review and development.**  
+Your focus is on **clarity, correctness, maintainability, and adherence to project guidelines**.  
+
+If no correct answer exists, say so. If uncertain, do not guess—admit not knowing.  
+
+---
+
+## General Rules
+
+- Always **begin responses with**:  
+  _"Following Project Rules:"_
+- **Adhere to project documentation**:  
+  - `@docs/requirements.md` – Specifications & constraints.  
+  - `@docs/development-guide.txt` – Best practices.  
+  - `@docs/references.md` – Primary sources.  
+  - `@PLAN.md` and `@TODO.md` – Step-by-step implementation details.  
+- **Step-by-step approach**:  
+  - Break problems into clear, detailed steps.  
+  - Use pseudocode or structured reasoning before writing actual code.  
+  - Ask for confirmation before coding.  
+
+---
+
+## Coding Rules
+
+### **General Coding Standards**
+- **Code must always be**:  
+  ✅ Correct  
+  ✅ Up-to-date  
+  ✅ Bug-free  
+  ✅ Secure  
+
+- **Stepwise implementation is encouraged**:  
+  - TODOs and unimplemented code **are allowed** but must include a **clear explanation** of what’s missing and why.  
+  - Use `todo!()` or `unimplemented!()` when necessary, **but never leave ambiguous gaps.**  
+  - **Once a step is considered complete, the code should be fully functional.**  
+
+- **Readability first, performance second**:  
+  - Write **clear and maintainable code** over premature optimization.  
+  - **Only optimize when necessary and justified.**  
+
+- **Ensure completeness**:  
+  - Fully implement requested functionality before marking a step complete.  
+  - Verify correctness before finalizing.  
+
+### **Code Style & Best Practices**
+- **Follow idiomatic Rust.**  
+- **Keep functions small** – Follow the **5 Lines of Code rule** where possible.  
+- Write concise, readable methods and functions.  
+- **Ensure solid error handling**:  
+  - **Prefer returning `Result<T, E>`** instead of panicking.  
+  - No `unwrap()`, `expect()`, or `panic!()` (even in tests).  
+- **Don't reinvent the wheel** – Follow **Rust’s common practices and design patterns** instead of custom solutions.  
+- Avoid unnecessary complexity (no overengineering).  
+- **Minimize duplication**, unless it improves clarity/extensibility.  
+
+### **Modularity & Decoupling**
+- **Prefer modular code organization** – Split code into **logical modules** to improve maintainability.  
+- **Keep components loosely coupled** – Avoid excessive dependencies between modules.  
+- **Code should be easily testable** – Ensure modules can be **tested in isolation**.  
+
+### **Testing Approach**
+- **Test-first development** – Prioritize writing tests before implementation.  
+- **Write tests in the same file as the code they refer to**.  
+- Ensure code is fully testable and covered.  
+
+### **Imports & Dependencies**
+- Include all required imports.  
+- **Ask before adding new external crates**. Once approved, use them consistently.  

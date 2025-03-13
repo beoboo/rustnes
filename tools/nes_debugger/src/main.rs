@@ -1,0 +1,508 @@
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
+
+use clap::Parser;
+use eframe::{egui, App, Frame};
+use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
+use rn_core::{
+    cpu::Cpu,
+    errors::NesError,
+    memory::Addressable,
+    system::{NesSystem, SystemState},
+};
+use rn_ui::widgets::{
+    AsmWidget,
+    CpuWidget,
+    DisasmWidget,
+    MemoryPixelAdapter,
+    MemoryWidget,
+    PatternTableWidget,
+    PixelDisplay,
+    PpuPixelAdapter,
+};
+
+/// Command line arguments for the NesDebugger
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Optional assembly file to load on startup
+    #[arg(value_name = "FILE")]
+    asm_file: Option<PathBuf>,
+}
+
+/// Adapter to use CPU's memory with the memory editor
+struct CpuMemoryAdapter<'a> {
+    cpu: &'a mut Cpu,
+}
+
+impl<'a> CpuMemoryAdapter<'a> {
+    fn new(cpu: &'a mut Cpu) -> Self {
+        Self { cpu }
+    }
+}
+
+impl<'a> Addressable for CpuMemoryAdapter<'a> {
+    fn handles_address(&self, _address: u16) -> bool {
+        true
+    }
+
+    fn read_byte(&self, address: u16) -> Result<u8, NesError> {
+        self.cpu.read_byte(address)
+    }
+
+    fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
+        self.cpu.write_byte(address, value)
+    }
+}
+
+/// Display mode enum for the pixel display
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DisplayMode {
+    Memory,
+    Ppu,
+}
+
+impl Default for DisplayMode {
+    fn default() -> Self {
+        DisplayMode::Memory
+    }
+}
+
+/// Available tabs for the dock
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DockTab {
+    Assembly,
+    Disassembly,
+    Memory,
+    PatternTable,
+    Cpu,
+    Display,
+}
+
+impl DockTab {
+    fn title(&self) -> &'static str {
+        match self {
+            DockTab::Assembly => "Assembly",
+            DockTab::Disassembly => "Disassembly",
+            DockTab::Memory => "Memory",
+            DockTab::PatternTable => "Pattern Tables",
+            DockTab::Cpu => "CPU State",
+            DockTab::Display => "Display",
+        }
+    }
+}
+
+/// Shared application state
+#[derive(Default)]
+struct AppContext {
+    display_mode: DisplayMode,
+    show_assembled_code: bool,
+}
+
+/// Main debugger application
+struct NesDebugger {
+    // Command line arguments
+    args: Args,
+
+    // Components
+    pixel_display: PixelDisplay,
+    asm_widget: AsmWidget,
+    cpu_widget: CpuWidget,
+    disasm_widget: DisasmWidget,
+    memory_widget: MemoryWidget,
+    pattern_table_widget: PatternTableWidget,
+
+    // Emulation state
+    system: Rc<RefCell<NesSystem>>,
+
+    // Dock state
+    dock_state: DockState<DockTab>,
+    
+    // Shared context
+    context: AppContext,
+
+    // Startup file loading flag
+    initial_file_loaded: bool,
+}
+
+/// Tab viewer for the dock area
+struct NesTabViewer<'a> {
+    pixel_display: &'a mut PixelDisplay,
+    asm_widget: &'a mut AsmWidget,
+    cpu_widget: &'a mut CpuWidget,
+    disasm_widget: &'a mut DisasmWidget,
+    memory_widget: &'a mut MemoryWidget,
+    pattern_table_widget: &'a mut PatternTableWidget,
+    system: Rc<RefCell<NesSystem>>,
+    context: &'a mut AppContext,
+}
+
+impl<'a> TabViewer for NesTabViewer<'a> {
+    type Tab = DockTab;
+
+    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        tab.title().into()
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        match tab {
+            DockTab::Assembly => {
+                // Assembly Tab content
+                let mut system_borrow = self.system.borrow_mut();
+                self.asm_widget.ui(ui, &mut *system_borrow);
+                drop(system_borrow);
+                
+                // Display assembled code if requested
+                if self.context.show_assembled_code && self.asm_widget.is_loaded() {
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        ui.heading("Assembled Code");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(format!("Load Address: ${:04X}", self.asm_widget.load_address()));
+                        });
+                    });
+                    let bytes = self.asm_widget.assembled_bytes();
+                    let load_addr = self.asm_widget.load_address();
+                    
+                    // Display bytes in a formatted table
+                    let mut addr = load_addr;
+                    let bytes_per_row = 16;
+                    
+                    egui::ScrollArea::vertical()
+                        .id_salt("assembled_code_scroll")
+                        .show(ui, |ui| {
+                            let text_style = egui::TextStyle::Monospace;
+                            let _row_height = ui.text_style_height(&text_style) + 4.0;
+                            
+                            for chunk in bytes.chunks(bytes_per_row) {
+                                ui.horizontal(|ui| {
+                                    // Show address
+                                    ui.label(format!("${:04X}:", addr));
+                                    
+                                    // Show hex bytes
+                                    for byte in chunk {
+                                        ui.label(format!("{:02X}", byte));
+                                    }
+                                });
+                                addr += chunk.len() as u16;
+                            }
+                        });
+                }
+            },
+            DockTab::Disassembly => {
+                // Disassembly Tab content
+                egui::ScrollArea::vertical()
+                    .id_salt("disassembly_scroll")
+                    .show(ui, |ui| {
+                        let system_ref = self.system.borrow();
+                        let _ = self.disasm_widget.ui(ui, system_ref.cpu());
+                    });
+            },
+            DockTab::Memory => {
+                // Memory Tab content
+                
+                // Use a ScrollArea with both horizontal and vertical scrolling
+                egui::ScrollArea::both()
+                    .id_salt("memory_editor_scroll")
+                    .show(ui, |ui| {
+                        // Use a fixed width for the content to ensure horizontal scrolling works
+                        let available_width = ui.available_width();
+                        let min_content_width: f32 = 800.0; // This should be enough for the memory widget
+                        
+                        ui.allocate_ui(egui::vec2(min_content_width.max(available_width), ui.available_height()), |ui| {
+                            // Create an adapter to access CPU memory with the memory editor
+                            let mut system_borrow = self.system.borrow_mut();
+                            let mut adapter = CpuMemoryAdapter::new(system_borrow.cpu_mut());
+
+                            // Show the memory editor widget with access to CPU memory
+                            self.memory_widget.ui(ui, &mut adapter);
+                        });
+                    });
+            },
+            DockTab::PatternTable => {
+                // Pattern Table Tab content
+                
+                // Add pattern table controls
+                ui.horizontal(|ui| {
+                    ui.label("Zoom:");
+                    if ui.button("-").clicked() {
+                        let current_zoom = self.pattern_table_widget.zoom();
+                        self.pattern_table_widget.set_zoom((current_zoom - 0.25).max(0.25));
+                    }
+                    if ui.button("+").clicked() {
+                        let current_zoom = self.pattern_table_widget.zoom();
+                        self.pattern_table_widget.set_zoom((current_zoom + 0.25).min(4.0));
+                    }
+                    
+                    ui.separator();
+                    
+                    ui.label("Pattern Table:");
+                    if ui.button("0").clicked() {
+                        self.pattern_table_widget.set_current_table(0);
+                    }
+                    if ui.button("1").clicked() {
+                        self.pattern_table_widget.set_current_table(1);
+                    }
+                    
+                    ui.separator();
+                    
+                    // Toggle grid
+                    let mut show_grid = self.pattern_table_widget.show_grid();
+                    if ui.checkbox(&mut show_grid, "Show Grid").changed() {
+                        self.pattern_table_widget.set_show_grid(show_grid);
+                    }
+                });
+                
+                ui.add_space(8.0);
+                
+                egui::ScrollArea::vertical()
+                    .id_salt("pattern_table_scroll")
+                    .show(ui, |ui| {
+                        let system_borrow = self.system.borrow();
+                        // Get cartridge reference from the system
+                        let cartridge = system_borrow.cartridge();
+                        
+                        // Show the pattern table widget with access to the cartridge
+                        let _ = self.pattern_table_widget.ui(ui, cartridge.as_ref());
+                    });
+            },
+            DockTab::Cpu => {
+                // CPU Tab content
+                
+                let mut system = self.system.borrow_mut();
+                self.cpu_widget.ui(ui, system.cpu_mut());
+            },
+            DockTab::Display => {
+                // Display Tab content
+                
+                // Display mode selector
+                ui.horizontal(|ui| {
+                    ui.label("Display Mode:");
+                    ui.radio_value(&mut self.context.display_mode, DisplayMode::Memory, "Memory");
+                    ui.radio_value(&mut self.context.display_mode, DisplayMode::Ppu, "PPU");
+                });
+                
+                ui.add_space(8.0);
+                
+                // Display content based on mode
+                match self.context.display_mode {
+                    DisplayMode::Memory => {
+                        // Calculate auto-zoom based on panel width
+                        let available_width = ui.available_width();
+                        let memory_width = 32; // Width of the memory display in pixels
+                        let auto_zoom = (available_width / (memory_width as f32 * 2.0)).max(1.0);
+
+                        // Create a memory pixel adapter using the system's CPU
+                        let system_ref = self.system.clone();
+                        let memory_adapter = MemoryPixelAdapter::new(
+                            move |addr| system_ref.borrow().cpu().read_byte(addr),
+                            0x0200,
+                            0x05FF,
+                            32,
+                        );
+
+                        // Update zoom and show the memory visualization
+                        self.pixel_display.set_zoom(auto_zoom);
+                        let _ = self.pixel_display.ui(ui, &memory_adapter);
+                    },
+                    DisplayMode::Ppu => {
+                        // Calculate auto-zoom based on panel width
+                        let available_width = ui.available_width();
+                        let ppu_width = 256; // Width of the PPU display in pixels
+                        let auto_zoom = (available_width / (ppu_width as f32 * 2.0)).max(0.5);
+
+                        // Create a PPU pixel adapter using the system's PPU
+                        let system_ref = self.system.clone();
+                        let ppu_adapter = PpuPixelAdapter::new(move || {
+                            let system = system_ref.borrow();
+                            // Create a copy of the frame buffer to avoid borrowing issues
+                            let frame_buffer = system.ppu().frame_buffer().to_vec();
+                            frame_buffer
+                        });
+
+                        // Update zoom and show the PPU display
+                        self.pixel_display.set_zoom(auto_zoom);
+                        let _ = self.pixel_display.ui(ui, &ppu_adapter);
+                    },
+                }
+            },
+        }
+    }
+
+    fn closeable(&mut self, _tab: &mut Self::Tab) -> bool {
+        // Don't allow closing tabs in this basic implementation
+        false
+    }
+}
+
+impl NesDebugger {
+    fn new(_cc: &eframe::CreationContext<'_>, args: Args) -> Self {
+        // Create the NES system
+        let system = Rc::new(RefCell::new(NesSystem::new()));
+
+        // Create initial dock state with all our tabs
+        let mut dock_state = DockState::new(vec![DockTab::Assembly, DockTab::Memory, DockTab::PatternTable]);
+        
+        // First split: Create layout with Assembly/Memory/PatternTable in center, and CPU on the left
+        let [center, _left] = dock_state.main_surface_mut().split_left(
+            NodeIndex::root(),
+            0.2, // 20% width for CPU
+            vec![DockTab::Cpu],
+        );
+        
+        // Second split: Add Display on the right side of the center area
+        let [center_main, _right] = dock_state.main_surface_mut().split_right(
+            center, // Split the center node, not the root
+            0.7,    // Central area takes 70% of remaining width
+            vec![DockTab::Display],
+        );
+        
+        // Third split: Add Disassembly at the bottom of just the central area
+        dock_state.main_surface_mut().split_below(
+            center_main, // Split the center_main node, not the root
+            0.7,         // Top takes 70% of height
+            vec![DockTab::Disassembly],
+        );
+
+        Self {
+            args,
+            pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
+            asm_widget: AsmWidget::new(),
+            cpu_widget: CpuWidget::new(),
+            disasm_widget: DisasmWidget::new(),
+            memory_widget: MemoryWidget::new()
+                .with_start_address(0x0000)
+                .with_rows(16)
+                .with_bytes_per_row(16)
+                .with_editable(true),
+            pattern_table_widget: PatternTableWidget::new(),
+            system,
+            dock_state,
+            context: AppContext {
+                display_mode: DisplayMode::Memory,
+                show_assembled_code: false,
+            },
+            initial_file_loaded: false,
+        }
+    }
+}
+
+impl App for NesDebugger {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        // Load the initial file if specified and not yet loaded
+        if !self.initial_file_loaded {
+            if let Some(file_path) = &self.args.asm_file {
+                if let Ok(file_content) = std::fs::read_to_string(file_path) {
+                    // Update the code in the AsmWidget
+                    self.asm_widget = AsmWidget::with_code(&file_content);
+
+                    // Assemble and load the code
+                    let mut system_borrow = self.system.borrow_mut();
+                    let _ = self.asm_widget.assemble_code(&mut *system_borrow);
+
+                    println!("Loaded assembly file: {}", file_path.display());
+
+                    // Switch to PPU view by default for test files
+                    self.context.display_mode = DisplayMode::Ppu;
+                } else {
+                    eprintln!("Error reading file: {}", file_path.display());
+                }
+            }
+            self.initial_file_loaded = true;
+        }
+
+        // Update DisasmWidget with program information
+        if self.asm_widget.is_loaded() {
+            self.disasm_widget.set_program_info(
+                self.asm_widget.load_address(),
+                self.asm_widget.assembled_bytes().len() as u16,
+            );
+        } else {
+            // When program is not loaded (including after reset), show empty region
+            self.disasm_widget.set_program_info(0x8000, 0);
+        }
+
+        // Top menu bar for show/hide controls
+        egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("New").clicked() {
+                        self.asm_widget = AsmWidget::new();
+                        ui.close_menu();
+                    }
+                    // Add more file operations here as needed
+                });
+
+                ui.menu_button("View", |ui| {
+                    ui.checkbox(&mut self.context.show_assembled_code, "Show Assembled Code");
+                });
+
+                ui.menu_button("System", |ui| {
+                    if ui.button("Reset").clicked() {
+                        let mut system_borrow = self.system.borrow_mut();
+                        let _ = system_borrow.reset();
+                        ui.close_menu();
+                    }
+                });
+
+                // Add system state indicator
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let system = self.system.borrow();
+                    match system.state() {
+                        SystemState::Ready => ui.colored_label(egui::Color32::WHITE, "Ready"),
+                        SystemState::Loaded => ui.colored_label(egui::Color32::CYAN, "Loaded"),
+                        SystemState::Running => ui.colored_label(egui::Color32::YELLOW, "Running"),
+                        SystemState::Finished => ui.colored_label(egui::Color32::GREEN, "Finished"),
+                        SystemState::Error(pc) => ui.colored_label(egui::Color32::RED, format!("Error at ${:04X}", pc)),
+                    };
+                    ui.label("System: ");
+                });
+            });
+        });
+
+        // Main central panel with dock area
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // Create a tab viewer with references to all components
+            let mut tab_viewer = NesTabViewer {
+                pixel_display: &mut self.pixel_display,
+                asm_widget: &mut self.asm_widget,
+                cpu_widget: &mut self.cpu_widget,
+                disasm_widget: &mut self.disasm_widget,
+                memory_widget: &mut self.memory_widget,
+                pattern_table_widget: &mut self.pattern_table_widget,
+                system: self.system.clone(),
+                context: &mut self.context,
+            };
+            
+            // Render the dock area
+            DockArea::new(&mut self.dock_state)
+                .style(Style::from_egui(ui.style().as_ref()))
+                .show(ctx, &mut tab_viewer);
+        });
+    }
+}
+
+fn main() -> anyhow::Result<()> {
+    // Initialize logging
+    tracing_subscriber::fmt::init();
+
+    // Parse command line arguments
+    let args = Args::parse();
+
+    // Set up the native options
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1024.0, 768.0])
+            .with_min_inner_size([800.0, 600.0]),
+        ..Default::default()
+    };
+
+    // Run the app
+    eframe::run_native(
+        "RustNES Debugger",
+        options,
+        Box::new(|cc| Ok(Box::new(NesDebugger::new(cc, args)))),
+    )
+    .map_err(|e| anyhow::anyhow!("Application error: {}", e))?;
+
+    Ok(())
+}
