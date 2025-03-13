@@ -207,6 +207,27 @@ impl NesSystem {
         // Use the PPU's cartridge method and clone the Rc if present
         ppu.cartridge().cloned()
     }
+
+    /// Load CHR ROM data into the cartridge
+    pub fn load_chr_rom(&mut self, chr_data: &[u8]) {
+        // Create a cartridge if one doesn't exist
+        let mut ppu = self.ppu.borrow_mut();
+        if ppu.cartridge().is_none() {
+            // Create a new cartridge
+            let cart = Rc::new(RefCell::new(Cartridge::new()));
+            // Connect it to the PPU
+            ppu.connect_cartridge(cart);
+            println!("Created and connected new cartridge");
+        }
+        drop(ppu); // Release the borrow before the next one
+        
+        // Get the PPU's cartridge and load the CHR ROM data
+        let mut ppu = self.ppu.borrow_mut();
+        if let Some(cart_rc) = ppu.cartridge_mut() {
+            // Need to borrow_mut() the RefCell to get mutable access to the cartridge
+            cart_rc.borrow_mut().load_chr_rom(chr_data);
+        }
+    }
 }
 
 #[cfg(test)]

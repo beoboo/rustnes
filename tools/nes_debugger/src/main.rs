@@ -264,11 +264,14 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                         .id_salt("pattern_table_scroll")
                         .show(ui, |ui| {
                             let system_borrow = self.system.borrow();
-                            // Get cartridge reference from the system
-                            let cartridge = system_borrow.cartridge();
-                            
-                            // Show the pattern table widget with access to the cartridge
-                            let _ = self.pattern_table_widget.ui(ui, cartridge.as_ref());
+                            // Get cartridge reference from the system and convert to the expected format
+                            if let Some(cart_rc) = system_borrow.cartridge() {
+                                // Pass a reference to the cloned Rc
+                                let _ = self.pattern_table_widget.ui(ui, Some(&cart_rc));
+                            } else {
+                                // No cartridge
+                                let _ = self.pattern_table_widget.ui(ui, None);
+                            }
                         });
                 },
             DockTab::Cpu => {

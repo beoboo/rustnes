@@ -53,7 +53,7 @@ impl AsmWidget {
 
     /// Reset the system and load the assembled program
     fn reset_and_load(&mut self, system: &mut NesSystem) -> Result<()> {
-        if !self.assembled || self.assembled_bytes.is_empty() {
+        if !self.assembled || self.assembled_segments.is_empty() {
             return Ok(());
         }
 
@@ -62,6 +62,15 @@ impl AsmWidget {
 
         // Load the program into the system
         system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
+        
+        // Load CHR ROM data if available
+        if let Some(chr_data) = self.assembled_segments.get("CHARS") {
+            if !chr_data.is_empty() {
+                // Get the cartridge and load the CHR ROM data
+                system.load_chr_rom(&chr_data);
+                println!("Loaded CHR ROM data: {} bytes", chr_data.len());
+            }
+        }
 
         Ok(())
     }

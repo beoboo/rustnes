@@ -539,6 +539,11 @@ impl Ppu {
     pub fn cartridge(&self) -> Option<&std::rc::Rc<std::cell::RefCell<crate::cartridge::Cartridge>>> {
         self.cartridge.as_ref()
     }
+
+    /// Get a mutable reference to the cartridge if one is connected
+    pub fn cartridge_mut(&mut self) -> Option<&mut std::rc::Rc<std::cell::RefCell<crate::cartridge::Cartridge>>> {
+        self.cartridge.as_mut()
+    }
 }
 
 impl Default for Ppu {
