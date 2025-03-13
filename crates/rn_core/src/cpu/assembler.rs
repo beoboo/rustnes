@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use regex::Regex;
+use lazy_static::lazy_static;
 
 use thiserror::Error;
 
@@ -171,21 +173,127 @@ impl Assembler {
         if args.is_empty() {
             return Err(AssembleError::DirectiveError("Missing byte values".to_string()));
         }
-
-        // Parse bytes
-        let bytes = self.parse_comma_separated_values::<u8>(args)?;
-        Ok(Directive::Byte(bytes))
+        
+        let parsed_bytes = self.parse_comma_separated_byte_tokens(args)?;
+        Ok(Directive::Byte(parsed_bytes))
+    }
+    
+    /// Parse a comma-separated list of tokens that can be either string literals or numeric values
+    fn parse_comma_separated_byte_tokens(&self, input: &str) -> ParseResult<Vec<u8>> {
+        lazy_static! {
+            static ref STRING_REGEX: Regex = Regex::new(r#"^\s*["']([^"']*)["']"#).unwrap();
+        }
+        
+        let mut result = Vec::new();
+        let mut remaining = input.trim();
+        
+        while !remaining.is_empty() {
+            // Skip leading whitespace
+            remaining = remaining.trim_start();
+            if remaining.is_empty() {
+                break;
+            }
+            
+            // Check if this is a string literal
+            if let Some(captures) = STRING_REGEX.captures(remaining) {
+                let (bytes, rest) = self.extract_string_literal(remaining, &captures)?;
+                result.extend(bytes);
+                remaining = rest;
+            } else {
+                // Handle numeric value
+                let (byte, rest) = self.extract_numeric_byte_value(remaining)?;
+                result.push(byte);
+                remaining = rest;
+            }
+            
+            // Skip comma if present
+            remaining = remaining.trim_start();
+            if remaining.starts_with(',') {
+                remaining = &remaining[1..];
+            }
+        }
+        
+        Ok(result)
+    }
+    
+    /// Extract a string literal and convert to bytes
+    fn extract_string_literal<'a>(&self, input: &'a str, captures: &regex::Captures) -> ParseResult<(Vec<u8>, &'a str)> {
+        // Get the string content (capture group 1)
+        let string_content = match captures.get(1) {
+            Some(m) => m.as_str(),
+            None => return Err(AssembleError::DirectiveError("Missing string content in regex match".to_string())),
+        };
+        
+        // Get the full match length to update the remaining input
+        let match_len = match captures.get(0) {
+            Some(m) => m.as_str().len(),
+            None => return Err(AssembleError::DirectiveError("Invalid regex capture".to_string())),
+        };
+        
+        let remaining = &input[match_len..];
+        
+        // Convert string to bytes
+        let bytes: Vec<u8> = string_content.chars().map(|c| c as u8).collect();
+        
+        Ok((bytes, remaining))
+    }
+    
+    /// Extract a numeric byte value
+    fn extract_numeric_byte_value<'a>(&self, input: &'a str) -> ParseResult<(u8, &'a str)> {
+        let comma_pos = input.find(',').unwrap_or(input.len());
+        let value_str = input[..comma_pos].trim();
+        
+        if value_str.is_empty() {
+            return Err(AssembleError::DirectiveError("Empty value in byte list".to_string()));
+        }
+        
+        let value = parse_value::<u8>(value_str)?;
+        let remaining = if comma_pos < input.len() {
+            &input[comma_pos..]
+        } else {
+            ""
+        };
+        
+        Ok((value, remaining))
     }
 
-    /// Parse a word directive
-    fn parse_word_directive(&self, args: &str) -> ParseResult<Directive> {
+    /// Parse a word directive with optional label resolution
+    fn parse_word_directive(&self, args: &str, labels: Option<&HashMap<String, u16>>) -> ParseResult<Directive> {
         if args.is_empty() {
             return Err(AssembleError::DirectiveError("Missing word values".to_string()));
         }
 
-        // Parse words
-        let words = self.parse_comma_separated_values::<u16>(args)?;
-        Ok(Directive::Word(words))
+        // Split values by commas and parse each one
+        let values_str = args.split(',').map(|s| s.trim());
+        let mut values = Vec::new();
+
+        for value_str in values_str {
+            // Skip empty strings (can happen with trailing commas)
+            if value_str.is_empty() {
+                continue;
+            }
+
+            // Try to parse as a numeric value first
+            match parse_value::<u16>(value_str) {
+                Ok(value) => {
+                    values.push(value);
+                    continue;
+                }
+                Err(_) => {
+                    // If it's not a valid number, try to resolve it as a label if labels are provided
+                    if let Some(label_map) = labels {
+                        if let Some(&address) = label_map.get(value_str) {
+                            values.push(address);
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            return Err(AssembleError::LabelError(format!("Invalid .word directive: {}", value_str)));
+        }
+
+        Ok(Directive::Word(values))
     }
 
     /// Parse a res directive
@@ -214,7 +322,7 @@ impl Assembler {
     }
 
     /// Parse a directive without applying any side effects
-    fn parse_directive(&self, line: &str) -> ParseResult<Option<Directive>> {
+    fn parse_directive(&self, line: &str, labels: Option<&HashMap<String, u16>>) -> ParseResult<Option<Directive>> {
         if !line.starts_with('.') {
             return Ok(None);
         }
@@ -231,7 +339,7 @@ impl Assembler {
         match parts[0] {
             ".segment" => self.parse_segment_directive(args).map(Some),
             ".byte" => self.parse_byte_directive(args).map(Some),
-            ".word" => self.parse_word_directive(args).map(Some),
+            ".word" => self.parse_word_directive(args, labels).map(Some),
             ".res" => self.parse_res_directive(args).map(Some),
             _ => Err(AssembleError::DirectiveError(format!(
                 "Unknown directive: {}",
@@ -416,19 +524,7 @@ impl Assembler {
         Ok((String::new(), Some(line.to_string())))
     }
 
-    /// Process a single line of assembly, extract labels, code and handle directives
-    fn process_line(&mut self, line: &str) -> ParseResult<(String, Option<String>)> {
-
-        // Check if it's a directive
-        if let Some(_) = self.parse_directive(&line)? {
-            return Ok((String::new(), None)); // Directive handled, no code to assemble
-        }
-
-        // Not a directive, process as label or code
-        self.process_line_internal(&line)
-    }
-
-    /// Collects labels and processed instructions from a program
+    /// Collects labels and their positions from a program
     fn collect_labels_and_instructions(
         &mut self,
         program: &str,
@@ -438,7 +534,7 @@ impl Assembler {
 
         // Initialize with default load address
         let mut current_address = self.load_address;
-
+        
         // Process each line, collecting labels and cleaned instruction lines
         for line in program.lines() {
             // Clean the line - removing comments and trimming whitespace
@@ -446,33 +542,23 @@ impl Assembler {
                 continue;
             };
 
-            // Check if it's a directive first
-            if let Some(directive) = self.parse_directive(&line)? {
-                match &directive {
-                    Directive::Segment(name) => {
-                        // When switching segments, update the current address
-                        if let Some(segment) = self.segments.get(name) {
-                            current_address = segment.0;
+            // Check for segment directives in the first pass (but ignore other directives)
+            if line.starts_with('.') {
+                // Only handle .segment directives in first pass, to track addresses correctly
+                if line.starts_with(".segment") {
+                    // Minimal parsing for segment name
+                    let parts: Vec<&str> = line.splitn(2, ' ').collect();
+                    if parts.len() > 1 {
+                        let segment_name = parts[1].trim().trim_matches('"').trim_matches('\'');
+                        if let Some(segment) = self.segments.get(segment_name) {
+                            current_address = segment.0; // Update current address for the segment
                         }
-                    },
-                    Directive::Byte(bytes) => {
-                        // Add the length of bytes to current_address, checking for overflow
-                        current_address = current_address.saturating_add(bytes.len() as u16);
-                    },
-                    Directive::Word(words) => {
-                        // Each word is 2 bytes, check for overflow
-                        let bytes_len = words.len().saturating_mul(2);
-                        current_address = current_address.saturating_add(bytes_len as u16);
-                    },
-                    Directive::Res(size, _) => {
-                        // Add the size of reserved bytes to current_address, checking for overflow
-                        current_address = current_address.saturating_add(*size);
-                    },
+                    }
                 }
                 continue;
             }
 
-            // Process the line to get label and code (not a directive at this point)
+            // Process the line to get label and code
             let (label, code_opt) = self.process_line_internal(&line)?;
 
             // If we found a label, record it with current address
@@ -490,7 +576,7 @@ impl Assembler {
             if let Some(code) = code_opt {
                 processed_lines.push((code.clone(), current_address));
 
-                // Calculate instruction size to update current_address (not a directive at this point)
+                // Calculate instruction size to update current_address
                 current_address += self.calculate_instruction_size_internal(&code, None)?;
             }
         }
@@ -513,30 +599,33 @@ impl Assembler {
             self.add_segment("STARTUP", self.load_address);
         }
 
-        // First pass: collect all labels and calculate instruction sizes
+        // First pass: collect all labels (ignoring directives)
         let (labels, _processed_lines) = self.collect_labels_and_instructions(program)?;
 
-        // Reset segment processing state
+        // Reset segment processing state for second pass
         self.current_segment = None;
         for segment in self.segments.values_mut() {
             segment.1.clear();
         }
 
-        // Second pass: assemble instructions with resolved labels
+        // Second pass: process directives and assemble instructions with resolved labels
         for line in program.lines() {
             // Clean the line - removing comments and trimming whitespace
             let Some(line) = self.clean_line(line) else {
                 continue;
             };
 
-            // Handle directives (especially .segment) first
-            if let Some(directive) = self.parse_directive(&line)? {
-                self.apply_directive(&directive)?;
+            // Handle directives first
+            if line.starts_with('.') {
+                // Parse directive with label resolution
+                if let Some(directive) = self.parse_directive(&line, Some(&labels))? {
+                    self.apply_directive(&directive)?;
+                }
                 continue;
             }
 
             // Process the line to get label and code
-            let (_label, code_opt) = self.process_line(&line)?;
+            let (_label, code_opt) = self.process_line_internal(&line)?;
 
             // Skip if no code to assemble
             if code_opt.is_none() {
@@ -611,14 +700,6 @@ impl Assembler {
     /// Assembles an instruction string into bytes
     /// If labels map is provided, label references in operands will be resolved
     pub fn assemble_instruction(&mut self, input: &str, labels: Option<&HashMap<String, u16>>) -> ParseResult<Vec<u8>> {
-        // Check if this is a directive
-        if let Some(directive) = self.parse_directive(&input)? {
-            // Apply the directive
-            self.apply_directive(&directive)?;
-            // For now, directives don't directly produce bytes
-            return Ok(Vec::new());
-        }
-
         // Split input into mnemonic and operand
         let (mnemonic, operand_opt) = self.split_instruction(&input)?;
 
@@ -635,6 +716,34 @@ impl Assembler {
 
         // For other instructions, we need an operand
         let operand = operand_opt.ok_or_else(|| AssembleError::InvalidSyntax("Missing operand".to_string()))?;
+
+        // Special case: Handle asterisk (*) as current address
+        if operand == "*" {
+            // Look up the instruction with Absolute addressing mode
+            let metadata = self.decoder.lookup(instruction, AddressingMode::Absolute)
+                .map_err(|_| AssembleError::InvalidAddressingMode(format!("{instruction} does not support absolute mode")))?;
+            
+            // Get the current address (usually the address of this instruction)
+            let current_address = if let Some(segment_name) = &self.current_segment {
+                if let Some((base_addr, data)) = self.segments.get(segment_name) {
+                    // Base address + current size of the segment
+                    *base_addr + data.len() as u16
+                } else {
+                    self.load_address
+                }
+            } else {
+                self.load_address
+            };
+            
+            // For JMP *, we want to jump to the address of the JMP instruction itself
+            // The instruction is 3 bytes long: opcode + low byte + high byte
+            // So we use current_address, which is the address of the instruction
+            return Ok(vec![
+                metadata.opcode,
+                (current_address & 0xFF) as u8,     // Low byte
+                ((current_address >> 8) & 0xFF) as u8 // High byte
+            ]);
+        }
 
         // Check if this is a label reference
         if let Some(labels_map) = labels {
@@ -708,29 +817,6 @@ impl Assembler {
         } else {
             Some(line.to_string())
         }
-    }
-
-    /// Parse comma-separated values into a vector of the specified numeric type
-    fn parse_comma_separated_values<T>(&self, values_str: &str) -> ParseResult<Vec<T>> 
-    where 
-        T: Copy + crate::helpers::parse::ParseOperand, // Add the required trait
-    {
-        // Split values by commas and parse each one
-        let values_str = values_str.split(',').map(|s| s.trim());
-        let mut values = Vec::new();
-
-        for value_str in values_str {
-            // Skip empty strings (can happen with trailing commas)
-            if value_str.is_empty() {
-                continue;
-            }
-
-            // Parse using our helper
-            let value = parse_value::<T>(value_str)?;
-            values.push(value);
-        }
-
-        Ok(values)
     }
 }
 
@@ -1012,7 +1098,7 @@ mod tests {
         assembler.add_segment("DATA", 0xC000);
 
         // Parse a directive without applying it
-        let directive = assembler.parse_directive(".segment \"CODE\"")?;
+        let directive = assembler.parse_directive(".segment \"CODE\"", None)?;
         assert!(directive.is_some());
         if let Some(directive) = directive {
             match directive {

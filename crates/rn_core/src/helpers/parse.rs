@@ -56,6 +56,14 @@ where
                 format!("Invalid hex {} value: ${}", type_name, hex_str)
             ))
     } 
+    // Handle binary format (with % prefix)
+    else if input.starts_with('%') {
+        let bin_str = &input[1..];
+        T::from_str_radix(bin_str, 2)
+            .map_err(|_| ParseError::InvalidFormat(
+                format!("Invalid binary {} value: %{}", type_name, bin_str)
+            ))
+    }
     // Handle decimal format
     else {
         input.parse::<T>()
@@ -109,6 +117,19 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_u8_binary() {
+        // Valid binary values
+        assert_eq!(parse_value::<u8>("%00000000").unwrap(), 0);
+        assert_eq!(parse_value::<u8>("%11111111").unwrap(), 255);
+        assert_eq!(parse_value::<u8>("%00001111").unwrap(), 15);
+        assert_eq!(parse_value::<u8>("%00010000").unwrap(), 16);
+
+        // Invalid binary values
+        assert!(parse_value::<u8>("%111111111").is_err()); // Too many bits for u8
+        assert!(parse_value::<u8>("%1234").is_err());      // Invalid binary digits
+    }
+
+    #[test]
     fn test_parse_u8_decimal() {
         // Valid decimal values
         assert_eq!(parse_value::<u8>("0").unwrap(), 0);
@@ -147,12 +168,17 @@ mod tests {
 
     #[test]
     fn test_immediate_operand() {
-        // Test with # prefix
+        // Test with # prefix for hex values
         assert_eq!(parse_value::<u8>("#$42").unwrap(), 0x42);
         assert_eq!(parse_value::<u16>("#$1234").unwrap(), 0x1234);
+        
+        // Test with # prefix for binary values
+        assert_eq!(parse_value::<u8>("#%00101010").unwrap(), 42);  // Binary 00101010 = decimal 42
+        assert_eq!(parse_value::<u8>("#%00010000").unwrap(), 16);  // Binary 00010000 = decimal 16
         
         // Test without # prefix (should still work)
         assert_eq!(parse_value::<u8>("$42").unwrap(), 0x42);
         assert_eq!(parse_value::<u16>("$1234").unwrap(), 0x1234);
+        assert_eq!(parse_value::<u8>("%00101010").unwrap(), 42);
     }
 } 

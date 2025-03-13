@@ -2555,7 +2555,9 @@ name = "rn_core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "lazy_static",
  "parse-display",
+ "regex",
  "thiserror 2.0.12",
 ]
 
