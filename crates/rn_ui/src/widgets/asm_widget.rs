@@ -153,32 +153,6 @@ impl AsmWidget {
         self.assembler.load_address = address;
     }
 
-    /// Show the assembled bytes as hex
-    fn show_assembled_bytes(&mut self, ui: &mut Ui) {
-        if self.assembled_bytes.is_empty() {
-            return;
-        }
-
-        ui.heading("Assembled Code");
-
-        // Display in hex format
-        ui.horizontal_wrapped(|ui| {
-            for (i, &byte) in self.assembled_bytes.iter().enumerate() {
-                if i > 0 && i % 8 == 0 {
-                    ui.end_row();
-                }
-
-                let hex = format!("{:02X}", byte);
-                ui.label(hex);
-                ui.add_space(8.0);
-            }
-        });
-
-        // Show total size
-        ui.add_space(5.0);
-        ui.label(format!("Total size: {} bytes", self.assembled_bytes.len()));
-    }
-
     /// Show the widget in the given UI
     pub fn ui(&mut self, ui: &mut Ui, system: &mut NesSystem) {
         // Code editor
@@ -279,12 +253,6 @@ impl AsmWidget {
         } else if let Some(err_msg) = &self.error_message {
             ui.add_space(5.0);
             ui.colored_label(Color32::RED, err_msg);
-        }
-
-        // Show assembled bytes if available
-        if self.assembled {
-            ui.add_space(10.0);
-            self.show_assembled_bytes(ui);
         }
     }
 }

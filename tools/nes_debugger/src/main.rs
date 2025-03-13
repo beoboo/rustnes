@@ -76,6 +76,7 @@ enum DockTab {
     PatternTable,
     Cpu,
     Display,
+    AssembledCode,
 }
 
 impl DockTab {
@@ -87,6 +88,7 @@ impl DockTab {
             DockTab::PatternTable => "Pattern Tables",
             DockTab::Cpu => "CPU State",
             DockTab::Display => "Display",
+            DockTab::AssembledCode => "Assembled Code",
         }
     }
 }
@@ -95,7 +97,6 @@ impl DockTab {
 #[derive(Default)]
 struct AppContext {
     display_mode: DisplayMode,
-    show_assembled_code: bool,
 }
 
 /// Main debugger application
@@ -146,47 +147,52 @@ impl<'a> TabViewer for NesTabViewer<'a> {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         match tab {
             DockTab::Assembly => {
-                // Assembly Tab content
+                // Assembly Tab content - just show the editor
                 let mut system_borrow = self.system.borrow_mut();
                 self.asm_widget.ui(ui, &mut *system_borrow);
-                drop(system_borrow);
-                
-                // Display assembled code if requested
-                if self.context.show_assembled_code && self.asm_widget.is_loaded() {
-                    ui.add_space(10.0);
-                    ui.horizontal(|ui| {
-                        ui.heading("Assembled Code");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(format!("Load Address: ${:04X}", self.asm_widget.load_address()));
-                        });
+            },
+            DockTab::AssembledCode => {
+                // Only show content if code is loaded
+                if !self.asm_widget.is_loaded() {
+                    ui.centered_and_justified(|ui| {
+                        ui.label("No code assembled yet");
                     });
-                    let bytes = self.asm_widget.assembled_bytes();
-                    let load_addr = self.asm_widget.load_address();
-                    
-                    // Display bytes in a formatted table
-                    let mut addr = load_addr;
-                    let bytes_per_row = 16;
-                    
-                    egui::ScrollArea::vertical()
-                        .id_salt("assembled_code_scroll")
-                        .show(ui, |ui| {
-                            let text_style = egui::TextStyle::Monospace;
-                            let _row_height = ui.text_style_height(&text_style) + 4.0;
-                            
-                            for chunk in bytes.chunks(bytes_per_row) {
-                                ui.horizontal(|ui| {
-                                    // Show address
-                                    ui.label(format!("${:04X}:", addr));
-                                    
-                                    // Show hex bytes
-                                    for byte in chunk {
-                                        ui.label(format!("{:02X}", byte));
-                                    }
-                                });
-                                addr += chunk.len() as u16;
-                            }
-                        });
+                    return;
                 }
+                
+                // Show assembly information header
+                ui.horizontal(|ui| {
+                    ui.label(format!("Load Address: ${:04X}", self.asm_widget.load_address()));
+                    ui.label(format!("Size: {} bytes", self.asm_widget.assembled_bytes().len()));
+                });
+                
+                ui.add_space(8.0);
+                
+                // Display bytes in a formatted table
+                let bytes = self.asm_widget.assembled_bytes();
+                let load_addr = self.asm_widget.load_address();
+                let mut addr = load_addr;
+                let bytes_per_row = 16;
+                
+                egui::ScrollArea::vertical()
+                    .id_salt("assembled_code_scroll")
+                    .show(ui, |ui| {
+                        let text_style = egui::TextStyle::Monospace;
+                        let _row_height = ui.text_style_height(&text_style) + 4.0;
+                        
+                        for chunk in bytes.chunks(bytes_per_row) {
+                            ui.horizontal(|ui| {
+                                // Show address
+                                ui.label(format!("${:04X}:", addr));
+                                
+                                // Show hex bytes
+                                for byte in chunk {
+                                    ui.label(format!("{:02X}", byte));
+                                }
+                            });
+                            addr += chunk.len() as u16;
+                        }
+                    });
             },
             DockTab::Disassembly => {
                 // Disassembly Tab content
@@ -342,25 +348,25 @@ impl NesDebugger {
         // Create initial dock state with all our tabs
         let mut dock_state = DockState::new(vec![DockTab::Assembly, DockTab::Memory, DockTab::PatternTable]);
         
-        // First split: Create layout with Assembly/Memory/PatternTable in center, and CPU on the left
+        // Create layout with Assembly/Memory/PatternTable in center, and CPU on the left
         let [center, _left] = dock_state.main_surface_mut().split_left(
             NodeIndex::root(),
             0.2, // 20% width for CPU
             vec![DockTab::Cpu],
         );
         
-        // Second split: Add Display on the right side of the center area
+        // Add Display on the right side of the center area
         let [center_main, _right] = dock_state.main_surface_mut().split_right(
             center, // Split the center node, not the root
             0.7,    // Central area takes 70% of remaining width
             vec![DockTab::Display],
         );
         
-        // Third split: Add Disassembly at the bottom of just the central area
+        // Create a bottom area for Disassembly and Assembled Code
         dock_state.main_surface_mut().split_below(
             center_main, // Split the center_main node, not the root
             0.7,         // Top takes 70% of height
-            vec![DockTab::Disassembly],
+            vec![DockTab::Disassembly, DockTab::AssembledCode],
         );
 
         Self {
@@ -379,7 +385,6 @@ impl NesDebugger {
             dock_state,
             context: AppContext {
                 display_mode: DisplayMode::Memory,
-                show_assembled_code: false,
             },
             initial_file_loaded: false,
         }
@@ -430,10 +435,6 @@ impl App for NesDebugger {
                         ui.close_menu();
                     }
                     // Add more file operations here as needed
-                });
-
-                ui.menu_button("View", |ui| {
-                    ui.checkbox(&mut self.context.show_assembled_code, "Show Assembled Code");
                 });
 
                 ui.menu_button("System", |ui| {
@@ -488,11 +489,12 @@ fn main() -> anyhow::Result<()> {
     // Parse command line arguments
     let args = Args::parse();
 
-    // Set up the native options
+    // Set up the native options with a maximized window
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1024.0, 768.0])
-            .with_min_inner_size([800.0, 600.0]),
+            .with_inner_size([1024.0, 768.0]) // Default size if maximizing fails
+            .with_min_inner_size([800.0, 600.0])
+            .with_maximized(true), // Start maximized but not fullscreen
         ..Default::default()
     };
 
