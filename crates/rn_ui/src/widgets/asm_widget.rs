@@ -7,6 +7,7 @@ use rn_core::{
 };
 
 use crate::widgets::{HexEditText, ValueType};
+use std::collections::HashMap;
 
 /// A widget for editing and executing 6502 assembly code
 pub struct AsmWidget {
@@ -14,8 +15,10 @@ pub struct AsmWidget {
     pub code: String,
     /// Flag indicating if the code has been assembled
     pub assembled: bool,
-    /// Assembled bytes
+    /// Assembled bytes (from the default segment)
     pub assembled_bytes: Vec<u8>,
+    /// All assembled segments
+    pub assembled_segments: HashMap<String, Vec<u8>>,
     /// Error message from assembly process
     pub error_message: Option<String>,
     /// Assembler for 6502 code
@@ -27,12 +30,16 @@ pub struct AsmWidget {
 impl AsmWidget {
     /// Create a new AsmWidget
     pub fn new() -> Self {
+        // Create assembler with standard NES segments automatically added
+        let assembler = Assembler::new(0x8000).with_nes_segments();
+        
         Self {
             code: String::from("; Enter your 6502 assembly code here\n\nLDA #$01\nSTA $0200\nBRK"),
             assembled: false,
             assembled_bytes: Vec::new(),
+            assembled_segments: HashMap::new(),
             error_message: None,
-            assembler: Assembler::new(0x8000), // Default load address is 0x8000
+            assembler,
             load_address_editor: HexEditText::new(),
         }
     }
@@ -80,12 +87,22 @@ impl AsmWidget {
     /// Attempt to assemble the current code and immediately load it
     pub fn assemble_code(&mut self, system: &mut NesSystem) -> Result<()> {
         self.assembled_bytes.clear();
+        self.assembled_segments.clear();
         self.error_message = None;
 
         // Use the assembler's assemble_program method to handle multiple lines and comments
         match self.assembler.assemble_program(&self.code) {
-            Ok(bytes) => {
-                self.assembled_bytes = bytes;
+            Ok(segments) => {
+                self.assembled_segments = segments;
+                
+                // Use the STARTUP segment as the default if it exists
+                if let Some(startup_bytes) = self.assembled_segments.get("STARTUP") {
+                    self.assembled_bytes = startup_bytes.clone();
+                } else if let Some((_, bytes)) = self.assembled_segments.iter().next() {
+                    // Otherwise use the first segment
+                    self.assembled_bytes = bytes.clone();
+                }
+                
                 self.assembled = true;
 
                 // Immediately reset and load the program

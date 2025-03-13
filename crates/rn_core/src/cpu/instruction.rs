@@ -550,7 +550,7 @@ mod tests {
     #[test]
     fn test_integration_jmp() -> Result<()> {
         let mut cpu = setup_cpu();
-        let parser = Assembler::new(0);
+        let mut parser = Assembler::new(0);
 
         // Program:
         // 0x0100: LDA #$42  ; Load 0x42 into A
@@ -613,7 +613,7 @@ mod tests {
     #[test]
     fn test_integration_step_lda() -> Result<()> {
         let mut cpu = setup_cpu();
-        let parser = Assembler::new(0);
+        let mut parser = Assembler::new(0);
 
         // Set up test with parser
         cpu.pc = 0x0100;
@@ -641,7 +641,7 @@ mod tests {
     #[test]
     fn test_integration_step_store_and_load() -> Result<()> {
         let mut cpu = setup_cpu();
-        let parser = Assembler::new(0);
+        let mut parser = Assembler::new(0);
 
         // Set up test with parser
         cpu.pc = 0x0200;
@@ -910,7 +910,7 @@ mod tests {
     #[test]
     fn test_nop_instruction() -> Result<()> {
         let mut cpu = setup_cpu();
-        let parser = Assembler::new(0);
+        let mut parser = Assembler::new(0);
 
         // Set up test with parser
         cpu.pc = 0x0100;

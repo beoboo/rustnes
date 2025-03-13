@@ -164,52 +164,52 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                 ui.horizontal(|ui| {
                     ui.label(format!("Load Address: ${:04X}", self.asm_widget.load_address()));
                     ui.label(format!("Size: {} bytes", self.asm_widget.assembled_bytes().len()));
-                });
-                
-                ui.add_space(8.0);
-                
+            });
+            
+            ui.add_space(8.0);
+            
                 // Display bytes in a formatted table
-                let bytes = self.asm_widget.assembled_bytes();
-                let load_addr = self.asm_widget.load_address();
-                let mut addr = load_addr;
-                let bytes_per_row = 16;
-                
-                egui::ScrollArea::vertical()
-                    .id_salt("assembled_code_scroll")
-                    .show(ui, |ui| {
-                        let text_style = egui::TextStyle::Monospace;
-                        let _row_height = ui.text_style_height(&text_style) + 4.0;
-                        
-                        for chunk in bytes.chunks(bytes_per_row) {
-                            ui.horizontal(|ui| {
-                                // Show address
-                                ui.label(format!("${:04X}:", addr));
-                                
-                                // Show hex bytes
-                                for byte in chunk {
-                                    ui.label(format!("{:02X}", byte));
-                                }
-                            });
-                            addr += chunk.len() as u16;
-                        }
-                    });
+                            let bytes = self.asm_widget.assembled_bytes();
+                            let load_addr = self.asm_widget.load_address();
+                            let mut addr = load_addr;
+                            let bytes_per_row = 16;
+                            
+                            egui::ScrollArea::vertical()
+                                .id_salt("assembled_code_scroll")
+                                .show(ui, |ui| {
+                                    let text_style = egui::TextStyle::Monospace;
+                                    let _row_height = ui.text_style_height(&text_style) + 4.0;
+                                    
+                                    for chunk in bytes.chunks(bytes_per_row) {
+                                        ui.horizontal(|ui| {
+                                            // Show address
+                                            ui.label(format!("${:04X}:", addr));
+                                            
+                                            // Show hex bytes
+                                            for byte in chunk {
+                                                ui.label(format!("{:02X}", byte));
+                                            }
+                                        });
+                                        addr += chunk.len() as u16;
+                                    }
+                                });
             },
             DockTab::Disassembly => {
                 // Disassembly Tab content
-                egui::ScrollArea::vertical()
-                    .id_salt("disassembly_scroll")
-                    .show(ui, |ui| {
-                        let system_ref = self.system.borrow();
-                        let _ = self.disasm_widget.ui(ui, system_ref.cpu());
+                            egui::ScrollArea::vertical()
+                                .id_salt("disassembly_scroll")
+                                .show(ui, |ui| {
+                                    let system_ref = self.system.borrow();
+                                    let _ = self.disasm_widget.ui(ui, system_ref.cpu());
                     });
-            },
+                },
             DockTab::Memory => {
                 // Memory Tab content
                 
                 // Use a ScrollArea with both horizontal and vertical scrolling
                 egui::ScrollArea::both()
-                    .id_salt("memory_editor_scroll")
-                    .show(ui, |ui| {
+                        .id_salt("memory_editor_scroll")
+                        .show(ui, |ui| {
                         // Use a fixed width for the content to ensure horizontal scrolling works
                         let available_width = ui.available_width();
                         let min_content_width: f32 = 800.0; // This should be enough for the memory widget
@@ -222,55 +222,55 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                             // Show the memory editor widget with access to CPU memory
                             self.memory_widget.ui(ui, &mut adapter);
                         });
-                    });
-            },
+                        });
+                },
             DockTab::PatternTable => {
                 // Pattern Table Tab content
-                
-                // Add pattern table controls
-                ui.horizontal(|ui| {
-                    ui.label("Zoom:");
-                    if ui.button("-").clicked() {
-                        let current_zoom = self.pattern_table_widget.zoom();
-                        self.pattern_table_widget.set_zoom((current_zoom - 0.25).max(0.25));
-                    }
-                    if ui.button("+").clicked() {
-                        let current_zoom = self.pattern_table_widget.zoom();
-                        self.pattern_table_widget.set_zoom((current_zoom + 0.25).min(4.0));
-                    }
                     
-                    ui.separator();
-                    
-                    ui.label("Pattern Table:");
-                    if ui.button("0").clicked() {
-                        self.pattern_table_widget.set_current_table(0);
-                    }
-                    if ui.button("1").clicked() {
-                        self.pattern_table_widget.set_current_table(1);
-                    }
-                    
-                    ui.separator();
-                    
-                    // Toggle grid
-                    let mut show_grid = self.pattern_table_widget.show_grid();
-                    if ui.checkbox(&mut show_grid, "Show Grid").changed() {
-                        self.pattern_table_widget.set_show_grid(show_grid);
-                    }
-                });
-                
-                ui.add_space(8.0);
-                
-                egui::ScrollArea::vertical()
-                    .id_salt("pattern_table_scroll")
-                    .show(ui, |ui| {
-                        let system_borrow = self.system.borrow();
-                        // Get cartridge reference from the system
-                        let cartridge = system_borrow.cartridge();
+                    // Add pattern table controls
+                    ui.horizontal(|ui| {
+                        ui.label("Zoom:");
+                        if ui.button("-").clicked() {
+                            let current_zoom = self.pattern_table_widget.zoom();
+                            self.pattern_table_widget.set_zoom((current_zoom - 0.25).max(0.25));
+                        }
+                        if ui.button("+").clicked() {
+                            let current_zoom = self.pattern_table_widget.zoom();
+                            self.pattern_table_widget.set_zoom((current_zoom + 0.25).min(4.0));
+                        }
                         
-                        // Show the pattern table widget with access to the cartridge
-                        let _ = self.pattern_table_widget.ui(ui, cartridge.as_ref());
+                        ui.separator();
+                        
+                        ui.label("Pattern Table:");
+                        if ui.button("0").clicked() {
+                            self.pattern_table_widget.set_current_table(0);
+                        }
+                        if ui.button("1").clicked() {
+                            self.pattern_table_widget.set_current_table(1);
+                        }
+                        
+                        ui.separator();
+                        
+                        // Toggle grid
+                        let mut show_grid = self.pattern_table_widget.show_grid();
+                        if ui.checkbox(&mut show_grid, "Show Grid").changed() {
+                            self.pattern_table_widget.set_show_grid(show_grid);
+                        }
                     });
-            },
+                    
+                    ui.add_space(8.0);
+                    
+                    egui::ScrollArea::vertical()
+                        .id_salt("pattern_table_scroll")
+                        .show(ui, |ui| {
+                            let system_borrow = self.system.borrow();
+                            // Get cartridge reference from the system
+                            let cartridge = system_borrow.cartridge();
+                            
+                            // Show the pattern table widget with access to the cartridge
+                            let _ = self.pattern_table_widget.ui(ui, cartridge.as_ref());
+                        });
+                },
             DockTab::Cpu => {
                 // CPU Tab content
                 

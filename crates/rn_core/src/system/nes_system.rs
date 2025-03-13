@@ -218,8 +218,13 @@ mod tests {
 
     // Create a utility function to assemble code for tests
     fn assemble_code(code: &str, load_address: u16) -> Vec<u8> {
-        let assembler = Assembler::new(load_address);
-        assembler.assemble_program(code).expect("Failed to assemble test code")
+        let mut assembler = Assembler::new(load_address);
+        // For tests, we just use the STARTUP segment which is the default
+        assembler.assemble_program(code)
+            .expect("Failed to assemble test code")
+            .get("STARTUP")
+            .cloned()
+            .unwrap_or_default()
     }
 
     #[test]

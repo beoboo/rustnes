@@ -155,7 +155,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## MILESTONE 3: Basic Sprite Rendering [T3]
 - [x] Create a test ROM that displays a single sprite
 - [ ] Implement basic sprite rendering functionality
-- [ ] Test sprite rendering with different attributes (palette, position)
+- [ ] Test sprite rendering with a single sprite
+- [ ] Support basic NES ROM assembly with essential directives
 - [ ] Document the achievement
 
 ### [CPU] Extended Addressing Modes [T3] 
@@ -177,7 +178,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Track and process writes to OAM memory
 - [ ] Implement basic sprite evaluation (position, tile number, attributes)
 - [ ] Implement single sprite rendering pipeline
-- [ ] Test basic sprite rendering
+- [ ] Test basic sprite rendering with simple pattern
 
 ### [Cartridge] Basic ROM Loading [T3]
 - [x] Implement simplified iNES file format parser
@@ -185,10 +186,21 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Make CHR ROM data accessible to pattern tables
 - [ ] Test ROM loading with sprite pattern
 
+### [Parser] Assembler Directives Support [T3]
+- [ ] Implement `.segment` directive for defining basic sections (HEADER, STARTUP, VECTORS, CHARS)
+- [ ] Implement `.byte` directive for defining byte arrays
+- [ ] Implement `.word` directive for defining word values
+- [ ] Implement `.res` directive for reserving space
+- [ ] Add support for multiple segments with different load addresses
+- [ ] Implement basic NES ROM structure generation with header and layout
+- [ ] Add tests for essential directives
+- [ ] Update AsmDebugger to support simple NES ROM assembly
+
 ## MILESTONE 4: Interactive Graphics & Animation [T4]
 - [ ] Create a demo with animated user-controlled sprite
 - [ ] Implement scrolling background
 - [ ] Demonstrate controller input
+- [ ] Support advanced assembler features and multiple sprites
 - [ ] Document the achievement
 
 ### [CPU] Animation & Control Flow Instructions [T4]
@@ -236,6 +248,18 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Add parser tests for advanced instructions
 - [ ] Create full disassembler with machine code to assembly conversion
 
+### [Parser] Advanced Assembler Features [T4]
+- [ ] Implement segment-specific load addresses (HEADER at $0000, PRG at $8000, etc.)
+- [ ] Add support for NES ROM header generation with checksums
+- [ ] Implement binary output functionality (.nes file format)
+- [ ] Support standard NES ROM segments (HEADER, STARTUP, VECTORS, CHARS)
+- [ ] Add support for complex expressions in directives (e.g., `.byte $10, $20, $30`)
+- [ ] Implement `.org` directive for setting origin/load address
+- [ ] Add support for conditional assembly directives (.ifdef, .ifndef, etc.)
+- [ ] Support include files and modular assembly code (.include directive)
+- [ ] Add macro support for code reuse
+- [ ] Create advanced tests for full assembler functionality
+
 ### [Memory] Memory Enhancements [T4]
 - [ ] Implement RAM mirroring ($0800-$1FFF mirrors $0000-$07FF)
 - [ ] Implement ROM component for cartridge memory ($8000-$FFFF)
@@ -250,11 +274,18 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test controller input
 - [ ] Test DMA functionality
 
+### [PPU] Advanced Sprite Features [T4]
+- [ ] Implement multiple sprite rendering
+- [ ] Implement sprite priority
+- [ ] Implement sprite attributes (flip, palette selection)
+- [ ] Implement sprite zero hit detection
+- [ ] Implement sprite overflow handling
+- [ ] Implement sprite-background interaction
+- [ ] Test advanced sprite features
+
 ### [PPU] Advanced PPU Features [T4]
 - [ ] Implement PPU register mirroring ($2008-$3FFF mirrors $2000-$2007)
-- [ ] Implement sprite priority
-- [ ] Implement additional sprite attributes (flip, palette)
-- [ ] Test advanced sprite features
+- [ ] Test advanced PPU features
 
 ### [PPU] Background Rendering [T4]
 - [ ] Implement name table handling
