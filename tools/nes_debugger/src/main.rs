@@ -117,7 +117,7 @@ struct NesDebugger {
 
     // Dock state
     dock_state: DockState<DockTab>,
-    
+
     // Shared context
     context: AppContext,
 
@@ -159,139 +159,140 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                     });
                     return;
                 }
-                
+
                 // Show assembly information header
                 ui.horizontal(|ui| {
                     ui.label(format!("Load Address: ${:04X}", self.asm_widget.load_address()));
                     ui.label(format!("Size: {} bytes", self.asm_widget.assembled_bytes().len()));
-            });
-            
-            ui.add_space(8.0);
-            
+                });
+
+                ui.add_space(8.0);
+
                 // Display bytes in a formatted table
-                            let bytes = self.asm_widget.assembled_bytes();
-                            let load_addr = self.asm_widget.load_address();
-                            let mut addr = load_addr;
-                            let bytes_per_row = 16;
-                            
-                            egui::ScrollArea::vertical()
-                                .id_salt("assembled_code_scroll")
-                                .show(ui, |ui| {
-                                    let text_style = egui::TextStyle::Monospace;
-                                    let _row_height = ui.text_style_height(&text_style) + 4.0;
-                                    
-                                    for chunk in bytes.chunks(bytes_per_row) {
-                                        ui.horizontal(|ui| {
-                                            // Show address
-                                            ui.label(format!("${:04X}:", addr));
-                                            
-                                            // Show hex bytes
-                                            for byte in chunk {
-                                                ui.label(format!("{:02X}", byte));
-                                            }
-                                        });
-                                        addr += chunk.len() as u16;
-                                    }
-                                });
+                let bytes = self.asm_widget.assembled_bytes();
+                let load_addr = self.asm_widget.load_address();
+                let mut addr = load_addr;
+                let bytes_per_row = 16;
+
+                egui::ScrollArea::vertical()
+                    .id_salt("assembled_code_scroll")
+                    .show(ui, |ui| {
+                        let text_style = egui::TextStyle::Monospace;
+                        let _row_height = ui.text_style_height(&text_style) + 4.0;
+
+                        for chunk in bytes.chunks(bytes_per_row) {
+                            ui.horizontal(|ui| {
+                                // Show address
+                                ui.label(format!("${:04X}:", addr));
+
+                                // Show hex bytes
+                                for byte in chunk {
+                                    ui.label(format!("{:02X}", byte));
+                                }
+                            });
+                            addr += chunk.len() as u16;
+                        }
+                    });
             },
             DockTab::Disassembly => {
                 // Disassembly Tab content
-                            egui::ScrollArea::vertical()
-                                .id_salt("disassembly_scroll")
-                                .show(ui, |ui| {
-                                    let system_ref = self.system.borrow();
-                                    let _ = self.disasm_widget.ui(ui, system_ref.cpu());
+                egui::ScrollArea::vertical()
+                    .id_salt("disassembly_scroll")
+                    .show(ui, |ui| {
+                        let system_ref = self.system.borrow();
+                        let _ = self.disasm_widget.ui(ui, system_ref.cpu());
                     });
-                },
+            },
             DockTab::Memory => {
                 // Memory Tab content
-                
+
                 // Use a ScrollArea with both horizontal and vertical scrolling
-                egui::ScrollArea::both()
-                        .id_salt("memory_editor_scroll")
-                        .show(ui, |ui| {
-                        // Use a fixed width for the content to ensure horizontal scrolling works
-                        let available_width = ui.available_width();
-                        let min_content_width: f32 = 800.0; // This should be enough for the memory widget
-                        
-                        ui.allocate_ui(egui::vec2(min_content_width.max(available_width), ui.available_height()), |ui| {
+                egui::ScrollArea::both().id_salt("memory_editor_scroll").show(ui, |ui| {
+                    // Use a fixed width for the content to ensure horizontal scrolling works
+                    let available_width = ui.available_width();
+                    let min_content_width: f32 = 800.0; // This should be enough for the memory widget
+
+                    ui.allocate_ui(
+                        egui::vec2(min_content_width.max(available_width), ui.available_height()),
+                        |ui| {
                             // Create an adapter to access CPU memory with the memory editor
                             let mut system_borrow = self.system.borrow_mut();
                             let mut adapter = CpuMemoryAdapter::new(system_borrow.cpu_mut());
 
                             // Show the memory editor widget with access to CPU memory
                             self.memory_widget.ui(ui, &mut adapter);
-                        });
-                        });
-                },
+                        },
+                    );
+                });
+            },
             DockTab::PatternTable => {
                 // Pattern Table Tab content
-                    
-                    // Add pattern table controls
-                    ui.horizontal(|ui| {
-                        ui.label("Zoom:");
-                        if ui.button("-").clicked() {
-                            let current_zoom = self.pattern_table_widget.zoom();
-                            self.pattern_table_widget.set_zoom((current_zoom - 0.25).max(0.25));
-                        }
-                        if ui.button("+").clicked() {
-                            let current_zoom = self.pattern_table_widget.zoom();
-                            self.pattern_table_widget.set_zoom((current_zoom + 0.25).min(4.0));
-                        }
-                        
-                        ui.separator();
-                        
-                        ui.label("Pattern Table:");
-                        if ui.button("0").clicked() {
-                            self.pattern_table_widget.set_current_table(0);
-                        }
-                        if ui.button("1").clicked() {
-                            self.pattern_table_widget.set_current_table(1);
-                        }
-                        
-                        ui.separator();
-                        
-                        // Toggle grid
-                        let mut show_grid = self.pattern_table_widget.show_grid();
-                        if ui.checkbox(&mut show_grid, "Show Grid").changed() {
-                            self.pattern_table_widget.set_show_grid(show_grid);
+
+                // Add pattern table controls
+                ui.horizontal(|ui| {
+                    ui.label("Zoom:");
+                    if ui.button("-").clicked() {
+                        let current_zoom = self.pattern_table_widget.zoom();
+                        self.pattern_table_widget.set_zoom((current_zoom - 0.25).max(0.25));
+                    }
+                    if ui.button("+").clicked() {
+                        let current_zoom = self.pattern_table_widget.zoom();
+                        self.pattern_table_widget.set_zoom((current_zoom + 0.25).min(4.0));
+                    }
+
+                    ui.separator();
+
+                    ui.label("Pattern Table:");
+                    if ui.button("0").clicked() {
+                        self.pattern_table_widget.set_current_table(0);
+                    }
+                    if ui.button("1").clicked() {
+                        self.pattern_table_widget.set_current_table(1);
+                    }
+
+                    ui.separator();
+
+                    // Toggle grid
+                    let mut show_grid = self.pattern_table_widget.show_grid();
+                    if ui.checkbox(&mut show_grid, "Show Grid").changed() {
+                        self.pattern_table_widget.set_show_grid(show_grid);
+                    }
+                });
+
+                ui.add_space(8.0);
+
+                egui::ScrollArea::vertical()
+                    .id_salt("pattern_table_scroll")
+                    .show(ui, |ui| {
+                        let system_borrow = self.system.borrow();
+                        // Get cartridge reference from the system and convert to the expected format
+                        if let Some(cart_rc) = system_borrow.cartridge() {
+                            // Pass a reference to the cloned Rc
+                            let _ = self.pattern_table_widget.ui(ui, Some(&cart_rc));
+                        } else {
+                            // No cartridge
+                            let _ = self.pattern_table_widget.ui(ui, None);
                         }
                     });
-                    
-                    ui.add_space(8.0);
-                    
-                    egui::ScrollArea::vertical()
-                        .id_salt("pattern_table_scroll")
-                        .show(ui, |ui| {
-                            let system_borrow = self.system.borrow();
-                            // Get cartridge reference from the system and convert to the expected format
-                            if let Some(cart_rc) = system_borrow.cartridge() {
-                                // Pass a reference to the cloned Rc
-                                let _ = self.pattern_table_widget.ui(ui, Some(&cart_rc));
-                            } else {
-                                // No cartridge
-                                let _ = self.pattern_table_widget.ui(ui, None);
-                            }
-                        });
-                },
+            },
             DockTab::Cpu => {
                 // CPU Tab content
-                
+
                 let mut system = self.system.borrow_mut();
                 self.cpu_widget.ui(ui, system.cpu_mut());
             },
             DockTab::Display => {
                 // Display Tab content
-                
+
                 // Display mode selector
                 ui.horizontal(|ui| {
                     ui.label("Display Mode:");
                     ui.radio_value(&mut self.context.display_mode, DisplayMode::Memory, "Memory");
                     ui.radio_value(&mut self.context.display_mode, DisplayMode::Ppu, "PPU");
                 });
-                
+
                 ui.add_space(8.0);
-                
+
                 // Display content based on mode
                 match self.context.display_mode {
                     DisplayMode::Memory => {
@@ -350,21 +351,21 @@ impl NesDebugger {
 
         // Create initial dock state with all our tabs
         let mut dock_state = DockState::new(vec![DockTab::Assembly, DockTab::Memory, DockTab::PatternTable]);
-        
+
         // Create layout with Assembly/Memory/PatternTable in center, and CPU on the left
         let [center, _left] = dock_state.main_surface_mut().split_left(
             NodeIndex::root(),
             0.2, // 20% width for CPU
             vec![DockTab::Cpu],
         );
-        
+
         // Add Display on the right side of the center area
         let [center_main, _right] = dock_state.main_surface_mut().split_right(
             center, // Split the center node, not the root
             0.7,    // Central area takes 70% of remaining width
             vec![DockTab::Display],
         );
-        
+
         // Create a bottom area for Disassembly and Assembled Code
         dock_state.main_surface_mut().split_below(
             center_main, // Split the center_main node, not the root
@@ -476,7 +477,7 @@ impl App for NesDebugger {
                 system: self.system.clone(),
                 context: &mut self.context,
             };
-            
+
             // Render the dock area
             DockArea::new(&mut self.dock_state)
                 .style(Style::from_egui(ui.style().as_ref()))

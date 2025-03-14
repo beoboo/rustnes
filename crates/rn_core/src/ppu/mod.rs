@@ -25,7 +25,7 @@ pub struct Ppu {
 
     // Rendering output
     frame_buffer: Vec<u8>, // RGB data for the current frame
-    
+
     // Cartridge reference (optional)
     cartridge: Option<std::rc::Rc<std::cell::RefCell<crate::cartridge::Cartridge>>>,
 }
@@ -106,40 +106,40 @@ impl Ppu {
                 // Calculate nametable address for this tile
                 let nt_addr = 0x2000 + tile_y * 32 + tile_x;
                 let tile_id = self.read_ppu_memory(nt_addr as u16);
-                
+
                 // Skip tile 0 (usually transparent/empty)
                 if tile_id == 0 {
                     continue;
                 }
-                
+
                 // Get the pixel data for this tile
                 if let Some(cart_ref) = &self.cartridge {
                     let cart = cart_ref.borrow();
-                    
+
                     // Get all the pixel data for this tile
                     let pixels = cart.get_tile_pixels(tile_id as u16);
-                    
+
                     // Render each pixel in the tile
                     for y in 0..8 {
                         for x in 0..8 {
                             // Calculate the position in the frame buffer
                             let screen_x = tile_x * 8 + x;
                             let screen_y = tile_y * 8 + y;
-                            
+
                             // Skip if out of bounds
                             if screen_x >= 256 || screen_y >= 240 {
                                 continue;
                             }
-                            
+
                             // Get the pixel value (0-3) from the pattern table
                             let pixel_value = pixels[y * 8 + x];
-                            
+
                             // Skip transparent pixels (value 0)
                             if pixel_value == 0 {
                                 continue;
                             }
-                            
-                            // For now, use a simple color mapping: 
+
+                            // For now, use a simple color mapping:
                             // 0 = transparent (already skipped)
                             // 1 = gray
                             // 2 = light gray
@@ -150,11 +150,11 @@ impl Ppu {
                                 3 => [0xFF, 0xFF, 0xFF], // White
                                 _ => continue,           // Shouldn't happen, but skip if it does
                             };
-                            
+
                             // Calculate the position in the frame buffer
                             let idx = (screen_y * 256 + screen_x) * 3;
                             if idx < self.frame_buffer.len() - 2 {
-                                self.frame_buffer[idx] = color[0];     // R
+                                self.frame_buffer[idx] = color[0]; // R
                                 self.frame_buffer[idx + 1] = color[1]; // G
                                 self.frame_buffer[idx + 2] = color[2]; // B
                             }
@@ -169,7 +169,7 @@ impl Ppu {
                     let idx = (py * 256 + px) * 3;
                     if idx < self.frame_buffer.len() - 2 {
                         // Set pixel to white for visibility
-                        self.frame_buffer[idx] = 255;     // R
+                        self.frame_buffer[idx] = 255; // R
                         self.frame_buffer[idx + 1] = 255; // G
                         self.frame_buffer[idx + 2] = 255; // B
                     }
@@ -534,7 +534,7 @@ impl Ppu {
     pub fn disconnect_cartridge(&mut self) {
         self.cartridge = None;
     }
-    
+
     /// Get the current cartridge if one is connected
     pub fn cartridge(&self) -> Option<&std::rc::Rc<std::cell::RefCell<crate::cartridge::Cartridge>>> {
         self.cartridge.as_ref()
@@ -635,9 +635,9 @@ pub mod registers {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
     use super::*;
-    use std::rc::Rc;
-    use std::cell::RefCell;
     use crate::cartridge::Cartridge;
 
     #[test]
@@ -726,22 +726,22 @@ mod tests {
         ppu.write_address(0x05); // Low byte
         assert_eq!(ppu.read_data(), 0xCD); // Actual read
     }
-    
+
     #[test]
     fn test_pattern_table_access() {
         // Create a new PPU
         let mut ppu = Ppu::new();
-        
+
         // Create a new cartridge
         let cart = Rc::new(RefCell::new(Cartridge::new()));
-        
+
         // Load some pattern data
         {
             let mut cart_mut = cart.borrow_mut();
-            
+
             // Create test data: a simple 8x8 tile
             let mut test_data = vec![0; 0x2000];
-            
+
             // Tile 0: A simple pattern that looks like:
             // ■■■■■■■■
             // ■■■■■■■■
@@ -751,7 +751,7 @@ mod tests {
             // ■■    ■■
             // ■■■■■■■■
             // ■■■■■■■■
-            
+
             // Low bit plane (1s define shape)
             test_data[0x0000] = 0xFF; // Row 1: ■■■■■■■■
             test_data[0x0001] = 0xFF; // Row 2: ■■■■■■■■
@@ -761,7 +761,7 @@ mod tests {
             test_data[0x0005] = 0xC3; // Row 6: ■■    ■■
             test_data[0x0006] = 0xFF; // Row 7: ■■■■■■■■
             test_data[0x0007] = 0xFF; // Row 8: ■■■■■■■■
-            
+
             // High bit plane (all 0s for this simple test)
             test_data[0x0008] = 0x00;
             test_data[0x0009] = 0x00;
@@ -771,24 +771,24 @@ mod tests {
             test_data[0x000D] = 0x00;
             test_data[0x000E] = 0x00;
             test_data[0x000F] = 0x00;
-            
+
             cart_mut.load_chr_rom(&test_data);
         }
-        
+
         // Connect the cartridge to the PPU
         ppu.connect_cartridge(cart);
-        
+
         // Test reading from the pattern table
         assert_eq!(ppu.read_ppu_memory(0x0000), 0xFF); // First byte of tile 0
         assert_eq!(ppu.read_ppu_memory(0x0001), 0xFF); // Second byte of tile 0
         assert_eq!(ppu.read_ppu_memory(0x0002), 0xC3); // Third byte of tile 0
-        
+
         // Test high bit plane (should be all 0s)
         assert_eq!(ppu.read_ppu_memory(0x0008), 0x00);
-        
+
         // Test disconnecting the cartridge
         ppu.disconnect_cartridge();
-        
+
         // Now we should get the default pattern (0 for most addresses, 0x08 for address 0x10)
         assert_eq!(ppu.read_ppu_memory(0x0000), 0x00);
         assert_eq!(ppu.read_ppu_memory(0x0010), 0x08);
@@ -799,13 +799,13 @@ mod tests {
         // Create a PPU and cartridge
         let mut ppu = Ppu::new();
         let cartridge = Rc::new(RefCell::new(Cartridge::new()));
-        
+
         // Create test pattern data - a simple square in the first tile
         {
             let mut cart = cartridge.borrow_mut();
-            
+
             // Create a simple test pattern:
-            // ■ ■ ■ ■ ■ ■ ■ ■ 
+            // ■ ■ ■ ■ ■ ■ ■ ■
             // ■             ■
             // ■             ■
             // ■             ■
@@ -813,7 +813,7 @@ mod tests {
             // ■             ■
             // ■             ■
             // ■ ■ ■ ■ ■ ■ ■ ■
-            
+
             // Low bit plane (tile 1)
             cart.write_pattern_table(0x10, 0xFF); // Row 1: all 1s
             cart.write_pattern_table(0x11, 0x81); // Row 2: edge bits are 1
@@ -823,25 +823,25 @@ mod tests {
             cart.write_pattern_table(0x15, 0x81); // Row 6: edge bits are 1
             cart.write_pattern_table(0x16, 0x81); // Row 7: edge bits are 1
             cart.write_pattern_table(0x17, 0xFF); // Row 8: all 1s
-            
+
             // High bit plane (all 0s for simplicity - will make all pixels value 1)
             for i in 0..8 {
                 cart.write_pattern_table(0x18 + i, 0);
             }
         }
-        
+
         // Set up the nametable - make the first tile in the nametable use pattern 1
         ppu.write_ppu_memory(0x2000, 1);
-        
+
         // Connect the cartridge to the PPU
         ppu.connect_cartridge(Rc::clone(&cartridge));
-        
+
         // Render the frame
         ppu.render_frame();
-        
+
         // Check that the frame buffer has the pattern rendered correctly
         // For the first tile at (0,0), we should see the pattern rendered as gray
-        
+
         // Check top row (all pixels should be gray - value 0x55)
         for x in 0..8 {
             let idx = x * 3; // (0 * 256 + x) * 3
@@ -849,22 +849,34 @@ mod tests {
             assert_eq!(ppu.frame_buffer[idx + 1], 0x55);
             assert_eq!(ppu.frame_buffer[idx + 2], 0x55);
         }
-        
+
         // Check middle rows - only edge pixels should be gray
         for y in 1..7 {
             // Left edge
             let left_idx = (y * 256) * 3;
-            assert_eq!(ppu.frame_buffer[left_idx], 0x55, "Left edge pixel at row {} should be gray", y);
-            
+            assert_eq!(
+                ppu.frame_buffer[left_idx], 0x55,
+                "Left edge pixel at row {} should be gray",
+                y
+            );
+
             // Center should be transparent (black/0)
             let center_idx = (y * 256 + 4) * 3;
-            assert_eq!(ppu.frame_buffer[center_idx], 0, "Center pixel at row {} should be black", y);
-            
+            assert_eq!(
+                ppu.frame_buffer[center_idx], 0,
+                "Center pixel at row {} should be black",
+                y
+            );
+
             // Right edge
             let right_idx = (y * 256 + 7) * 3;
-            assert_eq!(ppu.frame_buffer[right_idx], 0x55, "Right edge pixel at row {} should be gray", y);
+            assert_eq!(
+                ppu.frame_buffer[right_idx], 0x55,
+                "Right edge pixel at row {} should be gray",
+                y
+            );
         }
-        
+
         // Check bottom row (all pixels should be gray - value 0x55)
         for x in 0..8 {
             let idx = (7 * 256 + x) * 3;

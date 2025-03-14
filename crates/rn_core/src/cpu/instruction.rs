@@ -1,9 +1,22 @@
 use std::collections::HashMap;
 
 use parse_display::{Display, FromStr};
+use thiserror::Error;
 
 use super::{AddressingMode, Cpu, CpuFlag};
 use crate::errors::NesError;
+
+/// Error type for memory-related operations
+#[derive(Debug, Error)]
+pub enum InstructionDecoderError {
+    /// Error for invalid or unimplemented opcodes
+    #[error("Invalid opcode: {0:#04X}")]
+    InvalidOpcode(u8),
+
+    /// Error for addressing mode not implemented for a specific instruction
+    #[error("Unimplemented addressing mode for instruction")]
+    UnimplementedAddressingMode,
+}
 
 /// 6502 CPU instruction opcodes
 /// Starting with just LDA immediate as a first step
@@ -111,13 +124,14 @@ impl InstructionDecoder {
         // NOP - No Operation
         self.add_instruction(0xEA, Instruction::NOP, AddressingMode::Implied, 1, 2);
         // NOP Implied
-        
+
         // BIT - Bit Test
         self.add_instruction(0x24, Instruction::BIT, AddressingMode::ZeroPage, 2, 3); // BIT Zero Page
         self.add_instruction(0x2C, Instruction::BIT, AddressingMode::Absolute, 3, 4); // BIT Absolute
-        
+
         // BPL - Branch on Plus (N flag = 0)
-        self.add_instruction(0x10, Instruction::BPL, AddressingMode::Relative, 2, 2); // BPL Relative
+        self.add_instruction(0x10, Instruction::BPL, AddressingMode::Relative, 2, 2);
+        // BPL Relative
     }
 
     /// Add an instruction to the lookup tables
@@ -141,8 +155,8 @@ impl InstructionDecoder {
     }
 
     /// Decode an opcode into instruction metadata
-    pub fn decode(&self, opcode: u8) -> Result<InstructionMetadata, NesError> {
-        self.instruction_table[opcode as usize].ok_or(NesError::InvalidOpcode(opcode))
+    pub fn decode(&self, opcode: u8) -> Result<InstructionMetadata, InstructionDecoderError> {
+        self.instruction_table[opcode as usize].ok_or(InstructionDecoderError::InvalidOpcode(opcode))
     }
 
     /// Look up instruction metadata by instruction type and addressing mode
@@ -150,11 +164,11 @@ impl InstructionDecoder {
         &self,
         instruction: Instruction,
         addressing_mode: AddressingMode,
-    ) -> Result<InstructionMetadata, NesError> {
+    ) -> Result<InstructionMetadata, InstructionDecoderError> {
         self.instruction_map
             .get(&(instruction, addressing_mode))
             .map(|&opcode| self.instruction_table[opcode as usize].unwrap())
-            .ok_or(NesError::UnimplementedAddressingMode)
+            .ok_or(InstructionDecoderError::UnimplementedAddressingMode)
     }
 }
 
@@ -187,7 +201,7 @@ impl Cpu {
             Instruction::BPL => {
                 let additional_cycles = self.bpl()?;
                 cycles = cycles.wrapping_add(additional_cycles);
-            }
+            },
         }
 
         // Increment PC for non-jump/call/branch instructions (already incremented by 1 in fetch)
@@ -336,19 +350,19 @@ impl Cpu {
         // Get the value from the memory address
         let addr = addressing_mode.get_operand_address(self)?;
         let value = self.read_byte(addr)?;
-        
+
         // Perform AND with accumulator but don't store the result
         let result = self.a & value;
-        
+
         // Set the Zero flag based on the result of A & M
         self.set_flag(CpuFlag::Zero, result == 0);
-        
+
         // Copy bit 7 of memory to Negative flag
         self.set_flag(CpuFlag::Negative, (value & 0x80) != 0);
-        
+
         // Copy bit 6 of memory to Overflow flag
         self.set_flag(CpuFlag::Overflow, (value & 0x40) != 0);
-        
+
         Ok(())
     }
 
@@ -356,39 +370,39 @@ impl Cpu {
     pub fn bpl(&mut self) -> Result<u8, NesError> {
         // Initially no additional cycles
         let mut additional_cycles = 0;
-        
+
         // Only branch if the Negative flag is clear (positive result)
         if !self.get_flag(CpuFlag::Negative) {
             // For branch instructions, we need to read the offset directly
             // The offset is stored at PC (PC points to the offset byte after fetch)
             let offset = self.read_byte(self.pc)? as i8; // Read as signed byte
-            
+
             // Add 1 cycle for taking the branch
             additional_cycles += 1;
-            
+
             // Save the old PC for page boundary check
             let old_pc = self.pc;
-            
+
             // Calculate the target address
             // PC+1 is the address of the next instruction after BPL
             // We add the offset to that
             let target = ((self.pc as i32) + 1 + (offset as i32)) as u16;
-            
+
             // Set the PC to the target address
             self.pc = target;
-            
+
             // Add 1 more cycle if the branch crosses a page boundary
             if (old_pc & 0xFF00) != (target & 0xFF00) {
                 additional_cycles += 1;
             }
-            
+
             // No need to subtract from PC since we're setting it directly to the target
             // and execute() won't increment it for branch instructions
         } else {
             // When branch is not taken, we need to increment the PC to skip the offset byte
             self.pc = self.pc.wrapping_add(1);
         }
-        
+
         Ok(additional_cycles)
     }
 }
@@ -635,7 +649,7 @@ mod tests {
     #[test]
     fn test_integration_jmp() -> Result<()> {
         let mut cpu = setup_cpu();
-        let mut parser = Assembler::new(0);
+        let mut assembler = Assembler::new(0);
 
         // Program:
         // 0x0100: LDA #$42  ; Load 0x42 into A
@@ -645,10 +659,11 @@ mod tests {
         // 0x0108: LDX #$37  ; Load 0x37 into X
 
         // Parse and write instructions
-        let instr1 = parser.assemble_instruction("LDA #$42", None)?;
-        let instr2 = parser.assemble_instruction("JMP $0108", None)?;
-        let instr3 = parser.assemble_instruction("LDA #$24", None)?; // This should be skipped
-        let instr4 = parser.assemble_instruction("LDX #$37", None)?;
+        let labels = HashMap::new();
+        let instr1 = assembler.assemble_instruction("LDA #$42", &labels)?;
+        let instr2 = assembler.assemble_instruction("JMP $0108", &labels)?;
+        let instr3 = assembler.assemble_instruction("LDA #$24", &labels)?; // This should be skipped
+        let instr4 = assembler.assemble_instruction("LDX #$37", &labels)?;
 
         // Starting position
         cpu.pc = 0x0100;
@@ -698,13 +713,13 @@ mod tests {
     #[test]
     fn test_integration_step_lda() -> Result<()> {
         let mut cpu = setup_cpu();
-        let mut parser = Assembler::new(0);
+        let mut assembler = Assembler::new(0);
 
         // Set up test with parser
         cpu.pc = 0x0100;
 
         // Parse an LDA instruction with immediate addressing mode
-        let bytes = parser.assemble_instruction("LDA #$42", None)?;
+        let bytes = assembler.assemble_instruction("LDA #$42", &HashMap::new())?;
 
         // Write bytes to memory
         for (i, &byte) in bytes.iter().enumerate() {
@@ -726,18 +741,19 @@ mod tests {
     #[test]
     fn test_integration_step_store_and_load() -> Result<()> {
         let mut cpu = setup_cpu();
-        let mut parser = Assembler::new(0);
+        let mut assembler = Assembler::new(0);
 
         // Set up test with parser
         cpu.pc = 0x0200;
 
         // Parse and write instructions to memory
-        let instr1 = parser.assemble_instruction("LDA #$42", None)?; // Load accumulator with 0x42
-        let instr2 = parser.assemble_instruction("STA $1234", None)?; // Store accumulator to 0x1234
-        let instr3 = parser.assemble_instruction("LDX #$37", None)?; // Load X with 0x37
-        let instr4 = parser.assemble_instruction("STX $5678", None)?; // Store X to 0x5678
-        let instr5 = parser.assemble_instruction("LDY #$55", None)?; // Load Y with 0x55
-        let instr6 = parser.assemble_instruction("STY $90AB", None)?; // Store Y to 0x90AB
+        let labels = HashMap::new();
+        let instr1 = assembler.assemble_instruction("LDA #$42", &labels)?; // Load accumulator with 0x42
+        let instr2 = assembler.assemble_instruction("STA $1234", &labels)?; // Store accumulator to 0x1234
+        let instr3 = assembler.assemble_instruction("LDX #$37", &labels)?; // Load X with 0x37
+        let instr4 = assembler.assemble_instruction("STX $5678", &labels)?; // Store X to 0x5678
+        let instr5 = assembler.assemble_instruction("LDY #$55", &labels)?; // Load Y with 0x55
+        let instr6 = assembler.assemble_instruction("STY $90AB", &labels)?; // Store Y to 0x90AB
 
         // Write instructions to memory
         let mut addr = 0x0200;
@@ -805,7 +821,7 @@ mod tests {
         // Should return an InvalidOpcode error
         assert!(result.is_err(), "Expected an error for invalid opcode");
 
-        if let Err(NesError::InvalidOpcode(opcode)) = result {
+        if let Err(InstructionDecoderError::InvalidOpcode(opcode)) = result {
             assert_eq!(opcode, 0xFF);
         } else {
             anyhow::bail!("Expected InvalidOpcode error, got: {:?}", result);
@@ -995,13 +1011,13 @@ mod tests {
     #[test]
     fn test_nop_instruction() -> Result<()> {
         let mut cpu = setup_cpu();
-        let mut parser = Assembler::new(0);
+        let mut assembler = Assembler::new(0);
 
         // Set up test with parser
         cpu.pc = 0x0100;
 
         // Parse a NOP instruction
-        let bytes = parser.assemble_instruction("NOP", None)?;
+        let bytes = assembler.assemble_instruction("NOP", &HashMap::new())?;
         assert_eq!(bytes.len(), 1);
         assert_eq!(bytes[0], 0xEA);
 
@@ -1023,32 +1039,34 @@ mod tests {
     #[test]
     fn test_bit_instruction() -> Result<()> {
         let mut cpu = setup_cpu();
-        let mut parser = Assembler::new(0);
-        
+        let mut assembler = Assembler::new(0);
+
         // Setup test values in memory
         cpu.write_byte(0x0080, 0xC0)?; // Value with bits 7 and 6 set (11000000)
         cpu.write_byte(0x0081, 0x00)?; // Zero value
-        
+
         // Test 1: BIT with memory value 0xC0 (bits 7 and 6 set)
         cpu.a = 0xFF; // Set accumulator to all 1s
-        
+
         // Clear all flags to ensure a clean state
         cpu.status = 0;
-        
+
         // Set up test with parser
         cpu.pc = 0x0100;
-        
+
+        let labels = HashMap::new();
+
         // Parse a BIT instruction with zero page addressing mode
-        let bytes = parser.assemble_instruction("BIT $80", None)?;
-        
+        let bytes = assembler.assemble_instruction("BIT $80", &labels)?;
+
         // Write bytes to memory
         for (i, &byte) in bytes.iter().enumerate() {
             cpu.write_byte(0x0100 + i as u16, byte)?;
         }
-        
+
         // Execute a full CPU step (fetch-decode-execute)
         let cycles = cpu.step()?;
-        
+
         // Result of AND is 0xFF & 0xC0 = 0xC0 (non-zero)
         // Negative set (bit 7 is set in 0xC0)
         // Overflow set (bit 6 is set in 0xC0)
@@ -1056,27 +1074,27 @@ mod tests {
         assert!(cpu.get_flag(CpuFlag::Negative), "Negative flag should be set");
         assert!(cpu.get_flag(CpuFlag::Overflow), "Overflow flag should be set");
         assert_eq!(cycles, 3, "BIT Zero Page should take 3 cycles");
-        
+
         // Reset status register for next test
         cpu.status = 0;
-        
+
         // Test 2: BIT with zero value (0x00)
         cpu.a = 0xFF; // Keep accumulator at all 1s
-        
+
         // Set up test with parser
         cpu.pc = 0x0200;
-        
+
         // Parse a BIT instruction with zero page addressing mode
-        let bytes = parser.assemble_instruction("BIT $81", None)?;
-        
+        let bytes = assembler.assemble_instruction("BIT $81", &labels)?;
+
         // Write bytes to memory
         for (i, &byte) in bytes.iter().enumerate() {
             cpu.write_byte(0x0200 + i as u16, byte)?;
         }
-        
+
         // Execute a full CPU step (fetch-decode-execute)
         let cycles = cpu.step()?;
-        
+
         // Result of AND is 0xFF & 0x00 = 0x00 (zero)
         // Negative clear (bit 7 is clear in 0x00)
         // Overflow clear (bit 6 is clear in 0x00)
@@ -1084,35 +1102,35 @@ mod tests {
         assert!(!cpu.get_flag(CpuFlag::Negative), "Negative flag should be clear");
         assert!(!cpu.get_flag(CpuFlag::Overflow), "Overflow flag should be clear");
         assert_eq!(cycles, 3, "BIT Zero Page should take 3 cycles");
-        
+
         // Test 3: Check that accumulator is not changed
         assert_eq!(cpu.a, 0xFF, "Accumulator should not be changed by BIT instruction");
-        
+
         // Test 4: BIT Absolute addressing mode
         cpu.a = 0xFF;
         cpu.status = 0;
         cpu.pc = 0x0300;
-        
+
         // Write test value to memory
         cpu.write_byte(0x1234, 0xC0)?;
-        
+
         // Parse a BIT instruction with absolute addressing mode
-        let bytes = parser.assemble_instruction("BIT $1234", None)?;
-        
+        let bytes = assembler.assemble_instruction("BIT $1234", &labels)?;
+
         // Write bytes to memory
         for (i, &byte) in bytes.iter().enumerate() {
             cpu.write_byte(0x0300 + i as u16, byte)?;
         }
-        
+
         // Execute a full CPU step
         let cycles = cpu.step()?;
-        
+
         // Verify flags
         assert!(!cpu.get_flag(CpuFlag::Zero), "Zero flag should be clear");
         assert!(cpu.get_flag(CpuFlag::Negative), "Negative flag should be set");
         assert!(cpu.get_flag(CpuFlag::Overflow), "Overflow flag should be set");
         assert_eq!(cycles, 4, "BIT Absolute should take 4 cycles");
-        
+
         Ok(())
     }
 
@@ -1120,62 +1138,62 @@ mod tests {
     #[test]
     fn test_bpl_instruction() -> Result<()> {
         let mut cpu = setup_cpu();
-        
+
         // Test 1: BPL when N flag is clear (should branch)
         cpu.status = 0; // Clear all flags
         cpu.pc = 0x0100;
-        
+
         // Write a target byte to memory (just to verify we reached it)
         cpu.write_byte(0x0112, 0x42)?;
-        
+
         // Write the BPL instruction to branch 16 bytes forward
         // Manually write the BPL instruction with offset 16
         cpu.write_byte(0x0100, 0x10)?; // BPL opcode
         cpu.write_byte(0x0101, 0x10)?; // Offset 16 (decimal)
-        
+
         // Execute the BPL instruction
         let cycles = cpu.step()?;
-        
+
         // PC should now be at the branch target (0x0100 + 2 + 16 = 0x0112)
         assert_eq!(cpu.pc, 0x0112, "PC should be at branch target when N=0");
         // Branch taken: base cycles (2) + branch taken (1) = 3
         assert_eq!(cycles, 3, "Branch taken should take 3 cycles");
-        
+
         // Test 2: BPL when N flag is set (should not branch)
         cpu.status = 0; // Clear all flags
         cpu.set_flag(CpuFlag::Negative, true); // Set N flag
         cpu.pc = 0x0200;
-        
+
         // Write the BPL instruction to branch 16 bytes forward
         // Manually write the BPL instruction with offset 16
         cpu.write_byte(0x0200, 0x10)?; // BPL opcode
         cpu.write_byte(0x0201, 0x10)?; // Offset 16 (decimal)
-        
+
         // Execute the BPL instruction
         let cycles = cpu.step()?;
-        
+
         // PC should now be right after the BPL instruction (0x0202)
         assert_eq!(cpu.pc, 0x0202, "PC should not branch when N=1");
         // Branch not taken: base cycles (2)
         assert_eq!(cycles, 2, "Branch not taken should take 2 cycles");
-        
+
         // Test 3: BPL with page crossing (should add extra cycle)
         cpu.status = 0; // Clear all flags
         cpu.pc = 0x02F0;
-        
+
         // Write the BPL instruction to branch 32 bytes forward (crosses page)
         // Manually write the BPL instruction with offset 32
         cpu.write_byte(0x02F0, 0x10)?; // BPL opcode
         cpu.write_byte(0x02F1, 0x20)?; // Offset 32 (decimal)
-        
+
         // Execute the BPL instruction
         let cycles = cpu.step()?;
-        
+
         // PC should now be at the branch target (0x02F0 + 2 + 32 = 0x0312)
         assert_eq!(cpu.pc, 0x0312, "PC should be at branch target when crossing page");
         // Branch taken with page cross: base cycles (2) + branch taken (1) + page cross (1) = 4
         assert_eq!(cycles, 4, "Branch taken with page cross should take 4 cycles");
-        
+
         Ok(())
     }
 }

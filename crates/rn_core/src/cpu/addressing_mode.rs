@@ -152,10 +152,10 @@ impl AddressingMode {
                 // For relative addressing, we read a signed byte offset from the current PC
                 // and add it to the PC+2 (PC+1 for the opcode, PC+1 for the offset byte)
                 let offset = cpu.read_byte(cpu.pc)? as i8; // Read as signed byte
-                
+
                 // Calculate the target address by adding the offset to PC+2
                 let target = ((cpu.pc as i32) + 2 + (offset as i32)) as u16;
-                
+
                 Ok(target)
             },
         }

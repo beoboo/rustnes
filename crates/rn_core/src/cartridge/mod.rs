@@ -1,13 +1,13 @@
-mod pattern_table;
 mod loader;
-
-pub use pattern_table::PatternTable;
-pub use loader::{load_chr_rom, RomLoadError};
+mod pattern_table;
 
 use std::path::Path;
 
+pub use loader::{load_chr_rom, RomLoadError};
+pub use pattern_table::PatternTable;
+
 /// Basic NES cartridge implementation
-/// 
+///
 /// Handles loading and access to PRG ROM (program data) and CHR ROM (graphics data)
 #[derive(Default)]
 pub struct Cartridge {
@@ -28,7 +28,7 @@ impl Cartridge {
     pub fn load_chr_rom(&mut self, data: &[u8]) {
         self.pattern_table.load(data);
     }
-    
+
     /// Load CHR ROM data from an iNES ROM file
     pub fn load_chr_rom_from_file(&mut self, path: &Path) -> Result<(), RomLoadError> {
         let chr_data = load_chr_rom(path)?;
@@ -45,7 +45,7 @@ impl Cartridge {
     pub fn write_pattern_table(&mut self, address: u16, value: u8) {
         self.pattern_table.write_byte(address, value);
     }
-    
+
     /// Get pixel data for a specific tile in the pattern table
     ///
     /// # Arguments
@@ -58,7 +58,7 @@ impl Cartridge {
     pub fn get_tile_pixels(&self, tile_index: u16) -> [u8; 64] {
         self.pattern_table.get_tile_pixels(tile_index)
     }
-    
+
     /// Get a single row of pixels from a tile in the pattern table
     ///
     /// # Arguments
@@ -76,26 +76,26 @@ impl Cartridge {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
     use super::*;
-    use std::rc::Rc;
-    use std::cell::RefCell;
     use crate::ppu::Ppu;
 
     #[test]
     fn test_cartridge_pattern_table_access() {
         let mut cart = Cartridge::new();
-        
+
         // Create some test data
         let test_data = [0x42; 0x2000];
-        
+
         // Load the data
         cart.load_chr_rom(&test_data);
-        
+
         // Read it back
         assert_eq!(cart.read_pattern_table(0x0000), 0x42);
         assert_eq!(cart.read_pattern_table(0x1FFF), 0x42);
     }
-    
+
     #[test]
     fn test_load_chr_data() -> Result<(), RomLoadError> {
         // Skip this test if the ROM file is not available
@@ -107,33 +107,33 @@ mod tests {
 
         // Load CHR ROM data from the test file
         let chr_data = load_chr_rom(rom_path)?;
-        
+
         // The CHR ROM should not be empty
         assert!(!chr_data.is_empty(), "CHR ROM data is empty");
-        
+
         // Create a new cartridge and load the CHR ROM data
         let cartridge = Rc::new(RefCell::new(Cartridge::new()));
         {
             let mut cart = cartridge.borrow_mut();
             cart.load_chr_rom(&chr_data);
         }
-        
+
         // Create a new PPU and connect the cartridge
         let mut ppu = Ppu::new();
         ppu.connect_cartridge(Rc::clone(&cartridge));
-        
+
         // Test reading from the pattern table
         // This is just a basic test to ensure we can read data from the pattern table
         let pattern_byte = ppu.read_ppu_memory(0x0000);
         println!("First byte of pattern table: 0x{:02X}", pattern_byte);
-        
+
         // Verify we can read several addresses in the pattern table range
         for addr in [0x0000u16, 0x0100u16, 0x0800u16, 0x1000u16, 0x1F00u16] {
             let byte = ppu.read_ppu_memory(addr);
             println!("Pattern table at 0x{:04X}: 0x{:02X}", addr, byte);
             assert!(byte != 0xFF, "Unexpected 0xFF value at 0x{:04X}", addr);
         }
-        
+
         Ok(())
     }
-} 
+}

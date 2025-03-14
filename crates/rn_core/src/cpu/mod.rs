@@ -3,10 +3,10 @@ mod addressing_mode;
 pub use addressing_mode::AddressingMode;
 
 mod instruction;
-pub use instruction::{Instruction, InstructionDecoder, InstructionMetadata};
+pub use instruction::{Instruction, InstructionDecoder, InstructionDecoderError, InstructionMetadata};
 
 mod assembler;
-pub use assembler::{AssembleError, Assembler, ParseResult};
+pub use assembler::{AssembleError, AssembleResult, Assembler};
 
 mod disassembler;
 pub use disassembler::{DisassembleError, Disassembler};

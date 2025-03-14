@@ -1,19 +1,15 @@
 use thiserror::Error;
 
-use super::{AddressingMode, Instruction, InstructionDecoder, InstructionMetadata};
-use crate::errors::NesError;
+use super::{AddressingMode, InstructionDecoder, InstructionDecoderError};
 
 /// Errors that can occur during instruction disassembly
 #[derive(Debug, Error)]
 pub enum DisassembleError {
-    #[error("Invalid opcode: {0:#04X}")]
-    InvalidOpcode(u8),
-
-    #[error("Unknown instruction type: {0:?}")]
-    UnknownInstruction(Instruction),
-
     #[error("NES error: {0}")]
-    NesError(#[from] NesError),
+    DecodeError(#[from] InstructionDecoderError),
+
+    #[error("Memory access error at address {0:#06X}")]
+    MemoryError(u16),
 }
 
 /// Result type for disassembly operations
@@ -30,14 +26,6 @@ impl Disassembler {
         Self {
             decoder: InstructionDecoder::new(),
         }
-    }
-
-    /// Disassembles a single byte into an instruction metadata object
-    fn decode_opcode(&self, opcode: u8) -> DisassembleResult<InstructionMetadata> {
-        self.decoder.decode(opcode).map_err(|err| match err {
-            NesError::InvalidOpcode(op) => DisassembleError::InvalidOpcode(op),
-            _ => DisassembleError::NesError(err),
-        })
     }
 
     /// Formats the operand according to the addressing mode
@@ -74,12 +62,12 @@ impl Disassembler {
     /// Returns the disassembled instruction string and the number of bytes used.
     pub fn disassemble_instruction(&self, memory: &[u8], offset: usize) -> DisassembleResult<(String, usize)> {
         if memory.is_empty() || offset >= memory.len() {
-            return Err(DisassembleError::NesError(NesError::MemoryAccessError(offset as u16)));
+            return Err(DisassembleError::MemoryError(offset as u16));
         }
 
         // Decode the opcode byte
         let opcode = memory[offset];
-        let metadata = self.decode_opcode(opcode)?;
+        let metadata = self.decoder.decode(opcode)?;
 
         // Extract operand bytes if any
         let operand_len = metadata.bytes as usize - 1; // -1 for the opcode byte
@@ -259,7 +247,7 @@ mod tests {
 
         // Should return an error
         assert!(result.is_err());
-        if let Err(DisassembleError::InvalidOpcode(opcode)) = result {
+        if let Err(DisassembleError::DecodeError(InstructionDecoderError::InvalidOpcode(opcode))) = result {
             assert_eq!(opcode, 0xFF);
         } else {
             anyhow::bail!("Expected InvalidOpcode error, got: {:?}", result);

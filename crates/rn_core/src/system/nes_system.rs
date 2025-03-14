@@ -203,7 +203,7 @@ impl NesSystem {
     pub fn cartridge(&self) -> Option<Rc<RefCell<Cartridge>>> {
         // Get a reference to the PPU
         let ppu = self.ppu.borrow();
-        
+
         // Use the PPU's cartridge method and clone the Rc if present
         ppu.cartridge().cloned()
     }
@@ -220,7 +220,7 @@ impl NesSystem {
             println!("Created and connected new cartridge");
         }
         drop(ppu); // Release the borrow before the next one
-        
+
         // Get the PPU's cartridge and load the CHR ROM data
         let mut ppu = self.ppu.borrow_mut();
         if let Some(cart_rc) = ppu.cartridge_mut() {
@@ -241,7 +241,8 @@ mod tests {
     fn assemble_code(code: &str, load_address: u16) -> Vec<u8> {
         let mut assembler = Assembler::new(load_address);
         // For tests, we just use the STARTUP segment which is the default
-        assembler.assemble_program(code)
+        assembler
+            .assemble_program(code)
             .expect("Failed to assemble test code")
             .get("STARTUP")
             .cloned()

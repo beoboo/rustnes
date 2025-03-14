@@ -1,13 +1,11 @@
-use lazy_static::lazy_static;
-use regex::Regex;
 use std::collections::HashMap;
 
+use lazy_static::lazy_static;
+use regex::Regex;
 use thiserror::Error;
 
-use super::{AddressingMode, Instruction, InstructionDecoder, InstructionMetadata};
-use crate::errors::NesError;
-use crate::helpers::errors::ParseError;
-use crate::helpers::parse::parse_value;
+use super::{AddressingMode, Instruction, InstructionDecoder, InstructionDecoderError, InstructionMetadata};
+use crate::helpers::{errors::ParseError, parse::parse_value};
 
 /// Errors that can occur during instruction parsing
 #[derive(Debug, Error)]
@@ -36,15 +34,15 @@ pub enum AssembleError {
     #[error("Segment error: {0}")]
     SegmentError(String),
 
-    #[error("NES error: {0}")]
-    NesError(#[from] NesError),
-
     #[error("Parse error: {0}")]
     ParseError(#[from] ParseError),
+
+    #[error("Instruction decoder error: {0}")]
+    InstructionDecoderError(#[from] InstructionDecoderError),
 }
 
 /// Result type for parsing operations
-pub type ParseResult<T> = Result<T, AssembleError>;
+pub type AssembleResult<T> = Result<T, AssembleError>;
 
 /// Represents an assembler directive like .segment
 #[derive(Debug, Clone)]
@@ -113,7 +111,7 @@ impl Segments {
 
     /// Get the active segment for applying directives,
     /// using the current segment if available, otherwise falling back to the first segment
-    fn current_or_first_mut(&mut self) -> ParseResult<&mut Segment> {
+    fn current_or_first_mut(&mut self) -> AssembleResult<&mut Segment> {
         // First determine which segment to use
         let segment_name = if let Some(name) = &self.current {
             // Use current segment if available
@@ -133,7 +131,7 @@ impl Segments {
             .ok_or_else(|| AssembleError::SegmentError(format!("Selected segment '{}' not found", segment_name)))
     }
 
-    fn current_mut(&mut self) -> ParseResult<&mut Segment> {
+    fn current_mut(&mut self) -> AssembleResult<&mut Segment> {
         let segment_name = if let Some(name) = &self.current {
             // Use current segment if available
             name.clone()
@@ -148,8 +146,6 @@ impl Segments {
             .get_mut(&segment_name)
             .ok_or_else(|| AssembleError::SegmentError(format!("Selected segment '{}' not found", segment_name)))
     }
-
-   
 }
 
 /// Parses assembly language instructions into their binary representation
@@ -179,7 +175,7 @@ impl Assembler {
     }
 
     /// Creates a complete NES ROM from the assembled segments
-    pub fn create_nes_rom(&self) -> ParseResult<Vec<u8>> {
+    pub fn create_nes_rom(&self) -> AssembleResult<Vec<u8>> {
         // This is a basic implementation - will need enhancement for proper ROM generation
         let mut rom = Vec::new();
 
@@ -227,7 +223,7 @@ impl Assembler {
     /// - Inline comments (text after ';' on a line)
     ///
     /// Returns assembled bytes for each segment.
-    pub fn assemble_program(&mut self, program: &str) -> ParseResult<HashMap<String, Vec<u8>>> {
+    pub fn assemble_program(&mut self, program: &str) -> AssembleResult<HashMap<String, Vec<u8>>> {
         // If no segments are defined, add a default "STARTUP" segment for backward compatibility
         if self.segments.is_empty() {
             self.segments.add("STARTUP", self.load_address);
@@ -247,7 +243,7 @@ impl Assembler {
             };
 
             // Handle directives first
-            if let Some(directive) = self.parse_directive(&line, Some(&labels))? {
+            if let Some(directive) = self.parse_directive(&line, &labels)? {
                 self.apply_directive(&directive)?;
                 continue;
             }
@@ -261,7 +257,7 @@ impl Assembler {
             };
 
             // Assemble the instruction
-            let bytes = self.assemble_instruction(&code, Some(&labels))?;
+            let bytes = self.assemble_instruction(&code, &labels)?;
 
             // Add the assembled bytes to the current segment
             if let Ok(segment) = self.segments.current_or_first_mut() {
@@ -280,7 +276,7 @@ impl Assembler {
     }
 
     /// Collects labels and their positions from a program
-    fn collect_labels(&mut self, program: &str) -> ParseResult<HashMap<String, u16>> {
+    fn collect_labels(&mut self, program: &str) -> AssembleResult<HashMap<String, u16>> {
         let mut labels = HashMap::new();
 
         // Initialize with default load address
@@ -327,7 +323,7 @@ impl Assembler {
             // If we have code to process
             if let Some(code) = code_opt {
                 // Calculate instruction size to update current_address
-                current_address += self.calculate_instruction_size(&code, None)?;
+                current_address += self.calculate_instruction_size(&code)?;
             }
         }
 
@@ -335,7 +331,7 @@ impl Assembler {
     }
 
     /// Parse a directive without applying any side effects
-    fn parse_directive(&self, line: &str, labels: Option<&HashMap<String, u16>>) -> ParseResult<Option<Directive>> {
+    fn parse_directive(&self, line: &str, labels: &HashMap<String, u16>) -> AssembleResult<Option<Directive>> {
         if !line.starts_with('.') {
             return Ok(None);
         }
@@ -366,7 +362,7 @@ impl Assembler {
     }
 
     /// Parse a segment directive
-    fn parse_segment_directive(&self, args: &str) -> ParseResult<Directive> {
+    fn parse_segment_directive(&self, args: &str) -> AssembleResult<Directive> {
         if args.is_empty() {
             return Err(AssembleError::DirectiveError("Missing segment name".to_string()));
         }
@@ -382,7 +378,7 @@ impl Assembler {
     }
 
     /// Parse a byte directive
-    fn parse_byte_directive(&self, args: &str) -> ParseResult<Directive> {
+    fn parse_byte_directive(&self, args: &str) -> AssembleResult<Directive> {
         if args.is_empty() {
             return Err(AssembleError::DirectiveError("Missing byte values".to_string()));
         }
@@ -392,7 +388,7 @@ impl Assembler {
     }
 
     /// Parse a word directive with optional label resolution
-    fn parse_word_directive(&self, args: &str, labels: Option<&HashMap<String, u16>>) -> ParseResult<Directive> {
+    fn parse_word_directive(&self, args: &str, labels: &HashMap<String, u16>) -> AssembleResult<Directive> {
         if args.is_empty() {
             return Err(AssembleError::DirectiveError("Missing word values".to_string()));
         }
@@ -415,11 +411,9 @@ impl Assembler {
                 },
                 Err(_) => {
                     // If it's not a valid number, try to resolve it as a label if labels are provided
-                    if let Some(label_map) = labels {
-                        if let Some(&address) = label_map.get(value_str) {
-                            values.push(address);
-                            continue;
-                        }
+                    if let Some(&address) = labels.get(value_str) {
+                        values.push(address);
+                        continue;
                     }
                 },
             }
@@ -434,7 +428,7 @@ impl Assembler {
     }
 
     /// Parse a res directive
-    fn parse_res_directive(&self, args: &str) -> ParseResult<Directive> {
+    fn parse_res_directive(&self, args: &str) -> AssembleResult<Directive> {
         if args.is_empty() {
             return Err(AssembleError::DirectiveError("Missing size parameter".to_string()));
         }
@@ -459,7 +453,7 @@ impl Assembler {
     }
 
     /// Apply the effects of a directive
-    fn apply_directive(&mut self, directive: &Directive) -> ParseResult<()> {
+    fn apply_directive(&mut self, directive: &Directive) -> AssembleResult<()> {
         match directive {
             Directive::Segment(name) => {
                 self.segments.current = Some(name.clone());
@@ -488,28 +482,87 @@ impl Assembler {
         }
     }
 
-    /// Splits an instruction string into mnemonic and operand parts
-    fn split_instruction(&self, input: &str) -> ParseResult<(String, Option<String>)> {
-        let parts: Vec<&str> = input.splitn(2, ' ').collect();
-        if parts.is_empty() {
-            return Err(AssembleError::InvalidSyntax("Empty input".to_string()));
+    /// Assembles an instruction string into bytes
+    /// If labels map is provided, label references in operands will be resolved
+    pub fn assemble_instruction(&mut self, input: &str, labels: &HashMap<String, u16>) -> AssembleResult<Vec<u8>> {
+        // Split input into mnemonic and operand
+        let (instruction, operand_opt) = split_instruction(&input)?;
+
+        // Handle implied addressing mode (no operand)
+        if instruction.has_implied_addressing() {
+            let metadata = self.handle_implied_instruction(instruction)?;
+            return Ok(vec![metadata.opcode]);
         }
 
-        let mnemonic = parts[0].to_string();
-        let operand = if parts.len() > 1 {
-            Some(parts[1].trim().to_string())
-        } else {
-            None
-        };
+        // For other instructions, we need an operand
+        let operand = operand_opt.ok_or_else(|| AssembleError::InvalidSyntax("Missing operand".to_string()))?;
 
-        Ok((mnemonic, operand))
+        // Special case: Handle asterisk (*) as current address
+        if operand == "*" {
+            // Look up the instruction with Absolute addressing mode
+            let metadata = self.decoder.lookup(instruction, AddressingMode::Absolute)?;
+
+            // Get the current address (usually the address of this instruction)
+            let current_address = if let Ok(segment) = self.segments.current_mut() {
+                segment.load_address + segment.data.len() as u16
+            } else {
+                self.load_address
+            };
+
+            // For JMP *, we want to jump to the address of the JMP instruction itself
+            // The instruction is 3 bytes long: opcode + low byte + high byte
+            // So we use current_address, which is the address of the instruction
+            return Ok(vec![
+                metadata.opcode,
+                (current_address & 0xFF) as u8,        // Low byte
+                ((current_address >> 8) & 0xFF) as u8, // High byte
+            ]);
+        }
+
+        // Check if this is a label reference
+        if self.is_label_reference(&operand) {
+            let (metadata, address) = self.handle_label_reference(instruction, &operand, labels)?;
+
+            if metadata.addressing_mode == AddressingMode::Relative {
+                // For branch instructions, we need to calculate the offset relative to PC+2
+                // (PC+2 points to the next instruction after the branch)
+
+                // Get current position (where this instruction will be placed)
+                let current_address = if let Ok(segment) = self.segments.current_mut() {
+                    segment.load_address + segment.data.len() as u16
+                } else {
+                    self.load_address
+                };
+
+                // Target is PC+2 (after branch instruction) + offset
+                // So offset = target - (PC+2)
+                let offset = ((address as i32) - (current_address as i32 + 2)) as i8;
+
+                return Ok(vec![
+                    metadata.opcode,
+                    offset as u8, // Store as unsigned byte, will be interpreted as signed during execution
+                ]);
+            }
+
+            // Return opcode + 16-bit address (little endian)
+            return Ok(vec![
+                metadata.opcode,
+                (address & 0xFF) as u8, // Low byte first
+                (address >> 8) as u8,   // High byte second
+            ]);
+        }
+
+        // Handle standard addressing modes
+        let (addressing_mode, operand_value) = self.parse_addressing_mode(&operand)?;
+
+        let metadata = self.decoder.lookup(instruction, addressing_mode)?;
+
+        self.encode_instruction(metadata.opcode, addressing_mode, operand_value)
     }
 
     /// Handles an instruction with implied addressing mode
-    fn handle_implied_instruction(&self, instruction: Instruction) -> ParseResult<InstructionMetadata> {
-        self.decoder
-            .lookup(instruction, AddressingMode::Implied)
-            .map_err(|_| AssembleError::InvalidAddressingMode(format!("{instruction} does not support implied mode")))
+    fn handle_implied_instruction(&self, instruction: Instruction) -> AssembleResult<InstructionMetadata> {
+        Ok(self.decoder.lookup(instruction, AddressingMode::Implied)?)
     }
 
     /// Checks if an operand is a label reference (not starting with $ or #)
@@ -523,11 +576,7 @@ impl Assembler {
         instruction: Instruction,
         operand: &str,
         labels: &HashMap<String, u16>,
-    ) -> ParseResult<Option<(InstructionMetadata, u16)>> {
-        if !self.is_label_reference(operand) {
-            return Ok(None); // Not a label reference
-        }
-
+    ) -> AssembleResult<(InstructionMetadata, u16)> {
         // It's a label reference - look it up in the labels map
         let address = labels
             .get(operand)
@@ -541,30 +590,16 @@ impl Assembler {
         };
 
         // Look up the instruction with the appropriate addressing mode
-        let metadata = self.decoder.lookup(instruction, addressing_mode).map_err(|_| {
-            AssembleError::InvalidAddressingMode(format!(
-                "{instruction} does not support {} for labels",
-                addressing_mode
-            ))
-        })?;
+        let metadata = self.decoder.lookup(instruction, addressing_mode)?;
 
-        Ok(Some((metadata, *address)))
+        Ok((metadata, *address))
     }
 
     /// Parses an instruction string into metadata
     /// If labels map is provided, label references in operands will be resolved
-    fn parse_instruction(
-        &self,
-        input: &str,
-        labels: Option<&HashMap<String, u16>>,
-    ) -> ParseResult<InstructionMetadata> {
+    fn parse_instruction(&self, input: &str) -> AssembleResult<InstructionMetadata> {
         // Split input into mnemonic and operand
-        let (mnemonic, operand_opt) = self.split_instruction(input)?;
-
-        // Parse the instruction mnemonic using FromStr
-        let instruction = mnemonic
-            .parse::<Instruction>()
-            .map_err(|_| AssembleError::UnknownMnemonic(mnemonic))?;
+        let (instruction, operand_opt) = split_instruction(input)?;
 
         // Check for implied addressing mode instructions (no operand)
         if instruction.has_implied_addressing() {
@@ -574,32 +609,14 @@ impl Assembler {
         // For other instructions, we need an operand
         let operand = operand_opt.ok_or_else(|| AssembleError::InvalidSyntax("Missing operand".to_string()))?;
 
-        // Check if this is a label reference
-        if let Some(labels_map) = labels {
-            // First check if this is a known label
-            if labels_map.contains_key(&operand) {
-                // Use Relative addressing for branch instructions, Absolute for others
-                let addressing_mode = if instruction.is_branch() {
-                    AddressingMode::Relative
-                } else {
-                    AddressingMode::Absolute
-                };
+        let addressing_mode = if instruction.is_branch() {
+            AddressingMode::Relative
+        } else {
+            let (addressing_mode, _) = self.parse_addressing_mode(&operand)?;
+            addressing_mode
+        };
 
-                return self.decoder.lookup(instruction, addressing_mode).map_err(|_| {
-                    AssembleError::InvalidAddressingMode(format!(
-                        "{instruction} does not support {} for labels",
-                        addressing_mode,
-                    ))
-                });
-            }
-        }
-
-        // Handle standard addressing modes
-        let (addressing_mode, _) = self.parse_addressing_mode(&operand)?;
-
-        self.decoder.lookup(instruction, addressing_mode).map_err(|_| {
-            AssembleError::InvalidAddressingMode(format!("{instruction} does not support {addressing_mode:?}"))
-        })
+        Ok(self.decoder.lookup(instruction, addressing_mode)?)
     }
 
     /// Determines the addressing mode and operand value from a string
@@ -608,7 +625,7 @@ impl Assembler {
     /// - "#$42" -> Immediate mode with value 0x42
     /// - "$2000" -> Absolute mode with value 0x2000
     /// - "$42" -> Zero page mode with value 0x42
-    fn parse_addressing_mode(&self, operand: &str) -> ParseResult<(AddressingMode, u16)> {
+    fn parse_addressing_mode(&self, operand: &str) -> AssembleResult<(AddressingMode, u16)> {
         // Immediate: #$xx
         if operand.starts_with('#') {
             let value = parse_value::<u8>(&operand)?;
@@ -635,13 +652,8 @@ impl Assembler {
     }
 
     /// Calculates the size of an instruction in bytes, assuming directive check has already been done
-    fn calculate_instruction_size(&self, line: &str, labels: Option<&HashMap<String, u16>>) -> ParseResult<u16> {
-        let (mnemonic, operand_opt) = self.split_instruction(line)?;
-
-        // Parse the instruction mnemonic
-        let instruction = mnemonic
-            .parse::<Instruction>()
-            .map_err(|_| AssembleError::UnknownMnemonic(mnemonic))?;
+    fn calculate_instruction_size(&self, line: &str) -> AssembleResult<u16> {
+        let (instruction, operand_opt) = split_instruction(line)?;
 
         // Implied addressing mode (just the opcode)
         if instruction.has_implied_addressing() {
@@ -657,105 +669,8 @@ impl Assembler {
         }
 
         // Regular instruction, get its size from metadata
-        let metadata = self.parse_instruction(line, labels)?;
+        let metadata = self.parse_instruction(line)?;
         Ok(metadata.addressing_mode.size())
-    }
-
-    /// Assembles an instruction string into bytes
-    /// If labels map is provided, label references in operands will be resolved
-    pub fn assemble_instruction(&mut self, input: &str, labels: Option<&HashMap<String, u16>>) -> ParseResult<Vec<u8>> {
-        // Split input into mnemonic and operand
-        let (mnemonic, operand_opt) = self.split_instruction(&input)?;
-
-        // Parse the instruction mnemonic
-        let instruction = mnemonic
-            .parse::<Instruction>()
-            .map_err(|_| AssembleError::UnknownMnemonic(mnemonic))?;
-
-        // Handle implied addressing mode (no operand)
-        if instruction.has_implied_addressing() {
-            let metadata = self.handle_implied_instruction(instruction)?;
-            return Ok(vec![metadata.opcode]);
-        }
-
-        // For other instructions, we need an operand
-        let operand = operand_opt.ok_or_else(|| AssembleError::InvalidSyntax("Missing operand".to_string()))?;
-
-        // Special case: Handle asterisk (*) as current address
-        if operand == "*" {
-            // Look up the instruction with Absolute addressing mode
-            let metadata = self
-                .decoder
-                .lookup(instruction, AddressingMode::Absolute)
-                .map_err(|_| {
-                    AssembleError::InvalidAddressingMode(format!("{instruction} does not support absolute mode"))
-                })?;
-
-            // Get the current address (usually the address of this instruction)
-            let current_address = if let Ok(segment) = self.segments.current_mut() {
-                segment.load_address + segment.data.len() as u16
-            } else {
-                self.load_address
-            };
-
-            // For JMP *, we want to jump to the address of the JMP instruction itself
-            // The instruction is 3 bytes long: opcode + low byte + high byte
-            // So we use current_address, which is the address of the instruction
-            return Ok(vec![
-                metadata.opcode,
-                (current_address & 0xFF) as u8,        // Low byte
-                ((current_address >> 8) & 0xFF) as u8, // High byte
-            ]);
-        }
-
-        // Check if this is a label reference
-        if let Some(labels_map) = labels {
-            // Try to handle as a label reference first
-            if let Some((metadata, address)) = self.handle_label_reference(instruction, &operand, labels_map)? {
-                if metadata.addressing_mode == AddressingMode::Relative {
-                    // For branch instructions, we need to calculate the offset relative to PC+2
-                    // (PC+2 points to the next instruction after the branch)
-
-                    // Get current position (where this instruction will be placed)
-                    let current_address = if let Ok(segment) = self.segments.current_mut() {
-                        segment.load_address + segment.data.len() as u16
-                    } else {
-                        self.load_address
-                    };
-
-                    // Target is PC+2 (after branch instruction) + offset
-                    // So offset = target - (PC+2)
-                    let pc_plus_2 = current_address + 2;
-                    let offset = ((address as i32) - (pc_plus_2 as i32)) as i8;
-
-                    return Ok(vec![
-                        metadata.opcode,
-                        offset as u8, // Store as unsigned byte, will be interpreted as signed during execution
-                    ]);
-                }
-
-                // Return opcode + 16-bit address (little endian)
-                return Ok(vec![
-                    metadata.opcode,
-                    (address & 0xFF) as u8, // Low byte first
-                    (address >> 8) as u8,   // High byte second
-                ]);
-            }
-            // For potential forward references or invalid labels
-            else if self.is_label_reference(&operand) {
-                // During assembly of a complete program, all labels should be in the map at this point
-                return Err(AssembleError::LabelError(format!("Undefined label: {}", operand)));
-            }
-        }
-
-        // Handle standard addressing modes
-        let (addressing_mode, operand_value) = self.parse_addressing_mode(&operand)?;
-
-        let metadata = self.decoder.lookup(instruction, addressing_mode).map_err(|_| {
-            AssembleError::InvalidAddressingMode(format!("{instruction} does not support {addressing_mode:?}"))
-        })?;
-
-        self.encode_instruction(metadata.opcode, addressing_mode, operand_value)
     }
 
     /// Encodes an instruction with its operand bytes based on addressing mode
@@ -764,7 +679,7 @@ impl Assembler {
         opcode: u8,
         addressing_mode: AddressingMode,
         operand_value: u16,
-    ) -> ParseResult<Vec<u8>> {
+    ) -> AssembleResult<Vec<u8>> {
         let mut bytes = vec![opcode];
 
         match addressing_mode {
@@ -806,7 +721,7 @@ impl Assembler {
 }
 
 /// Process a single line of assembly, extract labels and code, assuming directive check has already been done
-fn process_line(line: &str) -> ParseResult<(String, Option<String>)> {
+fn process_line(line: &str) -> AssembleResult<(String, Option<String>)> {
     // Check if this line is a label declaration
     if let Some(idx) = line.find(':') {
         let label = line[0..idx].trim().to_string();
@@ -824,7 +739,7 @@ fn process_line(line: &str) -> ParseResult<(String, Option<String>)> {
 }
 
 /// Parse a comma-separated list of tokens that can be either string literals or numeric values
-fn parse_comma_separated_byte_tokens(input: &str) -> ParseResult<Vec<u8>> {
+fn parse_comma_separated_byte_tokens(input: &str) -> AssembleResult<Vec<u8>> {
     lazy_static! {
         static ref STRING_REGEX: Regex = Regex::new(r#"^\s*["']([^"']*)["']"#).unwrap();
     }
@@ -866,7 +781,7 @@ fn format_segment_name(name: &str) -> &str {
 }
 
 /// Extract a string literal and convert to bytes
-fn extract_string_literal<'a>(input: &'a str, captures: &regex::Captures) -> ParseResult<(Vec<u8>, &'a str)> {
+fn extract_string_literal<'a>(input: &'a str, captures: &regex::Captures) -> AssembleResult<(Vec<u8>, &'a str)> {
     // Get the string content (capture group 1)
     let string_content = match captures.get(1) {
         Some(m) => m.as_str(),
@@ -892,7 +807,7 @@ fn extract_string_literal<'a>(input: &'a str, captures: &regex::Captures) -> Par
 }
 
 /// Extract a numeric byte value
-fn extract_numeric_byte_value<'a>(input: &'a str) -> ParseResult<(u8, &'a str)> {
+fn extract_numeric_byte_value<'a>(input: &'a str) -> AssembleResult<(u8, &'a str)> {
     let comma_pos = input.find(',').unwrap_or(input.len());
     let value_str = input[..comma_pos].trim();
 
@@ -908,6 +823,27 @@ fn extract_numeric_byte_value<'a>(input: &'a str) -> ParseResult<(u8, &'a str)> 
     };
 
     Ok((value, remaining))
+}
+
+/// Splits an instruction string into mnemonic and operand parts
+fn split_instruction(input: &str) -> AssembleResult<(Instruction, Option<String>)> {
+    let parts: Vec<&str> = input.splitn(2, ' ').collect();
+    if parts.is_empty() {
+        return Err(AssembleError::InvalidSyntax("Empty input".to_string()));
+    }
+
+    let mnemonic = parts[0].to_string();
+    let operand = if parts.len() > 1 {
+        Some(parts[1].trim().to_string())
+    } else {
+        None
+    };
+
+    let instruction = mnemonic
+        .parse::<Instruction>()
+        .map_err(|_| AssembleError::UnknownMnemonic(mnemonic))?;
+
+    Ok((instruction, operand))
 }
 
 #[cfg(test)]
@@ -978,19 +914,19 @@ mod tests {
         let parser = Assembler::new(0);
 
         // Test LDA immediate
-        let metadata = parser.parse_instruction("LDA #$42", None)?;
+        let metadata = parser.parse_instruction("LDA #$42")?;
         assert_eq!(metadata.instruction, Instruction::LDA);
         assert_eq!(metadata.addressing_mode, AddressingMode::Immediate);
         assert_eq!(metadata.opcode, 0xA9);
 
         // Test LDA zero page
-        let metadata = parser.parse_instruction("LDA $42", None)?;
+        let metadata = parser.parse_instruction("LDA $42")?;
         assert_eq!(metadata.instruction, Instruction::LDA);
         assert_eq!(metadata.addressing_mode, AddressingMode::ZeroPage);
         assert_eq!(metadata.opcode, 0xA5);
 
         // Test LDA absolute
-        let metadata = parser.parse_instruction("LDA $1234", None)?;
+        let metadata = parser.parse_instruction("LDA $1234")?;
         assert_eq!(metadata.instruction, Instruction::LDA);
         assert_eq!(metadata.addressing_mode, AddressingMode::Absolute);
         assert_eq!(metadata.opcode, 0xAD);
@@ -1004,19 +940,19 @@ mod tests {
         let parser = Assembler::new(0);
 
         // Test invalid mnemonic
-        let result = parser.parse_instruction("XYZ #$42", None);
+        let result = parser.parse_instruction("XYZ #$42");
         assert!(result.is_err());
 
         // Test invalid addressing mode syntax
-        let result = parser.parse_instruction("LDA xyz", None);
+        let result = parser.parse_instruction("LDA xyz");
         assert!(result.is_err());
 
         // Test invalid operand value
-        let result = parser.parse_instruction("LDA #$ZZ", None);
+        let result = parser.parse_instruction("LDA #$ZZ");
         assert!(result.is_err());
 
         // Test missing operand
-        let result = parser.parse_instruction("LDA", None);
+        let result = parser.parse_instruction("LDA");
         assert!(result.is_err());
 
         Ok(())
@@ -1188,7 +1124,7 @@ mod tests {
         assembler.segments.add("DATA", 0xC000);
 
         // Parse a directive without applying it
-        let directive = assembler.parse_directive(".segment \"CODE\"", None)?;
+        let directive = assembler.parse_directive(".segment \"CODE\"", &HashMap::new())?;
         assert!(directive.is_some());
         if let Some(directive) = directive {
             match directive {

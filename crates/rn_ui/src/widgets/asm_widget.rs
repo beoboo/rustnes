@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+use std::collections::HashMap;
+
 use anyhow::Result;
 use egui::{self, Color32, Ui};
 use rn_core::{
@@ -7,7 +9,6 @@ use rn_core::{
 };
 
 use crate::widgets::{HexEditText, ValueType};
-use std::collections::HashMap;
 
 /// A widget for editing and executing 6502 assembly code
 pub struct AsmWidget {
@@ -32,7 +33,7 @@ impl AsmWidget {
     pub fn new() -> Self {
         // Create assembler with standard NES segments automatically added
         let assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         Self {
             code: String::from("; Enter your 6502 assembly code here\n\nLDA #$01\nSTA $0200\nBRK"),
             assembled: false,
@@ -62,7 +63,7 @@ impl AsmWidget {
 
         // Load the program into the system
         system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
-        
+
         // Load CHR ROM data if available
         if let Some(chr_data) = self.assembled_segments.get("CHARS") {
             if !chr_data.is_empty() {
@@ -103,7 +104,7 @@ impl AsmWidget {
         match self.assembler.assemble_program(&self.code) {
             Ok(segments) => {
                 self.assembled_segments = segments;
-                
+
                 // Use the STARTUP segment as the default if it exists
                 if let Some(startup_bytes) = self.assembled_segments.get("STARTUP") {
                     self.assembled_bytes = startup_bytes.clone();
@@ -111,7 +112,7 @@ impl AsmWidget {
                     // Otherwise use the first segment
                     self.assembled_bytes = bytes.clone();
                 }
-                
+
                 self.assembled = true;
 
                 // Immediately reset and load the program

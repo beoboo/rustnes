@@ -1,5 +1,4 @@
-use std::str::FromStr;
-use std::fmt::Debug;
+use std::{fmt::Debug, str::FromStr};
 
 use super::errors::{ParseError, ParseResult};
 
@@ -34,42 +33,33 @@ impl FromStrRadix for u16 {
 }
 
 /// Helper function for parsing a numeric value from a string, handling hex and decimal formats
-fn parse_numeric_value<T>(input: &str, type_name: &str) -> ParseResult<T> 
-where 
+fn parse_numeric_value<T>(input: &str, type_name: &str) -> ParseResult<T>
+where
     T: FromStr + FromStrRadix + Debug,
-    <T as std::str::FromStr>::Err: std::fmt::Debug
+    <T as std::str::FromStr>::Err: std::fmt::Debug,
 {
     // First remove '#' prefix if it exists (for immediate addressing mode)
-    let input = if input.starts_with('#') {
-        &input[1..]
-    } else {
-        input
-    };
-    
+    let input = if input.starts_with('#') { &input[1..] } else { input };
+
     let input = input.trim();
-    
+
     // Handle hexadecimal format (with $ prefix)
     if input.starts_with('$') {
         let hex_str = &input[1..];
         T::from_str_radix(hex_str, 16)
-            .map_err(|_| ParseError::InvalidFormat(
-                format!("Invalid hex {} value: ${}", type_name, hex_str)
-            ))
-    } 
+            .map_err(|_| ParseError::InvalidFormat(format!("Invalid hex {} value: ${}", type_name, hex_str)))
+    }
     // Handle binary format (with % prefix)
     else if input.starts_with('%') {
         let bin_str = &input[1..];
         T::from_str_radix(bin_str, 2)
-            .map_err(|_| ParseError::InvalidFormat(
-                format!("Invalid binary {} value: %{}", type_name, bin_str)
-            ))
+            .map_err(|_| ParseError::InvalidFormat(format!("Invalid binary {} value: %{}", type_name, bin_str)))
     }
     // Handle decimal format
     else {
-        input.parse::<T>()
-            .map_err(|_| ParseError::InvalidFormat(
-                format!("Invalid decimal {} value: {}", type_name, input)
-            ))
+        input
+            .parse::<T>()
+            .map_err(|_| ParseError::InvalidFormat(format!("Invalid decimal {} value: {}", type_name, input)))
     }
 }
 
@@ -113,7 +103,7 @@ mod tests {
 
         // Invalid hex values
         assert!(parse_value::<u8>("$100").is_err()); // Out of range
-        assert!(parse_value::<u8>("$ZZ").is_err());  // Invalid characters
+        assert!(parse_value::<u8>("$ZZ").is_err()); // Invalid characters
     }
 
     #[test]
@@ -126,7 +116,7 @@ mod tests {
 
         // Invalid binary values
         assert!(parse_value::<u8>("%111111111").is_err()); // Too many bits for u8
-        assert!(parse_value::<u8>("%1234").is_err());      // Invalid binary digits
+        assert!(parse_value::<u8>("%1234").is_err()); // Invalid binary digits
     }
 
     #[test]
@@ -138,7 +128,7 @@ mod tests {
 
         // Invalid decimal values
         assert!(parse_value::<u8>("256").is_err()); // Out of range
-        assert!(parse_value::<u8>("-1").is_err());  // Negative value
+        assert!(parse_value::<u8>("-1").is_err()); // Negative value
         assert!(parse_value::<u8>("12.34").is_err()); // Float value
     }
 
@@ -151,7 +141,7 @@ mod tests {
 
         // Invalid hex values
         assert!(parse_value::<u16>("$10000").is_err()); // Out of range
-        assert!(parse_value::<u16>("$WXYZ").is_err());  // Invalid characters
+        assert!(parse_value::<u16>("$WXYZ").is_err()); // Invalid characters
     }
 
     #[test]
@@ -163,7 +153,7 @@ mod tests {
 
         // Invalid decimal values
         assert!(parse_value::<u16>("65536").is_err()); // Out of range
-        assert!(parse_value::<u16>("-1").is_err());    // Negative value
+        assert!(parse_value::<u16>("-1").is_err()); // Negative value
     }
 
     #[test]
@@ -171,14 +161,14 @@ mod tests {
         // Test with # prefix for hex values
         assert_eq!(parse_value::<u8>("#$42").unwrap(), 0x42);
         assert_eq!(parse_value::<u16>("#$1234").unwrap(), 0x1234);
-        
+
         // Test with # prefix for binary values
-        assert_eq!(parse_value::<u8>("#%00101010").unwrap(), 42);  // Binary 00101010 = decimal 42
-        assert_eq!(parse_value::<u8>("#%00010000").unwrap(), 16);  // Binary 00010000 = decimal 16
-        
+        assert_eq!(parse_value::<u8>("#%00101010").unwrap(), 42); // Binary 00101010 = decimal 42
+        assert_eq!(parse_value::<u8>("#%00010000").unwrap(), 16); // Binary 00010000 = decimal 16
+
         // Test without # prefix (should still work)
         assert_eq!(parse_value::<u8>("$42").unwrap(), 0x42);
         assert_eq!(parse_value::<u16>("$1234").unwrap(), 0x1234);
         assert_eq!(parse_value::<u8>("%00101010").unwrap(), 42);
     }
-} 
+}
