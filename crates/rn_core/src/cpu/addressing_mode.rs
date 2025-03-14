@@ -503,6 +503,8 @@ impl AddressingMode {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
     use anyhow::Result;
 
     use super::*;
@@ -510,7 +512,7 @@ mod tests {
 
     /// Helper function to set up a CPU with memory for testing
     fn setup_cpu() -> Cpu {
-        Cpu::new(Box::new(Ram::default()))
+        Cpu::new(Rc::new(RefCell::new(Ram::default())))
     }
 
     /// Helper function to set up a test case for addressing modes

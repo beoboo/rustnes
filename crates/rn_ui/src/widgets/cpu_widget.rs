@@ -1,3 +1,5 @@
+use std::cell::RefMut;
+
 use egui::{Grid, TextEdit, Ui};
 use rn_core::cpu::Cpu;
 
@@ -32,7 +34,7 @@ impl CpuWidget {
     }
 
     /// Render the CPU widget using the given UI and CPU
-    pub fn ui(&mut self, ui: &mut Ui, cpu: &mut Cpu) {
+    pub fn ui(&mut self, ui: &mut Ui, mut cpu: RefMut<Cpu>) {
         ui.heading("CPU State");
 
         Grid::new("cpu_registers_grid")

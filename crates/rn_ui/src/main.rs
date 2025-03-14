@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use anyhow::Result;
 use eframe::egui;
 use rn_core::{
@@ -28,7 +30,7 @@ fn main() -> Result<(), eframe::Error> {
 
 /// Main application state
 struct RustNESApp {
-    cpu: Cpu,
+    cpu: Rc<RefCell<Cpu>>,
     memory: Ram, // Store memory separately from CPU for UI purposes
     cpu_widget: CpuWidget,
     memory_widget: MemoryWidget,
@@ -63,7 +65,7 @@ impl eframe::App for RustNESApp {
             match self.selected_tab {
                 Tab::Cpu => {
                     // Show CPU state and controls
-                    self.cpu_widget.ui(ui, &mut self.cpu);
+                    self.cpu_widget.ui(ui, self.cpu.borrow_mut());
 
                     ui.add_space(16.0);
 
@@ -71,7 +73,7 @@ impl eframe::App for RustNESApp {
                     ui.heading("CPU Instructions");
                     ui.horizontal(|ui| -> Result<()> {
                         if ui.button("Reset CPU").clicked() {
-                            self.cpu.reset()?;
+                            self.cpu.borrow_mut().reset()?;
                         }
 
                         Ok(())
@@ -125,7 +127,7 @@ impl RustNESApp {
         memory.write_byte(0x8006, 0xFF)?; // #$FF
 
         // Create CPU with initialized memory
-        let mut cpu = Cpu::new(Box::new(Ram::default())); // This RAM won't be used directly
+        let mut cpu = Cpu::new(Rc::new(RefCell::new(Ram::default()))); // This RAM won't be used directly
 
         // Set some example values
         cpu.a = 0x42; // Accumulator
@@ -136,7 +138,7 @@ impl RustNESApp {
         cpu.status = 0x24; // Status flags
 
         Ok(Self {
-            cpu,
+            cpu: Rc::new(RefCell::new(cpu)),
             memory,
             cpu_widget: CpuWidget::new(),
             memory_widget: MemoryWidget::new()

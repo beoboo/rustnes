@@ -278,12 +278,15 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ### [Memory] Controller & DMA [T4]
 - [ ] Implement controller register mapping
 - [ ] Implement controller reading
+- [ ] Refactor memory architecture to use `Rc<RefCell<dyn Addressable>>` for shared access
+- [ ] Make DMA, PPU, and CPU all implement `Addressable` trait for better component interaction
 - [ ] Implement DMA controller
 - [ ] Implement DMA transfers
 - [ ] Test controller input
 - [ ] Test DMA functionality
 
 ### [PPU] Advanced Sprite Features [T4]
+- [ ] Fix OAM DMA transfer implementation for proper sprite rendering
 - [ ] Implement multiple sprite rendering
 - [ ] Implement sprite priority
 - [ ] Implement sprite attributes (flip, palette selection)
@@ -442,8 +445,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## Progress Tracking
 - Track 1 (Memory Visualization): 100% complete
 - Track 2 (PPU Pixel Display): 100% complete (All features complete including label support)
-- Track 3 (Basic Sprite Rendering): 100% complete (All sprite rendering features implemented and tested)
+- Track 3 (Basic Sprite Rendering): 100% complete (All features implemented but OAM DMA needs fixing for visual output)
 - Track 4 (Interactive Graphics & Animation): 10% complete (Advanced addressing modes complete)
 - Track 5 (Complete NES): 0% complete
 
-**Total Progress: 116/207 tasks complete (56.0%)** 🚀 
+**Total Progress: 116/209 tasks complete (55.5%)** 🚀 

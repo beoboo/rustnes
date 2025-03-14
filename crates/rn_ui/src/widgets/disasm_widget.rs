@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+use std::cell::Ref;
+
 use anyhow::Result;
 use egui::{self, Color32, Ui};
 use rn_core::cpu::{Cpu, Disassembler};
@@ -43,7 +45,7 @@ impl DisasmWidget {
     }
 
     /// Display the disassembly widget
-    pub fn ui(&mut self, ui: &mut Ui, cpu: &Cpu) -> Result<()> {
+    pub fn ui(&mut self, ui: &mut Ui, cpu: Ref<Cpu>) -> Result<()> {
         ui.heading("Disassembly");
 
         // If no program is loaded, show a message instead of disassembly

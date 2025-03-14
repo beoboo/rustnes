@@ -9,8 +9,8 @@ use crate::{
     cartridge::Cartridge,
     cpu::Cpu,
     errors::NesError,
-    memory::Ram,
-    ppu::{registers::PpuRegisters, Ppu},
+    memory::{Addressable, Ram},
+    ppu::Ppu,
     system::Bus,
 };
 
@@ -27,7 +27,7 @@ pub enum SystemState {
 /// NesSystem coordinates the main components of the NES
 pub struct NesSystem {
     /// The CPU component
-    cpu: Cpu,
+    cpu: Rc<RefCell<Cpu>>,
 
     /// The PPU component
     ppu: Rc<RefCell<Ppu>>,
@@ -49,12 +49,11 @@ impl NesSystem {
         let mut bus = Bus::new();
 
         // Attach PPU registers to the CPU bus at $2000-$2007
-        let ppu_regs = Box::new(PpuRegisters::new(ppu.clone()));
-        bus.attach_component(ppu_regs);
+        bus.attach_component(ppu.clone());
 
         // Add ROM mapping for program memory (0x8000-0xFFFF)
         // This ensures we have a proper place to load programs
-        let rom = Box::new(Ram::with_range(0x8000, 0xFFFF));
+        let rom = Rc::new(RefCell::new(Ram::with_range(0x8000, 0xFFFF)));
         bus.attach_component(rom);
 
         // Debug: Print the memory map before attaching to CPU
@@ -67,7 +66,7 @@ impl NesSystem {
         }
 
         // Create the CPU with its bus
-        let cpu = Cpu::new(Box::new(bus));
+        let cpu = Rc::new(RefCell::new(Cpu::new(Rc::new(RefCell::new(bus)))));
 
         Self {
             cpu,
@@ -79,8 +78,9 @@ impl NesSystem {
 
     /// Reset the system
     pub fn reset(&mut self) -> Result<(), NesError> {
-        self.cpu.reset()?;
-        self.ppu.borrow_mut().reset();
+        self.cpu_mut().reset()?;
+        self.ppu_mut().reset();
+
         let old_state = self.state;
         self.state = SystemState::Ready;
         debug!("System state transition: {:?} -> {:?}", old_state, self.state);
@@ -91,7 +91,7 @@ impl NesSystem {
 
     /// Load a program into memory
     pub fn load_program(&mut self, program: &[u8], address: u16) -> Result<(), NesError> {
-        self.cpu.load_program(program, address)?;
+        self.cpu_mut().load_program(program, address)?;
         let old_state = self.state;
         self.state = SystemState::Loaded;
         debug!("System state transition: {:?} -> {:?}", old_state, self.state);
@@ -117,19 +117,27 @@ impl NesSystem {
         }
 
         // Step the CPU and get cycles
-        match self.cpu.step() {
+        let res = self.cpu.borrow_mut().step();
+
+        match res {
             Ok(cpu_cycles) => {
                 // Run the PPU at 3x the CPU speed
                 for _ in 0..cpu_cycles * 3 {
-                    self.ppu.borrow_mut().tick();
+                    self.ppu_mut().tick();
                 }
 
                 // Check if we've hit a BRK instruction (end of program)
-                if self.cpu.read_byte(self.cpu.pc)? == 0x00 {
+                let cpu = self.cpu();
+                let pc = cpu.pc;
+
+                let byte = cpu.read_byte(pc)?;
+                drop(cpu);
+
+                if byte == 0x00 {
                     let old_state = self.state;
                     self.state = SystemState::Finished;
                     debug!("System state transition: {:?} -> {:?}", old_state, self.state);
-                    info!("BRK instruction encountered at ${:04X}, halting", self.cpu.pc);
+                    info!("BRK instruction encountered at ${:04X}, halting", pc);
                 }
 
                 Ok(cpu_cycles)
@@ -138,10 +146,13 @@ impl NesSystem {
                 // Store the error and set error state
                 self.error_message = Some(format!("Execution error: {}", err));
                 let old_state = self.state;
-                self.state = SystemState::Error(self.cpu.pc);
+
+                let pc = self.current_pc();
+
+                self.state = SystemState::Error(pc);
                 error!(
                     "System state transition: {:?} -> Error({:04X}) - {}",
-                    old_state, self.cpu.pc, err
+                    old_state, pc, err
                 );
                 Err(err)
             },
@@ -158,7 +169,7 @@ impl NesSystem {
         }
 
         let mut steps = 0;
-        info!("Running program from ${:04X}", self.cpu.pc);
+        info!("Running program from ${:04X}", self.current_pc());
 
         while steps < max_steps {
             match self.step() {
@@ -176,21 +187,24 @@ impl NesSystem {
             }
         }
 
+        let cpu = self.cpu.borrow();
+
         if steps >= max_steps {
             warn!("Program reached maximum step limit of {}", max_steps);
             self.error_message = Some(format!("Program reached maximum step limit of {}", max_steps));
             let old_state = self.state;
-            self.state = SystemState::Error(self.cpu.pc);
+            self.state = SystemState::Error(cpu.pc);
             debug!(
                 "System state transition: {:?} -> Error({:04X}) - step limit reached",
-                old_state, self.cpu.pc
+                old_state, cpu.pc
             );
         } else if self.state == SystemState::Running {
             // If we broke out of the loop without error or finishing, consider it finished
             let old_state = self.state;
             self.state = SystemState::Finished;
             debug!("System state transition: {:?} -> {:?}", old_state, self.state);
-            info!("Program terminated after {} steps at ${:04X}", steps, self.cpu.pc);
+            let cpu = self.cpu.borrow();
+            info!("Program terminated after {} steps at ${:04X}", steps, cpu.pc);
         }
 
         Ok(steps)
@@ -206,14 +220,19 @@ impl NesSystem {
         self.error_message.as_deref()
     }
 
+    /// Get the current PC
+    pub fn current_pc(&self) -> u16 {
+        self.cpu.borrow().pc
+    }
+
     /// Get the CPU
-    pub fn cpu(&self) -> &Cpu {
-        &self.cpu
+    pub fn cpu(&self) -> Ref<Cpu> {
+        self.cpu.borrow()
     }
 
     /// Get mutable access to the CPU
-    pub fn cpu_mut(&mut self) -> &mut Cpu {
-        &mut self.cpu
+    pub fn cpu_mut(&mut self) -> RefMut<Cpu> {
+        self.cpu.borrow_mut()
     }
 
     /// Get the PPU

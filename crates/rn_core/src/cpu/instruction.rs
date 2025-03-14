@@ -412,6 +412,8 @@ impl Cpu {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
     use anyhow::Result;
 
     use super::*;
@@ -419,7 +421,11 @@ mod tests {
 
     /// Helper function to set up a CPU with memory for testing
     fn setup_cpu() -> Cpu {
-        Cpu::new(Box::new(Ram::default()))
+        Cpu::new(Rc::new(RefCell::new(Ram::default())))
+    }
+
+    fn setup_cpu_with_memory(memory: Ram) -> Cpu {
+        Cpu::new(Rc::new(RefCell::new(memory)))
     }
 
     // Comprehensive tests for LDA to verify the load_register helper
@@ -890,7 +896,7 @@ mod tests {
     #[test]
     fn test_jsr_rts() -> Result<()> {
         let ram = Ram::with_range(0x0000, 0xFFFF);
-        let mut cpu = Cpu::new(Box::new(ram));
+        let mut cpu = setup_cpu_with_memory(ram);
 
         // Set up a simple program:
         // 0x0200: JSR $0210 (20 10 02)
@@ -960,7 +966,7 @@ mod tests {
 
     #[test]
     fn test_brk_instruction() -> Result<()> {
-        let mut cpu = Cpu::new(Box::new(Ram::default()));
+        let mut cpu = setup_cpu();
 
         // Set initial state
         cpu.pc = 0x8000;

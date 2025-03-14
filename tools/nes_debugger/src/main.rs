@@ -1,4 +1,8 @@
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::{
+    cell::{RefCell, RefMut},
+    path::PathBuf,
+    rc::Rc,
+};
 
 use clap::Parser;
 use eframe::{egui, App, Frame};
@@ -33,11 +37,11 @@ struct Args {
 
 /// Adapter to use CPU's memory with the memory editor
 struct CpuMemoryAdapter<'a> {
-    cpu: &'a mut Cpu,
+    cpu: RefMut<'a, Cpu>,
 }
 
 impl<'a> CpuMemoryAdapter<'a> {
-    fn new(cpu: &'a mut Cpu) -> Self {
+    fn new(cpu: RefMut<'a, Cpu>) -> Self {
         Self { cpu }
     }
 }

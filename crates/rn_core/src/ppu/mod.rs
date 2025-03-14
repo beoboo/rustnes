@@ -1,3 +1,30 @@
+use crate::{errors::NesError, memory::Addressable};
+
+// PPUCTRL ($2000) bits
+pub const CTRL_NAMETABLE_X: u8 = 0x01; // 0: Select nametable at $2000; 1: Select nametable at $2400
+pub const CTRL_NAMETABLE_Y: u8 = 0x02; // 0: Select nametable at $2000; 1: Select nametable at $2800
+pub const CTRL_INCREMENT_MODE: u8 = 0x04; // 0: Add 1; 1: Add 32
+pub const CTRL_SPRITE_PATTERN: u8 = 0x08; // 0: $0000; 1: $1000
+pub const CTRL_BACKGROUND_PATTERN: u8 = 0x10; // 0: $0000; 1: $1000
+pub const CTRL_SPRITE_SIZE: u8 = 0x20; // 0: 8x8; 1: 8x16
+pub const CTRL_MASTER_SLAVE: u8 = 0x40; // Not used in NES
+pub const CTRL_NMI_ENABLE: u8 = 0x80; // Generate NMI at start of vblank
+
+// PPUMASK ($2001) bits
+pub const MASK_GRAYSCALE: u8 = 0x01; // 0: Color; 1: Grayscale
+pub const MASK_SHOW_LEFT_BACKGROUND: u8 = 0x02; // Show background in leftmost 8 pixels
+pub const MASK_SHOW_LEFT_SPRITES: u8 = 0x04; // Show sprites in leftmost 8 pixels
+pub const MASK_SHOW_BACKGROUND: u8 = 0x08; // Show background
+pub const MASK_SHOW_SPRITES: u8 = 0x10; // Show sprites
+pub const MASK_EMPHASIZE_RED: u8 = 0x20; // Emphasize red
+pub const MASK_EMPHASIZE_GREEN: u8 = 0x40; // Emphasize green
+pub const MASK_EMPHASIZE_BLUE: u8 = 0x80; // Emphasize blue
+
+// PPUSTATUS ($2002) bits
+pub const STATUS_SPRITE_OVERFLOW: u8 = 0x20; // Sprite overflow occurred
+pub const STATUS_SPRITE_ZERO_HIT: u8 = 0x40; // Sprite 0 hit occurred
+pub const STATUS_VBLANK: u8 = 0x80; // In vblank
+
 /// The Picture Processing Unit (PPU) for the NES
 ///
 /// This handles all graphics rendering for the NES system.
@@ -70,18 +97,6 @@ impl Ppu {
         }
     }
 
-    /// Reset the PPU to its initial state
-    pub fn reset(&mut self) {
-        self.ctrl = 0;
-        self.mask = 0;
-        self.oam_addr = 0;
-        self.write_toggle = false;
-        self.scanline = -1;
-        self.cycle = 0;
-        // Status register bits are preserved
-        // Other state is preserved
-    }
-
     /// Execute a single PPU cycle
     ///
     /// The PPU runs at 3x the speed of the CPU, so this will be called
@@ -110,12 +125,12 @@ impl Ppu {
         }
 
         // First render background tiles (if enabled)
-        if (self.mask & registers::MASK_SHOW_BACKGROUND) != 0 {
+        if (self.mask & MASK_SHOW_BACKGROUND) != 0 {
             self.render_background();
         }
 
         // Then render sprites (if enabled)
-        if (self.mask & registers::MASK_SHOW_SPRITES) != 0 {
+        if (self.mask & MASK_SHOW_SPRITES) != 0 {
             self.render_sprites();
         }
     }
@@ -265,14 +280,10 @@ impl Ppu {
         let mut visible_sprites = Vec::new();
 
         // Get the sprite height (8 or 16 pixels, based on PPUCTRL)
-        let sprite_height = if (self.ctrl & registers::CTRL_SPRITE_SIZE) != 0 {
-            16
-        } else {
-            8
-        };
+        let sprite_height = if (self.ctrl & CTRL_SPRITE_SIZE) != 0 { 16 } else { 8 };
 
         // Get sprite pattern table address from PPUCTRL
-        let pattern_table_addr = if (self.ctrl & registers::CTRL_SPRITE_PATTERN) != 0 {
+        let pattern_table_addr = if (self.ctrl & CTRL_SPRITE_PATTERN) != 0 {
             0x1000
         } else {
             0x0000
@@ -363,7 +374,7 @@ impl Ppu {
             // Hardware limit: only 8 sprites per scanline
             if sprites_on_scanline >= 8 {
                 // Set the sprite overflow flag (bit 5 of PPUSTATUS)
-                self.status |= registers::STATUS_SPRITE_OVERFLOW;
+                self.status |= STATUS_SPRITE_OVERFLOW;
                 break;
             }
         }
@@ -745,54 +756,55 @@ impl Default for Ppu {
     }
 }
 
+impl Addressable for Ppu {
+    fn handles_address(&self, address: u16) -> bool {
+        address >= 0x2000 && address <= 0x3FFF
+    }
+
+    fn read_byte(&self, address: u16) -> Result<u8, NesError> {
+        Ok(self.read_ppu_memory(address))
+    }
+
+    fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
+        self.write_ppu_memory(address, value);
+        Ok(())
+    }
+
+    fn reset(&mut self) {
+        self.ctrl = 0;
+        self.mask = 0;
+        self.oam_addr = 0;
+        self.write_toggle = false;
+        self.scanline = -1;
+        self.cycle = 0;
+        // Status register bits are preserved
+        // Other state is preserved
+    }
+}
+
 // Define register bit constants
 pub mod registers {
     use std::{cell::RefCell, rc::Rc};
 
     use crate::{errors::NesError, memory::Addressable, ppu::Ppu};
 
-    // PPUCTRL ($2000) bits
-    pub const CTRL_NAMETABLE_X: u8 = 0x01; // 0: Select nametable at $2000; 1: Select nametable at $2400
-    pub const CTRL_NAMETABLE_Y: u8 = 0x02; // 0: Select nametable at $2000; 1: Select nametable at $2800
-    pub const CTRL_INCREMENT_MODE: u8 = 0x04; // 0: Add 1; 1: Add 32
-    pub const CTRL_SPRITE_PATTERN: u8 = 0x08; // 0: $0000; 1: $1000
-    pub const CTRL_BACKGROUND_PATTERN: u8 = 0x10; // 0: $0000; 1: $1000
-    pub const CTRL_SPRITE_SIZE: u8 = 0x20; // 0: 8x8; 1: 8x16
-    pub const CTRL_MASTER_SLAVE: u8 = 0x40; // Not used in NES
-    pub const CTRL_NMI_ENABLE: u8 = 0x80; // Generate NMI at start of vblank
-
-    // PPUMASK ($2001) bits
-    pub const MASK_GRAYSCALE: u8 = 0x01; // 0: Color; 1: Grayscale
-    pub const MASK_SHOW_LEFT_BACKGROUND: u8 = 0x02; // Show background in leftmost 8 pixels
-    pub const MASK_SHOW_LEFT_SPRITES: u8 = 0x04; // Show sprites in leftmost 8 pixels
-    pub const MASK_SHOW_BACKGROUND: u8 = 0x08; // Show background
-    pub const MASK_SHOW_SPRITES: u8 = 0x10; // Show sprites
-    pub const MASK_EMPHASIZE_RED: u8 = 0x20; // Emphasize red
-    pub const MASK_EMPHASIZE_GREEN: u8 = 0x40; // Emphasize green
-    pub const MASK_EMPHASIZE_BLUE: u8 = 0x80; // Emphasize blue
-
-    // PPUSTATUS ($2002) bits
-    pub const STATUS_SPRITE_OVERFLOW: u8 = 0x20; // Sprite overflow occurred
-    pub const STATUS_SPRITE_ZERO_HIT: u8 = 0x40; // Sprite 0 hit occurred
-    pub const STATUS_VBLANK: u8 = 0x80; // In vblank
-
     /// Adapter to connect PPU registers to the memory bus
     ///
     /// This component handles memory-mapped I/O for the PPU registers
     /// at addresses $2000-$2007.
-    pub struct PpuRegisters {
+    pub struct PpuRegisters2 {
         /// Reference to the PPU
         ppu: Rc<RefCell<Ppu>>,
     }
 
-    impl PpuRegisters {
+    impl PpuRegisters2 {
         /// Create a new PPU registers adapter
         pub fn new(ppu: Rc<RefCell<Ppu>>) -> Self {
             Self { ppu }
         }
     }
 
-    impl Addressable for PpuRegisters {
+    impl Addressable for PpuRegisters2 {
         /// Check if the address is in the PPU register range ($2000-$2007)
         fn handles_address(&self, address: u16) -> bool {
             address >= 0x2000 && address <= 0x2007
@@ -1045,7 +1057,7 @@ mod tests {
         ppu.connect_cartridge(Rc::clone(&cartridge));
 
         // Enable background rendering
-        ppu.mask = registers::MASK_SHOW_BACKGROUND;
+        ppu.mask = MASK_SHOW_BACKGROUND;
 
         // Render the frame
         ppu.render_frame();
@@ -1053,7 +1065,7 @@ mod tests {
         // Examine the first tile of pixel data from the frame buffer for debugging
         for y in 0..8 {
             print!("Row {}: ", y);
-        for x in 0..8 {
+            for x in 0..8 {
                 let idx = (y * 256 + x) * 3;
                 print!(
                     "({},{},{}) ",
@@ -1137,7 +1149,7 @@ mod tests {
         ppu.connect_cartridge(cart);
 
         // Enable sprites in PPUMASK
-        ppu.mask = registers::MASK_SHOW_SPRITES;
+        ppu.mask = MASK_SHOW_SPRITES;
 
         // Test sprite evaluation for scanline 64 (where our sprite is)
         let sprites = ppu.evaluate_sprites_for_scanline(64);
