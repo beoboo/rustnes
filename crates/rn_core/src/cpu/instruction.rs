@@ -29,6 +29,10 @@ impl Instruction {
     pub fn is_branch(&self) -> bool {
         matches!(self, Instruction::BPL)
     }
+
+    pub fn has_implied_addressing(&self) -> bool {
+        matches!(self, Instruction::BRK | Instruction::RTS | Instruction::NOP)
+    }
 }
 
 /// Instruction metadata containing the opcode, instruction type, addressing mode,
