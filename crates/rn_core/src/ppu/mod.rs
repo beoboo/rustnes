@@ -1053,7 +1053,7 @@ mod tests {
         // Examine the first tile of pixel data from the frame buffer for debugging
         for y in 0..8 {
             print!("Row {}: ", y);
-            for x in 0..8 {
+        for x in 0..8 {
                 let idx = (y * 256 + x) * 3;
                 print!(
                     "({},{},{}) ",
