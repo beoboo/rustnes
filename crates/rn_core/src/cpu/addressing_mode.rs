@@ -1,7 +1,29 @@
 use std::fmt;
+use std::str::FromStr;
 
-use super::Cpu;
+use super::{Cpu, Instruction};
 use crate::errors::NesError;
+use crate::helpers::parse::parse_value;
+
+/// Error type for addressing mode parsing
+#[derive(Debug, PartialEq, Eq)]
+pub enum AddressingModeError {
+    /// The input format was invalid
+    InvalidFormat(String),
+    /// The addressing mode is ambiguous and cannot be determined from the input alone
+    Ambiguous(String),
+}
+
+impl fmt::Display for AddressingModeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidFormat(msg) => write!(f, "Invalid addressing mode format: {}", msg),
+            Self::Ambiguous(msg) => write!(f, "Ambiguous addressing mode: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for AddressingModeError {}
 
 /// Addressing modes for the 6502 CPU
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -18,6 +40,109 @@ pub enum AddressingMode {
     IndirectIndexed, // (Indirect),Y - Post-indexed indirect
     Implied,         // Implied addressing mode (no operand)
     Relative,        // Relative addressing mode (for branch instructions)
+}
+
+impl FromStr for AddressingMode {
+    type Err = AddressingModeError;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        
+        // Immediate: #$xx
+        if s.starts_with('#') {
+            return Ok(Self::Immediate);
+        }
+        
+        // Handle parentheses addressing modes
+        if s.starts_with('(') {
+            let s_clean = s.trim_start_matches('(').trim_end_matches(')').trim();
+            
+            // Indexed Indirect: ($xx,X)
+            if s_clean.to_lowercase().ends_with(",x") {
+                return Ok(Self::IndexedIndirect);
+            }
+            
+            // Indirect Indexed: ($xx),Y
+            if s.contains(')') && 
+               (s.to_lowercase().ends_with(",y") || 
+                // Handle case with spaces: "($xx), Y"
+                s.to_lowercase().replace(" ", "").ends_with("),y")) {
+                return Ok(Self::IndirectIndexed);
+            }
+            
+            // Indirect: ($xxxx)
+            if !s_clean.contains(',') {
+                if s_clean.starts_with('$') && s_clean.len() == 5 {
+                    return Ok(Self::Indirect);
+                }
+                return Err(AddressingModeError::InvalidFormat(
+                    format!("'{}' could be indirect with various address sizes: {}", s, s.len())
+                ));
+            }
+        }
+        
+        // Handle addressing modes with commas (indexed addressing)
+        if s.contains(',') {
+            let parts: Vec<&str> = s.split(',').collect();
+            if parts.len() == 2 {
+                let addr_part = parts[0].trim();
+                let index_part = parts[1].trim().to_lowercase();
+                
+                if index_part == "x" {
+                    if addr_part.starts_with('$') {
+                        if addr_part.len() == 3 {
+                            return Ok(Self::ZeroPageX);
+                        }
+                        if addr_part.len() == 5 {
+                            return Ok(Self::AbsoluteX);
+                        }
+                        return Err(AddressingModeError::InvalidFormat(
+                            format!("'{}' invalid number of bytes: {}", s, addr_part.len())
+                        ));
+                    }
+                } else if index_part == "y" {
+                    if addr_part.starts_with('$') {
+                        if addr_part.len() == 3 {
+                            return Ok(Self::ZeroPageY);
+                        }
+                        if addr_part.len() == 5 {
+                            return Ok(Self::AbsoluteY);
+                        }
+                        return Err(AddressingModeError::InvalidFormat(
+                            format!("'{}' invalid number of bytes: {}", s, addr_part.len())
+                        ));
+                    }
+                }
+            }
+        }
+        
+        // Absolute: $xxxx (where xxxx is 0000-FFFF)
+        if s.starts_with('$') && s.len() == 5 {
+            return Ok(Self::Absolute);
+        }
+        
+        // Zero Page: $xx (where xx is 00-FF)
+        if s.starts_with('$') && s.len() == 3 {
+            return Ok(Self::ZeroPage);
+        }
+        
+        // Ambiguous: $ address could be ZeroPage or Absolute based on length
+        if s.starts_with('$') {
+            return Err(AddressingModeError::InvalidFormat(
+                format!("'{}' invalid number of bytes: {}", s, s.len())
+            ));
+        }
+        
+        // Implied addressing - empty string or just "A" (accumulator)
+        if s.is_empty() || s == "A" || s == "a" {
+            return Ok(Self::Implied);
+        }
+        
+        // Relative addressing can't be determined from format alone
+        // In a real assembler, this would be contextual based on the instruction
+        
+        Err(AddressingModeError::InvalidFormat(s.to_string()))
+    }
 }
 
 impl fmt::Display for AddressingMode {
@@ -45,13 +170,9 @@ impl AddressingMode {
     pub fn size(&self) -> u16 {
         match self {
             Self::Implied => 1,
-            Self::Immediate | Self::ZeroPage | Self::ZeroPageX | Self::ZeroPageY | Self::Relative => 2,
-            Self::Absolute
-            | Self::AbsoluteX
-            | Self::AbsoluteY
-            | Self::Indirect
-            | Self::IndexedIndirect
-            | Self::IndirectIndexed => 3,
+            Self::Immediate | Self::ZeroPage | Self::ZeroPageX | Self::ZeroPageY | Self::Relative |
+            Self::IndexedIndirect | Self::IndirectIndexed => 2,
+            Self::Absolute | Self::AbsoluteX | Self::AbsoluteY | Self::Indirect => 3,
         }
     }
 
@@ -199,7 +320,7 @@ impl AddressingMode {
             AddressingMode::ZeroPageX | AddressingMode::ZeroPageY => 1,
             AddressingMode::Indirect => 2,
             AddressingMode::IndexedIndirect => 4,
-
+            
             // Modes with page crossing penalties
             AddressingMode::AbsoluteX | AddressingMode::AbsoluteY | AddressingMode::IndirectIndexed => {
                 if page_crossed {
@@ -208,9 +329,161 @@ impl AddressingMode {
                     0
                 }
             },
-
-            // All other modes (Immediate, ZeroPage, Absolute, Implied)
+            
+            // All other modes have no additional cycles
             _ => 0,
+        }
+    }
+
+    /// Determines the addressing mode based on the instruction and operand format
+    pub fn from_instruction(instruction: Instruction, operand: &str) -> Result<Self, AddressingModeError> {
+        let operand = operand.trim();
+        
+        // 1. Branch instructions always use Relative addressing
+        if instruction.is_branch() {
+            return Ok(Self::Relative);
+        }
+        
+        // 2. Handle empty or "A" operand for implied/accumulator addressing
+        if operand.is_empty() || operand.eq_ignore_ascii_case("a") {
+            return Ok(Self::Implied);
+        }
+        
+        // 3. Handle immediate addressing (#$xx)
+        if operand.starts_with('#') {
+            // Verify it's a valid immediate format
+            let value_part = &operand[1..];
+            match parse_value::<u8>(value_part) {
+                Ok(_) => return Ok(Self::Immediate),
+                Err(_) => return Err(AddressingModeError::InvalidFormat(operand.to_string())),
+            }
+        }
+        
+        // 4. Handle JMP instruction (special case)
+        if instruction == Instruction::JMP {
+            return Self::parse_jump_addressing(operand);
+        }
+        
+        // 5. Try to parse the operand format
+        match Self::parse_addressing_format(operand) {
+            Ok(addressing_mode) => {
+                return Ok(addressing_mode);
+            },
+            Err(_) => {
+                // 6. If we reach here and the operand doesn't contain special characters,
+                // it might be a label reference
+                if !operand.contains('$') && !operand.contains('#') && !operand.contains('(') {
+                    return Ok(Self::Absolute); // Most non-branch labels use absolute addressing
+                }
+            }
+        }
+        
+        // 7. If all else fails, report an invalid format
+        Err(AddressingModeError::InvalidFormat(operand.to_string()))
+    }
+
+    // Helper method for parsing JMP addressing modes
+    fn parse_jump_addressing(operand: &str) -> Result<Self, AddressingModeError> {
+        // Handle indirect JMP format: JMP ($xxxx)
+        if operand.starts_with('(') && operand.ends_with(')') {
+            let inner = &operand[1..operand.len()-1];
+            // Try to parse the inner value
+            match parse_value::<u16>(inner) {
+                Ok(_) => return Ok(Self::Indirect),
+                Err(_) => return Err(AddressingModeError::InvalidFormat(operand.to_string())),
+            }
+        }
+        
+        // Try to parse as a direct address
+        match parse_value::<u16>(operand) {
+            Ok(_) => Ok(Self::Absolute),
+            Err(_) => {
+                // If not starting with $ but looks like a label
+                if !operand.contains('$') && !operand.contains('#') && !operand.contains('(') {
+                    Ok(Self::Absolute)
+                } else {
+                    Err(AddressingModeError::InvalidFormat(operand.to_string()))
+                }
+            }
+        }
+    }
+
+    // Helper method for parsing different addressing formats
+    fn parse_addressing_format(operand: &str) -> Result<Self, AddressingModeError> {
+        // Handle indexed indirect: ($xx,X)
+        if operand.starts_with('(') && operand.to_lowercase().contains(",x)") {
+            let inner = operand[1..operand.len()-1].split(',').next().unwrap_or("").trim();
+            match parse_value::<u16>(inner) {
+                Ok(_) => return Ok(Self::IndexedIndirect),
+                Err(_) => return Err(AddressingModeError::InvalidFormat(operand.to_string())),
+            }
+        }
+        
+        // Handle indirect indexed: ($xx),Y
+        if operand.starts_with('(') && operand.to_lowercase().contains("),y") {
+            let inner = operand[1..].split(')').next().unwrap_or("").trim();
+            match parse_value::<u16>(inner) {
+                Ok(_) => return Ok(Self::IndirectIndexed),
+                Err(_) => return Err(AddressingModeError::InvalidFormat(operand.to_string())),
+            }
+        }
+        
+        // Handle zero page and absolute indexed
+        if operand.contains(',') {
+            let parts: Vec<&str> = operand.split(',').collect();
+            if parts.len() == 2 {
+                let addr_part = parts[0].trim();
+                let index_part = parts[1].trim().to_lowercase();
+                
+                // Try to parse the address part
+                match parse_value::<u16>(addr_part) {
+                    Ok(value) => {
+                        if index_part == "x" {
+                            if value <= 0xFF {
+                                return Ok(Self::ZeroPageX);
+                            } else {
+                                return Ok(Self::AbsoluteX);
+                            }
+                        } else if index_part == "y" {
+                            if value <= 0xFF {
+                                return Ok(Self::ZeroPageY);
+                            } else {
+                                return Ok(Self::AbsoluteY);
+                            }
+                        }
+                    },
+                    Err(_) => {
+                        // If it contains invalid characters
+                        return Err(AddressingModeError::InvalidFormat(operand.to_string()));
+                    }
+                }
+            }
+            
+            // Invalid indexed format
+            return Err(AddressingModeError::InvalidFormat(operand.to_string()));
+        }
+        
+        // Handle simple zero page or absolute
+        match parse_value::<u16>(operand) {
+            Ok(value) => {
+                if value <= 0xFF {
+                    return Ok(Self::ZeroPage);
+                } else {
+                    return Ok(Self::Absolute);
+                }
+            },
+            Err(err) => {
+                // Check if the error message contains "ambiguous"
+                // This is a bit of a hack, but it should work for now
+                let err_str = err.to_string();
+                if err_str.contains("ambiguous") {
+                    return Err(AddressingModeError::Ambiguous(
+                        format!("'{}' could be ZeroPage or Absolute", operand)
+                    ));
+                }
+                
+                return Err(AddressingModeError::InvalidFormat(operand.to_string()));
+            }
         }
     }
 }
@@ -905,6 +1178,129 @@ mod tests {
                 mode, page_crossed, expected_cycles, actual_cycles
             );
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_addressing_mode_size() {
+        assert_eq!(AddressingMode::Implied.size(), 1);
+        assert_eq!(AddressingMode::Immediate.size(), 2);
+        assert_eq!(AddressingMode::ZeroPage.size(), 2);
+        assert_eq!(AddressingMode::ZeroPageX.size(), 2);
+        assert_eq!(AddressingMode::ZeroPageY.size(), 2);
+        assert_eq!(AddressingMode::Relative.size(), 2);
+        assert_eq!(AddressingMode::Absolute.size(), 3);
+        assert_eq!(AddressingMode::AbsoluteX.size(), 3);
+        assert_eq!(AddressingMode::AbsoluteY.size(), 3);
+        assert_eq!(AddressingMode::Indirect.size(), 3);
+        assert_eq!(AddressingMode::IndexedIndirect.size(), 2);
+        assert_eq!(AddressingMode::IndirectIndexed.size(), 2);
+    }
+
+    #[test]
+    fn test_addressing_mode_from_str() -> Result<()> {
+        // Test successful parsing
+        assert_eq!(AddressingMode::from_str("#$42")?, AddressingMode::Immediate);
+        assert_eq!(AddressingMode::from_str("$42")?, AddressingMode::ZeroPage);
+        assert_eq!(AddressingMode::from_str("$1234")?, AddressingMode::Absolute);
+        assert_eq!(AddressingMode::from_str("$42,X")?, AddressingMode::ZeroPageX);
+        assert_eq!(AddressingMode::from_str("$1234,X")?, AddressingMode::AbsoluteX);
+        assert_eq!(AddressingMode::from_str("$42,Y")?, AddressingMode::ZeroPageY);
+        assert_eq!(AddressingMode::from_str("$1234,Y")?, AddressingMode::AbsoluteY);
+        assert_eq!(AddressingMode::from_str("($1234)")?, AddressingMode::Indirect);
+        assert_eq!(AddressingMode::from_str("($42,X)")?, AddressingMode::IndexedIndirect);
+        assert_eq!(AddressingMode::from_str("($42),Y")?, AddressingMode::IndirectIndexed);
+        assert_eq!(AddressingMode::from_str("")?, AddressingMode::Implied);
+        assert_eq!(AddressingMode::from_str("A")?, AddressingMode::Implied);
+        
+        // Test with spaces and different case
+        assert_eq!(AddressingMode::from_str(" #$42 ")?, AddressingMode::Immediate);
+        assert_eq!(AddressingMode::from_str("$42, x")?, AddressingMode::ZeroPageX);
+        assert_eq!(AddressingMode::from_str("($42), y")?, AddressingMode::IndirectIndexed);
+        
+        // Test invalid format
+        assert!(matches!(AddressingMode::from_str("$4"), Err(AddressingModeError::InvalidFormat(_))));
+        assert!(matches!(AddressingMode::from_str("($42)"), Err(AddressingModeError::InvalidFormat(_))));
+        assert!(matches!(AddressingMode::from_str("$4,X"), Err(AddressingModeError::InvalidFormat(_))));
+        assert!(matches!(AddressingMode::from_str("invalid"), Err(AddressingModeError::InvalidFormat(_))));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_addressing_mode_from_instruction() -> Result<()> {
+        // Test branch instructions always use Relative addressing
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::BPL, "$10")?,
+            AddressingMode::Relative
+        );
+        
+        // Test JMP instruction with different operands
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::JMP, "$1234")?,
+            AddressingMode::Absolute
+        );
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::JMP, "($1234)")?,
+            AddressingMode::Indirect
+        );
+
+        // Test implied and accumulator addressing
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::RTS, "")?,
+            AddressingMode::Implied
+        );
+        
+        // Test immediate addressing
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::LDA, "#$42")?,
+            AddressingMode::Immediate
+        );
+
+        // Test zero page and absolute addressing
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::LDA, "$42")?,
+            AddressingMode::ZeroPage
+        );
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::LDA, "$1234")?,
+            AddressingMode::Absolute
+        );
+
+        // Test indexed addressing
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::LDA, "$42,X")?,
+            AddressingMode::ZeroPageX
+        );
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::LDA, "$1234,X")?,
+            AddressingMode::AbsoluteX
+        );
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::LDX, "$42,Y")?,
+            AddressingMode::ZeroPageY
+        );
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::LDX, "$1234,Y")?,
+            AddressingMode::AbsoluteY
+        );
+
+        // Test indirect addressing modes
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::LDA, "($42,X)")?,
+            AddressingMode::IndexedIndirect
+        );
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::LDA, "($42),Y")?,
+            AddressingMode::IndirectIndexed
+        );
+
+        // Test label references (non-branch)
+        assert_eq!(
+            AddressingMode::from_instruction(Instruction::LDA, "label")?,
+            AddressingMode::Absolute
+        );
 
         Ok(())
     }

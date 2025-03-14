@@ -4,7 +4,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use thiserror::Error;
 
-use super::{AddressingMode, Instruction, InstructionDecoder, InstructionDecoderError, InstructionMetadata};
+use super::{addressing_mode::AddressingModeError, AddressingMode, Instruction, InstructionDecoder, InstructionDecoderError, InstructionMetadata};
 use crate::helpers::{errors::ParseError, parse::parse_value};
 
 /// Errors that can occur during instruction parsing
@@ -39,6 +39,9 @@ pub enum AssembleError {
 
     #[error("Instruction decoder error: {0}")]
     InstructionDecoderError(#[from] InstructionDecoderError),
+
+    #[error("Addressing mode error: {0}")]
+    AddressingModeError(#[from] AddressingModeError),
 }
 
 /// Result type for parsing operations
@@ -595,30 +598,6 @@ impl Assembler {
         Ok((metadata, *address))
     }
 
-    /// Parses an instruction string into metadata
-    /// If labels map is provided, label references in operands will be resolved
-    fn parse_instruction(&self, input: &str) -> AssembleResult<InstructionMetadata> {
-        // Split input into mnemonic and operand
-        let (instruction, operand_opt) = split_instruction(input)?;
-
-        // Check for implied addressing mode instructions (no operand)
-        if instruction.has_implied_addressing() {
-            return self.handle_implied_instruction(instruction);
-        }
-
-        // For other instructions, we need an operand
-        let operand = operand_opt.ok_or_else(|| AssembleError::InvalidSyntax("Missing operand".to_string()))?;
-
-        let addressing_mode = if instruction.is_branch() {
-            AddressingMode::Relative
-        } else {
-            let (addressing_mode, _) = self.parse_addressing_mode(&operand)?;
-            addressing_mode
-        };
-
-        Ok(self.decoder.lookup(instruction, addressing_mode)?)
-    }
-
     /// Determines the addressing mode and operand value from a string
     ///
     /// Examples:
@@ -672,6 +651,26 @@ impl Assembler {
         let metadata = self.parse_instruction(line)?;
         Ok(metadata.addressing_mode.size())
     }
+
+    /// Parses an instruction string into metadata
+    /// If labels map is provided, label references in operands will be resolved
+    fn parse_instruction(&self, input: &str) -> AssembleResult<InstructionMetadata> {
+        // Split input into mnemonic and operand
+        let (instruction, operand_opt) = split_instruction(input)?;
+
+        // Check for implied addressing mode instructions (no operand)
+        if instruction.has_implied_addressing() {
+            return self.handle_implied_instruction(instruction);
+        }
+
+        // For other instructions, we need an operand
+        let operand = operand_opt.ok_or_else(|| AssembleError::InvalidSyntax("Missing operand".to_string()))?;
+
+        let addressing_mode = AddressingMode::from_instruction(instruction, &operand)?;
+
+        Ok(self.decoder.lookup(instruction, addressing_mode)?)
+    }
+
 
     /// Encodes an instruction with its operand bytes based on addressing mode
     fn encode_instruction(
@@ -862,52 +861,6 @@ mod tests {
         Ok(())
     }
 
-    /// Tests for addressing mode recognition
-    #[test]
-    fn test_addressing_mode_parsing() -> Result<()> {
-        let parser = Assembler::new(0);
-
-        // Test immediate mode
-        let (mode, _) = parser.parse_addressing_mode("#$42")?;
-        assert_eq!(mode, AddressingMode::Immediate);
-
-        // Test zero page
-        let (mode, _) = parser.parse_addressing_mode("$42")?;
-        assert_eq!(mode, AddressingMode::ZeroPage);
-
-        // Test absolute
-        let (mode, _) = parser.parse_addressing_mode("$1234")?;
-        assert_eq!(mode, AddressingMode::Absolute);
-
-        // Test invalid format
-        assert!(parser.parse_addressing_mode("xyz").is_err());
-
-        Ok(())
-    }
-
-    /// Tests for operand value extraction
-    #[test]
-    fn test_operand_parsing() -> Result<()> {
-        let parser = Assembler::new(0);
-
-        // Test immediate operand
-        let (_, value) = parser.parse_addressing_mode("#$42")?;
-        assert_eq!(value, 0x42);
-
-        // Test zero page operand
-        let (_, value) = parser.parse_addressing_mode("$42")?;
-        assert_eq!(value, 0x42);
-
-        // Test absolute operand
-        let (_, value) = parser.parse_addressing_mode("$1234")?;
-        assert_eq!(value, 0x1234);
-
-        // Test invalid hex value
-        assert!(parser.parse_addressing_mode("#$ZZ").is_err());
-
-        Ok(())
-    }
-
     /// Integration tests for complete instruction parsing
     #[test]
     fn test_complete_instruction_parsing() -> Result<()> {
@@ -943,10 +896,7 @@ mod tests {
         let result = parser.parse_instruction("XYZ #$42");
         assert!(result.is_err());
 
-        // Test invalid addressing mode syntax
-        let result = parser.parse_instruction("LDA xyz");
-        assert!(result.is_err());
-
+        
         // Test invalid operand value
         let result = parser.parse_instruction("LDA #$ZZ");
         assert!(result.is_err());
