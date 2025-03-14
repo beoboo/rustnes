@@ -4,7 +4,14 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use thiserror::Error;
 
-use super::{addressing_mode::AddressingModeError, AddressingMode, Instruction, InstructionDecoder, InstructionDecoderError, InstructionMetadata};
+use super::{
+    addressing_mode::AddressingModeError,
+    AddressingMode,
+    Instruction,
+    InstructionDecoder,
+    InstructionDecoderError,
+    InstructionMetadata,
+};
 use crate::helpers::{errors::ParseError, parse::parse_value};
 
 /// Errors that can occur during instruction parsing
@@ -671,7 +678,6 @@ impl Assembler {
         Ok(self.decoder.lookup(instruction, addressing_mode)?)
     }
 
-
     /// Encodes an instruction with its operand bytes based on addressing mode
     fn encode_instruction(
         &self,
@@ -896,7 +902,6 @@ mod tests {
         let result = parser.parse_instruction("XYZ #$42");
         assert!(result.is_err());
 
-        
         // Test invalid operand value
         let result = parser.parse_instruction("LDA #$ZZ");
         assert!(result.is_err());

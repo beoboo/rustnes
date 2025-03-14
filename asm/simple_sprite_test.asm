@@ -26,27 +26,68 @@ Reset:
     BPL Wait2
 
   ; ESSENTIAL #1: Set up sprite in OAM (located at $0200)
+  ; Sprite 1: A box in the center of the screen
   LDA #$80              ; Y position = 128 (middle of screen)
   STA $0200
   LDA #$00              ; Tile number = 0 (first tile)
   STA $0201
-  LDA #$00              ; Attributes: no flip, palette 0
+  LDA #$00              ; Attributes: no flip, palette 0 (green colors)
   STA $0202
   LDA #$80              ; X position = 128 (middle of screen)
   STA $0203
+  
+  ; Sprite 2: A box at top-left of screen
+  LDA #$20              ; Y position = 32 (top area)
+  STA $0204
+  LDA #$00              ; Tile number = 0 (first tile)
+  STA $0205  
+  LDA #$01              ; Attributes: no flip, palette 1 (red colors)
+  STA $0206
+  LDA #$20              ; X position = 32 (left area)
+  STA $0207
+  
+  ; Sprite 3: A box at bottom-right of screen
+  LDA #$E0              ; Y position = 224 (bottom area)
+  STA $0208
+  LDA #$00              ; Tile number = 0 (first tile)
+  STA $0209
+  LDA #$02              ; Attributes: no flip, palette 2 (blue colors)
+  STA $020A
+  LDA #$E0              ; X position = 224 (right area)
+  STA $020B
 
-  ; ESSENTIAL #2: Set up the palette
+  ; ESSENTIAL #2: Set up the palettes
   LDA #$3F
   STA $2006             ; PPUADDR high byte = $3F
   LDA #$10
   STA $2006             ; PPUADDR low byte = $10 (sprite palette 0)
   
-  ; Write 4 colors for sprite palette 0
+  ; Write 4 colors for sprite palette 0 (green)
   LDA #$0F              ; Black (transparent)
   STA $2007
-  LDA #$15              ; Light green
+  LDA #$2A              ; Light green
   STA $2007
-  LDA #$27              ; Red
+  LDA #$1A              ; Dark green
+  STA $2007
+  LDA #$30              ; White
+  STA $2007
+  
+  ; Write 4 colors for sprite palette 1 (red)
+  LDA #$0F              ; Black (transparent)
+  STA $2007
+  LDA #$16              ; Light red
+  STA $2007
+  LDA #$06              ; Dark red
+  STA $2007
+  LDA #$30              ; White
+  STA $2007
+  
+  ; Write 4 colors for sprite palette 2 (blue)
+  LDA #$0F              ; Black (transparent)
+  STA $2007
+  LDA #$22              ; Light blue
+  STA $2007
+  LDA #$12              ; Dark blue
   STA $2007
   LDA #$30              ; White
   STA $2007
@@ -65,7 +106,7 @@ Reset:
   STA $2000
 
   ; ESSENTIAL #3: Enable sprites
-  LDA #%00011110        ; Enable sprites + background
+  LDA #%00010000        ; Enable sprites only
   STA $2001
 
   ; Simple infinite loop
@@ -82,10 +123,10 @@ Reset:
   ; First tile (8x8 sprite) - Bit plane 0
   .byte %00000000
   .byte %00111100
-  .byte %00111100
-  .byte %00111100
-  .byte %00111100
-  .byte %00111100
+  .byte %01111110
+  .byte %01111110
+  .byte %01111110
+  .byte %01111110
   .byte %00111100
   .byte %00000000
   

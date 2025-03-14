@@ -14,8 +14,8 @@ pub enum InstructionDecoderError {
     InvalidOpcode(u8),
 
     /// Error for addressing mode not implemented for a specific instruction
-    #[error("Unimplemented addressing mode for instruction")]
-    UnimplementedAddressingMode,
+    #[error("Unimplemented addressing mode for instruction: {0} {1}")]
+    UnimplementedAddressingMode(Instruction, AddressingMode),
 }
 
 /// 6502 CPU instruction opcodes
@@ -167,8 +167,11 @@ impl InstructionDecoder {
     ) -> Result<InstructionMetadata, InstructionDecoderError> {
         self.instruction_map
             .get(&(instruction, addressing_mode))
-            .map(|&opcode| self.instruction_table[opcode as usize].unwrap())
-            .ok_or(InstructionDecoderError::UnimplementedAddressingMode)
+            .and_then(|&opcode| self.instruction_table[opcode as usize])
+            .ok_or(InstructionDecoderError::UnimplementedAddressingMode(
+                instruction,
+                addressing_mode,
+            ))
     }
 }
 

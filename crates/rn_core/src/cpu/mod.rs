@@ -304,7 +304,7 @@ mod tests {
 
         // Verify the error is the expected one
         assert!(result.is_err(), "Expected an error for invalid opcode");
-        if let Err(NesError::InvalidOpcode(op)) = result {
+        if let Err(NesError::InstructionDecoderError(InstructionDecoderError::InvalidOpcode(op))) = result {
             assert_eq!(op, 0xFF);
         } else {
             anyhow::bail!("Expected InvalidOpcode error, got: {:?}", result);

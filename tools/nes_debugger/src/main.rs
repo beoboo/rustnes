@@ -3,6 +3,8 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc};
 use clap::Parser;
 use eframe::{egui, App, Frame};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
+#[macro_use]
+extern crate log;
 use rn_core::{
     cpu::Cpu,
     errors::NesError,
@@ -400,23 +402,31 @@ impl App for NesDebugger {
         // Load the initial file if specified and not yet loaded
         if !self.initial_file_loaded {
             if let Some(file_path) = &self.args.asm_file {
-                if let Ok(file_content) = std::fs::read_to_string(file_path) {
-                    // Update the code in the AsmWidget
-                    self.asm_widget = AsmWidget::with_code(&file_content);
+                debug!("Attempting to load assembly file: {}", file_path.display());
+                match std::fs::read_to_string(file_path) {
+                    Ok(file_content) => {
+                        debug!("Successfully read file contents, creating assembly widget");
+                        self.asm_widget = AsmWidget::with_code(&file_content);
 
-                    // Assemble and load the code
-                    let mut system_borrow = self.system.borrow_mut();
-                    let _ = self.asm_widget.assemble_code(&mut *system_borrow);
-
-                    println!("Loaded assembly file: {}", file_path.display());
-
-                    // Switch to PPU view by default for test files
-                    self.context.display_mode = DisplayMode::Ppu;
-                } else {
-                    eprintln!("Error reading file: {}", file_path.display());
+                        // Assemble and load the code
+                        let mut system_borrow = self.system.borrow_mut();
+                        match self.asm_widget.assemble_code(&mut *system_borrow) {
+                            Ok(_) => {
+                                info!("Successfully assembled and loaded code from: {}", file_path.display());
+                                // Switch to PPU view by default for test files
+                                self.context.display_mode = DisplayMode::Ppu;
+                            },
+                            Err(err) => {
+                                error!("Failed to assemble code from {}: {}", file_path.display(), err);
+                            },
+                        }
+                    },
+                    Err(err) => {
+                        error!("Error reading file {}: {}", file_path.display(), err);
+                    },
                 }
+                self.initial_file_loaded = true;
             }
-            self.initial_file_loaded = true;
         }
 
         // Update DisasmWidget with program information
@@ -434,17 +444,54 @@ impl App for NesDebugger {
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("New").clicked() {
-                        self.asm_widget = AsmWidget::new();
+                    if ui.button("Open...").clicked() {
+                        // File open code would go here - can be added later
+                        info!("File Open clicked - functionality not yet implemented");
                         ui.close_menu();
                     }
+
+                    if ui.button("Save As...").clicked() {
+                        // File save code would go here - can be added later
+                        info!("File Save As clicked - functionality not yet implemented");
+                        ui.close_menu();
+                    }
+
                     // Add more file operations here as needed
                 });
 
                 ui.menu_button("System", |ui| {
                     if ui.button("Reset").clicked() {
+                        debug!("Resetting system");
                         let mut system_borrow = self.system.borrow_mut();
-                        let _ = system_borrow.reset();
+                        if let Err(err) = system_borrow.reset() {
+                            error!("Failed to reset system: {}", err);
+                        } else {
+                            info!("System reset successfully");
+                        }
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Step").clicked() {
+                        debug!("Stepping system once");
+                        let mut system_borrow = self.system.borrow_mut();
+                        if let Err(err) = system_borrow.step() {
+                            error!("Step failed: {}", err);
+                        }
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Run Program").clicked() {
+                        info!("Starting program execution");
+                        let mut system_borrow = self.system.borrow_mut();
+                        match system_borrow.run(1000000) {
+                            // 1M instruction limit
+                            Ok(steps) => {
+                                info!("Program execution completed after {} steps", steps);
+                            },
+                            Err(err) => {
+                                error!("Program execution failed: {}", err);
+                            },
+                        }
                         ui.close_menu();
                     }
                 });
@@ -487,11 +534,21 @@ impl App for NesDebugger {
 }
 
 fn main() -> anyhow::Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt::init();
+    // Initialize logging with tracing-subscriber
+    // Set default log level to info, but allow override via RUST_LOG environment variable
+    use tracing_subscriber::{fmt, EnvFilter};
+    fmt()
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .init();
+
+    info!("Starting RustNES Debugger");
 
     // Parse command line arguments
     let args = Args::parse();
+
+    if let Some(path) = &args.asm_file {
+        info!("Assembly file specified: {}", path.display());
+    }
 
     // Set up the native options with a maximized window
     let options = eframe::NativeOptions {
@@ -503,12 +560,20 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Run the app
+    info!("Launching UI");
     eframe::run_native(
         "RustNES Debugger",
         options,
-        Box::new(|cc| Ok(Box::new(NesDebugger::new(cc, args)))),
+        Box::new(|cc| {
+            info!("Initializing application");
+            Ok(Box::new(NesDebugger::new(cc, args)))
+        }),
     )
-    .map_err(|e| anyhow::anyhow!("Application error: {}", e))?;
+    .map_err(|e| {
+        error!("Application error: {}", e);
+        anyhow::anyhow!("Application error: {}", e)
+    })?;
 
+    info!("Application closed normally");
     Ok(())
 }

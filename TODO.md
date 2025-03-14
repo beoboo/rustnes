@@ -154,14 +154,14 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## MILESTONE 3: Basic Sprite Rendering [T3]
 - [x] Create a test ROM that displays a single sprite
-- [ ] Implement basic sprite rendering functionality
+- [x] Implement basic sprite rendering functionality
 - [x] Implement BIT instruction for PPU status checking
 - [x] Implement BPL branch instruction for PPU loop control 
 - [x] Write tests for these PPU-specific instructions
-- [ ] Create examples that use BIT/BPL for PPU synchronization
-- [ ] Test sprite rendering with a single sprite
-- [ ] Support basic NES ROM assembly with essential directives
-- [ ] Document the achievement
+- [x] Create examples that use BIT/BPL for PPU synchronization
+- [x] Test sprite rendering with a single sprite
+- [x] Support basic NES ROM assembly with essential directives
+- [x] Document the achievement
 
 ### [CPU] Extended Addressing Modes [T3] 
 - [x] Implement zero page,X addressing
@@ -174,27 +174,27 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement BIT instruction for PPU status checking
 - [x] Implement BPL branch instruction for PPU loop control 
 - [x] Write tests for these PPU-specific instructions
-- [ ] Create examples that use BIT/BPL for PPU synchronization
+- [x] Create examples that use BIT/BPL for PPU synchronization
 
 ### [PPU] Pattern Tables [T3]
 - [x] Implement pattern table memory access for ROM data
 - [x] Implement pattern table bit plane handling (2 planes → pixel data)
 - [x] Implement a pattern table widget for visualizing tile data
-- [ ] Implement basic palette mapping for sprite pixels
-- [ ] Test pattern rendering
+- [x] Implement basic palette mapping for sprite pixels
+- [x] Test pattern rendering
 
 ### [PPU] Basic Sprites [T3]
-- [~] Implement OAM (Object Attribute Memory) at $0200-$02FF
-- [~] Track and process writes to OAM memory
-- [ ] Implement basic sprite evaluation (position, tile number, attributes)
-- [ ] Implement single sprite rendering pipeline
-- [ ] Test basic sprite rendering with simple pattern
+- [x] Implement OAM (Object Attribute Memory) at $0200-$02FF
+- [x] Track and process writes to OAM memory
+- [x] Implement basic sprite evaluation (position, tile number, attributes)
+- [x] Implement single sprite rendering pipeline
+- [x] Test basic sprite rendering with simple pattern
 
 ### [Cartridge] Basic ROM Loading [T3]
 - [x] Implement simplified iNES file format parser
 - [x] Extract CHR ROM data from test ROM
 - [x] Make CHR ROM data accessible to pattern tables
-- [ ] Test ROM loading with sprite pattern
+- [x] Test ROM loading with sprite pattern
 
 ### [Parser] Assembler Directives Support [T3]
 - [x] Implement `.segment` directive for defining basic sections (HEADER, STARTUP, VECTORS, CHARS)
@@ -442,8 +442,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## Progress Tracking
 - Track 1 (Memory Visualization): 100% complete
 - Track 2 (PPU Pixel Display): 100% complete (All features complete including label support)
-- Track 3 (Basic Sprite Rendering): 55% complete (Directives support, pattern table viewing, BIT and BPL instructions working, but sprite rendering incomplete)
+- Track 3 (Basic Sprite Rendering): 100% complete (All sprite rendering features implemented and tested)
 - Track 4 (Interactive Graphics & Animation): 10% complete (Advanced addressing modes complete)
 - Track 5 (Complete NES): 0% complete
 
-**Total Progress: 99/207 tasks complete (47.8%)** 🚀 
+**Total Progress: 116/207 tasks complete (56.0%)** 🚀 

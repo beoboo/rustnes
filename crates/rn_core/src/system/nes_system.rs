@@ -3,6 +3,8 @@ use std::{
     rc::Rc,
 };
 
+use log::{debug, error, info, warn};
+
 use crate::{
     cartridge::Cartridge,
     cpu::Cpu,
@@ -79,7 +81,9 @@ impl NesSystem {
     pub fn reset(&mut self) -> Result<(), NesError> {
         self.cpu.reset()?;
         self.ppu.borrow_mut().reset();
+        let old_state = self.state;
         self.state = SystemState::Ready;
+        debug!("System state transition: {:?} -> {:?}", old_state, self.state);
         self.error_message = None;
 
         Ok(())
@@ -88,8 +92,11 @@ impl NesSystem {
     /// Load a program into memory
     pub fn load_program(&mut self, program: &[u8], address: u16) -> Result<(), NesError> {
         self.cpu.load_program(program, address)?;
+        let old_state = self.state;
         self.state = SystemState::Loaded;
+        debug!("System state transition: {:?} -> {:?}", old_state, self.state);
         self.error_message = None;
+        info!("Program loaded at ${:04X}, size: {} bytes", address, program.len());
         Ok(())
     }
 
@@ -98,11 +105,16 @@ impl NesSystem {
     /// Returns the number of CPU cycles used
     pub fn step(&mut self) -> Result<u8, NesError> {
         if self.state == SystemState::Finished || matches!(self.state, SystemState::Error(_)) {
+            debug!("Skipping step in terminal state: {:?}", self.state);
             return Ok(0); // Don't step if already finished or in error state
         }
 
         // Set state to running
+        let old_state = self.state;
         self.state = SystemState::Running;
+        if old_state != self.state {
+            debug!("System state transition: {:?} -> {:?}", old_state, self.state);
+        }
 
         // Step the CPU and get cycles
         match self.cpu.step() {
@@ -114,8 +126,10 @@ impl NesSystem {
 
                 // Check if we've hit a BRK instruction (end of program)
                 if self.cpu.read_byte(self.cpu.pc)? == 0x00 {
+                    let old_state = self.state;
                     self.state = SystemState::Finished;
-                    println!("BRK instruction encountered at ${:04X}, halting", self.cpu.pc);
+                    debug!("System state transition: {:?} -> {:?}", old_state, self.state);
+                    info!("BRK instruction encountered at ${:04X}, halting", self.cpu.pc);
                 }
 
                 Ok(cpu_cycles)
@@ -123,7 +137,12 @@ impl NesSystem {
             Err(err) => {
                 // Store the error and set error state
                 self.error_message = Some(format!("Execution error: {}", err));
+                let old_state = self.state;
                 self.state = SystemState::Error(self.cpu.pc);
+                error!(
+                    "System state transition: {:?} -> Error({:04X}) - {}",
+                    old_state, self.cpu.pc, err
+                );
                 Err(err)
             },
         }
@@ -134,18 +153,19 @@ impl NesSystem {
     /// Takes a maximum number of steps to prevent infinite loops
     pub fn run(&mut self, max_steps: usize) -> Result<usize, NesError> {
         if self.state != SystemState::Loaded && self.state != SystemState::Running {
+            debug!("Skipping run in state: {:?}", self.state);
             return Ok(0); // Don't run if not loaded or already finished
         }
 
         let mut steps = 0;
-        println!("Running program from ${:04X}", self.cpu.pc);
+        info!("Running program from ${:04X}", self.cpu.pc);
 
         while steps < max_steps {
             match self.step() {
                 Ok(0) => break, // Got 0 cycles, means we're finished
                 Ok(_) => steps += 1,
                 Err(err) => {
-                    println!("Error at step {}: {}", steps, err);
+                    error!("Error at step {}: {}", steps, err);
                     return Err(err);
                 },
             }
@@ -157,13 +177,20 @@ impl NesSystem {
         }
 
         if steps >= max_steps {
-            println!("Program reached maximum step limit of {}", max_steps);
+            warn!("Program reached maximum step limit of {}", max_steps);
             self.error_message = Some(format!("Program reached maximum step limit of {}", max_steps));
+            let old_state = self.state;
             self.state = SystemState::Error(self.cpu.pc);
+            debug!(
+                "System state transition: {:?} -> Error({:04X}) - step limit reached",
+                old_state, self.cpu.pc
+            );
         } else if self.state == SystemState::Running {
             // If we broke out of the loop without error or finishing, consider it finished
+            let old_state = self.state;
             self.state = SystemState::Finished;
-            println!("Program terminated after {} steps at ${:04X}", steps, self.cpu.pc);
+            debug!("System state transition: {:?} -> {:?}", old_state, self.state);
+            info!("Program terminated after {} steps at ${:04X}", steps, self.cpu.pc);
         }
 
         Ok(steps)

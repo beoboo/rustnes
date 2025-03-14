@@ -10,7 +10,8 @@ anyhow = { workspace = true }
 egui = { workspace = true }
 eframe = { workspace = true }
 egui_dock = "0.16"
-tracing-subscriber = { workspace = true }
+log = "0.4"
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 clap = { version = "4.4", features = ["derive"] }
 rn_core = { path = "../../crates/rn_core" }
 rn_ui = { path = "../../crates/rn_ui" } 
