@@ -9,7 +9,7 @@ pub use pattern_table::PatternTable;
 /// Basic NES cartridge implementation
 ///
 /// Handles loading and access to PRG ROM (program data) and CHR ROM (graphics data)
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Cartridge {
     /// Pattern table containing CHR ROM data
     pattern_table: PatternTable,
@@ -76,8 +76,6 @@ impl Cartridge {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, rc::Rc};
-
     use super::*;
     use crate::ppu::Ppu;
 
@@ -112,15 +110,12 @@ mod tests {
         assert!(!chr_data.is_empty(), "CHR ROM data is empty");
 
         // Create a new cartridge and load the CHR ROM data
-        let cartridge = Rc::new(RefCell::new(Cartridge::new()));
-        {
-            let mut cart = cartridge.borrow_mut();
-            cart.load_chr_rom(&chr_data);
-        }
+        let mut cartridge = Cartridge::new();
+        cartridge.load_chr_rom(&chr_data);
 
         // Create a new PPU and connect the cartridge
         let mut ppu = Ppu::new();
-        ppu.connect_cartridge(Rc::clone(&cartridge));
+        ppu.connect_cartridge(cartridge);
 
         // Test reading from the pattern table
         // This is just a basic test to ensure we can read data from the pattern table

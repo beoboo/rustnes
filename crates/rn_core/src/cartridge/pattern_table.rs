@@ -6,6 +6,7 @@
 /// - 0x1000-0x1FFF: Pattern table 1
 ///
 /// Each 8x8 tile takes up 16 bytes (8 bytes for the low bit plane, 8 bytes for the high bit plane)
+#[derive(Clone)]
 pub struct PatternTable {
     /// The raw pattern table data (8KB)
     data: Vec<u8>,

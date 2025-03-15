@@ -22,4 +22,7 @@ pub enum NesError {
 
     #[error("Memory not connected")]
     MemoryNotConnected,
+
+    #[error("Cartridge not connected")]
+    CartridgeNotConnected,
 }

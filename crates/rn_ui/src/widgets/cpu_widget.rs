@@ -1,7 +1,7 @@
 use std::cell::RefMut;
 
 use egui::{Grid, TextEdit, Ui};
-use rn_core::cpu::Cpu;
+use rn_core::cpu::{Cpu, CpuWrapper};
 
 use crate::widgets::{HexEditText, ValueType};
 
@@ -34,7 +34,7 @@ impl CpuWidget {
     }
 
     /// Render the CPU widget using the given UI and CPU
-    pub fn ui(&mut self, ui: &mut Ui, mut cpu: RefMut<Cpu>) {
+    pub fn ui(&mut self, ui: &mut Ui, cpu: CpuWrapper) {
         ui.heading("CPU State");
 
         Grid::new("cpu_registers_grid")
@@ -42,8 +42,9 @@ impl CpuWidget {
             .spacing([40.0, 4.0])
             .striped(true)
             .show(ui, |ui| {
+                let mut registers = cpu.registers();
                 // A register
-                let mut a_value = cpu.a as u16;
+                let mut a_value = registers.a as u16;
                 if self.a_register.ui(
                     ui,
                     "A (Accumulator):",
@@ -51,12 +52,12 @@ impl CpuWidget {
                     ValueType::Bit8,
                     Some("Accumulator Register"),
                 ) {
-                    cpu.a = a_value as u8;
+                    registers.a = a_value as u8;
                 }
                 ui.end_row();
 
                 // X register
-                let mut x_value = cpu.x as u16;
+                let mut x_value = registers.x as u16;
                 if self.x_register.ui(
                     ui,
                     "X (Index X):",
@@ -64,12 +65,12 @@ impl CpuWidget {
                     ValueType::Bit8,
                     Some("X Index Register"),
                 ) {
-                    cpu.x = x_value as u8;
+                    registers.x = x_value as u8;
                 }
                 ui.end_row();
 
                 // Y register
-                let mut y_value = cpu.y as u16;
+                let mut y_value = registers.y as u16;
                 if self.y_register.ui(
                     ui,
                     "Y (Index Y):",
@@ -77,12 +78,12 @@ impl CpuWidget {
                     ValueType::Bit8,
                     Some("Y Index Register"),
                 ) {
-                    cpu.y = y_value as u8;
+                    registers.y = y_value as u8;
                 }
                 ui.end_row();
 
                 // Stack Pointer
-                let mut sp_value = cpu.sp as u16;
+                let mut sp_value = registers.sp as u16;
                 if self.sp_register.ui(
                     ui,
                     "SP (Stack Pointer):",
@@ -90,7 +91,7 @@ impl CpuWidget {
                     ValueType::Bit8,
                     Some("Stack Pointer Register"),
                 ) {
-                    cpu.sp = sp_value as u8;
+                    registers.sp = sp_value as u8;
                 }
                 ui.end_row();
 
@@ -98,22 +99,24 @@ impl CpuWidget {
                 if self.pc_register.ui(
                     ui,
                     "PC (Program Counter):",
-                    &mut cpu.pc,
+                    &mut registers.pc,
                     ValueType::Bit16,
                     Some("Program Counter Register"),
                 ) {
                     // PC updated directly
                 }
+
+                cpu.set_registers(registers);
                 ui.end_row();
 
                 // Status register - this is shown as read-only with individual flags below
                 ui.label("Status (P):");
-                ui.label(format!("${:02X}", cpu.status));
+                ui.label(format!("${:02X}", registers.status));
                 ui.end_row();
 
                 // Cycles
                 ui.label("Cycles:");
-                ui.label(format!("{}", cpu.cycles));
+                ui.label(format!("{}", cpu.cycles()));
                 ui.end_row();
             });
 
@@ -152,15 +155,18 @@ impl CpuWidget {
                     });
 
                     // Tight checkbox placement
-                    let mut checked = (cpu.status & mask) != 0;
+                    let mut registers = cpu.registers();
+                    let mut checked = (registers.status & mask) != 0;
                     let response = ui.checkbox(&mut checked, "").on_hover_text(tooltip);
 
                     if response.changed() {
                         if checked {
-                            cpu.status |= mask;
+                            registers.status |= mask;
                         } else {
-                            cpu.status &= !mask;
+                            registers.status &= !mask;
                         }
+
+                        cpu.set_registers(registers);
                     }
                 });
             }

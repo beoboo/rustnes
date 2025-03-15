@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use anyhow::Result;
 use eframe::egui;
 use rn_core::{
-    cpu::Cpu,
+    cpu::{Cpu, CpuWrapper},
     memory::{Addressable, Ram},
 };
 // Import widgets module
@@ -30,7 +30,7 @@ fn main() -> Result<(), eframe::Error> {
 
 /// Main application state
 struct RustNESApp {
-    cpu: Rc<RefCell<Cpu>>,
+    cpu: CpuWrapper,
     memory: Ram, // Store memory separately from CPU for UI purposes
     cpu_widget: CpuWidget,
     memory_widget: MemoryWidget,
@@ -65,7 +65,7 @@ impl eframe::App for RustNESApp {
             match self.selected_tab {
                 Tab::Cpu => {
                     // Show CPU state and controls
-                    self.cpu_widget.ui(ui, self.cpu.borrow_mut());
+                    self.cpu_widget.ui(ui, self.cpu.clone());
 
                     ui.add_space(16.0);
 
@@ -73,7 +73,7 @@ impl eframe::App for RustNESApp {
                     ui.heading("CPU Instructions");
                     ui.horizontal(|ui| -> Result<()> {
                         if ui.button("Reset CPU").clicked() {
-                            self.cpu.borrow_mut().reset()?;
+                            self.cpu.reset()?;
                         }
 
                         Ok(())
@@ -131,15 +131,15 @@ impl RustNESApp {
         cpu.connect_memory(Rc::new(RefCell::new(Ram::default()))); // This RAM won't be used directly
 
         // Set some example values
-        cpu.a = 0x42; // Accumulator
-        cpu.x = 0x10; // X register
-        cpu.y = 0x20; // Y register
-        cpu.pc = 0x8000; // Program counter
-        cpu.sp = 0xFD; // Stack pointer
-        cpu.status = 0x24; // Status flags
+        cpu.registers.a = 0x42; // Accumulator
+        cpu.registers.x = 0x10; // X register
+        cpu.registers.y = 0x20; // Y register
+        cpu.registers.pc = 0x8000; // Program counter
+        cpu.registers.sp = 0xFD; // Stack pointer
+        cpu.registers.status = 0x24; // Status flags
 
         Ok(Self {
-            cpu: Rc::new(RefCell::new(cpu)),
+            cpu: CpuWrapper::new(cpu),
             memory,
             cpu_widget: CpuWidget::new(),
             memory_widget: MemoryWidget::new()

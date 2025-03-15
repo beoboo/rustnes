@@ -1,4 +1,6 @@
-use crate::{errors::NesError, memory::Addressable};
+use std::{cell::RefCell, rc::Rc};
+
+use crate::{cartridge::Cartridge, errors::NesError, memory::Addressable};
 
 // PPUCTRL ($2000) bits
 pub const CTRL_NAMETABLE_X: u8 = 0x01; // 0: Select nametable at $2000; 1: Select nametable at $2400
@@ -25,6 +27,69 @@ pub const STATUS_SPRITE_OVERFLOW: u8 = 0x20; // Sprite overflow occurred
 pub const STATUS_SPRITE_ZERO_HIT: u8 = 0x40; // Sprite 0 hit occurred
 pub const STATUS_VBLANK: u8 = 0x80; // In vblank
 
+pub trait PpuInterface {}
+
+#[derive(Clone)]
+pub struct PpuWrapper {
+    ppu: Rc<RefCell<Ppu>>,
+}
+
+impl PpuWrapper {
+    pub fn new(ppu: Ppu) -> Self {
+        Self {
+            ppu: Rc::new(RefCell::new(ppu)),
+        }
+    }
+
+    pub fn write_register(&self, address: u16, value: u8) {
+        self.ppu.borrow_mut().write_register(address, value);
+    }
+
+    pub(crate) fn tick(&self) {
+        self.ppu.borrow_mut().tick();
+    }
+
+    pub(crate) fn has_cartridge(&self) -> bool {
+        self.ppu.borrow().cartridge().is_some()
+    }
+
+    pub fn connect_cartridge(&self, cart: Cartridge) {
+        self.ppu.borrow_mut().connect_cartridge(cart);
+    }
+
+    pub fn load_chr_rom(&self, chr_data: &[u8]) -> Result<(), NesError> {
+        let mut ppu = self.ppu.borrow_mut();
+        let Some(cart) = ppu.cartridge_mut() else {
+            return Err(NesError::CartridgeNotConnected);
+        };
+        cart.load_chr_rom(chr_data);
+        Ok(())
+    }
+
+    pub fn frame_buffer(&self) -> Vec<u8> {
+        self.ppu.borrow().frame_buffer().to_vec()
+    }
+
+    pub fn cartridge(&self) -> Option<Cartridge> {
+        self.ppu.borrow().cartridge().clone()
+    }
+}
+
+impl Addressable for PpuWrapper {
+    fn handles_address(&self, address: u16) -> bool {
+        self.ppu.borrow().handles_address(address)
+    }
+
+    fn read_byte(&self, address: u16) -> Result<u8, NesError> {
+        self.ppu.borrow().read_byte(address)
+    }
+
+    fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
+        self.ppu.borrow_mut().write_byte(address, value)
+    }
+}
+
+impl PpuInterface for PpuWrapper {}
 /// The Picture Processing Unit (PPU) for the NES
 ///
 /// This handles all graphics rendering for the NES system.
@@ -54,7 +119,7 @@ pub struct Ppu {
     frame_buffer: Vec<u8>, // RGB data for the current frame
 
     // Cartridge reference (optional)
-    cartridge: Option<std::rc::Rc<std::cell::RefCell<crate::cartridge::Cartridge>>>,
+    cartridge: Option<Cartridge>,
 }
 
 /// Struct to hold processed sprite data for rendering
@@ -150,9 +215,7 @@ impl Ppu {
                 }
 
                 // Get the pixel data for this tile
-                if let Some(cart_ref) = &self.cartridge {
-                    let cart = cart_ref.borrow();
-
+                if let Some(cart) = &self.cartridge {
                     // Get all the pixel data for this tile
                     let pixels = cart.get_tile_pixels(tile_id as u16);
 
@@ -327,9 +390,7 @@ impl Ppu {
             let mut tile_data = [0u8; 8];
 
             // If we have a cartridge connected, get the data from it
-            if let Some(cart_ref) = &self.cartridge {
-                let cart = cart_ref.borrow();
-
+            if let Some(cart) = &self.cartridge {
                 // Calculate the tile address
                 let tile_addr = pattern_table_addr + (tile_idx as u16 * 16);
 
@@ -628,9 +689,8 @@ impl Ppu {
         match addr {
             0x0000..=0x1FFF => {
                 // Pattern tables (CHR ROM/RAM) - External
-                if let Some(cart_ref) = &self.cartridge {
+                if let Some(cart) = &self.cartridge {
                     // Get the data from the cartridge
-                    let cart = cart_ref.borrow();
                     cart.read_pattern_table(addr)
                 } else {
                     // Fallback to the temporary implementation if no cartridge is connected
@@ -662,9 +722,8 @@ impl Ppu {
         match addr {
             0x0000..=0x1FFF => {
                 // Pattern tables (CHR ROM/RAM) - External
-                if let Some(cart_ref) = &self.cartridge {
+                if let Some(cart) = &mut self.cartridge {
                     // Only write if the cartridge is present
-                    let mut cart = cart_ref.borrow_mut();
                     cart.write_pattern_table(addr, value);
                 }
                 // If no cartridge is present, writes are ignored
@@ -730,7 +789,7 @@ impl Ppu {
     }
 
     /// Connect a cartridge to the PPU
-    pub fn connect_cartridge(&mut self, cartridge: std::rc::Rc<std::cell::RefCell<crate::cartridge::Cartridge>>) {
+    pub fn connect_cartridge(&mut self, cartridge: Cartridge) {
         self.cartridge = Some(cartridge);
     }
 
@@ -740,12 +799,11 @@ impl Ppu {
     }
 
     /// Get the current cartridge if one is connected
-    pub fn cartridge(&self) -> Option<&std::rc::Rc<std::cell::RefCell<crate::cartridge::Cartridge>>> {
-        self.cartridge.as_ref()
+    pub fn cartridge(&self) -> Option<Cartridge> {
+        self.cartridge.clone()
     }
 
-    /// Get a mutable reference to the cartridge if one is connected
-    pub fn cartridge_mut(&mut self) -> Option<&mut std::rc::Rc<std::cell::RefCell<crate::cartridge::Cartridge>>> {
+    pub fn cartridge_mut(&mut self) -> Option<&mut Cartridge> {
         self.cartridge.as_mut()
     }
 }
@@ -840,8 +898,6 @@ pub mod registers {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, rc::Rc};
-
     use super::*;
     use crate::cartridge::Cartridge;
 
@@ -938,47 +994,42 @@ mod tests {
         let mut ppu = Ppu::new();
 
         // Create a new cartridge
-        let cart = Rc::new(RefCell::new(Cartridge::new()));
+        let mut cart = Cartridge::new();
 
-        // Load some pattern data
-        {
-            let mut cart_mut = cart.borrow_mut();
+        // Create test data: a simple 8x8 tile
+        let mut test_data = vec![0; 0x2000];
 
-            // Create test data: a simple 8x8 tile
-            let mut test_data = vec![0; 0x2000];
+        // Tile 0: A simple pattern that looks like:
+        // ■■■■■■■■
+        // ■■■■■■■■
+        // ■■    ■■
+        // ■■    ■■
+        // ■■    ■■
+        // ■■    ■■
+        // ■■■■■■■■
+        // ■■■■■■■■
 
-            // Tile 0: A simple pattern that looks like:
-            // ■■■■■■■■
-            // ■■■■■■■■
-            // ■■    ■■
-            // ■■    ■■
-            // ■■    ■■
-            // ■■    ■■
-            // ■■■■■■■■
-            // ■■■■■■■■
+        // Low bit plane (1s define shape)
+        test_data[0x0000] = 0xFF; // Row 1: ■■■■■■■■
+        test_data[0x0001] = 0xFF; // Row 2: ■■■■■■■■
+        test_data[0x0002] = 0xC3; // Row 3: ■■    ■■
+        test_data[0x0003] = 0xC3; // Row 4: ■■    ■■
+        test_data[0x0004] = 0xC3; // Row 5: ■■    ■■
+        test_data[0x0005] = 0xC3; // Row 6: ■■    ■■
+        test_data[0x0006] = 0xFF; // Row 7: ■■■■■■■■
+        test_data[0x0007] = 0xFF; // Row 8: ■■■■■■■■
 
-            // Low bit plane (1s define shape)
-            test_data[0x0000] = 0xFF; // Row 1: ■■■■■■■■
-            test_data[0x0001] = 0xFF; // Row 2: ■■■■■■■■
-            test_data[0x0002] = 0xC3; // Row 3: ■■    ■■
-            test_data[0x0003] = 0xC3; // Row 4: ■■    ■■
-            test_data[0x0004] = 0xC3; // Row 5: ■■    ■■
-            test_data[0x0005] = 0xC3; // Row 6: ■■    ■■
-            test_data[0x0006] = 0xFF; // Row 7: ■■■■■■■■
-            test_data[0x0007] = 0xFF; // Row 8: ■■■■■■■■
+        // High bit plane (all 0s for this simple test)
+        test_data[0x0008] = 0x00;
+        test_data[0x0009] = 0x00;
+        test_data[0x000A] = 0x00;
+        test_data[0x000B] = 0x00;
+        test_data[0x000C] = 0x00;
+        test_data[0x000D] = 0x00;
+        test_data[0x000E] = 0x00;
+        test_data[0x000F] = 0x00;
 
-            // High bit plane (all 0s for this simple test)
-            test_data[0x0008] = 0x00;
-            test_data[0x0009] = 0x00;
-            test_data[0x000A] = 0x00;
-            test_data[0x000B] = 0x00;
-            test_data[0x000C] = 0x00;
-            test_data[0x000D] = 0x00;
-            test_data[0x000E] = 0x00;
-            test_data[0x000F] = 0x00;
-
-            cart_mut.load_chr_rom(&test_data);
-        }
+        cart.load_chr_rom(&test_data);
 
         // Connect the cartridge to the PPU
         ppu.connect_cartridge(cart);
@@ -1005,7 +1056,7 @@ mod tests {
         let mut ppu = Ppu::new();
 
         // Create a cartridge with test pattern data
-        let cartridge = Rc::new(RefCell::new(Cartridge::new()));
+        let mut cart = Cartridge::new();
 
         // Create test pattern data
         // Tile 1: A hollow square pattern that looks like:
@@ -1017,33 +1068,31 @@ mod tests {
         // ■■    ■■
         // ■■■■■■■■
         // ■■■■■■■■
-        {
-            let mut cart = cartridge.borrow_mut();
-            let mut test_data = vec![0; 0x2000];
 
-            // Set up data for tile 1 (at CHR address 0x0010-0x001F)
-            // Low bit plane (all 1s define the shape)
-            test_data[0x0010] = 0xFF; // Row 1: ■■■■■■■■
-            test_data[0x0011] = 0xFF; // Row 2: ■■■■■■■■
-            test_data[0x0012] = 0xC3; // Row 3: ■■    ■■
-            test_data[0x0013] = 0xC3; // Row 4: ■■    ■■
-            test_data[0x0014] = 0xC3; // Row 5: ■■    ■■
-            test_data[0x0015] = 0xC3; // Row 6: ■■    ■■
-            test_data[0x0016] = 0xFF; // Row 7: ■■■■■■■■
-            test_data[0x0017] = 0xFF; // Row 8: ■■■■■■■■
+        let mut test_data = vec![0; 0x2000];
 
-            // High bit plane (all 0s for this simple test)
-            test_data[0x0018] = 0x00;
-            test_data[0x0019] = 0x00;
-            test_data[0x001A] = 0x00;
-            test_data[0x001B] = 0x00;
-            test_data[0x001C] = 0x00;
-            test_data[0x001D] = 0x00;
-            test_data[0x001E] = 0x00;
-            test_data[0x001F] = 0x00;
+        // Set up data for tile 1 (at CHR address 0x0010-0x001F)
+        // Low bit plane (all 1s define the shape)
+        test_data[0x0010] = 0xFF; // Row 1: ■■■■■■■■
+        test_data[0x0011] = 0xFF; // Row 2: ■■■■■■■■
+        test_data[0x0012] = 0xC3; // Row 3: ■■    ■■
+        test_data[0x0013] = 0xC3; // Row 4: ■■    ■■
+        test_data[0x0014] = 0xC3; // Row 5: ■■    ■■
+        test_data[0x0015] = 0xC3; // Row 6: ■■    ■■
+        test_data[0x0016] = 0xFF; // Row 7: ■■■■■■■■
+        test_data[0x0017] = 0xFF; // Row 8: ■■■■■■■■
 
-            cart.load_chr_rom(&test_data);
-        }
+        // High bit plane (all 0s for this simple test)
+        test_data[0x0018] = 0x00;
+        test_data[0x0019] = 0x00;
+        test_data[0x001A] = 0x00;
+        test_data[0x001B] = 0x00;
+        test_data[0x001C] = 0x00;
+        test_data[0x001D] = 0x00;
+        test_data[0x001E] = 0x00;
+        test_data[0x001F] = 0x00;
+
+        cart.load_chr_rom(&test_data);
 
         // Set the nametable to use our test tile
         ppu.write_ppu_memory(0x2000, 1);
@@ -1054,7 +1103,7 @@ mod tests {
         }
 
         // Connect the cartridge to the PPU
-        ppu.connect_cartridge(Rc::clone(&cartridge));
+        ppu.connect_cartridge(cart);
 
         // Enable background rendering
         ppu.mask = MASK_SHOW_BACKGROUND;
@@ -1114,36 +1163,33 @@ mod tests {
         ppu.oam[3] = 80; // X position
 
         // Create a cartridge with test pattern data
-        let cart = Rc::new(RefCell::new(Cartridge::new()));
+        let mut cart = Cartridge::new();
 
         // Create test pattern data for tile 1
-        {
-            let mut cart_mut = cart.borrow_mut();
-            let mut test_data = vec![0; 0x2000];
+        let mut test_data = vec![0; 0x2000];
 
-            // Set up a simple test pattern for tile 1
-            // First bit plane (low bits)
-            test_data[0x0010] = 0x3C; // 00111100
-            test_data[0x0011] = 0x42; // 01000010
-            test_data[0x0012] = 0x81; // 10000001
-            test_data[0x0013] = 0x81; // 10000001
-            test_data[0x0014] = 0x81; // 10000001
-            test_data[0x0015] = 0x42; // 01000010
-            test_data[0x0016] = 0x3C; // 00111100
-            test_data[0x0017] = 0x00; // 00000000
+        // Set up a simple test pattern for tile 1
+        // First bit plane (low bits)
+        test_data[0x0010] = 0x3C; // 00111100
+        test_data[0x0011] = 0x42; // 01000010
+        test_data[0x0012] = 0x81; // 10000001
+        test_data[0x0013] = 0x81; // 10000001
+        test_data[0x0014] = 0x81; // 10000001
+        test_data[0x0015] = 0x42; // 01000010
+        test_data[0x0016] = 0x3C; // 00111100
+        test_data[0x0017] = 0x00; // 00000000
 
-            // Second bit plane (high bits)
-            test_data[0x0018] = 0x00; // 00000000
-            test_data[0x0019] = 0x3C; // 00111100
-            test_data[0x001A] = 0x7E; // 01111110
-            test_data[0x001B] = 0x7E; // 01111110
-            test_data[0x001C] = 0x7E; // 01111110
-            test_data[0x001D] = 0x3C; // 00111100
-            test_data[0x001E] = 0x00; // 00000000
-            test_data[0x001F] = 0x00; // 00000000
+        // Second bit plane (high bits)
+        test_data[0x0018] = 0x00; // 00000000
+        test_data[0x0019] = 0x3C; // 00111100
+        test_data[0x001A] = 0x7E; // 01111110
+        test_data[0x001B] = 0x7E; // 01111110
+        test_data[0x001C] = 0x7E; // 01111110
+        test_data[0x001D] = 0x3C; // 00111100
+        test_data[0x001E] = 0x00; // 00000000
+        test_data[0x001F] = 0x00; // 00000000
 
-            cart_mut.load_chr_rom(&test_data);
-        }
+        cart.load_chr_rom(&test_data);
 
         // Connect the cartridge to the PPU
         ppu.connect_cartridge(cart);

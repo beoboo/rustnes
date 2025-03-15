@@ -3,7 +3,7 @@ use std::cell::Ref;
 
 use anyhow::Result;
 use egui::{self, Color32, Ui};
-use rn_core::cpu::{Cpu, Disassembler};
+use rn_core::cpu::{Cpu, CpuWrapper, Disassembler};
 /// A widget for disassembling and displaying 6502 machine code
 pub struct DisasmWidget {
     /// Memory range to disassemble
@@ -45,7 +45,7 @@ impl DisasmWidget {
     }
 
     /// Display the disassembly widget
-    pub fn ui(&mut self, ui: &mut Ui, cpu: Ref<Cpu>) -> Result<()> {
+    pub fn ui(&mut self, ui: &mut Ui, cpu: CpuWrapper) -> Result<()> {
         ui.heading("Disassembly");
 
         // If no program is loaded, show a message instead of disassembly
@@ -55,7 +55,7 @@ impl DisasmWidget {
         }
 
         // Get current PC
-        let current_pc = cpu.pc;
+        let current_pc = cpu.pc();
 
         // Create disassembler
         let disassembler = Disassembler::new();

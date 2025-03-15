@@ -192,50 +192,50 @@ impl AddressingMode {
     /// This method assumes PC points to the operand byte (rather than the opcode)
     pub fn get_operand_address(&self, cpu: &Cpu) -> Result<u16, NesError> {
         match self {
-            AddressingMode::Immediate => Ok(cpu.pc),
+            AddressingMode::Immediate => Ok(cpu.registers.pc),
             AddressingMode::ZeroPage => {
                 // Zero page addressing uses only a single byte for the address
                 // We read that byte and use it as an address in the range $0000-$00FF
-                let zero_page_addr = cpu.read_byte(cpu.pc)?;
+                let zero_page_addr = cpu.read_byte(cpu.registers.pc)?;
                 Ok(zero_page_addr as u16)
             },
             AddressingMode::ZeroPageX => {
                 // Get the zero page address from the current PC
-                let zero_page_addr = cpu.read_byte(cpu.pc)?;
+                let zero_page_addr = cpu.read_byte(cpu.registers.pc)?;
 
                 // Add the X register to it (with wrap-around in the zero page)
-                let effective_addr = (zero_page_addr.wrapping_add(cpu.x)) as u16;
+                let effective_addr = (zero_page_addr.wrapping_add(cpu.registers.x)) as u16;
 
                 // The high byte is always 0 since we stay in the zero page
                 Ok(effective_addr)
             },
             AddressingMode::ZeroPageY => {
                 // Get the zero page address from the current PC
-                let zero_page_addr = cpu.read_byte(cpu.pc)?;
+                let zero_page_addr = cpu.read_byte(cpu.registers.pc)?;
 
                 // Add the Y register to it (with wrap-around in the zero page)
-                let effective_addr = (zero_page_addr.wrapping_add(cpu.y)) as u16;
+                let effective_addr = (zero_page_addr.wrapping_add(cpu.registers.y)) as u16;
 
                 // The high byte is always 0 since we stay in the zero page
                 Ok(effective_addr)
             },
             AddressingMode::Absolute => {
                 // Read a full 16-bit address (little-endian)
-                cpu.read_word(cpu.pc)
+                cpu.read_word(cpu.registers.pc)
             },
             AddressingMode::AbsoluteX => {
                 // Read the base address and add X register
-                let base_addr = cpu.read_word(cpu.pc)?;
-                Ok(base_addr.wrapping_add(cpu.x as u16))
+                let base_addr = cpu.read_word(cpu.registers.pc)?;
+                Ok(base_addr.wrapping_add(cpu.registers.x as u16))
             },
             AddressingMode::AbsoluteY => {
                 // Read the base address and add Y register
-                let base_addr = cpu.read_word(cpu.pc)?;
-                Ok(base_addr.wrapping_add(cpu.y as u16))
+                let base_addr = cpu.read_word(cpu.registers.pc)?;
+                Ok(base_addr.wrapping_add(cpu.registers.y as u16))
             },
             AddressingMode::Indirect => {
                 // Get the pointer address from the current PC
-                let ptr_addr = cpu.read_word(cpu.pc)?;
+                let ptr_addr = cpu.read_word(cpu.registers.pc)?;
 
                 // Handle the 6502 JMP indirect bug:
                 // If the pointer address ends in $xxFF (page boundary),
@@ -256,17 +256,17 @@ impl AddressingMode {
             },
             AddressingMode::IndexedIndirect => {
                 // 1. Get the zero page pointer base from the current PC
-                let base_ptr = cpu.read_byte(cpu.pc)?;
+                let base_ptr = cpu.read_byte(cpu.registers.pc)?;
 
                 // 2. Add X register to get the effective pointer (with zero page wrap-around)
-                let eff_ptr = base_ptr.wrapping_add(cpu.x);
+                let eff_ptr = base_ptr.wrapping_add(cpu.registers.x);
 
                 // 3. Read the target address from the zero page (with wrap-around for the high byte)
                 cpu.read_word(eff_ptr as u16)
             },
             AddressingMode::IndirectIndexed => {
                 // 1. Get the zero page pointer from the current PC
-                let zp_ptr = cpu.read_byte(cpu.pc)? as u16;
+                let zp_ptr = cpu.read_byte(cpu.registers.pc)? as u16;
 
                 // 2. Read the base address from zero page (wrapping around for high byte)
                 let low_byte = cpu.read_byte(zp_ptr)? as u16;
@@ -274,20 +274,20 @@ impl AddressingMode {
                 let base_addr = (high_byte << 8) | low_byte;
 
                 // 3. Add Y register to get the final effective address
-                Ok(base_addr.wrapping_add(cpu.y as u16))
+                Ok(base_addr.wrapping_add(cpu.registers.y as u16))
             },
             AddressingMode::Implied => {
                 // Implied addressing mode doesn't use an operand address
                 // Return the current PC for consistency
-                Ok(cpu.pc)
+                Ok(cpu.registers.pc)
             },
             AddressingMode::Relative => {
                 // For relative addressing, we read a signed byte offset from the current PC
                 // and add it to the PC+2 (PC+1 for the opcode, PC+1 for the offset byte)
-                let offset = cpu.read_byte(cpu.pc)? as i8; // Read as signed byte
+                let offset = cpu.read_byte(cpu.registers.pc)? as i8; // Read as signed byte
 
                 // Calculate the target address by adding the offset to PC+2
-                let target = ((cpu.pc as i32) + 2 + (offset as i32)) as u16;
+                let target = ((cpu.registers.pc as i32) + 2 + (offset as i32)) as u16;
 
                 Ok(target)
             },
@@ -299,19 +299,19 @@ impl AddressingMode {
         let res = match self {
             // Only these modes can cross page boundaries
             AddressingMode::AbsoluteX => {
-                let base_addr = cpu.read_word(cpu.pc)?;
-                Self::crosses_boundary(base_addr, cpu.x as u16)
+                let base_addr = cpu.read_word(cpu.registers.pc)?;
+                Self::crosses_boundary(base_addr, cpu.registers.x as u16)
             },
             AddressingMode::AbsoluteY => {
-                let base_addr = cpu.read_word(cpu.pc)?;
-                Self::crosses_boundary(base_addr, cpu.y as u16)
+                let base_addr = cpu.read_word(cpu.registers.pc)?;
+                Self::crosses_boundary(base_addr, cpu.registers.y as u16)
             },
             AddressingMode::IndirectIndexed => {
-                let zp_ptr = cpu.read_byte(cpu.pc)? as u16;
+                let zp_ptr = cpu.read_byte(cpu.registers.pc)? as u16;
                 let low_byte = cpu.read_byte(zp_ptr)? as u16;
                 let high_byte = cpu.read_byte(zp_ptr.wrapping_add(1) & 0xFF)? as u16;
                 let base_addr = (high_byte << 8) | low_byte;
-                Self::crosses_boundary(base_addr, cpu.y as u16)
+                Self::crosses_boundary(base_addr, cpu.registers.y as u16)
             },
             // All other modes never cross page boundaries
             _ => false,
@@ -534,7 +534,7 @@ mod tests {
         cpu.write_byte(target_addr, target_value)?;
 
         // Set PC to point to the operand
-        cpu.pc = operand_addr;
+        cpu.registers.pc = operand_addr;
 
         Ok(())
     }
@@ -626,7 +626,7 @@ mod tests {
         )?;
 
         // Set X register
-        cpu.x = 0x05;
+        cpu.registers.x = 0x05;
 
         // Test zero page X addressing
         assert_address(&cpu, AddressingMode::ZeroPageX, 0x0045)?;
@@ -650,7 +650,7 @@ mod tests {
         )?;
 
         // Set X register
-        cpu.x = 0x20;
+        cpu.registers.x = 0x20;
 
         // Test zero page X addressing with wrap-around
         assert_address(&cpu, AddressingMode::ZeroPageX, 0x0010)?;
@@ -674,7 +674,7 @@ mod tests {
         )?;
 
         // Set Y register
-        cpu.y = 0x07;
+        cpu.registers.y = 0x07;
 
         // Test zero page Y addressing
         assert_address(&cpu, AddressingMode::ZeroPageY, 0x0047)?;
@@ -698,7 +698,7 @@ mod tests {
         )?;
 
         // Set Y register
-        cpu.y = 0x30;
+        cpu.registers.y = 0x30;
 
         // Test zero page Y addressing with wrap-around
         assert_address(&cpu, AddressingMode::ZeroPageY, 0x0020)?;
@@ -742,7 +742,7 @@ mod tests {
         )?;
 
         // Set X register
-        cpu.x = 0x04;
+        cpu.registers.x = 0x04;
 
         // Test absolute X addressing
         assert_address(&cpu, AddressingMode::AbsoluteX, 0x1234)?;
@@ -766,7 +766,7 @@ mod tests {
         )?;
 
         // Set X register
-        cpu.x = 0x01;
+        cpu.registers.x = 0x01;
 
         // Test page crossing detection
         let crosses_page = AddressingMode::AbsoluteX.crosses_page_boundary(&cpu)?;
@@ -798,7 +798,7 @@ mod tests {
         )?;
 
         // Set Y register
-        cpu.y = 0x05;
+        cpu.registers.y = 0x05;
 
         // Test absolute Y addressing
         assert_address(&cpu, AddressingMode::AbsoluteY, 0x1235)?;
@@ -822,7 +822,7 @@ mod tests {
         )?;
 
         // Set Y register
-        cpu.y = 0x10;
+        cpu.registers.y = 0x10;
 
         // Test page crossing detection
         let crosses_page = AddressingMode::AbsoluteY.crosses_page_boundary(&cpu)?;
@@ -905,7 +905,7 @@ mod tests {
         )?;
 
         // Set X register
-        cpu.x = 0x05;
+        cpu.registers.x = 0x05;
 
         // Store target address $ABCD at $45-$46 (zero page + X)
         cpu.write_word(0x0045, 0xABCD)?; // Low byte
@@ -934,7 +934,7 @@ mod tests {
         )?;
 
         // Set X register
-        cpu.x = 0x02;
+        cpu.registers.x = 0x02;
 
         // Effective ZP pointer = $FF + $02 = $01 (with zero page wrap)
         // Store target address $ABCD at $01-$02
@@ -965,7 +965,7 @@ mod tests {
         )?;
 
         // Set Y register
-        cpu.y = 0x08;
+        cpu.registers.y = 0x08;
 
         // Store base address $1234 at zero page $40-$41
         cpu.write_byte(0x0040, 0x34)?; // Low byte
@@ -995,7 +995,7 @@ mod tests {
         )?;
 
         // Set Y register
-        cpu.y = 0x20;
+        cpu.registers.y = 0x20;
 
         // Store base address $12F0 at zero page $40-$41
         cpu.write_byte(0x0040, 0xF0)?; // Low byte
@@ -1030,7 +1030,7 @@ mod tests {
         )?;
 
         // Set Y register
-        cpu.y = 0x10;
+        cpu.registers.y = 0x10;
 
         // Store the base address split between $FF and $00 (wrap-around in zero page)
         cpu.write_byte(0x00FF, 0x34)?; // Low byte at $FF
@@ -1119,10 +1119,10 @@ mod tests {
         let mut test_cpu = setup_cpu();
 
         // Set PC and register values
-        test_cpu.pc = pc;
+        test_cpu.registers.pc = pc;
         match offset_reg {
-            "X" => test_cpu.x = offset_val,
-            "Y" => test_cpu.y = offset_val,
+            "X" => test_cpu.registers.x = offset_val,
+            "Y" => test_cpu.registers.y = offset_val,
             _ => {},
         }
 

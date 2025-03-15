@@ -37,7 +37,7 @@ impl PatternTableWidget {
     }
 
     /// Display the pattern table widget in the given UI
-    pub fn ui(&mut self, ui: &mut Ui, cartridge: Option<&Rc<RefCell<Cartridge>>>) -> Result<egui::Response> {
+    pub fn ui(&mut self, ui: &mut Ui, cartridge: Option<&Cartridge>) -> Result<egui::Response> {
         ui.heading("Pattern Table Viewer");
 
         // Display controls for the widget
@@ -76,9 +76,9 @@ impl PatternTableWidget {
         });
 
         // If no cartridge is available, show a message
-        if cartridge.is_none() {
+        let Some(cartridge) = cartridge else {
             return Ok(ui.label("No cartridge loaded").interact(Sense::click()));
-        }
+        };
 
         // Calculate the dimensions of the display area
         // Each pattern table has 256 tiles (16x16 grid)
@@ -97,9 +97,6 @@ impl PatternTableWidget {
 
         // Only draw if the area is visible
         if ui.is_rect_visible(rect) {
-            let cartridge_ref = cartridge.unwrap();
-            let cart = cartridge_ref.borrow();
-
             // Calculate base tile index for the selected pattern table
             let base_tile_index = self.current_table as u16 * 256;
 
@@ -112,7 +109,7 @@ impl PatternTableWidget {
                     let tile_index = base_tile_index + (row * tiles_per_row + col) as u16;
 
                     // Get the pixel data for this tile
-                    let pixel_data = cart.get_tile_pixels(tile_index);
+                    let pixel_data = cartridge.get_tile_pixels(tile_index);
 
                     // Calculate top-left corner of the tile
                     let tile_x = rect.min.x + col as f32 * (self.tile_size + grid_padding) * self.zoom;

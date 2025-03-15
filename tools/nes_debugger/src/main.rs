@@ -10,7 +10,7 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[macro_use]
 extern crate log;
 use rn_core::{
-    cpu::Cpu,
+    cpu::{Cpu, CpuWrapper},
     errors::NesError,
     memory::Addressable,
     system::{NesSystem, SystemState},
@@ -36,17 +36,17 @@ struct Args {
 }
 
 /// Adapter to use CPU's memory with the memory editor
-struct CpuMemoryAdapter<'a> {
-    cpu: RefMut<'a, Cpu>,
+struct CpuMemoryAdapter {
+    cpu: CpuWrapper,
 }
 
-impl<'a> CpuMemoryAdapter<'a> {
-    fn new(cpu: RefMut<'a, Cpu>) -> Self {
+impl CpuMemoryAdapter {
+    fn new(cpu: CpuWrapper) -> Self {
         Self { cpu }
     }
 }
 
-impl<'a> Addressable for CpuMemoryAdapter<'a> {
+impl Addressable for CpuMemoryAdapter {
     fn handles_address(&self, _address: u16) -> bool {
         true
     }
@@ -223,7 +223,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                         |ui| {
                             // Create an adapter to access CPU memory with the memory editor
                             let mut system_borrow = self.system.borrow_mut();
-                            let mut adapter = CpuMemoryAdapter::new(system_borrow.cpu_mut());
+                            let mut adapter = CpuMemoryAdapter::new(system_borrow.cpu());
 
                             // Show the memory editor widget with access to CPU memory
                             self.memory_widget.ui(ui, &mut adapter);
@@ -272,7 +272,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                     .show(ui, |ui| {
                         let system_borrow = self.system.borrow();
                         // Get cartridge reference from the system and convert to the expected format
-                        if let Some(cart_rc) = system_borrow.cartridge() {
+                        if let Some(cart_rc) = system_borrow.ppu().cartridge() {
                             // Pass a reference to the cloned Rc
                             let _ = self.pattern_table_widget.ui(ui, Some(&cart_rc));
                         } else {
@@ -285,7 +285,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                 // CPU Tab content
 
                 let mut system = self.system.borrow_mut();
-                self.cpu_widget.ui(ui, system.cpu_mut());
+                self.cpu_widget.ui(ui, system.cpu());
             },
             DockTab::Display => {
                 // Display Tab content

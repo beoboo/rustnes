@@ -1,4 +1,7 @@
-use std::{cell::{Ref, RefCell, RefMut}, rc::Rc};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    rc::Rc,
+};
 
 use crate::{errors::NesError, memory::Addressable};
 mod addressing_mode;
@@ -27,15 +30,94 @@ pub enum CpuFlag {
     Negative         = 0b10000000,
 }
 
+pub trait CpuInterface {}
+
+#[derive(Clone)]
+pub struct CpuWrapper {
+    cpu: Rc<RefCell<Cpu>>,
+}
+
+impl CpuWrapper {
+    pub fn new(cpu: Cpu) -> Self {
+        Self {
+            cpu: Rc::new(RefCell::new(cpu)),
+        }
+    }
+
+    pub fn connect_memory(&self, clone: Rc<RefCell<crate::system::Bus>>) {
+        self.cpu.borrow_mut().connect_memory(clone);
+    }
+
+    pub fn read_byte(&self, addr: u16) -> Result<u8, NesError> {
+        self.cpu.borrow().read_byte(addr)
+    }
+
+    pub fn step(&self) -> Result<u8, NesError> {
+        self.cpu.borrow_mut().step()
+    }
+
+    pub fn write_byte(&self, addr: u16, value: u8) -> Result<(), NesError> {
+        self.cpu.borrow_mut().write_byte(addr, value)
+    }
+
+    pub fn load_program(&self, program: &[u8], load_address: u16) -> Result<(), NesError> {
+        self.cpu.borrow_mut().load_program(program, load_address)
+    }
+
+    pub fn pc(&self) -> u16 {
+        self.cpu.borrow().registers.pc
+    }
+
+    pub fn set_pc(&self, pc: u16) {
+        self.cpu.borrow_mut().registers.pc = pc;
+    }
+
+    pub fn registers(&self) -> CpuRegisters {
+        self.cpu.borrow().registers
+    }
+
+    pub fn set_registers(&self, registers: CpuRegisters) {
+        self.cpu.borrow_mut().registers = registers;
+    }
+
+    pub fn reset(&self) -> Result<(), NesError> {
+        self.cpu.borrow_mut().reset()
+    }
+
+    pub fn cycles(&self) -> u64 {
+        self.cpu.borrow().cycles
+    }
+}
+
+impl CpuInterface for CpuWrapper {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CpuRegisters {
+    pub a: u8,
+    pub x: u8,
+    pub y: u8,
+    pub sp: u8,
+    pub pc: u16,
+    pub status: u8,
+}
+
+impl Default for CpuRegisters {
+    fn default() -> Self {
+        Self {
+            a: 0,
+            x: 0,
+            y: 0,
+            sp: 0xFD,
+            pc: 0,
+            status: 0x34,
+        }
+    }
+}
+
 /// MOS 6502 CPU implementation
 pub struct Cpu {
     // Registers
-    pub a: u8,      // Accumulator
-    pub x: u8,      // X index register
-    pub y: u8,      // Y index register
-    pub sp: u8,     // Stack pointer (0x00-0xFF, 0x100-0x1FF in memory)
-    pub pc: u16,    // Program counter
-    pub status: u8, // Status register (flags)
+    pub registers: CpuRegisters,
 
     // CPU cycle count
     pub cycles: u64,
@@ -53,12 +135,7 @@ impl Cpu {
         // Initial state according to NES specs
         // See: https://www.nesdev.org/wiki/CPU_power_up_state
         Self {
-            a: 0,
-            x: 0,
-            y: 0,
-            sp: 0xFD,     // Initial stack pointer
-            pc: 0,        // Will be set to the reset vector
-            status: 0x34, // 0b00110100 - Unused bit and Interrupt disable set
+            registers: CpuRegisters::default(),
             cycles: 0,
             memory: None,
             decoder: InstructionDecoder::new(),
@@ -71,15 +148,15 @@ impl Cpu {
 
     /// Get the value of a specific CPU flag
     pub fn get_flag(&self, flag: CpuFlag) -> bool {
-        (self.status & flag as u8) != 0
+        (self.registers.status & flag as u8) != 0
     }
 
     /// Set a specific CPU flag to the given value
     pub fn set_flag(&mut self, flag: CpuFlag, value: bool) {
         if value {
-            self.status |= flag as u8;
+            self.registers.status |= flag as u8;
         } else {
-            self.status &= !(flag as u8);
+            self.registers.status &= !(flag as u8);
         }
     }
 
@@ -113,16 +190,16 @@ impl Cpu {
 
     /// Push a byte onto the stack
     pub fn push_byte(&mut self, value: u8) -> Result<(), NesError> {
-        let stack_addr = 0x0100 | (self.sp as u16);
+        let stack_addr = 0x0100 | (self.registers.sp as u16);
         self.write_byte(stack_addr, value)?;
-        self.sp = self.sp.wrapping_sub(1);
+        self.registers.sp = self.registers.sp.wrapping_sub(1);
         Ok(())
     }
 
     /// Pop a byte from the stack
     pub fn pop_byte(&mut self) -> Result<u8, NesError> {
-        self.sp = self.sp.wrapping_add(1);
-        let stack_addr = 0x0100 | (self.sp as u16);
+        self.registers.sp = self.registers.sp.wrapping_add(1);
+        let stack_addr = 0x0100 | (self.registers.sp as u16);
         self.read_byte(stack_addr)
     }
 
@@ -145,14 +222,10 @@ impl Cpu {
     /// Reset the CPU
     pub fn reset(&mut self) -> Result<(), NesError> {
         // Set registers to their initial values
-        self.a = 0;
-        self.x = 0;
-        self.y = 0;
-        self.sp = 0xFD;
-        self.status = 0x34;
+        self.registers = CpuRegisters::default();
 
         // Read the reset vector from 0xFFFC-0xFFFD
-        self.pc = self.read_word(0xFFFC)?;
+        self.registers.pc = self.read_word(0xFFFC)?;
 
         // Reset takes 7 cycles
         self.cycles = 7;
@@ -251,15 +324,15 @@ mod tests {
 
         // Test push and pop byte
         cpu.push_byte(0x42)?;
-        assert_eq!(cpu.sp, 0xFC);
+        assert_eq!(cpu.registers.sp, 0xFC);
         assert_eq!(cpu.pop_byte()?, 0x42);
-        assert_eq!(cpu.sp, 0xFD);
+        assert_eq!(cpu.registers.sp, 0xFD);
 
         // Test push and pop word
         cpu.push_word(0x1234)?;
-        assert_eq!(cpu.sp, 0xFB);
+        assert_eq!(cpu.registers.sp, 0xFB);
         assert_eq!(cpu.pop_word()?, 0x1234);
-        assert_eq!(cpu.sp, 0xFD);
+        assert_eq!(cpu.registers.sp, 0xFD);
 
         Ok(())
     }
@@ -277,9 +350,9 @@ mod tests {
         cpu.reset()?;
 
         // Check if PC was set to the reset vector
-        assert_eq!(cpu.pc, 0x1234);
+        assert_eq!(cpu.registers.pc, 0x1234);
         // Check if SP was set to 0xFD
-        assert_eq!(cpu.sp, 0xFD);
+        assert_eq!(cpu.registers.sp, 0xFD);
         // Check if cycles were set to 7
         assert_eq!(cpu.cycles, 7);
 
@@ -295,14 +368,14 @@ mod tests {
         ram.write_byte(0x0001, 0x42)?; // Value to load
 
         let mut cpu = setup_cpu_with_memory(ram);
-        cpu.pc = 0x0000; // Set PC to our program
+        cpu.registers.pc = 0x0000; // Set PC to our program
 
         // Execute one instruction
         let cycles = cpu.step()?;
 
         // Verify results
-        assert_eq!(cpu.a, 0x42);
-        assert_eq!(cpu.pc, 0x0002);
+        assert_eq!(cpu.registers.a, 0x42);
+        assert_eq!(cpu.registers.pc, 0x0002);
         assert_eq!(cycles, 2);
         assert_eq!(cpu.cycles, 2);
 
@@ -317,7 +390,7 @@ mod tests {
         ram.write_byte(0x0000, 0xFF)?;
 
         let mut cpu = setup_cpu_with_memory(ram);
-        cpu.pc = 0x0000;
+        cpu.registers.pc = 0x0000;
 
         // Execute one instruction - this should now return an error for the invalid opcode
         let result = cpu.step();
@@ -331,7 +404,7 @@ mod tests {
         }
 
         // PC should still be incremented because fetch still happened
-        assert_eq!(cpu.pc, 0x0001);
+        assert_eq!(cpu.registers.pc, 0x0001);
 
         Ok(())
     }
@@ -356,11 +429,11 @@ mod tests {
         assert_eq!(cpu.read_word(0xFFFC)?, load_address);
 
         // Verify the CPU was reset and PC points to the program
-        assert_eq!(cpu.pc, load_address);
+        assert_eq!(cpu.registers.pc, load_address);
 
         // Execute the first instruction (LDA #$42)
         cpu.step()?;
-        assert_eq!(cpu.a, 0x42);
+        assert_eq!(cpu.registers.a, 0x42);
 
         // Execute the second instruction (STA $0200)
         cpu.step()?;

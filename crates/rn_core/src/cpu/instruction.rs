@@ -178,8 +178,8 @@ impl InstructionDecoder {
 impl Cpu {
     /// Fetch the next instruction
     pub fn fetch(&mut self) -> Result<u8, NesError> {
-        let opcode = self.read_byte(self.pc)?;
-        self.pc = self.pc.wrapping_add(1);
+        let opcode = self.read_byte(self.registers.pc)?;
+        self.registers.pc = self.registers.pc.wrapping_add(1);
         Ok(opcode)
     }
 
@@ -212,7 +212,7 @@ impl Cpu {
             instruction_metadata.instruction,
             Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK | Instruction::BPL
         ) {
-            self.pc = self.pc.wrapping_add((instruction_metadata.bytes - 1) as u16);
+            self.registers.pc = self.registers.pc.wrapping_add((instruction_metadata.bytes - 1) as u16);
         }
 
         Ok(cycles)
@@ -235,19 +235,19 @@ impl Cpu {
 
     /// LDA - Load Accumulator with support for all addressing modes
     pub fn lda(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        self.a = self.load_register(addressing_mode)?;
+        self.registers.a = self.load_register(addressing_mode)?;
         Ok(())
     }
 
     /// LDX - Load X Register with support for all addressing modes
     pub fn ldx(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        self.x = self.load_register(addressing_mode)?;
+        self.registers.x = self.load_register(addressing_mode)?;
         Ok(())
     }
 
     /// LDY - Load Y Register with support for all addressing modes
     pub fn ldy(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        self.y = self.load_register(addressing_mode)?;
+        self.registers.y = self.load_register(addressing_mode)?;
         Ok(())
     }
 
@@ -265,17 +265,17 @@ impl Cpu {
 
     /// STA - Store Accumulator with support for all addressing modes
     pub fn sta(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        self.store_register(addressing_mode, self.a)
+        self.store_register(addressing_mode, self.registers.a)
     }
 
     /// STX - Store X Register with support for all addressing modes
     pub fn stx(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        self.store_register(addressing_mode, self.x)
+        self.store_register(addressing_mode, self.registers.x)
     }
 
     /// STY - Store Y Register with support for all addressing modes
     pub fn sty(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        self.store_register(addressing_mode, self.y)
+        self.store_register(addressing_mode, self.registers.y)
     }
 
     /// JMP - Jump to new location (Absolute or Indirect)
@@ -284,7 +284,7 @@ impl Cpu {
         let target_address = addressing_mode.get_operand_address(self)?;
 
         // Set the program counter to the target address
-        self.pc = target_address;
+        self.registers.pc = target_address;
 
         // Note: JMP does not affect any processor flags
         Ok(())
@@ -298,11 +298,11 @@ impl Cpu {
         // Push the return address (PC+2-1) onto the stack
         // PC currently points to the first byte of the operand, which is PC+1
         // So we need PC+2 for the next instruction after JSR
-        let return_address = self.pc + 1;
+        let return_address = self.registers.pc + 1;
         self.push_word(return_address)?;
 
         // Set the program counter to the target address
-        self.pc = target_address;
+        self.registers.pc = target_address;
 
         // Note: JSR does not affect any processor flags
         Ok(())
@@ -314,7 +314,7 @@ impl Cpu {
         let return_address = self.pop_word()?;
 
         // Return address points to the last byte of JSR, so add 1 to get to the next instruction
-        self.pc = return_address.wrapping_add(1);
+        self.registers.pc = return_address.wrapping_add(1);
 
         // Note: RTS does not affect any processor flags
         Ok(())
@@ -324,13 +324,13 @@ impl Cpu {
     pub fn brk(&mut self) -> Result<(), NesError> {
         // BRK pushes PC+2 to the stack (PC+1 for the opcode fetch, +1 for the padding byte)
         // The 6502 BRK instruction is 2 bytes long (opcode + padding)
-        let pc_to_push = self.pc.wrapping_add(1);
+        let pc_to_push = self.registers.pc.wrapping_add(1);
 
         self.push_word(pc_to_push)?;
 
         // Push status register with Break flag set
         // The B flag (bit 4) is set in the status byte pushed to the stack
-        let status_with_break = self.status | CpuFlag::Break as u8 | CpuFlag::Unused as u8;
+        let status_with_break = self.registers.status | CpuFlag::Break as u8 | CpuFlag::Unused as u8;
 
         self.push_byte(status_with_break)?;
 
@@ -338,7 +338,7 @@ impl Cpu {
         self.set_flag(CpuFlag::InterruptDisable, true);
 
         // Load the IRQ/BRK vector (0xFFFE-0xFFFF) into PC
-        self.pc = self.read_word(0xFFFE)?;
+        self.registers.pc = self.read_word(0xFFFE)?;
 
         Ok(())
     }
@@ -355,7 +355,7 @@ impl Cpu {
         let value = self.read_byte(addr)?;
 
         // Perform AND with accumulator but don't store the result
-        let result = self.a & value;
+        let result = self.registers.a & value;
 
         // Set the Zero flag based on the result of A & M
         self.set_flag(CpuFlag::Zero, result == 0);
@@ -378,21 +378,21 @@ impl Cpu {
         if !self.get_flag(CpuFlag::Negative) {
             // For branch instructions, we need to read the offset directly
             // The offset is stored at PC (PC points to the offset byte after fetch)
-            let offset = self.read_byte(self.pc)? as i8; // Read as signed byte
+            let offset = self.read_byte(self.registers.pc)? as i8; // Read as signed byte
 
             // Add 1 cycle for taking the branch
             additional_cycles += 1;
 
             // Save the old PC for page boundary check
-            let old_pc = self.pc;
+            let old_pc = self.registers.pc;
 
             // Calculate the target address
             // PC+1 is the address of the next instruction after BPL
             // We add the offset to that
-            let target = ((self.pc as i32) + 1 + (offset as i32)) as u16;
+            let target = ((self.registers.pc as i32) + 1 + (offset as i32)) as u16;
 
             // Set the PC to the target address
-            self.pc = target;
+            self.registers.pc = target;
 
             // Add 1 more cycle if the branch crosses a page boundary
             if (old_pc & 0xFF00) != (target & 0xFF00) {
@@ -403,7 +403,7 @@ impl Cpu {
             // and execute() won't increment it for branch instructions
         } else {
             // When branch is not taken, we need to increment the PC to skip the offset byte
-            self.pc = self.pc.wrapping_add(1);
+            self.registers.pc = self.registers.pc.wrapping_add(1);
         }
 
         Ok(additional_cycles)
@@ -436,14 +436,14 @@ mod tests {
         let mut cpu = setup_cpu();
 
         // For immediate mode, the operand is at PC
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
         cpu.write_byte(0x0100, 0x42)?; // Value to load
 
         // Direct call to the instruction with immediate addressing mode
         cpu.lda(AddressingMode::Immediate)?;
 
         // Verify results
-        assert_eq!(cpu.a, 0x42);
+        assert_eq!(cpu.registers.a, 0x42);
         assert!(!cpu.get_flag(CpuFlag::Zero));
         assert!(!cpu.get_flag(CpuFlag::Negative));
 
@@ -457,7 +457,7 @@ mod tests {
         // For zero page mode:
         // 1. The zero page address is read from PC
         // 2. The value is loaded from that zero page address
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
         cpu.write_byte(0x0100, 0x42)?; // Zero page address to use
         cpu.write_byte(0x0042, 0x37)?; // Value at zero page address
 
@@ -465,7 +465,7 @@ mod tests {
         cpu.lda(AddressingMode::ZeroPage)?;
 
         // Verify results
-        assert_eq!(cpu.a, 0x37);
+        assert_eq!(cpu.registers.a, 0x37);
 
         Ok(())
     }
@@ -477,7 +477,7 @@ mod tests {
         // For absolute mode:
         // 1. The 16-bit address is read from PC and PC+1
         // 2. The value is loaded from that absolute address
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
         cpu.write_word(0x0100, 0x1234)?; // Absolute address to use
         cpu.write_byte(0x1234, 0x80)?; // Value at absolute address (0x80 has bit 7 set)
 
@@ -485,7 +485,7 @@ mod tests {
         cpu.lda(AddressingMode::Absolute)?;
 
         // Verify results
-        assert_eq!(cpu.a, 0x80);
+        assert_eq!(cpu.registers.a, 0x80);
         assert!(!cpu.get_flag(CpuFlag::Zero));
         assert!(cpu.get_flag(CpuFlag::Negative)); // 0x80 has bit 7 set
 
@@ -497,18 +497,18 @@ mod tests {
         let mut cpu = setup_cpu();
 
         // Test zero flag
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
         cpu.write_byte(0x0100, 0x00)?;
         cpu.lda(AddressingMode::Immediate)?;
-        assert_eq!(cpu.a, 0x00);
+        assert_eq!(cpu.registers.a, 0x00);
         assert!(cpu.get_flag(CpuFlag::Zero));
         assert!(!cpu.get_flag(CpuFlag::Negative));
 
         // Test negative flag
-        cpu.pc = 0x0200;
+        cpu.registers.pc = 0x0200;
         cpu.write_byte(0x0200, 0x80)?; // Negative value (bit 7 set)
         cpu.lda(AddressingMode::Immediate)?;
-        assert_eq!(cpu.a, 0x80);
+        assert_eq!(cpu.registers.a, 0x80);
         assert!(!cpu.get_flag(CpuFlag::Zero));
         assert!(cpu.get_flag(CpuFlag::Negative));
 
@@ -521,24 +521,24 @@ mod tests {
         let mut cpu = setup_cpu();
 
         // Test immediate mode
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
         cpu.write_byte(0x0100, 0x42)?;
         cpu.ldx(AddressingMode::Immediate)?;
-        assert_eq!(cpu.x, 0x42);
+        assert_eq!(cpu.registers.x, 0x42);
 
         // Test zero page mode
-        cpu.pc = 0x0200;
+        cpu.registers.pc = 0x0200;
         cpu.write_byte(0x0200, 0x50)?;
         cpu.write_byte(0x0050, 0x37)?;
         cpu.ldx(AddressingMode::ZeroPage)?;
-        assert_eq!(cpu.x, 0x37);
+        assert_eq!(cpu.registers.x, 0x37);
 
         // Test absolute mode
-        cpu.pc = 0x0300;
+        cpu.registers.pc = 0x0300;
         cpu.write_word(0x0300, 0x1234)?;
         cpu.write_byte(0x1234, 0x29)?;
         cpu.ldx(AddressingMode::Absolute)?;
-        assert_eq!(cpu.x, 0x29);
+        assert_eq!(cpu.registers.x, 0x29);
 
         Ok(())
     }
@@ -549,24 +549,24 @@ mod tests {
         let mut cpu = setup_cpu();
 
         // Test immediate mode
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
         cpu.write_byte(0x0100, 0x42)?;
         cpu.ldy(AddressingMode::Immediate)?;
-        assert_eq!(cpu.y, 0x42);
+        assert_eq!(cpu.registers.y, 0x42);
 
         // Test zero page mode
-        cpu.pc = 0x0200;
+        cpu.registers.pc = 0x0200;
         cpu.write_byte(0x0200, 0x50)?;
         cpu.write_byte(0x0050, 0x37)?;
         cpu.ldy(AddressingMode::ZeroPage)?;
-        assert_eq!(cpu.y, 0x37);
+        assert_eq!(cpu.registers.y, 0x37);
 
         // Test absolute mode
-        cpu.pc = 0x0300;
+        cpu.registers.pc = 0x0300;
         cpu.write_word(0x0300, 0x1234)?;
         cpu.write_byte(0x1234, 0x29)?;
         cpu.ldy(AddressingMode::Absolute)?;
-        assert_eq!(cpu.y, 0x29);
+        assert_eq!(cpu.registers.y, 0x29);
 
         Ok(())
     }
@@ -577,16 +577,16 @@ mod tests {
         let mut cpu = setup_cpu();
 
         // Test zero page mode
-        cpu.pc = 0x0100;
-        cpu.a = 0x42;
+        cpu.registers.pc = 0x0100;
+        cpu.registers.a = 0x42;
         cpu.write_byte(0x0100, 0x50)?; // Zero page address
         cpu.sta(AddressingMode::ZeroPage)?;
         let stored_value = cpu.read_byte(0x0050)?;
         assert_eq!(stored_value, 0x42);
 
         // Test absolute mode
-        cpu.pc = 0x0200;
-        cpu.a = 0x37;
+        cpu.registers.pc = 0x0200;
+        cpu.registers.a = 0x37;
         cpu.write_word(0x0200, 0x1234)?; // Absolute address
         cpu.sta(AddressingMode::Absolute)?;
         let stored_value = cpu.read_byte(0x1234)?;
@@ -601,32 +601,32 @@ mod tests {
         let mut cpu = setup_cpu();
 
         // Test STX zero page
-        cpu.pc = 0x0100;
-        cpu.x = 0x42;
+        cpu.registers.pc = 0x0100;
+        cpu.registers.x = 0x42;
         cpu.write_byte(0x0100, 0x50)?; // Zero page address
         cpu.stx(AddressingMode::ZeroPage)?;
         let stored_value = cpu.read_byte(0x0050)?;
         assert_eq!(stored_value, 0x42);
 
         // Test STX absolute
-        cpu.pc = 0x0200;
-        cpu.x = 0x37;
+        cpu.registers.pc = 0x0200;
+        cpu.registers.x = 0x37;
         cpu.write_word(0x0200, 0x1234)?; // Absolute address
         cpu.stx(AddressingMode::Absolute)?;
         let stored_value = cpu.read_byte(0x1234)?;
         assert_eq!(stored_value, 0x37);
 
         // Test STY zero page
-        cpu.pc = 0x0300;
-        cpu.y = 0x55;
+        cpu.registers.pc = 0x0300;
+        cpu.registers.y = 0x55;
         cpu.write_byte(0x0300, 0x60)?; // Zero page address
         cpu.sty(AddressingMode::ZeroPage)?;
         let stored_value = cpu.read_byte(0x0060)?;
         assert_eq!(stored_value, 0x55);
 
         // Test STY absolute
-        cpu.pc = 0x0400;
-        cpu.y = 0x66;
+        cpu.registers.pc = 0x0400;
+        cpu.registers.y = 0x66;
         cpu.write_word(0x0400, 0x5678)?; // Absolute address
         cpu.sty(AddressingMode::Absolute)?;
         let stored_value = cpu.read_byte(0x5678)?;
@@ -641,17 +641,17 @@ mod tests {
         let mut cpu = setup_cpu();
 
         // Test JMP Absolute
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
         cpu.write_word(0x0100, 0x1234)?; // Target address
         cpu.jmp(AddressingMode::Absolute)?;
-        assert_eq!(cpu.pc, 0x1234);
+        assert_eq!(cpu.registers.pc, 0x1234);
 
         // Test JMP Indirect
-        cpu.pc = 0x0200;
+        cpu.registers.pc = 0x0200;
         cpu.write_word(0x0200, 0x3456)?; // Pointer to target address
         cpu.write_word(0x3456, 0x5678)?; // Target address stored at pointer
         cpu.jmp(AddressingMode::Indirect)?;
-        assert_eq!(cpu.pc, 0x5678);
+        assert_eq!(cpu.registers.pc, 0x5678);
 
         Ok(())
     }
@@ -677,7 +677,7 @@ mod tests {
         let instr4 = assembler.assemble_instruction("LDX #$37", &labels)?;
 
         // Starting position
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
 
         // Write instructions to memory
         let mut addr = 0x0100;
@@ -706,16 +706,16 @@ mod tests {
 
         // Execute LDA #$42
         cpu.step()?;
-        assert_eq!(cpu.a, 0x42);
-        assert_eq!(cpu.pc, 0x0102);
+        assert_eq!(cpu.registers.a, 0x42);
+        assert_eq!(cpu.registers.pc, 0x0102);
 
         // Execute JMP $0108
         cpu.step()?;
-        assert_eq!(cpu.pc, 0x0108);
+        assert_eq!(cpu.registers.pc, 0x0108);
 
         // Execute LDX #$37 (after the jump)
         cpu.step()?;
-        assert_eq!(cpu.x, 0x37);
+        assert_eq!(cpu.registers.x, 0x37);
 
         Ok(())
     }
@@ -727,7 +727,7 @@ mod tests {
         let mut assembler = Assembler::new(0);
 
         // Set up test with parser
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
 
         // Parse an LDA instruction with immediate addressing mode
         let bytes = assembler.assemble_instruction("LDA #$42", &HashMap::new())?;
@@ -741,8 +741,8 @@ mod tests {
         let cycles = cpu.step()?;
 
         // Verify results
-        assert_eq!(cpu.a, 0x42);
-        assert_eq!(cpu.pc, 0x0102);
+        assert_eq!(cpu.registers.a, 0x42);
+        assert_eq!(cpu.registers.pc, 0x0102);
         assert_eq!(cycles, 2);
         assert_eq!(cpu.cycles, 2);
 
@@ -755,7 +755,7 @@ mod tests {
         let mut assembler = Assembler::new(0);
 
         // Set up test with parser
-        cpu.pc = 0x0200;
+        cpu.registers.pc = 0x0200;
 
         // Parse and write instructions to memory
         let labels = HashMap::new();
@@ -797,7 +797,7 @@ mod tests {
 
         // LDA #$42
         cpu.step()?;
-        assert_eq!(cpu.a, 0x42);
+        assert_eq!(cpu.registers.a, 0x42);
 
         // STA $1234
         cpu.step()?;
@@ -805,7 +805,7 @@ mod tests {
 
         // LDX #$37
         cpu.step()?;
-        assert_eq!(cpu.x, 0x37);
+        assert_eq!(cpu.registers.x, 0x37);
 
         // STX $5678
         cpu.step()?;
@@ -813,7 +813,7 @@ mod tests {
 
         // LDY #$55
         cpu.step()?;
-        assert_eq!(cpu.y, 0x55);
+        assert_eq!(cpu.registers.y, 0x55);
 
         // STY $90AB
         cpu.step()?;
@@ -924,7 +924,7 @@ mod tests {
         cpu.write_byte(0x0212, 0x60)?;
 
         // Set initial PC and execute
-        cpu.pc = 0x0200;
+        cpu.registers.pc = 0x0200;
 
         // Execute JSR
         let opcode = cpu.fetch()?;
@@ -932,10 +932,10 @@ mod tests {
         cpu.execute(metadata)?;
 
         // Check PC jumped to subroutine
-        assert_eq!(cpu.pc, 0x0210);
+        assert_eq!(cpu.registers.pc, 0x0210);
 
         // Check return address pushed to stack
-        let stack_addr = 0x0100 | (cpu.sp.wrapping_add(1) as u16);
+        let stack_addr = 0x0100 | (cpu.registers.sp.wrapping_add(1) as u16);
         let pushed_pc = cpu.read_word(stack_addr)?;
         assert_eq!(pushed_pc, 0x0202, "Return address should be pushed to stack");
 
@@ -945,7 +945,7 @@ mod tests {
         cpu.execute(metadata)?;
 
         // Check X register loaded
-        assert_eq!(cpu.x, 0x24);
+        assert_eq!(cpu.registers.x, 0x24);
 
         // Execute RTS
         let opcode = cpu.fetch()?;
@@ -953,7 +953,7 @@ mod tests {
         cpu.execute(metadata)?;
 
         // Check PC returned to instruction after JSR
-        assert_eq!(cpu.pc, 0x0203);
+        assert_eq!(cpu.registers.pc, 0x0203);
 
         // Execute LDA after return
         let opcode = cpu.fetch()?;
@@ -961,7 +961,7 @@ mod tests {
         cpu.execute(metadata)?;
 
         // Check A register loaded
-        assert_eq!(cpu.a, 0x42);
+        assert_eq!(cpu.registers.a, 0x42);
 
         Ok(())
     }
@@ -971,9 +971,9 @@ mod tests {
         let mut cpu = setup_cpu();
 
         // Set initial state
-        cpu.pc = 0x8000;
-        cpu.sp = 0xFD;
-        cpu.status = 0x20; // Just the unused bit set
+        cpu.registers.pc = 0x8000;
+        cpu.registers.sp = 0xFD;
+        cpu.registers.status = 0x20; // Just the unused bit set
 
         // Set up the IRQ/BRK vector
         cpu.write_word(0xFFFE, 0x1234)?;
@@ -985,8 +985,11 @@ mod tests {
         let cycles = cpu.step()?;
 
         // Verify the CPU state after BRK
-        assert_eq!(cpu.pc, 0x1234, "PC should be set to IRQ/BRK vector");
-        assert_eq!(cpu.sp, 0xFA, "SP should be decreased by 3 (2 for PC, 1 for status)");
+        assert_eq!(cpu.registers.pc, 0x1234, "PC should be set to IRQ/BRK vector");
+        assert_eq!(
+            cpu.registers.sp, 0xFA,
+            "SP should be decreased by 3 (2 for PC, 1 for status)"
+        );
         assert!(
             cpu.get_flag(CpuFlag::InterruptDisable),
             "Interrupt disable should be set"
@@ -1025,7 +1028,7 @@ mod tests {
         let mut assembler = Assembler::new(0);
 
         // Set up test with parser
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
 
         // Parse a NOP instruction
         let bytes = assembler.assemble_instruction("NOP", &HashMap::new())?;
@@ -1039,7 +1042,7 @@ mod tests {
         let cycles = cpu.step()?;
 
         // Verify results - NOP doesn't change any registers but consumes 2 cycles
-        assert_eq!(cpu.pc, 0x0101);
+        assert_eq!(cpu.registers.pc, 0x0101);
         assert_eq!(cycles, 2);
         assert_eq!(cpu.cycles, 2);
 
@@ -1057,13 +1060,13 @@ mod tests {
         cpu.write_byte(0x0081, 0x00)?; // Zero value
 
         // Test 1: BIT with memory value 0xC0 (bits 7 and 6 set)
-        cpu.a = 0xFF; // Set accumulator to all 1s
+        cpu.registers.a = 0xFF; // Set accumulator to all 1s
 
         // Clear all flags to ensure a clean state
-        cpu.status = 0;
+        cpu.registers.status = 0;
 
         // Set up test with parser
-        cpu.pc = 0x0100;
+        cpu.registers.pc = 0x0100;
 
         let labels = HashMap::new();
 
@@ -1087,13 +1090,13 @@ mod tests {
         assert_eq!(cycles, 3, "BIT Zero Page should take 3 cycles");
 
         // Reset status register for next test
-        cpu.status = 0;
+        cpu.registers.status = 0;
 
         // Test 2: BIT with zero value (0x00)
-        cpu.a = 0xFF; // Keep accumulator at all 1s
+        cpu.registers.a = 0xFF; // Keep accumulator at all 1s
 
         // Set up test with parser
-        cpu.pc = 0x0200;
+        cpu.registers.pc = 0x0200;
 
         // Parse a BIT instruction with zero page addressing mode
         let bytes = assembler.assemble_instruction("BIT $81", &labels)?;
@@ -1115,12 +1118,15 @@ mod tests {
         assert_eq!(cycles, 3, "BIT Zero Page should take 3 cycles");
 
         // Test 3: Check that accumulator is not changed
-        assert_eq!(cpu.a, 0xFF, "Accumulator should not be changed by BIT instruction");
+        assert_eq!(
+            cpu.registers.a, 0xFF,
+            "Accumulator should not be changed by BIT instruction"
+        );
 
         // Test 4: BIT Absolute addressing mode
-        cpu.a = 0xFF;
-        cpu.status = 0;
-        cpu.pc = 0x0300;
+        cpu.registers.a = 0xFF;
+        cpu.registers.status = 0;
+        cpu.registers.pc = 0x0300;
 
         // Write test value to memory
         cpu.write_byte(0x1234, 0xC0)?;
@@ -1151,8 +1157,8 @@ mod tests {
         let mut cpu = setup_cpu();
 
         // Test 1: BPL when N flag is clear (should branch)
-        cpu.status = 0; // Clear all flags
-        cpu.pc = 0x0100;
+        cpu.registers.status = 0; // Clear all flags
+        cpu.registers.pc = 0x0100;
 
         // Write a target byte to memory (just to verify we reached it)
         cpu.write_byte(0x0112, 0x42)?;
@@ -1166,14 +1172,14 @@ mod tests {
         let cycles = cpu.step()?;
 
         // PC should now be at the branch target (0x0100 + 2 + 16 = 0x0112)
-        assert_eq!(cpu.pc, 0x0112, "PC should be at branch target when N=0");
+        assert_eq!(cpu.registers.pc, 0x0112, "PC should be at branch target when N=0");
         // Branch taken: base cycles (2) + branch taken (1) = 3
         assert_eq!(cycles, 3, "Branch taken should take 3 cycles");
 
         // Test 2: BPL when N flag is set (should not branch)
-        cpu.status = 0; // Clear all flags
+        cpu.registers.status = 0; // Clear all flags
         cpu.set_flag(CpuFlag::Negative, true); // Set N flag
-        cpu.pc = 0x0200;
+        cpu.registers.pc = 0x0200;
 
         // Write the BPL instruction to branch 16 bytes forward
         // Manually write the BPL instruction with offset 16
@@ -1184,13 +1190,13 @@ mod tests {
         let cycles = cpu.step()?;
 
         // PC should now be right after the BPL instruction (0x0202)
-        assert_eq!(cpu.pc, 0x0202, "PC should not branch when N=1");
+        assert_eq!(cpu.registers.pc, 0x0202, "PC should not branch when N=1");
         // Branch not taken: base cycles (2)
         assert_eq!(cycles, 2, "Branch not taken should take 2 cycles");
 
         // Test 3: BPL with page crossing (should add extra cycle)
-        cpu.status = 0; // Clear all flags
-        cpu.pc = 0x02F0;
+        cpu.registers.status = 0; // Clear all flags
+        cpu.registers.pc = 0x02F0;
 
         // Write the BPL instruction to branch 32 bytes forward (crosses page)
         // Manually write the BPL instruction with offset 32
@@ -1201,7 +1207,10 @@ mod tests {
         let cycles = cpu.step()?;
 
         // PC should now be at the branch target (0x02F0 + 2 + 32 = 0x0312)
-        assert_eq!(cpu.pc, 0x0312, "PC should be at branch target when crossing page");
+        assert_eq!(
+            cpu.registers.pc, 0x0312,
+            "PC should be at branch target when crossing page"
+        );
         // Branch taken with page cross: base cycles (2) + branch taken (1) + page cross (1) = 4
         assert_eq!(cycles, 4, "Branch taken with page cross should take 4 cycles");
 

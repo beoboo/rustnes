@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{
     errors::NesError,
     memory::{Addressable, Ram},
@@ -12,7 +10,7 @@ use crate::{
 pub struct Bus {
     /// Components attached to the bus in priority order
     /// First component that handles an address will process the request
-    components: Vec<Rc<RefCell<dyn Addressable>>>,
+    components: Vec<Box<dyn Addressable>>,
 }
 
 impl Bus {
@@ -25,7 +23,7 @@ impl Bus {
 
         // Attach RAM for the main memory region ($0000-$1FFF)
         // This is the 2KB of RAM that's mirrored throughout this region in the NES
-        bus.attach_component(Rc::new(RefCell::new(Ram::with_range(0x0000, 0x1FFF))));
+        bus.attach_component(Box::new(Ram::with_range(0x0000, 0x1FFF)));
 
         bus
     }
@@ -34,7 +32,7 @@ impl Bus {
     ///
     /// Components are checked in the order they are attached, so the first
     /// component that claims an address will handle it.
-    pub fn attach_component(&mut self, component: Rc<RefCell<dyn Addressable>>) {
+    pub fn attach_component(&mut self, component: Box<dyn Addressable>) {
         self.components.push(component);
     }
 
@@ -44,7 +42,7 @@ impl Bus {
     /// It should be called when the system is reset.
     pub fn reset(&mut self) {
         for component in &mut self.components {
-            component.borrow_mut().reset();
+            component.reset();
         }
     }
 
@@ -52,20 +50,20 @@ impl Bus {
     ///
     /// Returns a reference to the first component that claims to handle the address,
     /// or None if no component handles it (which shouldn't happen with RAM fallback).
-    fn find_component_for_address(&self, address: u16) -> Option<&Rc<RefCell<dyn Addressable>>> {
+    fn find_component_for_address(&self, address: u16) -> Option<&Box<dyn Addressable>> {
         self.components
             .iter()
-            .find(|component| component.borrow().handles_address(address))
+            .find(|component| component.handles_address(address))
     }
 
     /// Find the component that handles the given address (mutable version)
     ///
     /// Returns a mutable reference to the first component that claims to handle the address,
     /// or None if no component handles it (which shouldn't happen with RAM fallback).
-    fn find_component_for_address_mut(&mut self, address: u16) -> Option<&mut Rc<RefCell<dyn Addressable>>> {
+    fn find_component_for_address_mut(&mut self, address: u16) -> Option<&mut Box<dyn Addressable>> {
         self.components
             .iter_mut()
-            .find(|component| component.borrow().handles_address(address))
+            .find(|component| component.handles_address(address))
     }
 
     /// Returns a debugging string showing all attached components and their address ranges
@@ -108,13 +106,13 @@ impl Addressable for Bus {
         // The bus handles any address that one of its components can handle
         self.components
             .iter()
-            .any(|component| component.borrow().handles_address(address))
+            .any(|component| component.handles_address(address))
     }
 
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         // Find the component that handles this address
         if let Some(component) = self.find_component_for_address(address) {
-            return component.borrow().read_byte(address);
+            return component.read_byte(address);
         }
 
         Err(NesError::MemoryAccessError(address))
@@ -123,7 +121,7 @@ impl Addressable for Bus {
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
         // Find the component that handles this address
         if let Some(component) = self.find_component_for_address_mut(address) {
-            component.borrow_mut().write_byte(address, value)?;
+            component.write_byte(address, value)?;
             return Ok(());
         }
         Err(NesError::MemoryAccessError(address))
@@ -194,7 +192,7 @@ mod tests {
         assert_eq!(bus.read_byte(0x0100)?, 0x42);
 
         // Test custom component
-        let ppu_regs = Rc::new(RefCell::new(TestComponent::new(0x2000, 0x2007)));
+        let ppu_regs = Box::new(TestComponent::new(0x2000, 0x2007));
         bus.attach_component(ppu_regs);
 
         bus.write_byte(0x2000, 0x55)?;
@@ -208,8 +206,8 @@ mod tests {
         let mut bus = Bus::new();
 
         // Add two components with overlapping ranges
-        let component1 = Rc::new(RefCell::new(TestComponent::new(0x2000, 0x2007)));
-        let component2 = Rc::new(RefCell::new(TestComponent::new(0x2000, 0x2FFF)));
+        let component1 = Box::new(TestComponent::new(0x2000, 0x2007));
+        let component2 = Box::new(TestComponent::new(0x2000, 0x2FFF));
 
         bus.attach_component(component1);
         bus.attach_component(component2);
@@ -230,7 +228,7 @@ mod tests {
         let mut bus = Bus::new();
 
         // Create component that handles PPU registers
-        let ppu = Rc::new(RefCell::new(TestComponent::new(0x2000, 0x2007)));
+        let ppu = Box::new(TestComponent::new(0x2000, 0x2007));
         bus.attach_component(ppu);
 
         // Test boundary between RAM and PPU
@@ -248,7 +246,7 @@ mod tests {
         let mut bus = Bus::new();
 
         // Create a test component with a unique memory range
-        let ppu = Rc::new(RefCell::new(TestComponent::new(0x2000, 0x2007)));
+        let ppu = Box::new(TestComponent::new(0x2000, 0x2007));
         bus.attach_component(ppu);
 
         // Write and read through the bus multiple times
@@ -292,9 +290,9 @@ mod tests {
         let mut bus = Bus::new();
 
         // Add components for different memory regions
-        bus.attach_component(Rc::new(RefCell::new(TestComponent::new(0x2000, 0x2007))));
-        bus.attach_component(Rc::new(RefCell::new(TestComponent::new(0x4000, 0x4017))));
-        bus.attach_component(Rc::new(RefCell::new(TestComponent::new(0x8000, 0xFFFF))));
+        bus.attach_component(Box::new(TestComponent::new(0x2000, 0x2007)));
+        bus.attach_component(Box::new(TestComponent::new(0x4000, 0x4017)));
+        bus.attach_component(Box::new(TestComponent::new(0x8000, 0xFFFF)));
 
         // Test writes to different regions
         bus.write_byte(0x0100, 0x01)?; // RAM
@@ -350,11 +348,11 @@ mod tests {
         assert!(map.contains("Program Memory (Low): 0x8000 - UNMAPPED!"));
 
         // Add PPU registers
-        let ppu_regs = Rc::new(RefCell::new(TestComponent::new(0x2000, 0x2007)));
+        let ppu_regs = Box::new(TestComponent::new(0x2000, 0x2007));
         bus.attach_component(ppu_regs);
 
         // Add Program ROM
-        let program_rom = Rc::new(RefCell::new(TestComponent::new(0x8000, 0xFFFF)));
+        let program_rom = Box::new(TestComponent::new(0x8000, 0xFFFF));
         bus.attach_component(program_rom);
 
         // Now verify the mappings
