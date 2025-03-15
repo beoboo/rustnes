@@ -512,7 +512,9 @@ mod tests {
 
     /// Helper function to set up a CPU with memory for testing
     fn setup_cpu() -> Cpu {
-        Cpu::new(Rc::new(RefCell::new(Ram::default())))
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(Rc::new(RefCell::new(Ram::default())));
+        cpu
     }
 
     /// Helper function to set up a test case for addressing modes

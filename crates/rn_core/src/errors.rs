@@ -19,4 +19,7 @@ pub enum NesError {
 
     #[error("Instruction decoder error: {0}")]
     InstructionDecoderError(#[from] InstructionDecoderError),
+
+    #[error("Memory not connected")]
+    MemoryNotConnected,
 }

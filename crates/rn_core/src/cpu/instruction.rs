@@ -421,11 +421,13 @@ mod tests {
 
     /// Helper function to set up a CPU with memory for testing
     fn setup_cpu() -> Cpu {
-        Cpu::new(Rc::new(RefCell::new(Ram::default())))
+        setup_cpu_with_memory(Ram::default())
     }
 
     fn setup_cpu_with_memory(memory: Ram) -> Cpu {
-        Cpu::new(Rc::new(RefCell::new(memory)))
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(Rc::new(RefCell::new(memory)));
+        cpu
     }
 
     // Comprehensive tests for LDA to verify the load_register helper

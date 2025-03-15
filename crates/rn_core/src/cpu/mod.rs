@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::{Ref, RefCell, RefMut}, rc::Rc};
 
 use crate::{errors::NesError, memory::Addressable};
 mod addressing_mode;
@@ -41,7 +41,7 @@ pub struct Cpu {
     pub cycles: u64,
 
     // Memory connection
-    memory: Rc<RefCell<dyn Addressable>>,
+    memory: Option<Rc<RefCell<dyn Addressable>>>,
 
     // Instruction decoder
     decoder: InstructionDecoder,
@@ -49,7 +49,7 @@ pub struct Cpu {
 
 impl Cpu {
     /// Create a new CPU instance initialized to power-up state with the provided memory
-    pub fn new(memory: Rc<RefCell<dyn Addressable>>) -> Self {
+    pub fn new() -> Self {
         // Initial state according to NES specs
         // See: https://www.nesdev.org/wiki/CPU_power_up_state
         Self {
@@ -60,9 +60,13 @@ impl Cpu {
             pc: 0,        // Will be set to the reset vector
             status: 0x34, // 0b00110100 - Unused bit and Interrupt disable set
             cycles: 0,
-            memory,
+            memory: None,
             decoder: InstructionDecoder::new(),
         }
+    }
+
+    pub fn connect_memory(&mut self, memory: Rc<RefCell<dyn Addressable>>) {
+        self.memory = Some(memory);
     }
 
     /// Get the value of a specific CPU flag
@@ -81,22 +85,30 @@ impl Cpu {
 
     /// Read a byte from memory
     pub fn read_byte(&self, address: u16) -> Result<u8, NesError> {
-        self.memory.borrow().read_byte(address)
+        self.memory()?.read_byte(address)
     }
 
     /// Write a byte to memory
     pub fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
-        self.memory.borrow_mut().write_byte(address, value)
+        self.memory_mut()?.write_byte(address, value)
     }
 
     /// Read a word (16-bits) from memory
     pub fn read_word(&self, address: u16) -> Result<u16, NesError> {
-        self.memory.borrow().read_word(address)
+        self.memory()?.read_word(address)
     }
 
     /// Write a word (16-bits) to memory
     pub fn write_word(&mut self, address: u16, value: u16) -> Result<(), NesError> {
-        self.memory.borrow_mut().write_word(address, value)
+        self.memory_mut()?.write_word(address, value)
+    }
+
+    pub fn memory(&self) -> Result<Ref<dyn Addressable>, NesError> {
+        Ok(self.memory.as_ref().ok_or(NesError::MemoryNotConnected)?.borrow())
+    }
+
+    pub fn memory_mut(&mut self) -> Result<RefMut<dyn Addressable>, NesError> {
+        Ok(self.memory.as_ref().ok_or(NesError::MemoryNotConnected)?.borrow_mut())
     }
 
     /// Push a byte onto the stack
@@ -193,11 +205,13 @@ mod tests {
 
     /// Helper function to set up a CPU with memory for testing
     fn setup_cpu() -> Cpu {
-        Cpu::new(Rc::new(RefCell::new(Ram::default())))
+        setup_cpu_with_memory(Ram::default())
     }
 
     fn setup_cpu_with_memory(memory: Ram) -> Cpu {
-        Cpu::new(Rc::new(RefCell::new(memory)))
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(Rc::new(RefCell::new(memory)));
+        cpu
     }
 
     #[test]

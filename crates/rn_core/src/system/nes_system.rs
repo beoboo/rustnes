@@ -14,6 +14,8 @@ use crate::{
     system::Bus,
 };
 
+use super::DmaController;
+
 /// The possible states of the NES system
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SystemState {
@@ -32,6 +34,9 @@ pub struct NesSystem {
     /// The PPU component
     ppu: Rc<RefCell<Ppu>>,
 
+    /// The DMA controller
+    dma: Rc<RefCell<DmaController>>,
+
     /// Current system state
     state: SystemState,
 
@@ -45,32 +50,48 @@ impl NesSystem {
         // Create a PPU instance with RefCell for sharing
         let ppu = Rc::new(RefCell::new(Ppu::new()));
 
-        // Create a bus with basic memory mapping
-        let mut bus = Bus::new();
-
-        // Attach PPU registers to the CPU bus at $2000-$2007
-        bus.attach_component(ppu.clone());
-
         // Add ROM mapping for program memory (0x8000-0xFFFF)
-        // This ensures we have a proper place to load programs
         let rom = Rc::new(RefCell::new(Ram::with_range(0x8000, 0xFFFF)));
-        bus.attach_component(rom);
-
-        // Debug: Print the memory map before attaching to CPU
-        // This will help diagnose missing memory components during development
-        #[cfg(debug_assertions)]
-        {
-            println!("\n=== NesSystem Memory Map ===");
-            println!("{}", bus.debug_memory_map());
-            println!("===========================\n");
-        }
 
         // Create the CPU with its bus
-        let cpu = Rc::new(RefCell::new(Cpu::new(Rc::new(RefCell::new(bus)))));
+        let cpu = Rc::new(RefCell::new(Cpu::new()));
+
+        // Create a bus with basic memory mapping
+        let bus = Rc::new(RefCell::new(Bus::new()));
+
+        // Create a DMA controller
+        let dma = Rc::new(RefCell::new(DmaController::new()));
+
+        // Attach components to the bus
+        {
+            let mut bus = bus.borrow_mut();
+            bus.attach_component(ppu.clone());
+            bus.attach_component(rom.clone());
+            bus.attach_component(dma.clone());
+
+            // Debug: Print the memory map before attaching to CPU
+            // This will help diagnose missing memory components during development
+            #[cfg(debug_assertions)]
+            {
+                println!("\n=== NesSystem Memory Map ===");
+                println!("{}", bus.debug_memory_map());
+                println!("===========================\n");
+            }
+        }
+
+        // Attach components to the DMA controller
+        {
+            let mut dma = dma.borrow_mut();
+            dma.connect_cpu(cpu.clone());
+            dma.connect_ppu(ppu.clone());
+        }
+
+        cpu.borrow_mut().connect_memory(bus.clone());
 
         Self {
             cpu,
             ppu,
+            dma,
             state: SystemState::Ready,
             error_message: None,
         }
@@ -116,47 +137,56 @@ impl NesSystem {
             debug!("System state transition: {:?} -> {:?}", old_state, self.state);
         }
 
-        // Step the CPU and get cycles
-        let res = self.cpu.borrow_mut().step();
+        // Check if DMA is active
+        let dma_active = self.dma.borrow().is_active();
+        let cpu_cycles = if dma_active {
+            // DMA is active, process a DMA cycle
+            let mut dma = self.dma.borrow_mut();
+            
+            // Create a memory read function to pass to DMA
+            let cpu_ref = Rc::clone(&self.cpu);
+            let memory_read_fn = |addr| cpu_ref.borrow().read_byte(addr);
+            
+            // Tick the DMA and check if it produced data to write to OAM
+            if let Some((value, oam_index)) = dma.tick(memory_read_fn) {
+                // Write the value to PPU OAM via the PPU registers
+                let mut ppu = self.ppu.borrow_mut();
+                
+                // Set OAM address register ($2003) first, then write the data
+                ppu.write_register(0x2003, oam_index);
+                ppu.write_register(0x2004, value);
+            }
+            
+            // DMA cycle counts as 1 CPU cycle
+            1
+        } else {
+            // Normal CPU operation
+            self.cpu.borrow_mut().step()?
+        };
 
-        match res {
-            Ok(cpu_cycles) => {
-                // Run the PPU at 3x the CPU speed
-                for _ in 0..cpu_cycles * 3 {
-                    self.ppu_mut().tick();
-                }
-
-                // Check if we've hit a BRK instruction (end of program)
-                let cpu = self.cpu();
-                let pc = cpu.pc;
-
-                let byte = cpu.read_byte(pc)?;
-                drop(cpu);
-
-                if byte == 0x00 {
-                    let old_state = self.state;
-                    self.state = SystemState::Finished;
-                    debug!("System state transition: {:?} -> {:?}", old_state, self.state);
-                    info!("BRK instruction encountered at ${:04X}, halting", pc);
-                }
-
-                Ok(cpu_cycles)
-            },
-            Err(err) => {
-                // Store the error and set error state
-                self.error_message = Some(format!("Execution error: {}", err));
-                let old_state = self.state;
-
-                let pc = self.current_pc();
-
-                self.state = SystemState::Error(pc);
-                error!(
-                    "System state transition: {:?} -> Error({:04X}) - {}",
-                    old_state, pc, err
-                );
-                Err(err)
-            },
+        // Run the PPU at 3x the CPU speed
+        for _ in 0..cpu_cycles * 3 {
+            self.ppu.borrow_mut().tick();
         }
+
+        // Only check for BRK if CPU is active (not during DMA)
+        if !dma_active {
+            // Check if we've hit a BRK instruction (end of program)
+            let cpu = self.cpu();
+            let pc = cpu.pc;
+
+            let byte = cpu.read_byte(pc)?;
+            drop(cpu);
+
+            if byte == 0x00 {
+                let old_state = self.state;
+                self.state = SystemState::Finished;
+                debug!("System state transition: {:?} -> {:?}", old_state, self.state);
+                info!("BRK instruction encountered at ${:04X}, halting", pc);
+            }
+        }
+
+        Ok(cpu_cycles)
     }
 
     /// Run the system until completion or error
@@ -273,6 +303,22 @@ impl NesSystem {
             // Need to borrow_mut() the RefCell to get mutable access to the cartridge
             cart_rc.borrow_mut().load_chr_rom(chr_data);
         }
+    }
+
+    /// Get the DMA controller
+    pub fn dma(&self) -> Ref<DmaController> {
+        self.dma.borrow()
+    }
+
+    /// Get mutable access to the DMA controller
+    pub fn dma_mut(&mut self) -> RefMut<DmaController> {
+        self.dma.borrow_mut()
+    }
+}
+
+impl Default for NesSystem {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

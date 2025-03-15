@@ -127,7 +127,8 @@ impl RustNESApp {
         memory.write_byte(0x8006, 0xFF)?; // #$FF
 
         // Create CPU with initialized memory
-        let mut cpu = Cpu::new(Rc::new(RefCell::new(Ram::default()))); // This RAM won't be used directly
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(Rc::new(RefCell::new(Ram::default()))); // This RAM won't be used directly
 
         // Set some example values
         cpu.a = 0x42; // Accumulator
