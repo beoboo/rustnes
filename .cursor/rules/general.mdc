@@ -69,6 +69,10 @@ If no correct answer exists, say so. If uncertain, do not guess—admit not know
 ### **Testing Approach**
 - **Test-first development** – Prioritize writing tests before implementation.  
 - **Write tests in the same file as the code they refer to**.  
+- **Tests must be real** –  
+  - No fake or forced tests that only validate incorrect behavior.  
+  - **Fix the implementation, not the test.**  
+  - Ensure tests reflect actual expected behavior.  
 - Ensure code is fully testable and covered.  
 
 ### **Imports & Dependencies**

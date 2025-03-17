@@ -1,5 +1,5 @@
 use std::{
-    cell::{RefCell, RefMut},
+    cell::RefCell,
     path::PathBuf,
     rc::Rc,
 };
@@ -10,7 +10,7 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[macro_use]
 extern crate log;
 use rn_core::{
-    cpu::{Cpu, CpuWrapper},
+    cpu::CpuWrapper,
     errors::NesError,
     memory::Addressable,
     system::{NesSystem, SystemState},
@@ -222,7 +222,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                         egui::vec2(min_content_width.max(available_width), ui.available_height()),
                         |ui| {
                             // Create an adapter to access CPU memory with the memory editor
-                            let mut system_borrow = self.system.borrow_mut();
+                            let system_borrow = self.system.borrow_mut();
                             let mut adapter = CpuMemoryAdapter::new(system_borrow.cpu());
 
                             // Show the memory editor widget with access to CPU memory
@@ -284,7 +284,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
             DockTab::Cpu => {
                 // CPU Tab content
 
-                let mut system = self.system.borrow_mut();
+                let system = self.system.borrow_mut();
                 self.cpu_widget.ui(ui, system.cpu());
             },
             DockTab::Display => {
@@ -496,6 +496,26 @@ impl App for NesDebugger {
                                 error!("Program execution failed: {}", err);
                             },
                         }
+                        ui.close_menu();
+                    }
+                    
+                    ui.separator();
+                    
+                    if ui.button("Write Test Pattern").clicked() {
+                        info!("Writing test pattern to PPU frame buffer");
+                        let mut system_borrow = self.system.borrow_mut();
+                        system_borrow.write_ppu_test_pattern();
+                        // Also switch to PPU display mode to see it
+                        self.context.display_mode = DisplayMode::Ppu;
+                        ui.close_menu();
+                    }
+                    
+                    if ui.button("Write Test Sprite").clicked() {
+                        info!("Writing test sprite to PPU OAM and rendering");
+                        let mut system_borrow = self.system.borrow_mut();
+                        system_borrow.write_ppu_test_sprite();
+                        // Also switch to PPU display mode to see it
+                        self.context.display_mode = DisplayMode::Ppu;
                         ui.close_menu();
                     }
                 });

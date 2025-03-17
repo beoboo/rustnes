@@ -26,6 +26,10 @@ pub struct AsmWidget {
     pub assembler: Assembler,
     /// Load address editor widget
     load_address_editor: HexEditText,
+    /// Maximum number of cycles to run
+    max_cycles: usize,
+    /// Whether to run with no cycle limit
+    no_cycle_limit: bool,
 }
 
 impl AsmWidget {
@@ -42,6 +46,8 @@ impl AsmWidget {
             error_message: None,
             assembler,
             load_address_editor: HexEditText::new(),
+            max_cycles: 1_000_000, // Default to 1 million cycles
+            no_cycle_limit: false, // Default to using a limit
         }
     }
 
@@ -150,17 +156,21 @@ impl AsmWidget {
         self.assembled
     }
 
-    /// Run the program until completion or error
+    /// Run the program until completion or error, using the configured cycle limit
     pub fn run_program(&mut self, system: &mut NesSystem) -> Result<()> {
         // Only run if the system is in the right state
         if !matches!(system.state(), SystemState::Loaded | SystemState::Running) {
             return Ok(());
         }
 
-        // Run with a reasonable step limit
-        const MAX_STEPS: usize = 1_000_000;
+        // Use the configured cycle limit
+        let max_steps = if self.no_cycle_limit {
+            usize::MAX // Effectively no limit
+        } else {
+            self.max_cycles
+        };
 
-        match system.run(MAX_STEPS) {
+        match system.run(max_steps) {
             Ok(_) => {
                 // Success - system state is already updated
                 if let Some(err_msg) = system.error_message() {
@@ -274,6 +284,26 @@ impl AsmWidget {
             }
 
             Ok(())
+        });
+
+        ui.add_space(5.0);
+
+        // Add the cycle limit controls
+        ui.horizontal(|ui| {
+            // Only show the cycle limit field if "No cycle limit" is unchecked
+            if !self.no_cycle_limit {
+                ui.label("Run for: ");
+                // Use a DragValue for easy adjustment
+                ui.add(
+                    egui::DragValue::new(&mut self.max_cycles)
+                        .speed(10_000)
+                        .range(1_000..=100_000_000),
+                );
+                ui.label("cycles");
+            }
+
+            // "No cycle limit" checkbox
+            ui.checkbox(&mut self.no_cycle_limit, "No limit");
         });
 
         // Display any error message

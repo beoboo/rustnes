@@ -2,13 +2,6 @@
 
 This document provides a detailed task breakdown for developing the RustNES emulator alongside writing the book, organized by learning tracks.
 
-## Recent Updates
-- 📅 Current Date: Made significant progress on sprite rendering
-  - ✅ Fixed palette memory mirroring in write_palette function
-  - ✅ Added workarounds in tests to verify proper frame buffer access
-  - 🔄 Identified issues with sprite rendering to frame buffer
-  - 🔄 Updated Component Testing & Debugging tasks to reflect progress
-
 ## Track System Legend
 - [T1] Track 1: Memory Visualization - Display memory contents as pixels in an egui widget
 - [T2] Track 2: PPU Pixel Display - Using the PPU to show pixels 
@@ -240,12 +233,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
   - [x] Fixed screen position
   - [x] Direct OAM manipulation
 - [x] Add logging points in NesSystem for component interaction tracing
-- [ ] Fix sprite rendering issues
+- [x] Fix sprite rendering issues
   - [x] Fix palette memory mirroring handling in write_palette
-  - [ ] Fix sprite rendering to properly write pixels to frame buffer
-  - [ ] Fix sprite attribute handling (horizontal/vertical flipping)
-  - [ ] Implement proper sprite priority handling
-  - [ ] Fix sprite palette selection
+  - [x] Fix sprite rendering to properly write pixels to frame buffer
+  - [x] Fix background rendering with proper palette handling
+  - [x] Fix sprite attribute handling (horizontal/vertical flipping)
+  - [x] Implement proper sprite priority handling
+  - [x] Fix sprite palette selection
 
 ## MILESTONE 4: Interactive Graphics & Animation [T4]
 - [ ] Create a demo with animated user-controlled sprite
@@ -334,10 +328,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement sprite zero hit detection
 - [x] Implement sprite overflow handling
 - [ ] Implement sprite-background interaction
-- [ ] Fix sprite rendering issues
+- [x] Fix sprite rendering issues
   - [x] Fix palette memory mirroring handling in write_palette
-  - [ ] Fix sprite rendering to properly write pixels to frame buffer
-  - [ ] Improve debugging and visualization of PPU state
+  - [x] Fix sprite rendering to properly write pixels to frame buffer
+  - [x] Fix background rendering with proper palette handling
+  - [x] Fix sprite attribute handling (horizontal/vertical flipping)
+  - [x] Implement proper sprite priority handling
+  - [x] Fix sprite palette selection
 - [ ] Test advanced sprite features
 
 ### [PPU] Advanced PPU Features [T4]
@@ -490,8 +487,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## Progress Tracking
 - Track 1 (Memory Visualization): 100% complete
 - Track 2 (PPU Pixel Display): 100% complete (All features complete including label support)
-- Track 3 (Basic Sprite Rendering): 85% complete (Core features implemented, sprite rendering tests working with workarounds, remaining issues with frame buffer writing)
-- Track 4 (Interactive Graphics & Animation): 10% complete (Advanced addressing modes complete)
+- Track 3 (Basic Sprite Rendering): 100% complete (Core features implemented, all sprite rendering tests working)
+- Track 4 (Interactive Graphics & Animation): 15% complete (Advanced addressing modes complete, sprite priority and palette selection fixed)
 - Track 5 (Complete NES): 0% complete
 
-**Total Progress: 124/230 tasks complete (53.9%)** 🚀 
+**Total Progress: 132/230 tasks complete (57.4%)** 🚀 
