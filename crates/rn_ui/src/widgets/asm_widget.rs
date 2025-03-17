@@ -68,8 +68,11 @@ impl AsmWidget {
         if let Some(chr_data) = self.assembled_segments.get("CHARS") {
             if !chr_data.is_empty() {
                 // Get the cartridge and load the CHR ROM data
-                system.load_chr_rom(&chr_data);
-                println!("Loaded CHR ROM data: {} bytes", chr_data.len());
+                if let Err(err) = system.load_chr_rom(&chr_data) {
+                    self.error_message = Some(format!("Error loading CHR ROM: {}", err));
+                } else {
+                    println!("Loaded CHR ROM data: {} bytes", chr_data.len());
+                }
             }
         }
 

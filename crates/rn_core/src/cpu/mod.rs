@@ -52,12 +52,19 @@ impl CpuWrapper {
         self.cpu.borrow().read_byte(addr)
     }
 
-    pub fn step(&self) -> Result<u8, NesError> {
-        self.cpu.borrow_mut().step()
-    }
-
     pub fn write_byte(&self, addr: u16, value: u8) -> Result<(), NesError> {
         self.cpu.borrow_mut().write_byte(addr, value)
+    }
+
+    pub fn write_bytes(&self, addr: u16, data: &[u8]) -> Result<(), NesError> {
+        for (i, &byte) in data.iter().enumerate() {
+            self.write_byte(addr.wrapping_add(i as u16), byte)?;
+        }
+        Ok(())
+    }
+
+    pub fn step(&self) -> Result<u8, NesError> {
+        self.cpu.borrow_mut().step()
     }
 
     pub fn load_program(&self, program: &[u8], load_address: u16) -> Result<(), NesError> {
