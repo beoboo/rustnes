@@ -279,8 +279,8 @@ impl NesSystem {
             warn!("Program reached maximum step limit of {}", max_steps);
         }
 
-        // // Force a frame render before returning to ensure we show any sprites
-        // // that might have been set up during execution
+        // Force a frame render before returning to ensure we show any sprites
+        // that might have been set up during execution
         // info!("Force rendering frame after program execution");
         // let ppu = self.ppu.clone();
         // ppu.force_render_frame();

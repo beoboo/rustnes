@@ -66,7 +66,18 @@ impl PpuWrapper {
 
     pub fn force_render_frame(&self) {
         let mut ppu = self.ppu.borrow_mut();
+        
+        // Temporarily save the current mask
+        let original_mask = ppu.mask;
+        
+        // Force enable sprites and background
+        ppu.mask |= MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES;
+        
+        // Render the frame
         ppu.render_frame();
+        
+        // Restore original mask
+        ppu.mask = original_mask;
     }
 
     pub fn load_chr_rom(&self, chr_data: &[u8]) -> Result<(), NesError> {
@@ -984,11 +995,28 @@ impl Ppu {
 
     /// Write to PPUMASK ($2001)
     fn write_mask(&mut self, value: u8) {
-        log::info!("PPU write_mask: ${:02X} (show sprites: {}, show bg: {})", 
-               value, 
-               (value & MASK_SHOW_SPRITES) != 0,
-               (value & MASK_SHOW_BACKGROUND) != 0);
+        let old_mask = self.mask;
         self.mask = value;
+        
+        // Log detailed mask state changes for debugging
+        log::info!(
+            "PPU write_mask: ${:02X} -> ${:02X} (sprites: {} -> {}, bg: {} -> {})", 
+            old_mask, 
+            value,
+            (old_mask & MASK_SHOW_SPRITES) != 0,
+            (value & MASK_SHOW_SPRITES) != 0,
+            (old_mask & MASK_SHOW_BACKGROUND) != 0,
+            (value & MASK_SHOW_BACKGROUND) != 0
+        );
+        
+        // Important flag changes
+        if (old_mask & MASK_SHOW_SPRITES) != (value & MASK_SHOW_SPRITES) {
+            log::info!("SPRITES {}", if (value & MASK_SHOW_SPRITES) != 0 { "ENABLED" } else { "DISABLED" });
+        }
+        
+        if (old_mask & MASK_SHOW_BACKGROUND) != (value & MASK_SHOW_BACKGROUND) {
+            log::info!("BACKGROUND {}", if (value & MASK_SHOW_BACKGROUND) != 0 { "ENABLED" } else { "DISABLED" });
+        }
     }
 
     /// Write to OAMADDR ($2003)
@@ -1379,7 +1407,13 @@ impl Addressable for Ppu {
     }
 
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
-        self.write_ppu_memory(address, value);
+        // Check if this is a write to a PPU register ($2000-$2007)
+        if address >= 0x2000 && address <= 0x2007 {
+            self.write_register(address, value);
+        } else {
+            // Otherwise, treat it as a write to PPU memory space
+            self.write_ppu_memory(address, value);
+        }
         Ok(())
     }
 
