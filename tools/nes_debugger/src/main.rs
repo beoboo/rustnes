@@ -228,41 +228,6 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                 });
             },
             DockTab::PatternTable => {
-                // Pattern Table Tab content
-
-                // Add pattern table controls
-                ui.horizontal(|ui| {
-                    ui.label("Zoom:");
-                    if ui.button("-").clicked() {
-                        let current_zoom = self.pattern_table_widget.zoom();
-                        self.pattern_table_widget.set_zoom((current_zoom - 0.25).max(0.25));
-                    }
-                    if ui.button("+").clicked() {
-                        let current_zoom = self.pattern_table_widget.zoom();
-                        self.pattern_table_widget.set_zoom((current_zoom + 0.25).min(4.0));
-                    }
-
-                    ui.separator();
-
-                    ui.label("Pattern Table:");
-                    if ui.button("0").clicked() {
-                        self.pattern_table_widget.set_current_table(0);
-                    }
-                    if ui.button("1").clicked() {
-                        self.pattern_table_widget.set_current_table(1);
-                    }
-
-                    ui.separator();
-
-                    // Toggle grid
-                    let mut show_grid = self.pattern_table_widget.show_grid();
-                    if ui.checkbox(&mut show_grid, "Show Grid").changed() {
-                        self.pattern_table_widget.set_show_grid(show_grid);
-                    }
-                });
-
-                ui.add_space(8.0);
-
                 egui::ScrollArea::vertical()
                     .id_salt("pattern_table_scroll")
                     .show(ui, |ui| {
