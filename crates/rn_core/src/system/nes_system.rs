@@ -103,6 +103,10 @@ impl NesSystem {
         self.ppu.clone()
     }
 
+    pub fn dma(&self) -> DmaControllerWrapper<CpuWrapper, PpuWrapper> {
+        self.dma.clone()
+    }
+
     /// Reset the system
     pub fn reset(&mut self) -> Result<(), NesError> {
         self.cpu.reset()?;
@@ -160,6 +164,8 @@ impl NesSystem {
         if self.dma.is_active() {
             // DMA is active, don't run the CPU this tick
             debug!("DMA active: {} cycles", cpu_cycles);
+            // Advance the DMA controller state
+            self.dma.tick();
         } else {
             // Either Completed or Inactive, run the CPU
             dma_active = false;

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use crate::{cpu::CpuInterface, errors::NesError, memory::Addressable, ppu::PpuInterface};
 
@@ -23,6 +23,14 @@ impl<C: CpuInterface, P: PpuInterface> DmaControllerWrapper<C, P> {
 
     pub fn is_active(&self) -> bool {
         self.dma.borrow().is_active()
+    }
+
+    pub fn cycles_remaining(&self) -> u16 {
+        self.dma.borrow().cycles_remaining()
+    }
+
+    pub fn cycles_elapsed(&self) -> u16 {
+        self.dma.borrow().cycles_elapsed()
     }
 
     pub fn tick(&mut self) -> Option<(u8, u8)> {
@@ -99,6 +107,27 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
         self.transfer_active
     }
 
+    /// Get the number of cycles remaining in the current DMA transfer
+    ///
+    /// Returns 0 when not active
+    pub fn cycles_remaining(&self) -> u16 {
+        if self.transfer_active {
+            self.cycles_remaining
+        } else {
+            0
+        }
+    }
+
+    /// Get the number of cycles elapsed in the current DMA transfer
+    ///
+    /// Returns 0 when not active
+    pub fn cycles_elapsed(&self) -> u16 {
+        if self.is_active() {
+            513 - self.cycles_remaining()
+        } else {
+            0
+        }
+    }
 
     /// Process a single DMA cycle
     ///
