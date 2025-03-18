@@ -1084,7 +1084,7 @@ impl Ppu {
 
     /// Write to PPU address space
     pub fn write_ppu_memory(&mut self, address: u16, value: u8) {
-        log::info!("PPU write_ppu_memory: ${:04X} = ${:02X}", address, value);
+        log::debug!("PPU write_ppu_memory: ${:04X} = ${:02X}", address, value);
         
         let addr = address & 0x3FFF; // Mirror down to 14 bits
         
@@ -1366,7 +1366,7 @@ impl Addressable for Ppu {
             // For status register at $2002
             if register == 2 {
                 let result = self.read_status();
-                log::info!("Ppu read_byte: Read from status register: ${:02X}", result);
+                log::debug!("Ppu read_byte: Read from status register: ${:02X}", result);
                 return Ok(result);
             }
             

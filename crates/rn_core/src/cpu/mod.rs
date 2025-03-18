@@ -270,7 +270,6 @@ impl Cpu {
 
     /// Execute a single CPU instruction and return the number of cycles used
     pub fn step(&mut self) -> Result<u8, NesError> {
-        log::info!("CPU step");
         // Fetch opcode
         let opcode = self.fetch()?;
 

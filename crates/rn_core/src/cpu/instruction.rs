@@ -236,9 +236,7 @@ impl Cpu {
 
     /// LDA - Load Accumulator with support for all addressing modes
     pub fn lda(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        log::info!("LDA: {:?}", addressing_mode);
         self.registers.a = self.load_register(addressing_mode)?;
-        log::info!("LDA done");
         Ok(())
     }
 
@@ -356,7 +354,6 @@ impl Cpu {
         // Get the value from the memory address
         let addr = addressing_mode.get_operand_address(self)?;
         let value = self.read_byte(addr)?;
-        log::info!("BIT: addr={}, value={}", addr, value);
 
         // Perform AND with accumulator but don't store the result
         let result = self.registers.a & value;
