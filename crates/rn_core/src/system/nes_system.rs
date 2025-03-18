@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, warn};
 
 use super::{dma::DmaControllerWrapper, DmaController};
 use crate::{
