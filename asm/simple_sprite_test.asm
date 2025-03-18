@@ -126,7 +126,7 @@ RESET:
   STA $2006             ; Reset PPU address low byte
 
   ; Enable sprite rendering IMMEDIATELY (crucial)
-  LDA #$10              ; Enable sprites only (no emphasis bits)
+  LDA #$18              ; Enable sprites AND background ($10 OR $08)
   STA $2001
 
   ; *** IMPORTANT: We need to run the main loop for MANY cycles! ***
@@ -150,7 +150,7 @@ MainLoop:
   LDA #$00              ; Disable rendering
   STA $2001
   
-  LDA #$10              ; Re-enable sprites (ONLY sprites, no emphasis)
+  LDA #$18              ; Re-enable sprites AND background ($10 OR $08)
   STA $2001
   
   ; IMPORTANT: Loop must run many times to allow frame rendering

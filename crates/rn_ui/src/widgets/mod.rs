@@ -10,6 +10,7 @@ mod memory_widget;
 mod pattern_table_widget;
 mod pixel_display;
 mod pixel_provider;
+mod ppu_widget;
 
 // Re-export the widgets for easier access
 pub use asm_widget::AsmWidget;
@@ -21,3 +22,4 @@ pub use memory_widget::MemoryWidget;
 pub use pattern_table_widget::PatternTableWidget;
 pub use pixel_display::PixelDisplay;
 pub use pixel_provider::{MemoryPixelAdapter, PixelDataProvider, PpuPixelAdapter};
+pub use ppu_widget::PpuWidget;

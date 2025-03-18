@@ -20,6 +20,7 @@ use rn_ui::widgets::{
     PatternTableWidget,
     PixelDisplay,
     PpuPixelAdapter,
+    PpuWidget,
 };
 
 /// Command line arguments for the NesDebugger
@@ -77,6 +78,7 @@ enum DockTab {
     Memory,
     PatternTable,
     Cpu,
+    Ppu,
     Display,
     AssembledCode,
 }
@@ -89,6 +91,7 @@ impl DockTab {
             DockTab::Memory => "Memory",
             DockTab::PatternTable => "Pattern Tables",
             DockTab::Cpu => "CPU State",
+            DockTab::Ppu => "PPU State",
             DockTab::Display => "Display",
             DockTab::AssembledCode => "Assembled Code",
         }
@@ -110,6 +113,7 @@ struct NesDebugger {
     pixel_display: PixelDisplay,
     asm_widget: AsmWidget,
     cpu_widget: CpuWidget,
+    ppu_widget: PpuWidget,
     disasm_widget: DisasmWidget,
     memory_widget: MemoryWidget,
     pattern_table_widget: PatternTableWidget,
@@ -132,6 +136,7 @@ struct NesTabViewer<'a> {
     pixel_display: &'a mut PixelDisplay,
     asm_widget: &'a mut AsmWidget,
     cpu_widget: &'a mut CpuWidget,
+    ppu_widget: &'a mut PpuWidget,
     disasm_widget: &'a mut DisasmWidget,
     memory_widget: &'a mut MemoryWidget,
     pattern_table_widget: &'a mut PatternTableWidget,
@@ -244,9 +249,13 @@ impl<'a> TabViewer for NesTabViewer<'a> {
             },
             DockTab::Cpu => {
                 // CPU Tab content
-
                 let system = self.system.borrow_mut();
                 self.cpu_widget.ui(ui, system.cpu());
+            },
+            DockTab::Ppu => {
+                // PPU Tab content
+                let system = self.system.borrow_mut();
+                self.ppu_widget.ui(ui, system.ppu());
             },
             DockTab::Display => {
                 // Display Tab content
@@ -319,13 +328,20 @@ impl NesDebugger {
         // Create initial dock state with all our tabs
         let mut dock_state = DockState::new(vec![DockTab::Assembly, DockTab::Memory, DockTab::PatternTable]);
 
-        // Create layout with Assembly/Memory/PatternTable in center, and CPU on the left
-        let [center, _left] = dock_state.main_surface_mut().split_left(
+        // Create layout with Assembly/Memory/PatternTable in center, and CPU/PPU on the left
+        let [center, left] = dock_state.main_surface_mut().split_left(
             NodeIndex::root(),
             0.2, // 20% width for CPU
             vec![DockTab::Cpu],
         );
-
+        
+        // Split the left panel vertically to hold both CPU and PPU
+        dock_state.main_surface_mut().split_below(
+            left,
+            0.5, // CPU takes 50% of height
+            vec![DockTab::Ppu],
+        );
+        
         // Add Display on the right side of the center area
         let [center_main, _right] = dock_state.main_surface_mut().split_right(
             center, // Split the center node, not the root
@@ -345,6 +361,7 @@ impl NesDebugger {
             pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
             asm_widget: AsmWidget::new(),
             cpu_widget: CpuWidget::new(),
+            ppu_widget: PpuWidget::new(),
             disasm_widget: DisasmWidget::new(),
             memory_widget: MemoryWidget::new()
                 .with_start_address(0x0000)
@@ -503,6 +520,7 @@ impl App for NesDebugger {
                 pixel_display: &mut self.pixel_display,
                 asm_widget: &mut self.asm_widget,
                 cpu_widget: &mut self.cpu_widget,
+                ppu_widget: &mut self.ppu_widget,
                 disasm_widget: &mut self.disasm_widget,
                 memory_widget: &mut self.memory_widget,
                 pattern_table_widget: &mut self.pattern_table_widget,

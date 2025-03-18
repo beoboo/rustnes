@@ -42,72 +42,166 @@ impl PpuWrapper {
     }
 
     pub fn write_register(&self, address: u16, value: u8) {
-        self.ppu.borrow_mut().write_register(address, value);
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.write_register(address, value);
     }
 
     pub(crate) fn tick(&self) {
-        self.ppu.borrow_mut().tick();
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.tick();
     }
 
     pub(crate) fn has_cartridge(&self) -> bool {
-        self.ppu.borrow().cartridge().is_some()
+        let ppu = self.ppu.borrow();
+        ppu.cartridge().is_some()
     }
 
     pub fn connect_cartridge(&self, cart: Cartridge) {
-        self.ppu.borrow_mut().connect_cartridge(cart);
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.connect_cartridge(cart);
     }
 
-    /// Force render a frame, useful for debugging
     pub fn force_render_frame(&self) {
-        log::info!("Forcing PPU frame render");
-        self.ppu.borrow_mut().render_frame();
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.render_frame();
     }
 
     pub fn load_chr_rom(&self, chr_data: &[u8]) -> Result<(), NesError> {
-        // Ensure we have a cartridge
-        if !self.has_cartridge() {
-            self.connect_cartridge(Cartridge::new());
-        }
+        let mut ppu = self.ppu.borrow_mut();
 
-        // Get the cartridge and load CHR ROM
-        if let Some(cart) = self.ppu.borrow_mut().cartridge_mut() {
-            cart.load_chr_rom(chr_data);
+        if let Some(cart_mut) = ppu.cartridge_mut() {
+            cart_mut.load_chr_rom(chr_data);
+            Ok(())
+        } else {
+            Err(NesError::MemoryAccessError(0)) // Use an existing error type
         }
-
-        Ok(())
     }
-
+    
     pub fn frame_buffer(&self) -> Vec<u8> {
-        self.ppu.borrow().frame_buffer().to_vec()
+        let ppu = self.ppu.borrow();
+        ppu.frame_buffer().to_vec()
     }
 
     pub fn cartridge(&self) -> Option<Cartridge> {
-        self.ppu.borrow().cartridge()
+        let ppu = self.ppu.borrow();
+        ppu.cartridge()
     }
 
-    /// Returns a raw pointer to the underlying Ppu instance
-    ///
-    /// # Safety
-    /// This method is unsafe because it exposes a raw pointer to the internal Ppu instance.
-    /// It should only be used for testing purposes and with extreme caution.
-    #[cfg(test)]
     pub unsafe fn as_ptr(&self) -> *mut Ppu {
-        // Get a mutable borrow and then convert it to a raw pointer
-        let borrow = self.ppu.borrow_mut();
-        let ptr = &*borrow as *const Ppu as *mut Ppu;
-        // We return the pointer but don't drop the borrow, so this is unsafe!
-        std::mem::forget(borrow);
-        ptr
+        self.ppu.as_ptr()
     }
 
-    /// Call the write_test_pattern method on the underlying PPU
     pub fn write_test_pattern(&self) {
-        self.ppu.borrow_mut().write_test_pattern();
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.write_test_pattern();
     }
 
-    /// Call the write_test_sprite method on the underlying PPU
     pub fn write_test_sprite(&self) {
-        self.ppu.borrow_mut().write_test_sprite();
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.write_test_sprite();
+    }
+    
+    // Below are new accessor methods for PPU widget
+
+    /// Get the current frame count
+    pub fn frame_count(&self) -> u64 {
+        let ppu = self.ppu.borrow();
+        ppu.frame_count
+    }
+    
+    /// Get the current scanline and cycle
+    pub fn scanline_cycle(&self) -> (i16, u16) {
+        let ppu = self.ppu.borrow();
+        (ppu.scanline, ppu.cycle)
+    }
+    
+    /// Get the control register value
+    pub fn ctrl(&self) -> u8 {
+        let ppu = self.ppu.borrow();
+        ppu.ctrl
+    }
+    
+    /// Set the control register value
+    pub fn set_ctrl(&self, value: u8) {
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.ctrl = value;
+    }
+    
+    /// Get the mask register value
+    pub fn mask(&self) -> u8 {
+        let ppu = self.ppu.borrow();
+        ppu.mask
+    }
+    
+    /// Set the mask register value
+    pub fn set_mask(&self, value: u8) {
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.mask = value;
+        // Log the update so we can debug rendering issues
+        log::info!("PPU MASK set via widget to {:02X} (show sprites: {}, show bg: {})", 
+               value, 
+               (value & MASK_SHOW_SPRITES) != 0,
+               (value & MASK_SHOW_BACKGROUND) != 0);
+    }
+    
+    /// Get the status register value
+    pub fn status(&self) -> u8 {
+        let ppu = self.ppu.borrow();
+        ppu.status
+    }
+    
+    /// Get the OAM address register value
+    pub fn oam_addr(&self) -> u8 {
+        let ppu = self.ppu.borrow();
+        ppu.oam_addr
+    }
+    
+    /// Set the OAM address register value
+    pub fn set_oam_addr(&self, value: u8) {
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.oam_addr = value;
+    }
+    
+    /// Get the scroll X register value
+    pub fn scroll_x(&self) -> u8 {
+        let ppu = self.ppu.borrow();
+        ppu.scroll_x
+    }
+    
+    /// Set the scroll X register value
+    pub fn set_scroll_x(&self, value: u8) {
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.scroll_x = value;
+    }
+    
+    /// Get the scroll Y register value
+    pub fn scroll_y(&self) -> u8 {
+        let ppu = self.ppu.borrow();
+        ppu.scroll_y
+    }
+    
+    /// Set the scroll Y register value
+    pub fn set_scroll_y(&self, value: u8) {
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.scroll_y = value;
+    }
+    
+    /// Get the PPU address register value
+    pub fn ppu_addr(&self) -> u16 {
+        let ppu = self.ppu.borrow();
+        ppu.ppu_addr
+    }
+    
+    /// Set the PPU address register value
+    pub fn set_ppu_addr(&self, value: u16) {
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.ppu_addr = value;
+    }
+    
+    /// Reset the PPU
+    pub fn reset(&self) {
+        let mut ppu = self.ppu.borrow_mut();
+        ppu.reset();
     }
 }
 
@@ -246,11 +340,17 @@ impl Ppu {
                 self.scanline = 0;
                 self.frame_count += 1;
                 log::info!("New frame start (frame_count={})", self.frame_count);
+                log::info!("Frame check: MASK={:02X}, show sprites: {}, show bg: {}", 
+                           self.mask,
+                           (self.mask & MASK_SHOW_SPRITES) != 0,
+                           (self.mask & MASK_SHOW_BACKGROUND) != 0);
 
                 // Make sure we always render the frame, even if NMI isn't enabled
                 if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
                     log::info!("Calling render_frame at frame end with rendering enabled");
                     self.render_frame();
+                } else {
+                    log::info!("Not rendering frame: neither sprites nor background enabled");
                 }
             }
         }
@@ -259,10 +359,19 @@ impl Ppu {
         // force a frame render even if we haven't reached the end of a frame
         // This helps ensure frame rendering happens during debugging and testing
         // A complete NES frame should be 341 * 262 = 89,342 PPU cycles
-        if self.cycle % 30_000 == 0 && (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
-            // If rendering is enabled and we've gone 30k cycles without a render, do it now
-            log::info!("Calling render_frame from safety measure (30k cycle interval)");
-            self.render_frame();
+        if self.cycle % 30_000 == 0 {
+            log::info!("Safety check: MASK={:02X}, show sprites: {}, show bg: {}", 
+                   self.mask,
+                   (self.mask & MASK_SHOW_SPRITES) != 0,
+                   (self.mask & MASK_SHOW_BACKGROUND) != 0);
+            
+            if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
+                // If rendering is enabled and we've gone 30k cycles without a render, do it now
+                log::info!("Calling render_frame from safety measure (30k cycle interval)");
+                self.render_frame();
+            } else {
+                log::info!("Not rendering frame: neither sprites nor background enabled");
+            }
         }
     }
 
@@ -838,6 +947,10 @@ impl Ppu {
     /// Write to PPUMASK ($2001)
     fn write_mask(&mut self, value: u8) {
         self.mask = value;
+        log::info!("PPU MASK set to {:02X} (show sprites: {}, show bg: {})", 
+               value, 
+               (value & MASK_SHOW_SPRITES) != 0,
+               (value & MASK_SHOW_BACKGROUND) != 0);
     }
 
     /// Write to OAMADDR ($2003)

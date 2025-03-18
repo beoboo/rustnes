@@ -253,6 +253,12 @@ impl NesSystem {
                     return Err(e);
                 },
             }
+            
+            // Force a frame render every 10,000 steps as a diagnostic measure
+            if total_steps % 10000 == 0 {
+                info!("Periodic force frame render at step {}", total_steps);
+                self.ppu.force_render_frame();
+            }
 
             if self.state == SystemState::Finished {
                 debug!("Program execution finished after {} steps", total_steps);
