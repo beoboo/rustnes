@@ -31,7 +31,7 @@ pub enum CpuFlag {
     Negative         = 0b10000000,
 }
 
-pub trait CpuInterface: Debug {}
+pub trait CpuInterface: Addressable {}
 
 #[derive(Clone, Debug)]
 pub struct CpuWrapper {
@@ -49,15 +49,7 @@ impl CpuWrapper {
         self.cpu.borrow_mut().connect_memory(clone);
     }
 
-    pub fn read_byte(&self, addr: u16) -> Result<u8, NesError> {
-        self.cpu.borrow().read_byte(addr)
-    }
-
-    pub fn write_byte(&self, addr: u16, value: u8) -> Result<(), NesError> {
-        self.cpu.borrow_mut().write_byte(addr, value)
-    }
-
-    pub fn write_bytes(&self, addr: u16, data: &[u8]) -> Result<(), NesError> {
+    pub fn write_bytes(&mut self, addr: u16, data: &[u8]) -> Result<(), NesError> {
         for (i, &byte) in data.iter().enumerate() {
             self.write_byte(addr.wrapping_add(i as u16), byte)?;
         }
@@ -98,6 +90,20 @@ impl CpuWrapper {
 }
 
 impl CpuInterface for CpuWrapper {}
+
+impl Addressable for CpuWrapper {
+    fn handles_address(&self, _addr: u16) -> bool {
+        true
+    }
+
+    fn read_byte(&self, addr: u16) -> Result<u8, NesError> {
+        self.cpu.borrow().read_byte(addr)
+    }
+    
+    fn write_byte(&mut self, addr: u16, value: u8) -> Result<(), NesError> {
+        self.cpu.borrow_mut().write_byte(addr, value)
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct CpuRegisters {
@@ -264,6 +270,7 @@ impl Cpu {
 
     /// Execute a single CPU instruction and return the number of cycles used
     pub fn step(&mut self) -> Result<u8, NesError> {
+        log::info!("CPU step");
         // Fetch opcode
         let opcode = self.fetch()?;
 

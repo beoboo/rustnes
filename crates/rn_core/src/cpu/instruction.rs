@@ -236,7 +236,9 @@ impl Cpu {
 
     /// LDA - Load Accumulator with support for all addressing modes
     pub fn lda(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        log::info!("LDA: {:?}", addressing_mode);
         self.registers.a = self.load_register(addressing_mode)?;
+        log::info!("LDA done");
         Ok(())
     }
 

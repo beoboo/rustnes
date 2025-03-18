@@ -3,7 +3,7 @@ use std::cell::Ref;
 
 use anyhow::Result;
 use egui::{self, Color32, Ui};
-use rn_core::cpu::{Cpu, CpuWrapper, Disassembler};
+use rn_core::{cpu::{Cpu, CpuWrapper, Disassembler}, memory::Addressable};
 /// A widget for disassembling and displaying 6502 machine code
 pub struct DisasmWidget {
     /// Memory range to disassemble

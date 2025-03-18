@@ -131,11 +131,13 @@ impl NesSystem {
     pub fn step(&mut self) -> Result<u8, NesError> {
         // Return 0 cycles if the system is already in a terminal state
         if self.state == SystemState::Finished {
+            log::info!("System in Finished state, returning 0 cycles");
             return Ok(0);
         }
 
         // Return 0 cycles if the system is in Error state
         if let SystemState::Error(_) = self.state {
+            log::error!("System in Error state, returning 0 cycles");
             return Ok(0);
         }
 
@@ -255,10 +257,10 @@ impl NesSystem {
             }
             
             // Force a frame render every 10,000 steps as a diagnostic measure
-            if total_steps % 10000 == 0 {
-                info!("Periodic force frame render at step {}", total_steps);
-                self.ppu.force_render_frame();
-            }
+            // if total_steps % 10000 == 0 {
+            //     info!("Periodic force frame render at step {}", total_steps);
+            //     self.ppu.force_render_frame();
+            // }
 
             if self.state == SystemState::Finished {
                 debug!("Program execution finished after {} steps", total_steps);
@@ -271,11 +273,11 @@ impl NesSystem {
             warn!("Program reached maximum step limit of {}", max_steps);
         }
 
-        // Force a frame render before returning to ensure we show any sprites
-        // that might have been set up during execution
-        info!("Force rendering frame after program execution");
-        let ppu = self.ppu.clone();
-        ppu.force_render_frame();
+        // // Force a frame render before returning to ensure we show any sprites
+        // // that might have been set up during execution
+        // info!("Force rendering frame after program execution");
+        // let ppu = self.ppu.clone();
+        // ppu.force_render_frame();
 
         Ok(total_steps)
     }
@@ -330,7 +332,7 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
-    use crate::cpu::Assembler;
+    use crate::{cpu::Assembler, memory::Addressable};
 
     // Create a utility function to assemble code for tests
     fn assemble_code(code: &str, load_address: u16) -> Vec<u8> {
@@ -383,8 +385,7 @@ mod tests {
 
         // Complete the transfer
         for _ in 0..513 {
-            let read_fn = |addr| system.cpu.read_byte(addr);
-            let _ = system.dma.tick(read_fn);
+            let _ = system.dma.tick();
         }
         assert!(
             !system.dma.is_active(),
@@ -395,7 +396,7 @@ mod tests {
     #[test]
     fn test_component_interaction() -> Result<()> {
         // Test 1: Memory operations through CPU
-        let system = NesSystem::new();
+        let mut system = NesSystem::new();
 
         // Write a value to memory using CPU
         system.cpu.write_byte(0x0200, 0x42)?;
@@ -680,9 +681,12 @@ mod tests {
 
         // Complete the DMA transfer
         for _ in 0..513 {
-            let read_fn = |addr| system.cpu.read_byte(addr);
-            let _ = system.dma.tick(read_fn);
+            let _ = system.dma.tick();
         }
+        assert!(
+            !system.dma.is_active(),
+            "DMA should be inactive after transfer completes"
+        );
 
         // Run PPU for a few scanlines to render the sprite
         for _ in 0..100 {
@@ -745,9 +749,12 @@ mod tests {
 
         // Complete the DMA transfer
         for _ in 0..513 {
-            let read_fn = |addr| system.cpu.read_byte(addr);
-            let _ = system.dma.tick(read_fn);
+            let _ = system.dma.tick();
         }
+        assert!(
+            !system.dma.is_active(),
+            "DMA should be inactive after transfer completes"
+        );
 
         // Run PPU for a few scanlines to render the sprites
         for _ in 0..200 {

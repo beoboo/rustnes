@@ -276,7 +276,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                     
                     // Direct MASK register write button
                     if ui.button("Set MASK=0x18").clicked() {
-                        let mut system = self.system.borrow_mut();
+                        let system = self.system.borrow_mut();
                         system.ppu().write_register(0x2001, 0x18); // Enable sprites and background
                         log::info!("Direct write to MASK register: 0x18");
                         needs_refresh = true;
@@ -284,7 +284,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
 
                     // Direct CTRL register write button
                     if ui.button("Set CTRL=0x80").clicked() {
-                        let mut system = self.system.borrow_mut();
+                        let system = self.system.borrow_mut();
                         system.ppu().write_register(0x2000, 0x80); // Enable NMI
                         log::info!("Direct write to CTRL register: 0x80");
                         needs_refresh = true;
