@@ -30,6 +30,10 @@ pub struct AsmWidget {
     max_cycles: usize,
     /// Whether to run with no cycle limit
     no_cycle_limit: bool,
+    /// Whether to run continuously (in the background)
+    continuous_run: bool,
+    /// Number of cycles to run per frame in continuous mode
+    cycles_per_frame: usize,
 }
 
 impl AsmWidget {
@@ -48,6 +52,8 @@ impl AsmWidget {
             load_address_editor: HexEditText::new(),
             max_cycles: 1_000_000, // Default to 1 million cycles
             no_cycle_limit: false, // Default to using a limit
+            continuous_run: false, // Not running continuously by default
+            cycles_per_frame: 100,  // Default to 100 cycles per frame
         }
     }
 
@@ -166,30 +172,22 @@ impl AsmWidget {
             return Ok(());
         }
 
-        // Use the configured cycle limit
-        let max_steps = if self.no_cycle_limit {
-            usize::MAX // Effectively no limit
-        } else {
-            self.max_cycles
-        };
-
-        match system.run(max_steps) {
-            Ok(_) => {
-                // Success - system state is already updated
-                if let Some(err_msg) = system.error_message() {
-                    self.error_message = Some(err_msg.to_string());
-                    log::error!("Execution error: {}", err_msg);
-                }
-            },
-            Err(err) => {
-                // Error already set in NesSystem, just ensure we have it in the widget too
-                if self.error_message.is_none() {
-                    self.error_message = Some(format!("Execution error: {}", err));
-                    log::error!("Execution error: {}", err);
-                }
-            },
+        // Check if continuous mode is enabled - if so, we'll just toggle the flag
+        if self.continuous_run {
+            self.continuous_run = false;
+            return Ok(());
         }
 
+        // Start continuous running
+        self.continuous_run = true;
+        
+        // Make sure cycles_per_frame has a reasonable value
+        if self.cycles_per_frame == 0 {
+            self.cycles_per_frame = 100;
+        }
+
+        // The actual continuous running happens in the run_continuous method
+        // which is called by the main app loop
         Ok(())
     }
 
@@ -251,7 +249,13 @@ impl AsmWidget {
             match system.state() {
                 SystemState::Ready => ui.colored_label(Color32::WHITE, "Ready"),
                 SystemState::Loaded => ui.colored_label(Color32::CYAN, "Program loaded"),
-                SystemState::Running => ui.colored_label(Color32::YELLOW, "Running"),
+                SystemState::Running => {
+                    if self.continuous_run {
+                        ui.colored_label(Color32::GOLD, "Running continuously")
+                    } else {
+                        ui.colored_label(Color32::YELLOW, "Running")
+                    }
+                },
                 SystemState::Finished => ui.colored_label(Color32::GREEN, "Finished"),
                 SystemState::Error(pc) => ui.colored_label(Color32::RED, format!("Error at ${:04X}", pc)),
             };
@@ -271,7 +275,8 @@ impl AsmWidget {
 
             // Run button - enabled when system is loaded or running
             let can_run = system.state() == SystemState::Loaded || system.state() == SystemState::Running;
-            if ui.add_enabled(can_run, egui::Button::new("Run")).clicked() {
+            let run_text = if self.continuous_run { "Stop" } else { "Run" };
+            if ui.add_enabled(can_run, egui::Button::new(run_text)).clicked() {
                 self.run_program(system)?;
             }
 
@@ -286,6 +291,32 @@ impl AsmWidget {
                 .clicked()
             {
                 system.reset()?;
+                // Make sure continuous run is stopped on reset
+                self.continuous_run = false;
+            }
+
+            // Run to Next Frame button
+            if ui.add_enabled(can_run, egui::Button::new("Run to Next Frame")).clicked() {
+                // Run up to PPU frame completion
+                let current_frame = system.ppu().frame_count();
+                let target_frame = current_frame + 1;
+                
+                // Run until we reach the next frame
+                let mut max_steps = 100000; // safety limit
+                while system.ppu().frame_count() < target_frame && max_steps > 0 {
+                    if let Err(e) = system.step() {
+                        self.error_message = Some(format!("Error stepping to next frame: {}", e));
+                        break;
+                    }
+                    max_steps -= 1;
+                }
+                
+                if max_steps == 0 {
+                    self.error_message = Some("Reached maximum steps while running to next frame".to_string());
+                }
+                
+                // Force a frame render
+                system.ppu().force_render_frame();
             }
 
             Ok(())
@@ -293,7 +324,7 @@ impl AsmWidget {
 
         ui.add_space(5.0);
 
-        // Add the cycle limit controls
+        // Add the cycle limit controls in a single row
         ui.horizontal(|ui| {
             // Only show the cycle limit field if "No cycle limit" is unchecked
             if !self.no_cycle_limit {
@@ -309,6 +340,16 @@ impl AsmWidget {
 
             // "No cycle limit" checkbox
             ui.checkbox(&mut self.no_cycle_limit, "No limit");
+            
+            ui.separator();
+            
+            // Cycles per frame input
+            ui.label("Cycles/frame:");
+            ui.add(
+                egui::DragValue::new(&mut self.cycles_per_frame)
+                    .speed(10)
+                    .clamp_range(10..=10000)
+            );
         });
 
         // Display any error message
@@ -319,5 +360,49 @@ impl AsmWidget {
             ui.add_space(5.0);
             ui.colored_label(Color32::RED, err_msg);
         }
+    }
+
+    /// Run a fixed number of cycles in continuous mode
+    /// Returns true if we should continue running, false if we've stopped
+    pub fn run_continuous(&mut self, system: &mut NesSystem) -> bool {
+        if !self.continuous_run {
+            return false;
+        }
+        
+        let cycles_to_run = self.cycles_per_frame;
+        
+        // Run a fixed number of cycles
+        let mut cycles_run = 0;
+        while cycles_run < cycles_to_run {
+            match system.step() {
+                Ok(_) => {
+                    cycles_run += 1;
+                },
+                Err(e) => {
+                    self.error_message = Some(format!("Error during continuous run: {}", e));
+                    self.continuous_run = false; // Stop on error
+                    return false;
+                }
+            }
+            
+            // Check if we've hit a terminal state
+            if system.state() == SystemState::Finished {
+                self.continuous_run = false;
+                return false;
+            }
+        }
+        
+        // Force a frame render periodically
+        if cycles_run > 0 && cycles_run % 1000 == 0 {
+            system.ppu().force_render_frame();
+        }
+        
+        // Continue running
+        true
+    }
+    
+    /// Check if continuous run is enabled
+    pub fn is_continuous_run(&self) -> bool {
+        self.continuous_run
     }
 }

@@ -330,7 +330,7 @@ impl Ppu {
                 self.scanline = 0;
                 self.frame_count += 1;
                 
-                log::info!("Start of new frame {} (scanline reset to 0, mask=${:02X}, status=${:02X}, bg_enabled={}, sprites_enabled={})",
+                log::debug!("Start of new frame {} (scanline reset to 0, mask=${:02X}, status=${:02X}, bg_enabled={}, sprites_enabled={})",
                     self.frame_count,
                     self.mask,
                     self.status.get(),
@@ -339,7 +339,7 @@ impl Ppu {
                 
                 // Only render if background or sprites are enabled
                 if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
-                    log::info!("Calling render_frame at start of new frame with rendering enabled");
+                    log::debug!("Calling render_frame at start of new frame with rendering enabled");
                     self.render_frame();
                 }
             }
@@ -350,13 +350,13 @@ impl Ppu {
                 let old_status = self.status.get();
                 let new_status = old_status | STATUS_VBLANK;
                 self.status.set(new_status);
-                log::info!("VBlank start (scanline 241) - Status changed from ${:02X} to ${:02X} - VBLANK flag now SET", 
+                log::debug!("VBlank start (scanline 241) - Status changed from ${:02X} to ${:02X} - VBLANK flag now SET", 
                     old_status, new_status);
 
                 // If NMI is enabled, this would trigger an interrupt
                 // In our emulator, this is a good time to render the frame
                 if (self.ctrl & CTRL_NMI_ENABLE) != 0 {
-                    log::info!("Calling render_frame at VBlank with NMI enabled");
+                    log::debug!("Calling render_frame at VBlank with NMI enabled");
                     self.render_frame();
                 }
             }
@@ -370,18 +370,18 @@ impl Ppu {
             else if self.scanline > 261 {
                 self.scanline = 0;
                 self.frame_count += 1;
-                log::info!("New frame start (frame_count={})", self.frame_count);
-                log::info!("Frame check: MASK={:02X}, show sprites: {}, show bg: {}", 
+                log::debug!("New frame start (frame_count={})", self.frame_count);
+                log::debug!("Frame check: MASK={:02X}, show sprites: {}, show bg: {}", 
                            self.mask,
                            (self.mask & MASK_SHOW_SPRITES) != 0,
                            (self.mask & MASK_SHOW_BACKGROUND) != 0);
 
                 // Make sure we always render the frame, even if NMI isn't enabled
                 if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
-                    log::info!("Calling render_frame at frame end with rendering enabled");
+                    log::debug!("Calling render_frame at frame end with rendering enabled");
                     self.render_frame();
                 } else {
-                    log::info!("Not rendering frame: neither sprites nor background enabled");
+                    log::debug!("Not rendering frame: neither sprites nor background enabled");
                 }
             }
         }
@@ -408,7 +408,7 @@ impl Ppu {
 
     /// Render the current frame using pattern table data
     fn render_frame(&mut self) {
-        log::info!(
+        log::debug!(
             "Rendering frame at cycle={}, scanline={}, frame_count={}",
             self.cycle,
             self.scanline,
@@ -540,8 +540,8 @@ impl Ppu {
         // #[cfg(test)]
         {
             if (self.mask & MASK_SHOW_SPRITES) != 0 {
-                log::info!("Rendering sprites with PPUMASK: {:02X}", self.mask);
-                log::info!(
+                log::debug!("Rendering sprites with PPUMASK: {:02X}", self.mask);
+                log::debug!(
                     "First OAM entry: Y={}, tile={}, attr={}, X={}",
                     self.oam[0],
                     self.oam[1],
@@ -555,54 +555,31 @@ impl Ppu {
         for scanline in 0..240 {
             self.render_sprites_for_scanline(scanline);
         }
-
-        // Verify sprite rendering after processing
-        // #[cfg(test)]
-        {
-            if (self.mask & MASK_SHOW_SPRITES) != 0 {
-                let y_pos = self.oam[0] as usize;
-                let x_pos = self.oam[3] as usize;
-
-                if y_pos < 240 && x_pos < 256 {
-                    let pixel_idx = (y_pos * 256 + x_pos) * 3;
-                    if pixel_idx < self.frame_buffer.len() - 2 {
-                        println!(
-                            "Pixel at ({}, {}) after sprite rendering: ({}, {}, {})",
-                            x_pos,
-                            y_pos,
-                            self.frame_buffer[pixel_idx],
-                            self.frame_buffer[pixel_idx + 1],
-                            self.frame_buffer[pixel_idx + 2]
-                        );
-                    }
-                }
-            }
-        }
     }
 
     /// Render sprites for a specific scanline
     fn render_sprites_for_scanline(&mut self, scanline: usize) {
         // Check if sprite rendering is enabled
         if (self.mask & MASK_SHOW_SPRITES) == 0 {
-            log::info!("Sprite rendering disabled (mask = ${:02X})", self.mask);
+            log::debug!("Sprite rendering disabled (mask = ${:02X})", self.mask);
             return;
         }
 
         // Get all sprite data for this scanline
         let sprites = self.evaluate_sprites_for_scanline(scanline);
-        log::info!("Found {} sprites for scanline {}", sprites.len(), scanline);
+        log::debug!("Found {} sprites for scanline {}", sprites.len(), scanline);
 
         for sprite in sprites {
             // Skip if sprite transparent or invisible
             if sprite.tile_data.iter().all(|&x| x == 0) {
-                log::info!("Skipping empty sprite at scanline {}", scanline);
+                log::debug!("Skipping empty sprite at scanline {}", scanline);
                 continue;
             }
 
             // Calculate the index in the screen buffer
             let x_screen = sprite.x_position as usize;
 
-            log::info!(
+            log::debug!(
                 "Processing sprite at ({},{}), tile_idx={}, attr={:02X}",
                 x_screen,
                 scanline,
@@ -642,7 +619,7 @@ impl Ppu {
                 // If sprite is behind background (bit 5 set) and the background pixel is non-zero,
                 // then don't render the sprite pixel
                 if behind_background && bg_pixel != 0 {
-                    log::info!(
+                    log::debug!(
                         "Skipping sprite pixel at ({},{}) due to priority (behind background)",
                         x,
                         scanline
@@ -656,7 +633,7 @@ impl Ppu {
 
                 // Get the color from the sprite palette
                 let color_index = self.read_palette(palette_addr);
-                log::info!(
+                log::debug!(
                     "Sprite pixel at ({},{}) has value {} -> color_index {} (palette {})",
                     x,
                     scanline,
@@ -678,7 +655,7 @@ impl Ppu {
                     self.frame_buffer[buffer_index + 1] = rgb[1];
                     self.frame_buffer[buffer_index + 2] = rgb[2];
 
-                    log::info!(
+                    log::debug!(
                         "Wrote sprite pixel at ({},{}) with RGB ({},{},{})",
                         x,
                         scanline,
@@ -920,7 +897,7 @@ impl Ppu {
             _ => {
                 // Most PPU registers are write-only
                 // Reading from write-only registers returns the internal read buffer
-                log::info!("Read from write-only register ${:04X}, returning read buffer: ${:02X}", address, self.read_buffer.get());
+                log::debug!("Read from write-only register ${:04X}, returning read buffer: ${:02X}", address, self.read_buffer.get());
                 self.read_buffer.get()
             },
         }
@@ -928,7 +905,7 @@ impl Ppu {
 
     /// Write to a PPU register (mapped at $2000-$2007)
     pub fn write_register(&mut self, address: u16, value: u8) {
-        log::info!("PPU write_register: ${:04X} = ${:02X}", address, value);
+        log::debug!("PPU write_register: ${:04X} = ${:02X}", address, value);
         match address & 0x7 {
             0x0 => self.write_control(value),
             0x1 => self.write_mask(value),
@@ -989,7 +966,7 @@ impl Ppu {
 
     /// Write to PPUCTRL ($2000)
     fn write_control(&mut self, value: u8) {
-        log::info!("PPU write_control: ${:02X}", value);
+        log::debug!("PPU write_control: ${:02X}", value);
         self.ctrl = value;
     }
 
@@ -999,7 +976,7 @@ impl Ppu {
         self.mask = value;
         
         // Log detailed mask state changes for debugging
-        log::info!(
+        log::debug!(
             "PPU write_mask: ${:02X} -> ${:02X} (sprites: {} -> {}, bg: {} -> {})", 
             old_mask, 
             value,
@@ -1011,11 +988,11 @@ impl Ppu {
         
         // Important flag changes
         if (old_mask & MASK_SHOW_SPRITES) != (value & MASK_SHOW_SPRITES) {
-            log::info!("SPRITES {}", if (value & MASK_SHOW_SPRITES) != 0 { "ENABLED" } else { "DISABLED" });
+            log::debug!("SPRITES {}", if (value & MASK_SHOW_SPRITES) != 0 { "ENABLED" } else { "DISABLED" });
         }
         
         if (old_mask & MASK_SHOW_BACKGROUND) != (value & MASK_SHOW_BACKGROUND) {
-            log::info!("BACKGROUND {}", if (value & MASK_SHOW_BACKGROUND) != 0 { "ENABLED" } else { "DISABLED" });
+            log::debug!("BACKGROUND {}", if (value & MASK_SHOW_BACKGROUND) != 0 { "ENABLED" } else { "DISABLED" });
         }
     }
 

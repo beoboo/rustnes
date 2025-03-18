@@ -471,8 +471,19 @@ impl App for NesDebugger {
             self.disasm_widget.set_program_info(0x8000, 0);
         }
 
+        // Run cycles if continuous mode is enabled in the AsmWidget
+        if self.asm_widget.is_continuous_run() {
+            let mut system = self.system.borrow_mut();
+            
+            // Run a batch of cycles via the AsmWidget
+            if self.asm_widget.run_continuous(&mut system) {
+                // If still running, request a redraw for the next frame
+                ctx.request_repaint();
+            }
+        }
+
         // Top menu bar for show/hide controls
-        egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
+        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open...").clicked() {
@@ -487,46 +498,12 @@ impl App for NesDebugger {
                         ui.close_menu();
                     }
 
-                    // Add more file operations here as needed
+                    if ui.button("Exit").clicked() {
+                        std::process::exit(0);
+                    }
                 });
 
                 ui.menu_button("System", |ui| {
-                    if ui.button("Reset").clicked() {
-                        debug!("Resetting system");
-                        let mut system_borrow = self.system.borrow_mut();
-                        if let Err(err) = system_borrow.reset() {
-                            error!("Failed to reset system: {}", err);
-                        } else {
-                            info!("System reset successfully");
-                        }
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Step").clicked() {
-                        debug!("Stepping system once");
-                        let mut system_borrow = self.system.borrow_mut();
-                        if let Err(err) = system_borrow.step() {
-                            error!("Step failed: {}", err);
-                        }
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Run Program").clicked() {
-                        info!("Starting program execution");
-                        let mut system_borrow = self.system.borrow_mut();
-                        match system_borrow.run(1000000) {
-                            // 1M instruction limit
-                            Ok(steps) => {
-                                info!("Program execution completed after {} steps", steps);
-                            },
-                            Err(err) => {
-                                error!("Program execution failed: {}", err);
-                            },
-                        }
-                        ui.close_menu();
-                    }
-
-                    ui.separator();
 
                     if ui.button("Write Test Pattern").clicked() {
                         info!("Writing test pattern to PPU frame buffer");

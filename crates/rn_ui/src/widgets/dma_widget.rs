@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use egui::{Grid, Ui};
 use rn_core::system::{dma::DmaControllerWrapper, DmaController};
 
