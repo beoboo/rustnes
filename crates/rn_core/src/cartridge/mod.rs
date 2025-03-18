@@ -9,7 +9,7 @@ pub use pattern_table::PatternTable;
 /// Basic NES cartridge implementation
 ///
 /// Handles loading and access to PRG ROM (program data) and CHR ROM (graphics data)
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Cartridge {
     /// Pattern table containing CHR ROM data
     pattern_table: PatternTable,

@@ -33,6 +33,7 @@ struct Args {
 }
 
 /// Adapter to use CPU's memory with the memory editor
+#[derive(Debug)]
 struct CpuMemoryAdapter {
     cpu: CpuWrapper,
 }
@@ -254,6 +255,43 @@ impl<'a> TabViewer for NesTabViewer<'a> {
             },
             DockTab::Ppu => {
                 // PPU Tab content
+                
+                // Debug controls in a horizontal layout
+                let mut needs_refresh = false;
+                
+                ui.horizontal(|ui| {
+                    // Run button
+                    if ui.button("Run 1000 cycles").clicked() {
+                        let mut system = self.system.borrow_mut();
+                        match system.run(1000) {
+                            Ok(steps) => {
+                                ui.label(format!("Ran for {} steps", steps));
+                            },
+                            Err(e) => {
+                                ui.label(format!("Error: {}", e));
+                            }
+                        }
+                        needs_refresh = true;
+                    }
+                    
+                    // Direct MASK register write button
+                    if ui.button("Set MASK=0x18").clicked() {
+                        let mut system = self.system.borrow_mut();
+                        system.ppu().write_register(0x2001, 0x18); // Enable sprites and background
+                        log::info!("Direct write to MASK register: 0x18");
+                        needs_refresh = true;
+                    }
+
+                    // Direct CTRL register write button
+                    if ui.button("Set CTRL=0x80").clicked() {
+                        let mut system = self.system.borrow_mut();
+                        system.ppu().write_register(0x2000, 0x80); // Enable NMI
+                        log::info!("Direct write to CTRL register: 0x80");
+                        needs_refresh = true;
+                    }
+                });
+                
+                // After all potential modifications, render the widget once
                 let system = self.system.borrow_mut();
                 self.ppu_widget.ui(ui, system.ppu());
             },

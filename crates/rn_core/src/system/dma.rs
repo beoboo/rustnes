@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{cpu::CpuInterface, errors::NesError, memory::Addressable, ppu::PpuInterface};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DmaControllerWrapper<C: CpuInterface, P: PpuInterface> {
     dma: Rc<RefCell<DmaController<C, P>>>,
 }
@@ -48,6 +48,7 @@ impl<C: CpuInterface, P: PpuInterface> Addressable for DmaControllerWrapper<C, P
 ///
 /// In the NES, writing to address $4014 triggers a DMA transfer of 256 bytes
 /// from CPU memory to PPU OAM. The CPU is suspended during this transfer.
+#[derive(Clone, Debug)]
 pub struct DmaController<C: CpuInterface, P: PpuInterface> {
     /// Source high byte for DMA transfer (written to $4014)
     source_high_byte: u8,
@@ -230,9 +231,11 @@ impl<C: CpuInterface, P: PpuInterface> Default for DmaController<C, P> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[derive(Clone, Debug)]
     struct MockCpu;
     impl CpuInterface for MockCpu {}
 
+    #[derive(Clone, Debug)]
     struct MockPpu;
     impl PpuInterface for MockPpu {}
 

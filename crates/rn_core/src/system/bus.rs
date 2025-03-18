@@ -7,6 +7,7 @@ use crate::{
 ///
 /// The Bus acts as a mediator between the CPU and addressable components.
 /// It routes read/write operations to the appropriate component based on the address.
+#[derive(Debug)]
 pub struct Bus {
     /// Components attached to the bus in priority order
     /// First component that handles an address will process the request
@@ -112,6 +113,10 @@ impl Addressable for Bus {
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         // Find the component that handles this address
         if let Some(component) = self.find_component_for_address(address) {
+            if address == 0x2002 {
+                let byte = component.read_byte(address)?;
+                log::info!("byte: {:?}", byte);
+            }
             return component.read_byte(address);
         }
 
@@ -137,6 +142,7 @@ mod tests {
     use super::*;
 
     // A universal test component that records accesses and can be configured for any address range
+    #[derive(Debug)]
     struct TestComponent {
         start_address: u16,
         end_address: u16,

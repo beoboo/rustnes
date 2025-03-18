@@ -1,6 +1,7 @@
 mod ram;
 pub use ram::Ram;
 
+use std::fmt::Debug;
 use crate::errors::NesError;
 
 /// Trait for components that can be accessed via memory addresses
@@ -8,7 +9,7 @@ use crate::errors::NesError;
 /// This trait defines how components can be accessed via memory addresses.
 /// It provides methods for reading and writing to memory, as well as
 /// a method for resetting the component.
-pub trait Addressable {
+pub trait Addressable: Debug {
     /// Returns true if this component handles the specified address
     ///
     /// This is used by the memory bus to determine which component

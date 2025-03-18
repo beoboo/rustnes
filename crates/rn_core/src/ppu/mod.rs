@@ -1,4 +1,5 @@
 use std::{cell::RefCell, rc::Rc};
+use std::fmt::Debug;
 
 use crate::{cartridge::Cartridge, errors::NesError, memory::Addressable};
 
@@ -27,9 +28,9 @@ pub const STATUS_SPRITE_OVERFLOW: u8 = 0x20; // Sprite overflow occurred
 pub const STATUS_SPRITE_ZERO_HIT: u8 = 0x40; // Sprite 0 hit occurred
 pub const STATUS_VBLANK: u8 = 0x80; // In vblank
 
-pub trait PpuInterface {}
+pub trait PpuInterface: Debug {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PpuWrapper {
     ppu: Rc<RefCell<Ppu>>,
 }
@@ -42,6 +43,7 @@ impl PpuWrapper {
     }
 
     pub fn write_register(&self, address: u16, value: u8) {
+        log::info!("PpuWrapper write_register: ${:04X} = ${:02X}", address, value);
         let mut ppu = self.ppu.borrow_mut();
         ppu.write_register(address, value);
     }
@@ -223,6 +225,7 @@ impl PpuInterface for PpuWrapper {}
 /// The Picture Processing Unit (PPU) for the NES
 ///
 /// This handles all graphics rendering for the NES system.
+#[derive(Debug)]
 pub struct Ppu {
     // Memory components
     vram: [u8; 2048],  // 2KB of VRAM for nametables
@@ -887,6 +890,7 @@ impl Ppu {
 
     /// Write to a PPU register (mapped at $2000-$2007)
     pub fn write_register(&mut self, address: u16, value: u8) {
+        log::info!("PPU write_register: ${:04X} = ${:02X}", address, value);
         match address & 0x7 {
             0x0 => self.write_control(value),
             0x1 => self.write_mask(value),
@@ -895,7 +899,7 @@ impl Ppu {
             0x5 => self.write_scroll(value),
             0x6 => self.write_address(value),
             0x7 => self.write_data(value),
-            _ => {}, // Writes to PPUSTATUS ($2002) are ignored
+            _ => {}
         }
     }
 
@@ -939,18 +943,17 @@ impl Ppu {
 
     /// Write to PPUCTRL ($2000)
     fn write_control(&mut self, value: u8) {
+        log::info!("PPU write_control: ${:02X}", value);
         self.ctrl = value;
-
-        // TODO: Update internal nametable select bits from ctrl
     }
 
     /// Write to PPUMASK ($2001)
     fn write_mask(&mut self, value: u8) {
-        self.mask = value;
-        log::info!("PPU MASK set to {:02X} (show sprites: {}, show bg: {})", 
+        log::info!("PPU write_mask: ${:02X} (show sprites: {}, show bg: {})", 
                value, 
                (value & MASK_SHOW_SPRITES) != 0,
                (value & MASK_SHOW_BACKGROUND) != 0);
+        self.mask = value;
     }
 
     /// Write to OAMADDR ($2003)
@@ -1037,7 +1040,18 @@ impl Ppu {
 
     /// Write to PPU address space
     pub fn write_ppu_memory(&mut self, address: u16, value: u8) {
-        // Handle palette memory separately
+        log::info!("PPU write_ppu_memory: ${:04X} = ${:02X}", address, value);
+        
+        // Handle PPU registers ($2000-$2007, mirrored throughout $2000-$3FFF)
+        if address >= 0x2000 && address < 0x4000 {
+            if address < 0x3F00 {  // Exclude palette memory which is also in this range
+                log::info!("Forwarding write to PPU register: ${:04X} = ${:02X}", address, value);
+                self.write_register(address, value);
+                return;
+            }
+        }
+        
+        // Handle palette memory separately 
         if address >= 0x3F00 && address < 0x4000 {
             self.write_palette(address, value);
             return;
@@ -1320,62 +1334,6 @@ impl Addressable for Ppu {
         self.oam = [0; 256];
         self.frame_buffer = vec![0; 256 * 240 * 3];
         self.background_pixels = vec![0; 256 * 240];
-    }
-}
-
-// Define register bit constants
-pub mod registers {
-    use std::{cell::RefCell, rc::Rc};
-
-    use crate::{errors::NesError, memory::Addressable, ppu::Ppu};
-
-    /// Adapter to connect PPU registers to the memory bus
-    ///
-    /// This component handles memory-mapped I/O for the PPU registers
-    /// at addresses $2000-$2007.
-    pub struct PpuRegisters2 {
-        /// Reference to the PPU
-        ppu: Rc<RefCell<Ppu>>,
-    }
-
-    impl PpuRegisters2 {
-        /// Create a new PPU registers adapter
-        pub fn new(ppu: Rc<RefCell<Ppu>>) -> Self {
-            Self { ppu }
-        }
-    }
-
-    impl Addressable for PpuRegisters2 {
-        /// Check if the address is in the PPU register range ($2000-$2007)
-        fn handles_address(&self, address: u16) -> bool {
-            address >= 0x2000 && address <= 0x2007
-        }
-
-        /// Read from a PPU register
-        ///
-        /// This forwards the read operation to the PPU's read_register method.
-        /// Note that reading from some PPU registers may have side effects.
-        fn read_byte(&self, address: u16) -> Result<u8, NesError> {
-            let value = self.ppu.borrow_mut().read_register(address);
-            Ok(value)
-        }
-
-        /// Write to a PPU register
-        ///
-        /// This forwards the write operation to the PPU's write_register method.
-        /// Note that writing to some PPU registers may have side effects.
-        fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
-            self.ppu.borrow_mut().write_register(address, value);
-            Ok(())
-        }
-
-        /// Reset the PPU registers
-        ///
-        /// This is called when the system is reset. It forwards the reset
-        /// operation to the PPU.
-        fn reset(&mut self) {
-            self.ppu.borrow_mut().reset();
-        }
     }
 }
 

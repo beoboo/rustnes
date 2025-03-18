@@ -302,7 +302,7 @@ impl AsmWidget {
                 ui.add(
                     egui::DragValue::new(&mut self.max_cycles)
                         .speed(10_000)
-                        .range(1_000..=100_000_000),
+                        .range(1..=100_000_000),
                 );
                 ui.label("cycles");
             }

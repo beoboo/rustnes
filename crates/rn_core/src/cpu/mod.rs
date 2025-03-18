@@ -1,5 +1,6 @@
 use std::{
     cell::{Ref, RefCell, RefMut},
+    fmt::Debug,
     rc::Rc,
 };
 
@@ -30,9 +31,9 @@ pub enum CpuFlag {
     Negative         = 0b10000000,
 }
 
-pub trait CpuInterface {}
+pub trait CpuInterface: Debug {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CpuWrapper {
     cpu: Rc<RefCell<Cpu>>,
 }
@@ -122,6 +123,7 @@ impl Default for CpuRegisters {
 }
 
 /// MOS 6502 CPU implementation
+#[derive(Debug)]
 pub struct Cpu {
     // Registers
     pub registers: CpuRegisters,

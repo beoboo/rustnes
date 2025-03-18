@@ -60,6 +60,7 @@ pub struct InstructionMetadata {
 }
 
 /// Instruction decoder for the 6502 CPU
+#[derive(Debug)]
 pub struct InstructionDecoder {
     /// Lookup table for CPU instructions by opcode
     instruction_table: [Option<InstructionMetadata>; 256],
@@ -353,6 +354,7 @@ impl Cpu {
         // Get the value from the memory address
         let addr = addressing_mode.get_operand_address(self)?;
         let value = self.read_byte(addr)?;
+        log::info!("BIT: addr={}, value={}", addr, value);
 
         // Perform AND with accumulator but don't store the result
         let result = self.registers.a & value;
