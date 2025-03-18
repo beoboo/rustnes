@@ -76,8 +76,9 @@ impl AsmWidget {
                 // Get the cartridge and load the CHR ROM data
                 if let Err(err) = system.load_chr_rom(&chr_data) {
                     self.error_message = Some(format!("Error loading CHR ROM: {}", err));
+                    log::error!("Error loading CHR ROM: {}", err);
                 } else {
-                    println!("Loaded CHR ROM data: {} bytes", chr_data.len());
+                    log::info!("Loaded CHR ROM data: {} bytes", chr_data.len());
                 }
             }
         }
@@ -97,6 +98,7 @@ impl AsmWidget {
             // Error already set in NesSystem, just ensure we have it in the widget too
             if self.error_message.is_none() {
                 self.error_message = Some(format!("Execution error: {}", err));
+                log::error!("Execution error: {}", err);
             }
         }
 
@@ -126,7 +128,7 @@ impl AsmWidget {
 
                 // Immediately reset and load the program
                 self.reset_and_load(system)?;
-                println!(
+                log::info!(
                     "Program assembled and loaded at ${:04X}, {} bytes",
                     self.assembler.load_address,
                     self.assembled_bytes.len()
@@ -134,6 +136,7 @@ impl AsmWidget {
             },
             Err(err) => {
                 self.error_message = Some(format!("Assembly error: {}", err));
+                log::error!("Assembly error: {}", err);
                 self.assembled = false;
             },
         }
@@ -175,12 +178,14 @@ impl AsmWidget {
                 // Success - system state is already updated
                 if let Some(err_msg) = system.error_message() {
                     self.error_message = Some(err_msg.to_string());
+                    log::error!("Execution error: {}", err_msg);
                 }
             },
             Err(err) => {
                 // Error already set in NesSystem, just ensure we have it in the widget too
                 if self.error_message.is_none() {
                     self.error_message = Some(format!("Execution error: {}", err));
+                    log::error!("Execution error: {}", err);
                 }
             },
         }

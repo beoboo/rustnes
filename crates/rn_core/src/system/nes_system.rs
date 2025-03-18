@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, trace};
 
 use super::{dma::DmaControllerWrapper, DmaController};
 use crate::{
@@ -127,51 +127,45 @@ impl NesSystem {
         Ok(())
     }
 
-    /// Step the system by one CPU instruction
-    ///
-    /// Returns the number of CPU cycles used
+    /// Run a single step of the CPU
     pub fn step(&mut self) -> Result<u8, NesError> {
-        if self.state == SystemState::Finished || matches!(self.state, SystemState::Error(_)) {
-            debug!("Skipping step in terminal state: {:?}", self.state);
-            return Ok(0); // Don't step if already finished or in error state
+        if self.state == SystemState::Error(self.cpu.pc()) {
+            return Err(NesError::GenericError("Program halted due to previous error".to_string()));
         }
 
-        // Set state to running
-        let old_state = self.state;
-        self.state = SystemState::Running;
-        if old_state != self.state {
+        // Update system state to Running if ready or loaded
+        if self.state == SystemState::Ready || self.state == SystemState::Loaded {
+            let old_state = self.state;
+            self.state = SystemState::Running;
             debug!("System state transition: {:?} -> {:?}", old_state, self.state);
         }
 
-        // Check if DMA is active
-        let dma_active = self.dma.is_active();
-
-        // We'll use this variable to track if we hit an error
+        // Increment step counter for tracking execution
+        // First check if we need to handle DMA
+        let mut cpu_cycles = 0;
+        let mut dma_active = false;
         let mut had_error = false;
 
-        let cpu_cycles = if dma_active {
-            // DMA is active, process a DMA cycle
-            // Create a memory read function to pass to DMA
-            let memory_read_fn = |addr| self.cpu.read_byte(addr);
+        // Log the PPU state before running cycles
+        if log::log_enabled!(log::Level::Debug) {
+            // Get reference to the inner PPU to check its state
+            debug!("Running step with PPU state logging enabled");
+        }
 
-            // Tick the DMA and check if it produced data to write to OAM
-            if let Some((value, oam_index)) = self.dma.tick(memory_read_fn) {
-                // Write the value to PPU OAM via the PPU registers
-                // Set OAM address register ($2003) first, then write the data
-                self.ppu.write_register(0x2003, oam_index);
-                self.ppu.write_register(0x2004, value);
-            }
-
-            // DMA cycle counts as 1 CPU cycle
-            1
+        if self.dma.is_active() {
+            // DMA is active, don't run the CPU this tick
+            dma_active = true;
+            cpu_cycles = 1; // Use a default of 1 cycle for DMA
+            debug!("DMA active: {} cycles", cpu_cycles);
         } else {
-            // Normal CPU operation - Get the PC first for error reporting
-            let pc = self.cpu.pc();
-
-            // Call the CPU step and handle errors
-            match self.cpu.step() {
+            // Either Completed or Inactive, run the CPU
+            dma_active = false;
+            cpu_cycles = match self.cpu.step() {
                 Ok(cycles) => cycles,
                 Err(err) => {
+                    // Get PC before the error for better error reporting
+                    let pc = self.cpu.pc();
+
                     // Update the system state to Error on CPU step failure
                     let old_state = self.state;
                     self.state = SystemState::Error(pc);
@@ -197,6 +191,9 @@ impl NesSystem {
             return Err(NesError::MemoryAccessError(self.cpu.pc()));
         }
 
+        // Log PPU operation
+        debug!("Running PPU for {} cycles ({}×3)", cpu_cycles * 3, cpu_cycles);
+        
         // Run the PPU at 3x the CPU speed
         for _ in 0..cpu_cycles * 3 {
             self.ppu.tick();
@@ -238,51 +235,42 @@ impl NesSystem {
 
     /// Run the system until completion or error
     ///
-    /// Takes a maximum number of steps to prevent infinite loops
+    /// Returns the number of cycles executed
     pub fn run(&mut self, max_steps: usize) -> Result<usize, NesError> {
-        if self.state != SystemState::Loaded && self.state != SystemState::Running {
-            debug!("Skipping run in state: {:?}", self.state);
-            return Ok(0); // Don't run if not loaded or already finished
-        }
+        info!("Running program from ${:04X}", self.cpu.pc());
 
-        let mut steps = 0;
-        info!("Running program from ${:04X}", self.current_pc());
+        let mut total_steps = 0;
 
-        while steps < max_steps {
+        while total_steps < max_steps {
             match self.step() {
-                Ok(0) => break, // Got 0 cycles, means we're finished
-                Ok(_) => steps += 1,
-                Err(err) => {
-                    error!("Error at step {}: {}", steps, err);
-                    return Err(err);
+                Ok(cycles) => {
+                    total_steps += 1;
                 },
+                Err(e) => {
+                    // We ran into an error, halt execution and return the error
+                    error!("Execution error: {}", e);
+                    return Err(e);
+                }
             }
 
-            // Check if we've reached the finished state
-            if self.state == SystemState::Finished || matches!(self.state, SystemState::Error(_)) {
+            if self.state == SystemState::Finished {
+                debug!("Program execution finished after {} steps", total_steps);
                 break;
             }
         }
 
-        let pc = self.cpu.pc();
-        if steps >= max_steps {
+        // If we reached the step limit, log it
+        if total_steps >= max_steps {
             warn!("Program reached maximum step limit of {}", max_steps);
-            self.error_message = Some(format!("Program reached maximum step limit of {}", max_steps));
-            let old_state = self.state;
-            self.state = SystemState::Error(pc);
-            debug!(
-                "System state transition: {:?} -> Error({:04X}) - step limit reached",
-                old_state, pc
-            );
-        } else if self.state == SystemState::Running {
-            // If we broke out of the loop without error or finishing, consider it finished
-            let old_state = self.state;
-            self.state = SystemState::Finished;
-            debug!("System state transition: {:?} -> {:?}", old_state, self.state);
-            info!("Program terminated after {} steps at ${:04X}", steps, pc);
         }
 
-        Ok(steps)
+        // Force a frame render before returning to ensure we show any sprites
+        // that might have been set up during execution
+        info!("Force rendering frame after program execution");
+        let ppu = self.ppu.clone();
+        ppu.force_render_frame();
+        
+        Ok(total_steps)
     }
 
     /// Get the current system state

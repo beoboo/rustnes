@@ -2,9 +2,12 @@
 ///
 /// This module contains components that aren't specific to any one subsystem
 /// but instead coordinate between multiple systems.
-mod bus;
-mod dma;
-mod nes_system;
+pub mod bus;
+pub mod dma;
+pub mod nes_system;
+
+#[cfg(test)]
+mod tests;
 
 pub use bus::Bus;
 pub use dma::DmaController;
