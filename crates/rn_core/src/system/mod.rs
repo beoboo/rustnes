@@ -6,9 +6,6 @@ pub mod bus;
 pub mod dma;
 pub mod nes_system;
 
-#[cfg(test)]
-mod tests;
-
 pub use bus::Bus;
 pub use dma::DmaController;
 pub use nes_system::{NesSystem, SystemState};

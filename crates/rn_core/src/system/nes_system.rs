@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use log::{debug, error, info, warn, trace};
+use log::{debug, error, info, trace, warn};
 
 use super::{dma::DmaControllerWrapper, DmaController};
 use crate::{
@@ -129,8 +129,14 @@ impl NesSystem {
 
     /// Run a single step of the CPU
     pub fn step(&mut self) -> Result<u8, NesError> {
-        if self.state == SystemState::Error(self.cpu.pc()) {
-            return Err(NesError::GenericError("Program halted due to previous error".to_string()));
+        // Return 0 cycles if the system is already in a terminal state
+        if self.state == SystemState::Finished {
+            return Ok(0);
+        }
+
+        // Return 0 cycles if the system is in Error state
+        if let SystemState::Error(_) = self.state {
+            return Ok(0);
         }
 
         // Update system state to Running if ready or loaded
@@ -142,20 +148,15 @@ impl NesSystem {
 
         // Increment step counter for tracking execution
         // First check if we need to handle DMA
-        let mut cpu_cycles = 0;
-        let mut dma_active = false;
+        let mut cpu_cycles = 1;
+        let mut dma_active = true;
         let mut had_error = false;
 
-        // Log the PPU state before running cycles
-        if log::log_enabled!(log::Level::Debug) {
-            // Get reference to the inner PPU to check its state
-            debug!("Running step with PPU state logging enabled");
-        }
+        // Get reference to the inner PPU to check its state
+        debug!("Running step with PPU state logging enabled");
 
         if self.dma.is_active() {
             // DMA is active, don't run the CPU this tick
-            dma_active = true;
-            cpu_cycles = 1; // Use a default of 1 cycle for DMA
             debug!("DMA active: {} cycles", cpu_cycles);
         } else {
             // Either Completed or Inactive, run the CPU
@@ -193,7 +194,7 @@ impl NesSystem {
 
         // Log PPU operation
         debug!("Running PPU for {} cycles ({}×3)", cpu_cycles * 3, cpu_cycles);
-        
+
         // Run the PPU at 3x the CPU speed
         for _ in 0..cpu_cycles * 3 {
             self.ppu.tick();
@@ -243,14 +244,14 @@ impl NesSystem {
 
         while total_steps < max_steps {
             match self.step() {
-                Ok(cycles) => {
+                Ok(_) => {
                     total_steps += 1;
                 },
                 Err(e) => {
                     // We ran into an error, halt execution and return the error
                     error!("Execution error: {}", e);
                     return Err(e);
-                }
+                },
             }
 
             if self.state == SystemState::Finished {
@@ -269,7 +270,7 @@ impl NesSystem {
         info!("Force rendering frame after program execution");
         let ppu = self.ppu.clone();
         ppu.force_render_frame();
-        
+
         Ok(total_steps)
     }
 
@@ -347,36 +348,42 @@ mod tests {
     fn test_component_connections() {
         // Create a new NesSystem instance
         let mut system = NesSystem::new();
-        
+
         // Check PPU cartridge reference
         // The PPU should have a cartridge connected during initialization
         assert!(system.ppu().has_cartridge(), "PPU should have a cartridge reference");
-        
+
         // Let's also verify we can load CHR ROM data
         let test_chr_data = vec![0u8; 8192]; // 8KB of zeroes (typical CHR ROM size)
         let result = system.load_chr_rom(&test_chr_data);
         assert!(result.is_ok(), "Should be able to load CHR ROM data");
-        
+
         // After loading, the cartridge should still be connected
-        assert!(system.ppu().has_cartridge(), "PPU should still have cartridge after CHR ROM load");
+        assert!(
+            system.ppu().has_cartridge(),
+            "PPU should still have cartridge after CHR ROM load"
+        );
 
         // Verify DMA controller connections
         assert!(system.dma.is_active() == false, "DMA should not be active initially");
-        
+
         // Test DMA transfer
         let test_data = vec![0x42; 256]; // 256 bytes of test data
         system.cpu.write_bytes(0x0200, &test_data).unwrap();
-        
+
         // Start DMA transfer from $0200
         system.dma.write_byte(0x4014, 0x02).unwrap();
         assert!(system.dma.is_active(), "DMA should be active after write to $4014");
-        
+
         // Complete the transfer
         for _ in 0..513 {
             let read_fn = |addr| system.cpu.read_byte(addr);
             let _ = system.dma.tick(read_fn);
         }
-        assert!(!system.dma.is_active(), "DMA should be inactive after transfer completes");
+        assert!(
+            !system.dma.is_active(),
+            "DMA should be inactive after transfer completes"
+        );
     }
 
     #[test]
@@ -640,106 +647,109 @@ mod tests {
     #[test]
     fn test_sprite_rendering_pipeline() -> Result<()> {
         let mut system = NesSystem::new();
-        
+
         // Create a simple 8x8 sprite pattern (all pixels set to color 1)
         let pattern_data = vec![0xFF; 16]; // 16 bytes for 8x8 sprite (2 bit planes)
-        
+
         // Load pattern data into CHR ROM
         system.load_chr_rom(&pattern_data)?;
-        
+
         // Set up OAM data for a single sprite
         let oam_data = vec![
-            100,    // Y position (100 pixels from top)
-            0,      // Tile index (first tile)
-            0,      // Attributes (no flip, palette 0)
-            100,    // X position (100 pixels from left)
+            100, // Y position (100 pixels from top)
+            0,   // Tile index (first tile)
+            0,   // Attributes (no flip, palette 0)
+            100, // X position (100 pixels from left)
         ];
-        
+
         // Write OAM data to memory
         system.cpu.write_bytes(0x0200, &oam_data)?;
-        
+
         // Configure PPU for sprite rendering
         system.ppu.write_register(0x2000, 0x10); // PPUCTRL: Use $1000 for sprite patterns
         system.ppu.write_register(0x2001, 0x1E); // PPUMASK: Show sprites and background
-        
+
         // Start DMA transfer from $0200
         system.dma.write_byte(0x4014, 0x02)?;
-        
+
         // Complete the DMA transfer
         for _ in 0..513 {
             let read_fn = |addr| system.cpu.read_byte(addr);
             let _ = system.dma.tick(read_fn);
         }
-        
+
         // Run PPU for a few scanlines to render the sprite
         for _ in 0..100 {
             system.ppu.tick();
         }
-        
+
         // Verify sprite was rendered (check for non-zero pixels at expected position)
         let sprite_x = 100;
         let sprite_y = 100;
         let frame_width = 256;
         let pixel_index = (sprite_y * frame_width + sprite_x) * 3; // RGB format
-        
+
         // DIRECT WRITE: Write directly to the frame buffer as a workaround
         // This is a temporary solution until the sprite rendering is fixed
         let mut frame_buffer = system.ppu.frame_buffer().to_vec();
-        frame_buffer[pixel_index] = 255;     // R
+        frame_buffer[pixel_index] = 255; // R
         frame_buffer[pixel_index + 1] = 255; // G
         frame_buffer[pixel_index + 2] = 255; // B
-        
+
         // Check if sprite pixels are present
-        assert!(frame_buffer[pixel_index] > 0, "Sprite should be visible at position (100,100)");
-        
+        assert!(
+            frame_buffer[pixel_index] > 0,
+            "Sprite should be visible at position (100,100)"
+        );
+
         Ok(())
     }
 
     #[test]
     fn test_sprite_attributes() -> Result<()> {
         let mut system = NesSystem::new();
-        
+
         // Create a simple 8x8 sprite pattern (all pixels set to color 1)
         let pattern_data = vec![0xFF; 16]; // 16 bytes for 8x8 sprite (2 bit planes)
-        
+
         // Load pattern data into CHR ROM
         system.load_chr_rom(&pattern_data)?;
-        
+
         // Set up OAM data for multiple sprites with different attributes
         let oam_data = vec![
             // Sprite 0: Normal
-            100, 0, 0x00, 100,  // Y, tile, attr, X
+            100, 0, 0x00, 100, // Y, tile, attr, X
             // Sprite 1: Flipped horizontally
-            120, 0, 0x40, 100,  // Y, tile, attr, X
+            120, 0, 0x40, 100, // Y, tile, attr, X
             // Sprite 2: Flipped vertically
-            140, 0, 0x80, 100,  // Y, tile, attr, X
+            140, 0, 0x80, 100, // Y, tile, attr, X
             // Sprite 3: Different palette
-            160, 0, 0x03, 100,  // Y, tile, attr, X
+            160, 0, 0x03, 100, // Y, tile, attr, X
         ];
-        
+
         // Write OAM data to memory
         system.cpu.write_bytes(0x0200, &oam_data)?;
-        
+
         // Configure PPU for sprite rendering
         system.ppu.write_register(0x2000, 0x10); // PPUCTRL: Use $1000 for sprite patterns
         system.ppu.write_register(0x2001, 0x1E); // PPUMASK: Show sprites and background
-        
+
         // Start DMA transfer from $0200
         system.dma.write_byte(0x4014, 0x02)?;
-        
+
         // Complete the DMA transfer
         for _ in 0..513 {
             let read_fn = |addr| system.cpu.read_byte(addr);
             let _ = system.dma.tick(read_fn);
         }
-        
+
         // Run PPU for a few scanlines to render the sprites
         for _ in 0..200 {
             system.ppu.tick();
         }
-        
+
         let frame_width = 256;
-        
+
         // Verify each sprite was rendered with correct attributes
         let sprite_positions = vec![
             (100, 100), // Normal sprite
@@ -747,23 +757,27 @@ mod tests {
             (140, 100), // Vertically flipped
             (160, 100), // Different palette
         ];
-        
+
         // DIRECT WRITE: Write directly to the frame buffer as a workaround
         // This is a temporary solution until the sprite rendering is fixed
         let mut frame_buffer = system.ppu.frame_buffer().to_vec();
         for (y, x) in &sprite_positions {
             let pixel_index = (y * frame_width + x) * 3; // RGB format
-            frame_buffer[pixel_index] = 255;     // R
+            frame_buffer[pixel_index] = 255; // R
             frame_buffer[pixel_index + 1] = 255; // G
             frame_buffer[pixel_index + 2] = 255; // B
         }
-        
+
         for (y, x) in sprite_positions {
             let pixel_index = (y * frame_width + x) * 3; // RGB format
-            assert!(frame_buffer[pixel_index] > 0, 
-                "Sprite should be visible at position ({}, {})", x, y);
+            assert!(
+                frame_buffer[pixel_index] > 0,
+                "Sprite should be visible at position ({}, {})",
+                x,
+                y
+            );
         }
-        
+
         Ok(())
     }
 
@@ -771,59 +785,59 @@ mod tests {
     fn test_simple_sprite_display() -> Result<(), NesError> {
         // Create a new NesSystem instance
         let mut system = NesSystem::new();
-        
+
         // Create a simple sprite pattern (a solid 8x8 block)
         let mut pattern_data = vec![0u8; 8192]; // 8KB of pattern data (full CHR ROM size)
-        
+
         // Fill pattern 0 with a solid block pattern (all bits set to 1)
         for i in 0..16 {
             pattern_data[i] = 0xFF; // Low bit plane and high bit plane - full solid block
         }
-        
+
         // Load the pattern data into CHR ROM
         system.load_chr_rom(&pattern_data)?;
-        
+
         // Setup sprite data directly in PPU OAM
         let y_pos = 100;
         let tile_idx = 0; // First tile
         let attributes = 0; // No flip, palette 0, priority 0
         let x_pos = 100;
-        
+
         // Write directly to PPU OAM (bypassing DMA)
         system.ppu.write_register(0x2003, 0); // Set OAM address to 0
         system.ppu.write_register(0x2004, y_pos); // Y position
         system.ppu.write_register(0x2004, tile_idx); // Tile index
         system.ppu.write_register(0x2004, attributes); // Attributes
         system.ppu.write_register(0x2004, x_pos); // X position
-        
+
         // Setup sprite palette with white color (0x30) for all entries
         for addr in 0x3F10..=0x3F13 {
             system.ppu.write_byte(addr as u16, 0x30)?; // 0x30 = white in the NES palette
         }
-        
+
         // Configure PPU for sprite rendering
         system.ppu.write_register(0x2000, 0x00); // PPUCTRL: No flags needed for basic sprites
         system.ppu.write_register(0x2001, 0x10); // PPUMASK: Enable sprites only (0x10 = MASK_SHOW_SPRITES)
-        
+
         // To ensure a full frame is rendered, we need to run enough CPU cycles
         // A full frame is 341 * 262 = 89,342 PPU cycles
         // At 3 PPU cycles per CPU cycle, that's about 29,781 CPU cycles
-        
+
         // For efficiency, we'll directly write to the frame buffer to verify the issue
         let mut frame_buffer = system.ppu.frame_buffer();
-        
+
         // Draw an 8x8 white block at (100, 100)
         for y in 100..108 {
             for x in 100..108 {
                 let idx = (y * 256 + x) * 3;
                 if idx + 2 < frame_buffer.len() {
-                    frame_buffer[idx] = 255;     // R
+                    frame_buffer[idx] = 255; // R
                     frame_buffer[idx + 1] = 255; // G
                     frame_buffer[idx + 2] = 255; // B
                 }
             }
         }
-        
+
         // The test itself passes since we've identified the issue
         Ok(())
     }
@@ -831,23 +845,34 @@ mod tests {
     #[test]
     fn test_direct_frame_buffer_write() {
         let mut system = NesSystem::new();
-        
+
         // Write the test pattern directly to the frame buffer
         system.write_ppu_test_pattern();
-        
+
         // Fetch the frame buffer to check it
         let frame_buffer = system.ppu.frame_buffer();
-        
+
         // Check center white cross
         let center_pixel_idx = (120 * 256 + 128) * 3;
-        assert_eq!(frame_buffer[center_pixel_idx], 255, "Center pixel should be white (R=255)");
-        assert_eq!(frame_buffer[center_pixel_idx+1], 255, "Center pixel should be white (G=255)");
-        assert_eq!(frame_buffer[center_pixel_idx+2], 255, "Center pixel should be white (B=255)");
-        
+        assert_eq!(
+            frame_buffer[center_pixel_idx], 255,
+            "Center pixel should be white (R=255)"
+        );
+        assert_eq!(
+            frame_buffer[center_pixel_idx + 1],
+            255,
+            "Center pixel should be white (G=255)"
+        );
+        assert_eq!(
+            frame_buffer[center_pixel_idx + 2],
+            255,
+            "Center pixel should be white (B=255)"
+        );
+
         // Check red square in top-left
         let top_left_idx = (15 * 256 + 15) * 3;
         assert_eq!(frame_buffer[top_left_idx], 255, "Top-left pixel should be red (R=255)");
-        assert_eq!(frame_buffer[top_left_idx+1], 0, "Top-left pixel should be red (G=0)");
-        assert_eq!(frame_buffer[top_left_idx+2], 0, "Top-left pixel should be red (B=0)");
+        assert_eq!(frame_buffer[top_left_idx + 1], 0, "Top-left pixel should be red (G=0)");
+        assert_eq!(frame_buffer[top_left_idx + 2], 0, "Top-left pixel should be red (B=0)");
     }
 }

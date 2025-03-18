@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    path::PathBuf,
-    rc::Rc,
-};
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use clap::Parser;
 use eframe::{egui, App, Frame};
@@ -498,9 +494,9 @@ impl App for NesDebugger {
                         }
                         ui.close_menu();
                     }
-                    
+
                     ui.separator();
-                    
+
                     if ui.button("Write Test Pattern").clicked() {
                         info!("Writing test pattern to PPU frame buffer");
                         let mut system_borrow = self.system.borrow_mut();
@@ -509,7 +505,7 @@ impl App for NesDebugger {
                         self.context.display_mode = DisplayMode::Ppu;
                         ui.close_menu();
                     }
-                    
+
                     if ui.button("Write Test Sprite").clicked() {
                         info!("Writing test sprite to PPU OAM and rendering");
                         let mut system_borrow = self.system.borrow_mut();

@@ -8,8 +8,8 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-thiserror.workspace = true
-parse-display.workspace = true
-regex.workspace = true
 lazy_static.workspace = true
 log.workspace = true
+parse-display.workspace = true
+regex.workspace = true
+thiserror.workspace = true

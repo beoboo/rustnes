@@ -388,13 +388,13 @@ mod tests {
     #[test]
     fn test_dma_cycle_by_cycle_operation() {
         let mut dma = setup_dma();
-        
+
         // Start a DMA transfer from page $02
         dma.write_byte(0x4014, 0x02).unwrap();
-        
+
         // Track the values being written to OAM
         let mut oam_writes = Vec::new();
-        
+
         // Run exactly 513 cycles
         for cycle in 0..513 {
             // Create a read function that returns the low byte of the address as the value
@@ -404,12 +404,12 @@ mod tests {
                 assert_eq!(page, 0x02, "DMA should read from page $02");
                 Ok(offset) // Return the low byte as the test value
             };
-            
+
             // Tick the DMA and track OAM writes
             if let Some((value, index)) = dma.tick(read_fn) {
                 oam_writes.push((index, value));
             }
-            
+
             // Make specific assertions for key cycles
             match cycle {
                 0 => {
@@ -430,17 +430,21 @@ mod tests {
                     assert_eq!(oam_writes.len(), 256, "256 OAM writes should occur by cycle 512");
                     assert!(!dma.is_active(), "DMA should be inactive after 513 cycles");
                 },
-                _ => {}
+                _ => {},
             }
         }
-        
+
         // Verify all 256 bytes were written correctly
         assert_eq!(oam_writes.len(), 256, "DMA should write exactly 256 bytes");
-        
+
         // Verify the values match our expected pattern (index == value)
         for (i, (index, value)) in oam_writes.iter().enumerate() {
             assert_eq!(*index as usize, i, "OAM write index should match iteration");
-            assert_eq!(*value as usize, i & 0xFF, "OAM write value should match low byte of source address");
+            assert_eq!(
+                *value as usize,
+                i & 0xFF,
+                "OAM write value should match low byte of source address"
+            );
         }
     }
 
@@ -448,28 +452,31 @@ mod tests {
     fn test_dma_read_write_alternation() {
         let mut dma = setup_dma();
         dma.write_byte(0x4014, 0x20).unwrap();
-        
+
         // Track which cycles produce OAM writes
         let mut write_cycles = Vec::new();
-        
+
         for cycle in 0..513 {
             let read_fn = |_addr| Ok(0x42);
             let result = dma.tick(read_fn);
-            
+
             if result.is_some() {
                 write_cycles.push(cycle);
             }
         }
-        
+
         // Verify writes only happen on odd cycles after the first setup cycle
         for (i, cycle) in write_cycles.iter().enumerate() {
             // Expected cycle formula: setup cycle (0) + read cycle + write cycle
             // So first write should be at cycle 2, then 4, 6, etc.
             let expected_cycle = 2 + i * 2;
-            assert_eq!(*cycle, expected_cycle, 
-                "Write should occur on cycle {}, got {}", expected_cycle, cycle);
+            assert_eq!(
+                *cycle, expected_cycle,
+                "Write should occur on cycle {}, got {}",
+                expected_cycle, cycle
+            );
         }
-        
+
         // Verify we got exactly 256 writes
         assert_eq!(write_cycles.len(), 256, "Should have 256 write cycles");
     }
@@ -478,37 +485,37 @@ mod tests {
     fn test_dma_memory_address_pattern() {
         let mut dma = setup_dma();
         let page = 0x30; // Use page $30 for this test
-        
+
         dma.write_byte(0x4014, page).unwrap();
-        
+
         // Track memory reads
         let mut read_addresses = Vec::new();
-        
+
         for _ in 0..513 {
             let read_fn = |addr: u16| {
                 read_addresses.push(addr);
                 Ok(0x42)
             };
-            
+
             dma.tick(read_fn);
         }
-        
+
         // Filter out duplicates and 0 addresses
         // (Since we're calling the read function even on write cycles,
         // but with a default address of 0)
-        let unique_reads: Vec<u16> = read_addresses.into_iter()
-            .filter(|&addr| addr != 0)
-            .collect();
-        
+        let unique_reads: Vec<u16> = read_addresses.into_iter().filter(|&addr| addr != 0).collect();
+
         // Should read exactly 256 unique addresses
         assert_eq!(unique_reads.len(), 256, "Should read from 256 unique addresses");
-        
+
         // Verify address pattern starts at the correct page
         for (i, addr) in unique_reads.iter().enumerate() {
             let expected = ((page as u16) << 8) | (i as u16);
-            assert_eq!(*addr, expected, 
-                "Memory read at index {} should be from address ${:04X}, got ${:04X}", 
-                i, expected, addr);
+            assert_eq!(
+                *addr, expected,
+                "Memory read at index {} should be from address ${:04X}, got ${:04X}",
+                i, expected, addr
+            );
         }
     }
 
@@ -516,13 +523,13 @@ mod tests {
     fn test_dma_oam_write_sequence() {
         // This test verifies the OAM write sequence matches expectations
         let mut dma = setup_dma();
-        
+
         // Start a DMA transfer
         dma.write_byte(0x4014, 0x20).unwrap();
-        
+
         // Collect all OAM writes
         let mut oam_writes = Vec::new();
-        
+
         // Run through all 513 cycles
         for _ in 0..513 {
             let read_fn = |addr: u16| {
@@ -530,15 +537,15 @@ mod tests {
                 // This gives us a predictable pattern to verify
                 Ok((addr & 0xFF) as u8)
             };
-            
+
             if let Some((value, index)) = dma.tick(read_fn) {
                 oam_writes.push((index, value));
             }
         }
-        
+
         // Verify we got 256 OAM writes
         assert_eq!(oam_writes.len(), 256, "Should have 256 OAM writes");
-        
+
         // Verify the OAM writes follow the expected pattern:
         // Index = 0 to 255, Value = low byte of source address
         for i in 0..256 {
@@ -546,7 +553,7 @@ mod tests {
             assert_eq!(index, i as u8, "OAM index {} should match iteration", i);
             assert_eq!(value, i as u8, "OAM value at index {} should be {}", i, i);
         }
-        
+
         // Verify DMA is no longer active
         assert!(!dma.is_active(), "DMA should be inactive after transfer");
     }
@@ -555,10 +562,10 @@ mod tests {
     fn test_dma_early_termination() {
         // This test checks if we can correctly handle a DMA transfer being reset midway
         let mut dma = setup_dma();
-        
+
         // Start a DMA transfer
         dma.write_byte(0x4014, 0x20).unwrap();
-        
+
         // Run for 100 cycles (not enough to complete)
         let mut oam_writes = Vec::new();
         for _ in 0..100 {
@@ -567,16 +574,16 @@ mod tests {
                 oam_writes.push((index, value));
             }
         }
-        
+
         // Verify DMA is still active
         assert!(dma.is_active(), "DMA should still be active after only 100 cycles");
-        
+
         // Reset the DMA
         dma.reset();
-        
+
         // Verify DMA is no longer active after reset
         assert!(!dma.is_active(), "DMA should be inactive after reset");
-        
+
         // Verify no more bytes are written
         let read_fn = |_addr| Ok(0x42);
         let result = dma.tick(read_fn);
@@ -587,51 +594,54 @@ mod tests {
     fn test_dma_consecutive_transfers() {
         // This test verifies that we can start a new transfer after completing one
         let mut dma = setup_dma();
-        
+
         // First transfer from page $20
         dma.write_byte(0x4014, 0x20).unwrap();
-        
+
         // Complete the transfer (513 cycles)
         for _ in 0..513 {
             let read_fn = |_addr| Ok(0x42);
             dma.tick(read_fn);
         }
-        
+
         // Verify first transfer is complete
         assert!(!dma.is_active(), "First DMA transfer should be complete");
-        
+
         // Start a second transfer from page $30
         dma.write_byte(0x4014, 0x30).unwrap();
-        
+
         // Verify second transfer is active
         assert!(dma.is_active(), "Second DMA transfer should be active");
-        assert_eq!(dma.source_high_byte, 0x30, "Source high byte should be updated for second transfer");
-        
+        assert_eq!(
+            dma.source_high_byte, 0x30,
+            "Source high byte should be updated for second transfer"
+        );
+
         // Check that the initial cycles are correct
         let read_fn = |addr: u16| {
             let page = (addr >> 8) as u8;
             assert_eq!(page, 0x30, "Second transfer should read from page $30");
             Ok(0x42)
         };
-        
+
         // First cycle is setup
         let result = dma.tick(read_fn);
         assert!(result.is_none(), "First cycle should be setup, no data transfer");
-        
+
         // Second cycle is read
         let result = dma.tick(read_fn);
         assert!(result.is_none(), "Second cycle should be read, no OAM write");
-        
+
         // Third cycle is write
         let result = dma.tick(read_fn);
         assert!(result.is_some(), "Third cycle should produce an OAM write");
-        
+
         // Complete the second transfer
         for _ in 3..513 {
             let read_fn = |_addr| Ok(0x42);
             dma.tick(read_fn);
         }
-        
+
         // Verify second transfer is complete
         assert!(!dma.is_active(), "Second DMA transfer should be complete");
     }

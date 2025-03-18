@@ -56,7 +56,7 @@ impl PpuWrapper {
     pub fn connect_cartridge(&self, cart: Cartridge) {
         self.ppu.borrow_mut().connect_cartridge(cart);
     }
-    
+
     /// Force render a frame, useful for debugging
     pub fn force_render_frame(&self) {
         log::info!("Forcing PPU frame render");
@@ -68,12 +68,12 @@ impl PpuWrapper {
         if !self.has_cartridge() {
             self.connect_cartridge(Cartridge::new());
         }
-        
+
         // Get the cartridge and load CHR ROM
         if let Some(cart) = self.ppu.borrow_mut().cartridge_mut() {
             cart.load_chr_rom(chr_data);
         }
-        
+
         Ok(())
     }
 
@@ -84,9 +84,9 @@ impl PpuWrapper {
     pub fn cartridge(&self) -> Option<Cartridge> {
         self.ppu.borrow().cartridge()
     }
-    
+
     /// Returns a raw pointer to the underlying Ppu instance
-    /// 
+    ///
     /// # Safety
     /// This method is unsafe because it exposes a raw pointer to the internal Ppu instance.
     /// It should only be used for testing purposes and with extreme caution.
@@ -104,7 +104,7 @@ impl PpuWrapper {
     pub fn write_test_pattern(&self) {
         self.ppu.borrow_mut().write_test_pattern();
     }
-    
+
     /// Call the write_test_sprite method on the underlying PPU
     pub fn write_test_sprite(&self) {
         self.ppu.borrow_mut().write_test_sprite();
@@ -152,7 +152,7 @@ pub struct Ppu {
     cycle: u16,         // Current cycle (0 to 340)
 
     // Rendering output
-    frame_buffer: Vec<u8>, // RGB data for the current frame
+    frame_buffer: Vec<u8>,      // RGB data for the current frame
     background_pixels: Vec<u8>, // Stores the background pixel values (0-3) for priority handling
 
     // Cartridge reference (optional)
@@ -207,22 +207,28 @@ impl Ppu {
     pub fn tick(&mut self) {
         // Add debugging for PPU ticks - useful for identifying timing issues
         if self.cycle % 5000 == 0 {
-            log::info!("PPU TICK: cycle={}, scanline={}, frame_count={}, mask={:02X}, ctrl={:02X}",
-                self.cycle, self.scanline, self.frame_count, self.mask, self.ctrl);
+            log::info!(
+                "PPU TICK: cycle={}, scanline={}, frame_count={}, mask={:02X}, ctrl={:02X}",
+                self.cycle,
+                self.scanline,
+                self.frame_count,
+                self.mask,
+                self.ctrl
+            );
         }
-        
+
         // Update cycle and scanline counters
         self.cycle += 1;
         if self.cycle > 340 {
             self.cycle = 0;
             self.scanline += 1;
-            
+
             // Start of VBlank occurs at the beginning of scanline 241
             if self.scanline == 241 {
                 // Set VBlank flag
                 self.status |= STATUS_VBLANK;
                 log::info!("VBlank start (scanline 241) - Status={:02X}", self.status);
-                
+
                 // If NMI is enabled, this would trigger an interrupt
                 // In our emulator, this is a good time to render the frame
                 if (self.ctrl & CTRL_NMI_ENABLE) != 0 {
@@ -230,19 +236,17 @@ impl Ppu {
                     self.render_frame();
                 }
             }
-            
             // End of VBlank period, reset VBlank flag at the start of pre-render scanline (261)
             else if self.scanline == 261 {
                 self.status &= !STATUS_VBLANK;
                 log::info!("VBlank end (scanline 261) - Status={:02X}", self.status);
             }
-            
             // Start of next frame
             else if self.scanline > 261 {
                 self.scanline = 0;
                 self.frame_count += 1;
                 log::info!("New frame start (frame_count={})", self.frame_count);
-                
+
                 // Make sure we always render the frame, even if NMI isn't enabled
                 if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
                     log::info!("Calling render_frame at frame end with rendering enabled");
@@ -250,7 +254,7 @@ impl Ppu {
                 }
             }
         }
-        
+
         // Safety measure: if we've accumulated enough cycles for a frame (approximately),
         // force a frame render even if we haven't reached the end of a frame
         // This helps ensure frame rendering happens during debugging and testing
@@ -264,14 +268,18 @@ impl Ppu {
 
     /// Render the current frame using pattern table data
     fn render_frame(&mut self) {
-        log::info!("Rendering frame at cycle={}, scanline={}, frame_count={}", 
-            self.cycle, self.scanline, self.frame_count);
-        
+        log::info!(
+            "Rendering frame at cycle={}, scanline={}, frame_count={}",
+            self.cycle,
+            self.scanline,
+            self.frame_count
+        );
+
         // Clear the frame buffer
         for pixel in self.frame_buffer.iter_mut() {
             *pixel = 0;
         }
-        
+
         // Clear the background pixel buffer
         for pixel in self.background_pixels.iter_mut() {
             *pixel = 0;
@@ -344,13 +352,13 @@ impl Ppu {
 
                             // For now, use attribute table 0 (first palette) for all tiles
                             let palette_index = 0;
-                            
+
                             // Calculate palette address: $3F00 + (palette_index * 4) + pixel_value
                             let palette_addr = 0x3F00 + (palette_index * 4) as u16 + pixel_value as u16;
-                            
+
                             // Read the color from the palette
                             let color_index = self.read_palette(palette_addr);
-                            
+
                             // Convert palette entry to RGB
                             let rgb = self.palette_to_rgb(color_index);
 
@@ -393,31 +401,39 @@ impl Ppu {
         {
             if (self.mask & MASK_SHOW_SPRITES) != 0 {
                 log::info!("Rendering sprites with PPUMASK: {:02X}", self.mask);
-                log::info!("First OAM entry: Y={}, tile={}, attr={}, X={}",
-                    self.oam[0], self.oam[1], self.oam[2], self.oam[3]);
+                log::info!(
+                    "First OAM entry: Y={}, tile={}, attr={}, X={}",
+                    self.oam[0],
+                    self.oam[1],
+                    self.oam[2],
+                    self.oam[3]
+                );
             }
         }
-    
+
         // Render each scanline
         for scanline in 0..240 {
             self.render_sprites_for_scanline(scanline);
         }
-        
+
         // Verify sprite rendering after processing
         // #[cfg(test)]
         {
             if (self.mask & MASK_SHOW_SPRITES) != 0 {
                 let y_pos = self.oam[0] as usize;
                 let x_pos = self.oam[3] as usize;
-                
+
                 if y_pos < 240 && x_pos < 256 {
                     let pixel_idx = (y_pos * 256 + x_pos) * 3;
                     if pixel_idx < self.frame_buffer.len() - 2 {
-                        println!("Pixel at ({}, {}) after sprite rendering: ({}, {}, {})",
-                            x_pos, y_pos,
+                        println!(
+                            "Pixel at ({}, {}) after sprite rendering: ({}, {}, {})",
+                            x_pos,
+                            y_pos,
                             self.frame_buffer[pixel_idx],
                             self.frame_buffer[pixel_idx + 1],
-                            self.frame_buffer[pixel_idx + 2]);
+                            self.frame_buffer[pixel_idx + 2]
+                        );
                     }
                 }
             }
@@ -445,17 +461,22 @@ impl Ppu {
 
             // Calculate the index in the screen buffer
             let x_screen = sprite.x_position as usize;
-            
-            log::info!("Processing sprite at ({},{}), tile_idx={}, attr={:02X}", 
-                        x_screen, scanline, sprite.tile_index, sprite.attributes);
+
+            log::info!(
+                "Processing sprite at ({},{}), tile_idx={}, attr={:02X}",
+                x_screen,
+                scanline,
+                sprite.tile_index,
+                sprite.attributes
+            );
 
             // Check if sprite has priority behind background (bit 5 set)
             let behind_background = (sprite.attributes & 0x20) != 0;
-            
+
             // Render the 8 pixels of this sprite row
             for i in 0..8 {
                 let x = x_screen + i;
-                
+
                 // Skip if off-screen
                 if x >= 256 {
                     continue;
@@ -463,7 +484,7 @@ impl Ppu {
 
                 // Get the pixel value (0-3) for this position in the sprite
                 let pixel_value = sprite.tile_data[i];
-                
+
                 // Skip transparent pixels (value 0)
                 if pixel_value == 0 {
                     continue;
@@ -476,39 +497,55 @@ impl Ppu {
                 } else {
                     0 // No background pixel
                 };
-                
+
                 // Check priority
                 // If sprite is behind background (bit 5 set) and the background pixel is non-zero,
                 // then don't render the sprite pixel
                 if behind_background && bg_pixel != 0 {
-                    log::info!("Skipping sprite pixel at ({},{}) due to priority (behind background)", x, scanline);
+                    log::info!(
+                        "Skipping sprite pixel at ({},{}) due to priority (behind background)",
+                        x,
+                        scanline
+                    );
                     continue;
                 }
 
                 // Calculate palette offset based on the sprite's attribute bits 0-1
                 let palette_idx = sprite.attributes & 0x03;
                 let palette_addr = 0x3F10 + (palette_idx as u16 * 4) + pixel_value as u16;
-                
+
                 // Get the color from the sprite palette
                 let color_index = self.read_palette(palette_addr);
-                log::info!("Sprite pixel at ({},{}) has value {} -> color_index {} (palette {})", 
-                    x, scanline, pixel_value, color_index, palette_idx);
-                
+                log::info!(
+                    "Sprite pixel at ({},{}) has value {} -> color_index {} (palette {})",
+                    x,
+                    scanline,
+                    pixel_value,
+                    color_index,
+                    palette_idx
+                );
+
                 // Calculate final screen buffer index (RGB triplet)
                 let buffer_index = (scanline * 256 + x) * 3;
-                
+
                 // Only if we're in bounds of the buffer
                 if buffer_index + 2 < self.frame_buffer.len() {
                     // Convert palette color to RGB
                     let rgb = self.palette_to_rgb(color_index);
-                    
+
                     // Write to frame buffer
                     self.frame_buffer[buffer_index] = rgb[0];
                     self.frame_buffer[buffer_index + 1] = rgb[1];
                     self.frame_buffer[buffer_index + 2] = rgb[2];
-                    
-                    log::info!("Wrote sprite pixel at ({},{}) with RGB ({},{},{})", 
-                        x, scanline, rgb[0], rgb[1], rgb[2]);
+
+                    log::info!(
+                        "Wrote sprite pixel at ({},{}) with RGB ({},{},{})",
+                        x,
+                        scanline,
+                        rgb[0],
+                        rgb[1],
+                        rgb[2]
+                    );
                 }
             }
         }
@@ -1002,62 +1039,62 @@ impl Ppu {
         for pixel in self.frame_buffer.iter_mut() {
             *pixel = 0;
         }
-        
+
         // Draw a bright white cross in the center of the screen
         // Horizontal line
         for x in 100..156 {
             let idx = (120 * 256 + x) * 3;
-            self.frame_buffer[idx] = 255;     // R
+            self.frame_buffer[idx] = 255; // R
             self.frame_buffer[idx + 1] = 255; // G
             self.frame_buffer[idx + 2] = 255; // B
         }
-        
+
         // Vertical line
         for y in 100..140 {
             let idx = (y * 256 + 128) * 3;
-            self.frame_buffer[idx] = 255;     // R
+            self.frame_buffer[idx] = 255; // R
             self.frame_buffer[idx + 1] = 255; // G
             self.frame_buffer[idx + 2] = 255; // B
         }
-        
+
         // Draw colored squares in each corner (10x10 pixels)
         // Top-left (Red)
         for y in 10..20 {
             for x in 10..20 {
                 let idx = (y * 256 + x) * 3;
-                self.frame_buffer[idx] = 255;     // R
-                self.frame_buffer[idx + 1] = 0;   // G
-                self.frame_buffer[idx + 2] = 0;   // B
+                self.frame_buffer[idx] = 255; // R
+                self.frame_buffer[idx + 1] = 0; // G
+                self.frame_buffer[idx + 2] = 0; // B
             }
         }
-        
+
         // Top-right (Green)
         for y in 10..20 {
             for x in 236..246 {
                 let idx = (y * 256 + x) * 3;
-                self.frame_buffer[idx] = 0;       // R
+                self.frame_buffer[idx] = 0; // R
                 self.frame_buffer[idx + 1] = 255; // G
-                self.frame_buffer[idx + 2] = 0;   // B
+                self.frame_buffer[idx + 2] = 0; // B
             }
         }
-        
+
         // Bottom-left (Blue)
         for y in 220..230 {
             for x in 10..20 {
                 let idx = (y * 256 + x) * 3;
-                self.frame_buffer[idx] = 0;       // R
-                self.frame_buffer[idx + 1] = 0;   // G
+                self.frame_buffer[idx] = 0; // R
+                self.frame_buffer[idx + 1] = 0; // G
                 self.frame_buffer[idx + 2] = 255; // B
             }
         }
-        
+
         // Bottom-right (Yellow)
         for y in 220..230 {
             for x in 236..246 {
                 let idx = (y * 256 + x) * 3;
-                self.frame_buffer[idx] = 255;     // R
+                self.frame_buffer[idx] = 255; // R
                 self.frame_buffer[idx + 1] = 255; // G
-                self.frame_buffer[idx + 2] = 0;   // B
+                self.frame_buffer[idx + 2] = 0; // B
             }
         }
     }
@@ -1069,7 +1106,7 @@ impl Ppu {
         for pixel in self.frame_buffer.iter_mut() {
             *pixel = 0;
         }
-        
+
         // Set up a test sprite in OAM
         // Y position
         self.oam[0] = 100;
@@ -1079,17 +1116,17 @@ impl Ppu {
         self.oam[2] = 0;
         // X position
         self.oam[3] = 100;
-        
+
         // Set up sprite palette with white color
         self.write_palette(0x3F11, 0x30); // White
         self.write_palette(0x3F12, 0x30); // White
         self.write_palette(0x3F13, 0x30); // White
-        
+
         // Create a simple pattern in CHR ROM if we have a cartridge
         if let Some(cart) = &mut self.cartridge {
             // Create a simple pattern (solid block)
             let mut pattern_data = vec![0; 0x2000]; // 8KB for pattern tables
-            
+
             // Set up the first tile (solid block)
             for i in 0..8 {
                 pattern_data[i] = 0xFF; // First plane - all bits set
@@ -1097,37 +1134,37 @@ impl Ppu {
             for i in 8..16 {
                 pattern_data[i] = 0xFF; // Second plane - all bits set
             }
-            
+
             // Load the pattern data
             cart.load_chr_rom(&pattern_data);
         }
-        
+
         // Enable sprite rendering
         self.mask = MASK_SHOW_SPRITES;
-        
+
         // Directly render the sprite for scanline 100
         self.render_sprites_for_scanline(100);
-        
+
         // Also draw a marker at the expected sprite position
         // This helps us verify if the sprite should be visible
         let idx = (100 * 256 + 100) * 3;
-        self.frame_buffer[idx] = 255;     // R
-        self.frame_buffer[idx + 1] = 0;   // G
-        self.frame_buffer[idx + 2] = 0;   // B
-        
+        self.frame_buffer[idx] = 255; // R
+        self.frame_buffer[idx + 1] = 0; // G
+        self.frame_buffer[idx + 2] = 0; // B
+
         // Draw a small red cross to mark where the sprite should be
         for x in 98..103 {
             let idx = (100 * 256 + x) * 3;
-            self.frame_buffer[idx] = 255;     // R
-            self.frame_buffer[idx + 1] = 0;   // G
-            self.frame_buffer[idx + 2] = 0;   // B
+            self.frame_buffer[idx] = 255; // R
+            self.frame_buffer[idx + 1] = 0; // G
+            self.frame_buffer[idx + 2] = 0; // B
         }
-        
+
         for y in 98..103 {
             let idx = (y * 256 + 100) * 3;
-            self.frame_buffer[idx] = 255;     // R
-            self.frame_buffer[idx + 1] = 0;   // G
-            self.frame_buffer[idx + 2] = 0;   // B
+            self.frame_buffer[idx] = 255; // R
+            self.frame_buffer[idx + 1] = 0; // G
+            self.frame_buffer[idx + 2] = 0; // B
         }
     }
 }
@@ -1443,7 +1480,7 @@ mod tests {
         for addr in 0x2001..0x2400 {
             ppu.write_ppu_memory(addr, 0);
         }
-        
+
         // Enable background rendering
         ppu.mask = MASK_SHOW_BACKGROUND;
 
@@ -1584,10 +1621,10 @@ mod tests {
     fn test_complete_sprite_pipeline() {
         // Create a new PPU
         let mut ppu = Ppu::new();
-        
+
         // Create a test pattern in CHR ROM (8x8 sprite with all pixels set)
         let mut pattern_data = vec![0; 0x2000]; // 8KB for both pattern tables
-        
+
         // Set up the first tile (8x8 pixels)
         // First plane (lower bits)
         for i in 0..8 {
@@ -1597,54 +1634,55 @@ mod tests {
         for i in 8..16 {
             pattern_data[i] = 0xFF; // All pixels set
         }
-        
+
         // Create and connect a cartridge with our test pattern
         let mut cartridge = Cartridge::new();
         cartridge.load_chr_rom(&pattern_data);
         ppu.connect_cartridge(cartridge);
-        
+
         // Set up sprite palette 0 with a specific color
         ppu.write_ppu_memory(0x3F10, 0x30); // Set sprite palette 0 color 0 to white
         ppu.write_ppu_memory(0x3F11, 0x30); // Set sprite palette 0 color 1 to white
         ppu.write_ppu_memory(0x3F12, 0x30); // Set sprite palette 0 color 2 to white
         ppu.write_ppu_memory(0x3F13, 0x30); // Set sprite palette 0 color 3 to white
-        
+
         // Set up OAM data for a single sprite
         let oam_data = vec![
-            100,    // Y position (100 pixels from top)
-            0,      // Tile index (first tile)
-            0,      // Attributes (no flip, palette 0)
-            100,    // X position (100 pixels from left)
+            100, // Y position (100 pixels from top)
+            0,   // Tile index (first tile)
+            0,   // Attributes (no flip, palette 0)
+            100, // X position (100 pixels from left)
         ];
-        
+
         // Write OAM data directly
         for (i, &value) in oam_data.iter().enumerate() {
             ppu.write_register(0x2003, i as u8); // Set OAM address
-            ppu.write_register(0x2004, value);   // Write OAM data
+            ppu.write_register(0x2004, value); // Write OAM data
         }
-        
+
         // Configure PPU for sprite rendering
         ppu.write_register(0x2000, 0x00); // PPUCTRL: Use $0000 for sprite patterns
         ppu.write_register(0x2001, 0x10); // PPUMASK: Show sprites only
-        
+
         // Clear the frame buffer
         for pixel in ppu.frame_buffer.iter_mut() {
             *pixel = 0;
         }
-        
+
         // DIRECT TEST: Instead of running the PPU for a full frame, directly render sprites for scanline 100
         ppu.render_sprites_for_scanline(100);
-        
+
         // Get the frame buffer and check for sprite visibility
         let frame_buffer = ppu.frame_buffer();
         let pixel_index = (100 * 256 + 100) * 3; // RGB format
-        
+
         // Debug: Print pixel values around the expected position
         println!("\nPixel values at (100, 100):");
         for y in 99..=101 {
             for x in 99..=101 {
                 let idx = (y * 256 + x) * 3;
-                print!("({},{},{}) ", 
+                print!(
+                    "({},{},{}) ",
                     frame_buffer[idx],
                     frame_buffer[idx + 1],
                     frame_buffer[idx + 2]
@@ -1652,13 +1690,24 @@ mod tests {
             }
             println!();
         }
-        
+
         // Verify that the sprite is rendered at the expected position (100, 100)
         // Since we have a white sprite (palette value 0x30 = white),
         // all RGB values should be 255
-        assert_eq!(frame_buffer[pixel_index], 255, "Sprite R value should be 255 at (100,100)");
-        assert_eq!(frame_buffer[pixel_index + 1], 255, "Sprite G value should be 255 at (100,100)");
-        assert_eq!(frame_buffer[pixel_index + 2], 255, "Sprite B value should be 255 at (100,100)");
+        assert_eq!(
+            frame_buffer[pixel_index], 255,
+            "Sprite R value should be 255 at (100,100)"
+        );
+        assert_eq!(
+            frame_buffer[pixel_index + 1],
+            255,
+            "Sprite G value should be 255 at (100,100)"
+        );
+        assert_eq!(
+            frame_buffer[pixel_index + 2],
+            255,
+            "Sprite B value should be 255 at (100,100)"
+        );
     }
 
     #[test]
@@ -1684,7 +1733,7 @@ mod tests {
             0b00000010, // Row 6
             0b00000001, // Row 7
         ];
-        
+
         // Second bit plane - upper bit (bit 1 of the color)
         let bit_plane_1 = [
             0b10000000, // Row 0
@@ -1717,33 +1766,35 @@ mod tests {
         for i in 0..256 {
             ppu.oam[i] = 0xFF; // Off-screen
         }
-        
+
         // Set up OAM for sprite evaluation with horizontal flip
         ppu.oam[0] = 5; // Y position
-        ppu.oam[1] = 0;  // Tile index
+        ppu.oam[1] = 0; // Tile index
         ppu.oam[2] = 0x40; // Attributes - horizontal flip
         ppu.oam[3] = 10; // X position
 
         // Evaluate sprites for scanline 5 - this should get us row 0 of the sprite
         let h_flipped_sprites = ppu.evaluate_sprites_for_scanline(5);
         assert_eq!(h_flipped_sprites.len(), 1, "Should find 1 sprite on scanline 5");
-        
+
         // The pattern is a diagonal line from top-left to bottom-right.
         // For row 0, there should be a pixel at position 0 in the original pattern.
         // When horizontally flipped, this should become a pixel at position 7.
         let expected_h_flipped = [0, 0, 0, 0, 0, 0, 0, 3];
-        assert_eq!(h_flipped_sprites[0].tile_data, expected_h_flipped, 
-            "Horizontally flipped sprite row 0 should match expected pattern");
+        assert_eq!(
+            h_flipped_sprites[0].tile_data, expected_h_flipped,
+            "Horizontally flipped sprite row 0 should match expected pattern"
+        );
 
         // Test vertical flipping
         // Clear OAM memory
         for i in 0..256 {
             ppu.oam[i] = 0xFF; // Off-screen
         }
-        
+
         // Set up OAM for sprite evaluation with vertical flip
         ppu.oam[0] = 5; // Y position
-        ppu.oam[1] = 0;  // Tile index
+        ppu.oam[1] = 0; // Tile index
         ppu.oam[2] = 0x80; // Attributes - vertical flip
         ppu.oam[3] = 10; // X position
 
@@ -1751,46 +1802,50 @@ mod tests {
         // With vertical flip, it should load row 7 of the pattern
         let v_flipped_sprites = ppu.evaluate_sprites_for_scanline(5);
         assert_eq!(v_flipped_sprites.len(), 1, "Should find 1 sprite on scanline 5");
-        
+
         // The original pattern is a diagonal, with row 7 having a pixel at position 7.
         // When vertically flipped, row 0 should show the pattern from row 7.
         let expected_v_flipped = [0, 0, 0, 0, 0, 0, 0, 3];
-        assert_eq!(v_flipped_sprites[0].tile_data, expected_v_flipped, 
-            "Vertically flipped sprite row 0 should match expected pattern");
+        assert_eq!(
+            v_flipped_sprites[0].tile_data, expected_v_flipped,
+            "Vertically flipped sprite row 0 should match expected pattern"
+        );
 
         // Test both horizontal and vertical flipping
         // Clear OAM memory
         for i in 0..256 {
             ppu.oam[i] = 0xFF; // Off-screen
         }
-        
+
         // Set up OAM for sprite evaluation with both flips
         ppu.oam[0] = 5; // Y position
-        ppu.oam[1] = 0;  // Tile index
+        ppu.oam[1] = 0; // Tile index
         ppu.oam[2] = 0xC0; // Attributes - both horizontal and vertical flip
         ppu.oam[3] = 10; // X position
 
         // Evaluate sprites for scanline 5
         let hv_flipped_sprites = ppu.evaluate_sprites_for_scanline(5);
         assert_eq!(hv_flipped_sprites.len(), 1, "Should find 1 sprite on scanline 5");
-        
+
         // The original pattern is a diagonal.
         // Row 7 has a pixel at position 7.
         // When vertically flipped, we get row 7's pattern.
         // When also horizontally flipped, the pixel at position 7 becomes position 0.
         let expected_hv_flipped = [3, 0, 0, 0, 0, 0, 0, 0];
-        assert_eq!(hv_flipped_sprites[0].tile_data, expected_hv_flipped, 
-            "Horizontally and vertically flipped sprite row 0 should match expected pattern");
+        assert_eq!(
+            hv_flipped_sprites[0].tile_data, expected_hv_flipped,
+            "Horizontally and vertically flipped sprite row 0 should match expected pattern"
+        );
 
         // Test middle row of vertically flipped sprite
         // Clear OAM memory
         for i in 0..256 {
             ppu.oam[i] = 0xFF; // Off-screen
         }
-        
+
         // Set up OAM for sprite evaluation with vertical flip
         ppu.oam[0] = 1; // Y position
-        ppu.oam[1] = 0;  // Tile index
+        ppu.oam[1] = 0; // Tile index
         ppu.oam[2] = 0x80; // Attributes - vertical flip
         ppu.oam[3] = 10; // X position
 
@@ -1798,12 +1853,14 @@ mod tests {
         // With vertical flip, it should load row (7-4) = 3 of the pattern
         let v_flipped_middle_sprites = ppu.evaluate_sprites_for_scanline(5);
         assert_eq!(v_flipped_middle_sprites.len(), 1, "Should find 1 sprite on scanline 5");
-        
+
         // Row 4 of the original pattern has a pixel at position 4.
         // When vertically flipped, we should get this pattern.
         let expected_v_flipped_middle = [0, 0, 0, 3, 0, 0, 0, 0];
-        assert_eq!(v_flipped_middle_sprites[0].tile_data, expected_v_flipped_middle, 
-            "Vertically flipped sprite middle row should match expected pattern");
+        assert_eq!(
+            v_flipped_middle_sprites[0].tile_data, expected_v_flipped_middle,
+            "Vertically flipped sprite middle row should match expected pattern"
+        );
     }
 
     #[test]
@@ -1829,7 +1886,7 @@ mod tests {
             0xFF, // All bits set
             0xFF, // All bits set
         ];
-        
+
         // Second bit plane - upper bit
         let bit_plane_1 = [
             0xFF, // All bits set
@@ -1857,13 +1914,13 @@ mod tests {
         ppu.write_palette(0x3F01, 0x30); // Background palette 0 color 1 (white)
         ppu.write_palette(0x3F02, 0x30); // Background palette 0 color 2 (white)
         ppu.write_palette(0x3F03, 0x30); // Background palette 0 color 3 (white)
-        
+
         // Sprite palette
         ppu.write_palette(0x3F10, 0x0F); // Universal sprite color (black)
         ppu.write_palette(0x3F11, 0x16); // Sprite palette 0 color 1 (red)
         ppu.write_palette(0x3F12, 0x16); // Sprite palette 0 color 2 (red)
         ppu.write_palette(0x3F13, 0x16); // Sprite palette 0 color 3 (red)
-        
+
         // Print palette values for debugging
         println!("DEBUG: Sprite palette values:");
         for i in 0..4 {
@@ -1871,77 +1928,91 @@ mod tests {
         }
 
         // STEP 1: Test sprite in front of background (priority bit = 0)
-        
+
         // Set up a background tile at position (100, 100)
-        ppu.write_ppu_memory(0x2000 + (100/8) * 32 + (100/8), 0); // Tile 0 in nametable
-        
+        ppu.write_ppu_memory(0x2000 + (100 / 8) * 32 + (100 / 8), 0); // Tile 0 in nametable
+
         // Manually set up background pixel at (100, 100)
         ppu.background_pixels[100 * 256 + 100] = 1; // Set to palette color 1
-        
+
         // Clear OAM memory
         for i in 0..256 {
             ppu.oam[i] = 0xFF; // Off-screen
         }
-        
+
         // Set up OAM for a sprite at the same position (100, 100)
         ppu.oam[0] = 100; // Y position
-        ppu.oam[1] = 0;   // Tile index 0
+        ppu.oam[1] = 0; // Tile index 0
         ppu.oam[2] = 0x00; // Attributes - Priority 0 (in front of background)
         ppu.oam[3] = 100; // X position
 
         // Enable both background and sprites
         ppu.mask = MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES;
-        
+
         // Render background first
         ppu.render_background();
-        
+
         // Render sprites for scanline 100
         ppu.render_sprites_for_scanline(100);
-        
-        
+
         // Check the pixel at (100, 100)
         let pixel_idx = (100 * 256 + 100) * 3;
-        
+
         // Direct write to the frame buffer to ensure we can see the effect of priority
         // This helps us isolate if the issue is with sprite rendering or with our test setup
-        ppu.frame_buffer[pixel_idx] = 255;     // R - Red
-        ppu.frame_buffer[pixel_idx + 1] = 0;   // G
-        ppu.frame_buffer[pixel_idx + 2] = 0;   // B
-        
+        ppu.frame_buffer[pixel_idx] = 255; // R - Red
+        ppu.frame_buffer[pixel_idx + 1] = 0; // G
+        ppu.frame_buffer[pixel_idx + 2] = 0; // B
+
         // Should now be red (direct write)
-        assert!(ppu.frame_buffer[pixel_idx] > 200, "Red component should be high after direct write");
-        assert!(ppu.frame_buffer[pixel_idx + 1] < 100, "Green component should be low after direct write");
-        
+        assert!(
+            ppu.frame_buffer[pixel_idx] > 200,
+            "Red component should be high after direct write"
+        );
+        assert!(
+            ppu.frame_buffer[pixel_idx + 1] < 100,
+            "Green component should be low after direct write"
+        );
+
         // STEP 2: Test sprite behind background (priority bit = 1)
-        
+
         // First render background again (setting it to white)
         ppu.render_background();
-        
+
         // Directly write the background pixel to white for testing
-        ppu.frame_buffer[pixel_idx] = 255;     // R
+        ppu.frame_buffer[pixel_idx] = 255; // R
         ppu.frame_buffer[pixel_idx + 1] = 255; // G
         ppu.frame_buffer[pixel_idx + 2] = 255; // B
-        
+
         // Update sprite attributes with priority bit set (sprite behind background)
         ppu.oam[2] = 0x20; // Attributes - Priority 1 (behind background)
-        
+
         // Render sprites for the scanline - should NOT overwrite background
         ppu.render_sprites_for_scanline(100);
-        
+
         // Should still be white since priority is 1 and background is non-transparent
-        assert!(ppu.frame_buffer[pixel_idx] > 200, "Background should be visible (white)");
-        assert!(ppu.frame_buffer[pixel_idx + 1] > 200, "Background should be visible (white)");
-        assert!(ppu.frame_buffer[pixel_idx + 2] > 200, "Background should be visible (white)");
+        assert!(
+            ppu.frame_buffer[pixel_idx] > 200,
+            "Background should be visible (white)"
+        );
+        assert!(
+            ppu.frame_buffer[pixel_idx + 1] > 200,
+            "Background should be visible (white)"
+        );
+        assert!(
+            ppu.frame_buffer[pixel_idx + 2] > 200,
+            "Background should be visible (white)"
+        );
     }
 
     #[test]
     fn test_sprite_rendering_diagnosis() {
         // Create a new PPU
         let mut ppu = Ppu::new();
-        
+
         // Create a simple pattern (solid block) for testing
         let mut pattern_data = vec![0; 0x2000]; // 8KB for pattern tables
-        
+
         // Set up the first tile (solid block)
         for i in 0..8 {
             pattern_data[i] = 0xFF; // First plane - all bits set
@@ -1949,79 +2020,96 @@ mod tests {
         for i in 8..16 {
             pattern_data[i] = 0xFF; // Second plane - all bits set
         }
-        
+
         // Create and connect cartridge
         let mut cart = Cartridge::new();
         cart.load_chr_rom(&pattern_data);
         ppu.connect_cartridge(cart);
-        
+
         // Verify pattern table data
         let pattern_data_0 = ppu.cartridge().unwrap().read_pattern_table(0);
         let pattern_data_8 = ppu.cartridge().unwrap().read_pattern_table(8);
         assert_eq!(pattern_data_0, 0xFF, "Pattern data at 0x0000 should be 0xFF");
         assert_eq!(pattern_data_8, 0xFF, "Pattern data at 0x0008 should be 0xFF");
-        
+
         // Set bright white color for sprite palette 0
         ppu.write_palette(0x3F10, 0x30); // Universal sprite color (black)
         ppu.write_palette(0x3F11, 0x30); // Sprite palette 0 color 1 (white)
         ppu.write_palette(0x3F12, 0x30); // Sprite palette 0 color 2 (white)
         ppu.write_palette(0x3F13, 0x30); // Sprite palette 0 color 3 (white)
-        assert_eq!(ppu.read_palette(0x3F11), 0x30, "Sprite palette color should be white (0x30)");
-        
+        assert_eq!(
+            ppu.read_palette(0x3F11),
+            0x30,
+            "Sprite palette color should be white (0x30)"
+        );
+
         // Clear OAM to eliminate any artifacts
         for i in 0..256 {
             ppu.oam[i] = 0xFF; // Off-screen
         }
-        
+
         // Set up a sprite at position (100, 100)
         ppu.oam[0] = 100; // Y position
-        ppu.oam[1] = 0;   // Tile index 0
-        ppu.oam[2] = 0;   // Attributes - palette 0, no flip, priority 0
+        ppu.oam[1] = 0; // Tile index 0
+        ppu.oam[2] = 0; // Attributes - palette 0, no flip, priority 0
         ppu.oam[3] = 100; // X position
-        
+
         // Enable sprite rendering
         ppu.mask = MASK_SHOW_SPRITES;
-        
+
         // Add debug info
         println!("Starting tick loop with PPUMASK: {:02X}", ppu.mask);
-        println!("OAM setup: Y={}, tile={}, attr={}, X={}", 
-            ppu.oam[0], ppu.oam[1], ppu.oam[2], ppu.oam[3]);
-        
+        println!(
+            "OAM setup: Y={}, tile={}, attr={}, X={}",
+            ppu.oam[0], ppu.oam[1], ppu.oam[2], ppu.oam[3]
+        );
+
         // Run enough PPU cycles to complete a frame
         // This simulates normal operation where render_frame is called during vblank
-        for i in 0..262*341 {
-            if i == 262*340 {
-                println!("About to complete the frame. Current scanline: {}, cycle: {}", 
-                    ppu.scanline, ppu.cycle);
+        for i in 0..262 * 341 {
+            if i == 262 * 340 {
+                println!(
+                    "About to complete the frame. Current scanline: {}, cycle: {}",
+                    ppu.scanline, ppu.cycle
+                );
             }
             ppu.tick();
         }
-        
+
         // Add debug info after ticks
-        println!("After ticks - Scanline: {}, Cycle: {}, Frame Count: {}", 
-            ppu.scanline, ppu.cycle, ppu.frame_count);
-        
+        println!(
+            "After ticks - Scanline: {}, Cycle: {}, Frame Count: {}",
+            ppu.scanline, ppu.cycle, ppu.frame_count
+        );
+
         // Check if we can directly render the frame
         let rendered_directly = true;
         if rendered_directly {
             ppu.render_frame();
             println!("Forced render_frame call");
         }
-        
+
         // Should be white
         let pixel_idx = (100 * 256 + 100) * 3;
-        println!("Final pixel at (100,100): ({}, {}, {})",
+        println!(
+            "Final pixel at (100,100): ({}, {}, {})",
             ppu.frame_buffer[pixel_idx],
             ppu.frame_buffer[pixel_idx + 1],
-            ppu.frame_buffer[pixel_idx + 2]);
-        
+            ppu.frame_buffer[pixel_idx + 2]
+        );
+
         // Try a more direct call to the sprite rendering to verify it works
         ppu.render_sprites_for_scanline(100);
-        println!("After direct render_sprites_for_scanline call: ({}, {}, {})",
+        println!(
+            "After direct render_sprites_for_scanline call: ({}, {}, {})",
             ppu.frame_buffer[pixel_idx],
             ppu.frame_buffer[pixel_idx + 1],
-            ppu.frame_buffer[pixel_idx + 2]);
-        
-        assert!(ppu.frame_buffer[pixel_idx] > 200, "Red component should be high after PPU cycles");
+            ppu.frame_buffer[pixel_idx + 2]
+        );
+
+        assert!(
+            ppu.frame_buffer[pixel_idx] > 200,
+            "Red component should be high after PPU cycles"
+        );
     }
 }
