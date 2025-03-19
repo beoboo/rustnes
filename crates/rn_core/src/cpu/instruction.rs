@@ -42,6 +42,8 @@ pub enum Instruction {
     BNE, // Branch if Not Equal (Z flag = 0)
     ADC, // Add Memory to Accumulator with Carry
     SBC, // Subtract Memory from Accumulator with Borrow
+    CMP, // Compare Memory with Accumulator
+    TXS, // Transfer X to Stack Pointer
 }
 
 impl Instruction {
@@ -52,16 +54,22 @@ impl Instruction {
 
     /// Returns true if the instruction has implied addressing
     pub fn has_implied_addressing(&self) -> bool {
-        matches!(self, Instruction::RTS | Instruction::BRK | Instruction::NOP | Instruction::CLC | Instruction::SEC)
+        matches!(
+            self,
+            Instruction::RTS
+                | Instruction::BRK
+                | Instruction::NOP
+                | Instruction::CLC
+                | Instruction::SEC
+                | Instruction::TXS
+        )
     }
     
     /// Returns true if the instruction directly modifies the program counter
     pub fn modifies_pc(&self) -> bool {
         matches!(
             self,
-            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK |
-            // Branch instructions
-            Instruction::BPL | Instruction::BEQ | Instruction::BNE
+            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK | Instruction::BPL | Instruction::BEQ | Instruction::BNE
         )
     }
 }
@@ -99,84 +107,68 @@ impl InstructionDecoder {
 
     /// Populate the instruction lookup table with LDA addressing modes for T1
     fn populate_instruction_table(&mut self) {
-        // LDA - Load Accumulator
-        self.add_instruction(0xA9, Instruction::LDA, AddressingMode::Immediate, 2, 2); // LDA Immediate
-        self.add_instruction(0xA5, Instruction::LDA, AddressingMode::ZeroPage, 2, 3); // LDA Zero Page
-        self.add_instruction(0xAD, Instruction::LDA, AddressingMode::Absolute, 3, 4); // LDA Absolute
+        // Load instructions
+        self.add_instruction(0xA9, Instruction::LDA, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0xA5, Instruction::LDA, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0xAD, Instruction::LDA, AddressingMode::Absolute, 3, 4);
 
-        // LDX - Load X Register
-        self.add_instruction(0xA2, Instruction::LDX, AddressingMode::Immediate, 2, 2); // LDX Immediate
-        self.add_instruction(0xA6, Instruction::LDX, AddressingMode::ZeroPage, 2, 3); // LDX Zero Page
-        self.add_instruction(0xAE, Instruction::LDX, AddressingMode::Absolute, 3, 4); // LDX Absolute
+        self.add_instruction(0xA2, Instruction::LDX, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0xA6, Instruction::LDX, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0xAE, Instruction::LDX, AddressingMode::Absolute, 3, 4);
 
-        // LDY - Load Y Register
-        self.add_instruction(0xA0, Instruction::LDY, AddressingMode::Immediate, 2, 2); // LDY Immediate
-        self.add_instruction(0xA4, Instruction::LDY, AddressingMode::ZeroPage, 2, 3); // LDY Zero Page
-        self.add_instruction(0xAC, Instruction::LDY, AddressingMode::Absolute, 3, 4); // LDY Absolute
+        self.add_instruction(0xA0, Instruction::LDY, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0xA4, Instruction::LDY, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0xAC, Instruction::LDY, AddressingMode::Absolute, 3, 4);
 
-        // STA - Store Accumulator
-        self.add_instruction(0x85, Instruction::STA, AddressingMode::ZeroPage, 2, 3); // STA Zero Page
-        self.add_instruction(0x8D, Instruction::STA, AddressingMode::Absolute, 3, 4); // STA Absolute
+        // Store instructions
+        self.add_instruction(0x85, Instruction::STA, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x8D, Instruction::STA, AddressingMode::Absolute, 3, 4);
 
-        // STX - Store X Register
-        self.add_instruction(0x86, Instruction::STX, AddressingMode::ZeroPage, 2, 3); // STX Zero Page
-        self.add_instruction(0x8E, Instruction::STX, AddressingMode::Absolute, 3, 4); // STX Absolute
+        self.add_instruction(0x86, Instruction::STX, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x8E, Instruction::STX, AddressingMode::Absolute, 3, 4);
 
-        // STY - Store Y Register
-        self.add_instruction(0x84, Instruction::STY, AddressingMode::ZeroPage, 2, 3); // STY Zero Page
-        self.add_instruction(0x8C, Instruction::STY, AddressingMode::Absolute, 3, 4); // STY Absolute
+        self.add_instruction(0x84, Instruction::STY, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x8C, Instruction::STY, AddressingMode::Absolute, 3, 4);
 
-        // JMP - Jump to new location
-        self.add_instruction(0x4C, Instruction::JMP, AddressingMode::Absolute, 3, 3); // JMP Absolute
-        self.add_instruction(0x6C, Instruction::JMP, AddressingMode::Indirect, 3, 5); // JMP Indirect
+        // Jump and call instructions
+        self.add_instruction(0x4C, Instruction::JMP, AddressingMode::Absolute, 3, 3);
+        self.add_instruction(0x6C, Instruction::JMP, AddressingMode::Indirect, 3, 5);
+        self.add_instruction(0x20, Instruction::JSR, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0x60, Instruction::RTS, AddressingMode::Implied, 1, 6);
 
-        // JSR - Jump to Subroutine
-        self.add_instruction(0x20, Instruction::JSR, AddressingMode::Absolute, 3, 6); // JSR Absolute
-
-        // RTS - Return from Subroutine
-        self.add_instruction(0x60, Instruction::RTS, AddressingMode::Implied, 1, 6); // RTS Implied
-
-        // BRK - Break/interrupt
+        // Break and No Operation
         self.add_instruction(0x00, Instruction::BRK, AddressingMode::Implied, 1, 7);
-        // BRK Implied
-
-        // NOP - No Operation
         self.add_instruction(0xEA, Instruction::NOP, AddressingMode::Implied, 1, 2);
-        // NOP Implied
 
-        // BIT - Bit Test
-        self.add_instruction(0x24, Instruction::BIT, AddressingMode::ZeroPage, 2, 3); // BIT Zero Page
-        self.add_instruction(0x2C, Instruction::BIT, AddressingMode::Absolute, 3, 4); // BIT Absolute
+        // Bit test
+        self.add_instruction(0x24, Instruction::BIT, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x2C, Instruction::BIT, AddressingMode::Absolute, 3, 4);
 
-        // BPL - Branch on Plus (N flag = 0)
+        // Branch instructions
         self.add_instruction(0x10, Instruction::BPL, AddressingMode::Relative, 2, 2);
-        // BPL Relative
-
-        // CLC - Clear Carry Flag
-        self.add_instruction(0x18, Instruction::CLC, AddressingMode::Implied, 1, 2);
-        // CLC Implied
-
-        // SEC - Set Carry Flag
-        self.add_instruction(0x38, Instruction::SEC, AddressingMode::Implied, 1, 2);
-        // SEC Implied
-
-        // BEQ - Branch if Equal (Z flag = 1)
         self.add_instruction(0xF0, Instruction::BEQ, AddressingMode::Relative, 2, 2);
-        // BEQ Relative
-
-        // BNE - Branch if Not Equal (Z flag = 0)
         self.add_instruction(0xD0, Instruction::BNE, AddressingMode::Relative, 2, 2);
-        // BNE Relative
+
+        // Status flag instructions
+        self.add_instruction(0x18, Instruction::CLC, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x38, Instruction::SEC, AddressingMode::Implied, 1, 2);
+
+        // Arithmetic instructions
+        self.add_instruction(0x69, Instruction::ADC, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x65, Instruction::ADC, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x6D, Instruction::ADC, AddressingMode::Absolute, 3, 4);
+
+        self.add_instruction(0xE9, Instruction::SBC, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0xE5, Instruction::SBC, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0xED, Instruction::SBC, AddressingMode::Absolute, 3, 4);
+
+        // Comparison instructions
+        self.add_instruction(0xC9, Instruction::CMP, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0xC5, Instruction::CMP, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0xCD, Instruction::CMP, AddressingMode::Absolute, 3, 4);
         
-        // ADC - Add Memory to Accumulator with Carry
-        self.add_instruction(0x69, Instruction::ADC, AddressingMode::Immediate, 2, 2); // ADC Immediate
-        self.add_instruction(0x65, Instruction::ADC, AddressingMode::ZeroPage, 2, 3); // ADC Zero Page
-        self.add_instruction(0x6D, Instruction::ADC, AddressingMode::Absolute, 3, 4); // ADC Absolute
-        
-        // SBC - Subtract Memory from Accumulator with Borrow
-        self.add_instruction(0xE9, Instruction::SBC, AddressingMode::Immediate, 2, 2); // SBC Immediate
-        self.add_instruction(0xE5, Instruction::SBC, AddressingMode::ZeroPage, 2, 3); // SBC Zero Page
-        self.add_instruction(0xED, Instruction::SBC, AddressingMode::Absolute, 3, 4); // SBC Absolute
+        // Register transfer instructions
+        self.add_instruction(0x9A, Instruction::TXS, AddressingMode::Implied, 1, 2);
     }
 
     /// Add an instruction to the lookup tables
@@ -230,46 +222,40 @@ impl Cpu {
 
     /// Execute a single instruction
     pub fn execute(&mut self, instruction_metadata: InstructionMetadata) -> Result<u8, NesError> {
-        let mut cycles = instruction_metadata.cycles;
+        let instruction = instruction_metadata.instruction;
+        let addressing_mode = instruction_metadata.addressing_mode;
+        let mut additional_cycles = 0;
 
-        // Execute the instruction based on addressing mode
-        match instruction_metadata.instruction {
-            Instruction::LDA => self.lda(instruction_metadata.addressing_mode)?,
-            Instruction::LDX => self.ldx(instruction_metadata.addressing_mode)?,
-            Instruction::LDY => self.ldy(instruction_metadata.addressing_mode)?,
-            Instruction::STA => self.sta(instruction_metadata.addressing_mode)?,
-            Instruction::STX => self.stx(instruction_metadata.addressing_mode)?,
-            Instruction::STY => self.sty(instruction_metadata.addressing_mode)?,
-            Instruction::JMP => self.jmp(instruction_metadata.addressing_mode)?,
-            Instruction::JSR => self.jsr(instruction_metadata.addressing_mode)?,
+        match instruction {
+            Instruction::LDA => self.lda(addressing_mode)?,
+            Instruction::LDX => self.ldx(addressing_mode)?,
+            Instruction::LDY => self.ldy(addressing_mode)?,
+            Instruction::STA => self.sta(addressing_mode)?,
+            Instruction::STX => self.stx(addressing_mode)?,
+            Instruction::STY => self.sty(addressing_mode)?,
+            Instruction::JMP => self.jmp(addressing_mode)?,
+            Instruction::JSR => self.jsr(addressing_mode)?,
             Instruction::RTS => self.rts()?,
             Instruction::BRK => self.brk()?,
             Instruction::NOP => self.nop(),
-            Instruction::BIT => self.bit(instruction_metadata.addressing_mode)?,
-            Instruction::BPL => {
-                let additional_cycles = self.bpl()?;
-                cycles = cycles.wrapping_add(additional_cycles);
-            },
+            Instruction::BIT => self.bit(addressing_mode)?,
+            Instruction::BPL => additional_cycles = self.bpl()?,
             Instruction::CLC => self.clc(),
             Instruction::SEC => self.sec(),
-            Instruction::BEQ => {
-                let additional_cycles = self.beq()?;
-                cycles = cycles.wrapping_add(additional_cycles);
-            },
-            Instruction::BNE => {
-                let additional_cycles = self.bne()?;
-                cycles = cycles.wrapping_add(additional_cycles);
-            },
-            Instruction::ADC => self.adc(instruction_metadata.addressing_mode)?,
-            Instruction::SBC => self.sbc(instruction_metadata.addressing_mode)?,
+            Instruction::BEQ => additional_cycles = self.beq()?,
+            Instruction::BNE => additional_cycles = self.bne()?,
+            Instruction::ADC => self.adc(addressing_mode)?,
+            Instruction::SBC => self.sbc(addressing_mode)?,
+            Instruction::CMP => self.cmp(addressing_mode)?,
+            Instruction::TXS => self.txs(),
         }
 
         // Increment PC for non-jump/call/branch instructions (already incremented by 1 in fetch)
-        if !instruction_metadata.instruction.modifies_pc() {
+        if !instruction.modifies_pc() {
             self.registers.pc = self.registers.pc.wrapping_add((instruction_metadata.bytes - 1) as u16);
         }
 
-        Ok(cycles)
+        Ok(additional_cycles)
     }
 
     /// Helper method for load instructions (LDA, LDX, LDY)
@@ -615,6 +601,30 @@ impl Cpu {
         self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
         
         Ok(())
+    }
+
+    /// CMP - Compare Memory with Accumulator
+    pub fn cmp(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.load_register(addressing_mode)?;
+        
+        // Compare A with memory value
+        // This is essentially A - M without storing the result
+        let result = self.registers.a.wrapping_sub(value);
+        
+        // Set the carry flag if A >= M (carry = NOT borrow)
+        self.set_flag(CpuFlag::Carry, self.registers.a >= value);
+        
+        // Set the zero flag if A = M
+        self.set_flag(CpuFlag::Zero, self.registers.a == value);
+        
+        // Set the negative flag based on bit 7 of the result
+        self.set_flag(CpuFlag::Negative, (result & 0x80) != 0);
+        
+        Ok(())
+    }
+
+    pub fn txs(&mut self) {
+        self.registers.sp = self.registers.x;
     }
 }
 
@@ -1799,5 +1809,95 @@ mod tests {
         assert_eq!(cpu.get_flag(CpuFlag::Negative), true, "Negative flag should be set");
         
         Ok(())
+    }
+
+    #[test]
+    fn test_cmp_instruction() -> Result<()> {
+        // Set up CPU with memory
+        let mut cpu = Cpu::new();
+        let memory = Rc::new(RefCell::new(Bus::new()));
+        memory.borrow_mut().attach_component(Box::new(Ram::with_range(0x0000, 0xFFFF)));
+        cpu.connect_memory(memory.clone());
+
+        // Case 1: A = M (Equal, Zero flag set, Carry flag set)
+        cpu.registers.a = 0x40;
+        
+        // Write CMP #$40 to memory (opcode 0xC9 followed by immediate value 0x40)
+        memory.borrow_mut().write_byte(0x8000, 0xC9)?;
+        memory.borrow_mut().write_byte(0x8001, 0x40)?;
+        
+        // Set PC to instruction
+        cpu.registers.pc = 0x8000;
+        
+        // Execute instruction
+        let opcode = cpu.fetch()?;
+        let metadata = cpu.decoder.decode(opcode)?;
+        cpu.execute(metadata)?;
+        
+        // Result should set Zero flag and Carry flag, and not modify accumulator
+        assert_eq!(cpu.registers.a, 0x40, "Accumulator should not be modified");
+        assert_eq!(cpu.get_flag(CpuFlag::Zero), true, "Zero flag should be set");
+        assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
+        assert_eq!(cpu.get_flag(CpuFlag::Negative), false, "Negative flag should not be set");
+        
+        // Case 2: A > M (Carry set, Zero clear)
+        cpu.registers.a = 0x50;
+        
+        // Write CMP #$40 to memory
+        memory.borrow_mut().write_byte(0x8002, 0xC9)?;
+        memory.borrow_mut().write_byte(0x8003, 0x40)?;
+        
+        // Set PC to instruction
+        cpu.registers.pc = 0x8002;
+        
+        // Execute instruction
+        let opcode = cpu.fetch()?;
+        let metadata = cpu.decoder.decode(opcode)?;
+        cpu.execute(metadata)?;
+        
+        // Result: A (0x50) > M (0x40), so carry set, zero clear
+        assert_eq!(cpu.registers.a, 0x50, "Accumulator should not be modified");
+        assert_eq!(cpu.get_flag(CpuFlag::Zero), false, "Zero flag should not be set");
+        assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
+        
+        // Case 3: A < M (Carry clear, Zero clear, potentially Negative set)
+        cpu.registers.a = 0x30;
+        
+        // Write CMP #$40 to memory
+        memory.borrow_mut().write_byte(0x8004, 0xC9)?;
+        memory.borrow_mut().write_byte(0x8005, 0x40)?;
+        
+        // Set PC to instruction
+        cpu.registers.pc = 0x8004;
+        
+        // Execute instruction
+        let opcode = cpu.fetch()?;
+        let metadata = cpu.decoder.decode(opcode)?;
+        cpu.execute(metadata)?;
+        
+        // Result: A (0x30) < M (0x40), so carry clear, zero clear, negative likely set
+        assert_eq!(cpu.registers.a, 0x30, "Accumulator should not be modified");
+        assert_eq!(cpu.get_flag(CpuFlag::Zero), false, "Zero flag should not be set");
+        assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should not be set");
+        assert_eq!(cpu.get_flag(CpuFlag::Negative), true, "Negative flag should be set");
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_txs_instruction() {
+        let mut cpu = setup_cpu();
+        
+        // Set a value in X register
+        cpu.registers.x = 0xAA;
+        
+        // Execute TXS instruction
+        cpu.txs();
+        
+        // Verify SP was updated with X register value
+        assert_eq!(cpu.registers.sp, 0xAA);
+        
+        // Verify flags are not changed by TXS
+        assert_eq!(cpu.registers.status, 0x34); // Default status
     }
 }

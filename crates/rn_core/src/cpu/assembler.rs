@@ -496,7 +496,7 @@ impl Assembler {
     /// If labels map is provided, label references in operands will be resolved
     pub fn assemble_instruction(&mut self, input: &str, labels: &HashMap<String, u16>) -> AssembleResult<Vec<u8>> {
         // Split input into mnemonic and operand
-        let (instruction, operand_opt) = split_instruction(&input)?;
+        let (instruction, operand_opt) = split_instruction(input)?;
 
         // Handle implied addressing mode (no operand)
         if instruction.has_implied_addressing() {
@@ -1358,6 +1358,125 @@ mod tests {
         assert_eq!(code[3], 0xED); // SBC $2000
         assert_eq!(code[4], 0x00); // Low byte of $2000
         assert_eq!(code[5], 0x20); // High byte of $2000
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_assemble_comparison_instructions() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000);
+        
+        // Test CMP with immediate addressing
+        let program = "
+            LDA #$40    ; Load 0x40 into accumulator
+            CMP #$40    ; Compare with 0x40 (should be equal)
+            CMP #$30    ; Compare with 0x30 (should be greater)
+            CMP #$50    ; Compare with 0x50 (should be less)
+        ";
+        
+        let segments = assembler.assemble_program(program)?;
+        let code = segments.get("STARTUP").unwrap();
+        
+        // Check that opcodes match expected values
+        assert_eq!(code[0], 0xA9); // LDA #$40
+        assert_eq!(code[1], 0x40); // Value $40
+        
+        assert_eq!(code[2], 0xC9); // CMP #$40
+        assert_eq!(code[3], 0x40); // Value $40
+        
+        assert_eq!(code[4], 0xC9); // CMP #$30
+        assert_eq!(code[5], 0x30); // Value $30
+        
+        assert_eq!(code[6], 0xC9); // CMP #$50
+        assert_eq!(code[7], 0x50); // Value $50
+        
+        // Test with zero page addressing
+        let zp_program = "
+            CMP $10     ; Compare with value at zero page address $10
+        ";
+        
+        let segments = assembler.assemble_program(zp_program)?;
+        let code = segments.get("STARTUP").unwrap();
+        
+        assert_eq!(code[0], 0xC5); // CMP $10
+        assert_eq!(code[1], 0x10); // Zero page address $10
+        
+        // Test with absolute addressing
+        let abs_program = "
+            CMP $1000   ; Compare with value at address $1000
+        ";
+        
+        let segments = assembler.assemble_program(abs_program)?;
+        let code = segments.get("STARTUP").unwrap();
+        
+        assert_eq!(code[0], 0xCD); // CMP $1000
+        assert_eq!(code[1], 0x00); // Low byte of $1000
+        assert_eq!(code[2], 0x10); // High byte of $1000
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_assemble_transfer_instructions() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000);
+        
+        // Test TXS (Transfer X to Stack Pointer)
+        let txs_program = "
+            LDX #$FF    ; Load 0xFF into X
+            TXS         ; Transfer X to Stack Pointer
+        ";
+        
+        let segments = assembler.assemble_program(txs_program)?;
+        let code = segments.get("STARTUP").unwrap();
+        
+        // Check opcode for LDX #$FF
+        assert_eq!(code[0], 0xA2); // LDX immediate
+        assert_eq!(code[1], 0xFF); // Value 0xFF
+        
+        // Check opcode for TXS
+        assert_eq!(code[2], 0x9A); // TXS implied
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_variable_declarations_with_labels() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000);
+        
+        // Add required segments
+        assembler.segments.add("ZEROPAGE", 0x0000);
+        
+        // Test program with variable declarations using labels
+        let program = "
+            .segment \"ZEROPAGE\"
+            ball_x: .res 1    ; Reserve 1 byte for ball_x at $0000
+            ball_y: .res 1    ; Reserve 1 byte for ball_y at $0001
+            
+            .segment \"STARTUP\"
+            LDA #$50          ; Initial X position
+            STA ball_x        ; Store in ball_x variable
+            
+            LDA #$60          ; Initial Y position
+            STA ball_y        ; Store in ball_y variable
+        ";
+        
+        let segments = assembler.assemble_program(program)?;
+        
+        // Check that variables were correctly reserved in ZEROPAGE segment
+        let zeropage = segments.get("ZEROPAGE").unwrap();
+        assert_eq!(zeropage.len(), 2); // Two bytes reserved
+        
+        // Check code in STARTUP segment
+        let code = segments.get("STARTUP").unwrap();
+        assert_eq!(code[0], 0xA9); // LDA immediate
+        assert_eq!(code[1], 0x50); // Value $50
+        assert_eq!(code[2], 0x85); // STA zero page
+        assert_eq!(code[3], 0x00); // Address $00 (ball_x)
+        
+        assert_eq!(code[4], 0xA9); // LDA immediate
+        assert_eq!(code[5], 0x60); // Value $60
+        assert_eq!(code[6], 0x85); // STA zero page
+        assert_eq!(code[7], 0x01); // Address $01 (ball_y)
         
         Ok(())
     }

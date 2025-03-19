@@ -260,8 +260,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement status flag changes (CLC, SEC) for arithmetic
 - [x] Implement additional branches needed (BEQ, BNE) for flow control
 - [x] Implement basic arithmetic (ADC, SBC) for position updates
-- [ ] Implement comparison (CMP) for bounds checking
-- [ ] Implement register transfer instructions (TXS) for stack initialization
+- [x] Implement comparison (CMP) for bounds checking
+- [x] Implement register transfer instructions (TXS) for stack initialization
 - [ ] Write tests for these animation instructions
 
 ### [CPU] Advanced Addressing Modes [T4]
@@ -281,13 +281,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Add support for disassembling status flag instructions (CLC, SEC)
 - [x] Add support for disassembling branch instructions (BEQ, BNE)
 - [x] Add support for disassembling arithmetic instructions (ADC, SBC)
-- [ ] Add support for disassembling comparison instruction (CMP)
+- [x] Add support for disassembling comparison instruction (CMP)
 - [ ] Enhance disassembler to support advanced addressing modes
 
 ### [Assembler] Additional NES Assembler Features [T4]
 - [ ] Implement ZEROPAGE segment support for variable declarations
-- [ ] Implement stack manipulation instructions (LDX #$FF, TXS)
-- [ ] Support variable declarations with labels (ball_x: .res 1)
+- [x] Implement stack manipulation instructions (LDX #$FF, TXS)
+- [✓] Support variable declarations with labels (ball_x: .res 1) [In Progress]
 - [ ] Implement support for multi-tile sprite patterns
 - [ ] Add support for complex expressions in sprite positioning (ADC #$08)
 - [ ] Support recognition of all NES-specific memory segments ("HEADER", "ZEROPAGE", "STARTUP", "VECTORS", "CHARS")
@@ -552,13 +552,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 1 (Memory Visualization): 100% complete (50/50 tasks)
 - Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
-- Track 4 (Animated Sprites): 57% complete (27/47 tasks) - Implemented advanced addressing modes, status flag instructions, flow control branches, and arithmetic instructions
+- Track 4 (Animated Sprites): 64% complete (30/47 tasks) - Implemented advanced addressing modes, status flag instructions, flow control branches, arithmetic instructions, comparison instruction, and stack manipulation
 - Track 5 (Input Controllers): 10% complete (2/20 tasks) - DMA controller implemented
 - Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 7 (Full Desktop System): 0% complete (0/90 tasks)
 - Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 173/366 tasks complete (47.3%)** 🚀
+**Total Progress: 176/366 tasks complete (48.1%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 
