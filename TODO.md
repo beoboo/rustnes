@@ -274,15 +274,15 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement parsing for status flag instructions (CLC, SEC)
 - [x] Implement parsing for branch instructions (BEQ, BNE)
 - [x] Implement parsing for arithmetic instructions (ADC, SBC)
-- [ ] Implement parsing for comparison instruction (CMP)
-- [ ] Add tests for these instructions
+- [x] Implement parsing for comparison instruction (CMP)
+- [x] Add tests for these instructions
 
 ### [Disassembler] Extended Support [T4]
 - [x] Add support for disassembling status flag instructions (CLC, SEC)
 - [x] Add support for disassembling branch instructions (BEQ, BNE)
 - [x] Add support for disassembling arithmetic instructions (ADC, SBC)
 - [x] Add support for disassembling comparison instruction (CMP)
-- [ ] Enhance disassembler to support advanced addressing modes
+- [x] Enhance disassembler to support advanced addressing modes
 
 ### [Assembler] Additional NES Assembler Features [T4]
 - [ ] Implement ZEROPAGE segment support for variable declarations
@@ -552,13 +552,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 1 (Memory Visualization): 100% complete (50/50 tasks)
 - Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
-- Track 4 (Animated Sprites): 64% complete (30/47 tasks) - Implemented advanced addressing modes, status flag instructions, flow control branches, arithmetic instructions, comparison instruction, and stack manipulation
+- Track 4 (Animated Sprites): 68% complete (32/47 tasks) - Implemented advanced addressing modes, status flag instructions, flow control branches, arithmetic instructions, comparison instruction, and stack manipulation, with enhanced disassembler support
 - Track 5 (Input Controllers): 10% complete (2/20 tasks) - DMA controller implemented
 - Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 7 (Full Desktop System): 0% complete (0/90 tasks)
 - Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 176/366 tasks complete (48.1%)** 🚀
+**Total Progress: 178/366 tasks complete (48.6%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 

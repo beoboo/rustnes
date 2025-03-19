@@ -157,6 +157,11 @@ impl Cpu {
         }
     }
 
+    /// Get a copy of the current registers
+    pub fn registers(&self) -> CpuRegisters {
+        self.registers
+    }
+
     pub fn connect_memory(&mut self, memory: Rc<RefCell<dyn Addressable>>) {
         self.memory = Some(memory);
     }
@@ -287,10 +292,15 @@ impl Cpu {
         let metadata = self.decoder.decode(opcode)?;
 
         // Execute instruction and update cycle count
-        let cycles = self.execute(metadata)?;
-        self.cycles += cycles as u64;
+        let additional_cycles = self.execute(metadata)?;
+        
+        // Calculate total cycles: base cycles from metadata + any additional cycles
+        let total_cycles = metadata.cycles + additional_cycles;
+        
+        // Update the CPU's cycle counter
+        self.cycles += total_cycles as u64;
 
-        Ok(cycles)
+        Ok(total_cycles)
     }
 }
 

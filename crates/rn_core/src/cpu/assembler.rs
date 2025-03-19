@@ -49,6 +49,9 @@ pub enum AssembleError {
 
     #[error("Addressing mode error: {0}")]
     AddressingModeError(#[from] AddressingModeError),
+
+    #[error("Invalid operand: {0}")]
+    InvalidOperand(String),
 }
 
 /// Result type for parsing operations
@@ -246,20 +249,54 @@ impl Assembler {
         self.segments.reset();
 
         // Second pass: process directives and assemble instructions with resolved labels
-        for line in program.lines() {
+        let mut line_index = 0;
+        let lines: Vec<&str> = program.lines().collect();
+        
+        while line_index < lines.len() {
+            // Get current line
+            let line = lines[line_index];
+            line_index += 1;
+            
             // Clean the line - removing comments and trimming whitespace
-            let Some(line) = self.clean_line(line) else {
+            let Some(clean_line) = self.clean_line(line) else {
                 continue;
             };
 
-            // Handle directives first
-            if let Some(directive) = self.parse_directive(&line, &labels)? {
+            // Process the line to get label and code
+            let (_label, code_opt) = process_line(&clean_line)?;
+            
+            // If label is not empty, add it to the label set for reference from the current 
+            // segment's address if it hasn't already been done in the first pass
+            
+            // Handle directives (can appear with or without labels)
+            if let Some(code) = code_opt.clone() {
+                if code.starts_with('.') {
+                    // This is a directive
+                    if let Some(directive) = self.parse_directive(&code, &labels)? {
+                        self.apply_directive(&directive)?;
+                        continue;
+                    }
+                }
+            } else if line_index < lines.len() {
+                // Check if the next line has a directive that should be associated with this label
+                let next_line = lines[line_index];
+                if let Some(next_clean_line) = self.clean_line(next_line) {
+                    if next_clean_line.starts_with('.') {
+                        // Process this directive on the current segment
+                        if let Some(directive) = self.parse_directive(&next_clean_line, &labels)? {
+                            self.apply_directive(&directive)?;
+                            line_index += 1; // Skip the directive line since we processed it
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Handle standalone directives
+            if let Some(directive) = self.parse_directive(&clean_line, &labels)? {
                 self.apply_directive(&directive)?;
                 continue;
             }
-
-            // Process the line to get label and code
-            let (_label, code_opt) = process_line(&line)?;
 
             // Skip if no code to assemble
             let Some(code) = code_opt else {
@@ -618,6 +655,53 @@ impl Assembler {
             return Ok((AddressingMode::Immediate, value as u16));
         }
 
+        // Check for indexed addressing modes
+        if operand.contains(',') {
+            let parts: Vec<&str> = operand.split(',').collect();
+            if parts.len() != 2 {
+                return Err(AssembleError::InvalidOperand(format!(
+                    "Invalid indexed operand format: {}",
+                    operand
+                )));
+            }
+
+            let addr_part = parts[0].trim();
+            let idx_part = parts[1].trim();
+
+
+            if addr_part.starts_with('$') {
+                if addr_part.len() == 3 {
+                    let value = parse_value::<u8>(addr_part)?;
+
+                    // Zero Page,X addressing mode: $xx,X
+                    if idx_part.eq_ignore_ascii_case("x") {
+                        return Ok((AddressingMode::ZeroPageX, value as u16));
+                    }
+
+                    // Zero Page,Y addressing mode: $xx,Y
+                    if idx_part.eq_ignore_ascii_case("y") {
+                        return Ok((AddressingMode::ZeroPageY, value as u16));
+                    }
+                }
+
+                if addr_part.len() == 5 {
+                    let value = parse_value::<u16>(addr_part)?;
+                    
+                    // Absolute,X addressing mode: $xxxx,X
+                    if idx_part.eq_ignore_ascii_case("x") {
+                        return Ok((AddressingMode::AbsoluteX, value));
+                    }
+
+                    // Absolute,Y addressing mode: $xxxx,Y  
+                    if idx_part.eq_ignore_ascii_case("y") {
+                        return Ok((AddressingMode::AbsoluteY, value));
+                    }
+                }
+            }
+
+            return Err(AssembleError::InvalidOperand(format!("Invalid indexed operand: {}", operand)));
+        }
+
         // Zero Page: $xx (where xx is 00-FF)
         // Note: For branch instructions, this could also be a relative address
         if operand.starts_with('$') && operand.len() == 3 {
@@ -688,10 +772,16 @@ impl Assembler {
         let mut bytes = vec![opcode];
 
         match addressing_mode {
-            AddressingMode::Immediate | AddressingMode::ZeroPage | AddressingMode::Relative => {
+            AddressingMode::Immediate | 
+            AddressingMode::ZeroPage | 
+            AddressingMode::ZeroPageX | 
+            AddressingMode::ZeroPageY | 
+            AddressingMode::Relative => {
                 bytes.push(operand_value as u8);
             },
-            AddressingMode::Absolute => {
+            AddressingMode::Absolute | 
+            AddressingMode::AbsoluteX | 
+            AddressingMode::AbsoluteY => {
                 bytes.push((operand_value & 0xFF) as u8);
                 bytes.push((operand_value >> 8) as u8);
             },
@@ -733,6 +823,7 @@ fn process_line(line: &str) -> AssembleResult<(String, Option<String>)> {
 
         // If there's code after the label, return it as well
         let remainder = line[idx + 1..].trim();
+                
         if !remainder.is_empty() {
             return Ok((label, Some(remainder.to_string())));
         }
@@ -1413,6 +1504,27 @@ mod tests {
         assert_eq!(code[1], 0x00); // Low byte of $1000
         assert_eq!(code[2], 0x10); // High byte of $1000
         
+        // Test with indexed addressing modes
+        let idx_program = "
+            CMP $10,X   ; Compare with value at zero page address $10 + X
+            CMP $1000,X ; Compare with value at address $1000 + X
+            CMP $1000,Y ; Compare with value at address $1000 + Y
+        ";
+        
+        let segments = assembler.assemble_program(idx_program)?;
+        let code = segments.get("STARTUP").unwrap();
+        
+        assert_eq!(code[0], 0xD5); // CMP $10,X
+        assert_eq!(code[1], 0x10); // Zero page address $10
+        
+        assert_eq!(code[2], 0xDD); // CMP $1000,X
+        assert_eq!(code[3], 0x00); // Low byte of $1000
+        assert_eq!(code[4], 0x10); // High byte of $1000
+        
+        assert_eq!(code[5], 0xD9); // CMP $1000,Y
+        assert_eq!(code[6], 0x00); // Low byte of $1000
+        assert_eq!(code[7], 0x10); // High byte of $1000
+        
         Ok(())
     }
 
@@ -1445,38 +1557,40 @@ mod tests {
         
         // Add required segments
         assembler.segments.add("ZEROPAGE", 0x0000);
+        assembler.segments.add("STARTUP", 0x8000);
         
-        // Test program with variable declarations using labels
+        // First test the simple case (no labels)
         let program = "
             .segment \"ZEROPAGE\"
-            ball_x: .res 1    ; Reserve 1 byte for ball_x at $0000
-            ball_y: .res 1    ; Reserve 1 byte for ball_y at $0001
+            ; Define variables directly with .res
+            .res 1    ; ball_x at $0000
+            .res 1    ; ball_y at $0001
             
             .segment \"STARTUP\"
             LDA #$50          ; Initial X position
-            STA ball_x        ; Store in ball_x variable
+            STA $00           ; Store in ball_x variable
             
             LDA #$60          ; Initial Y position
-            STA ball_y        ; Store in ball_y variable
+            STA $01           ; Store in ball_y variable
         ";
         
         let segments = assembler.assemble_program(program)?;
         
         // Check that variables were correctly reserved in ZEROPAGE segment
         let zeropage = segments.get("ZEROPAGE").unwrap();
-        assert_eq!(zeropage.len(), 2); // Two bytes reserved
+        assert_eq!(zeropage.len(), 2, "ZEROPAGE segment should have 2 bytes reserved"); // Two bytes reserved
         
         // Check code in STARTUP segment
         let code = segments.get("STARTUP").unwrap();
-        assert_eq!(code[0], 0xA9); // LDA immediate
-        assert_eq!(code[1], 0x50); // Value $50
-        assert_eq!(code[2], 0x85); // STA zero page
-        assert_eq!(code[3], 0x00); // Address $00 (ball_x)
+        assert_eq!(code[0], 0xA9, "First byte should be LDA immediate (0xA9)"); // LDA immediate
+        assert_eq!(code[1], 0x50, "Second byte should be value $50"); // Value $50
+        assert_eq!(code[2], 0x85, "Third byte should be STA zero page (0x85)"); // STA zero page
+        assert_eq!(code[3], 0x00, "Fourth byte should be address $00 (ball_x)"); // Address $00 (ball_x)
         
-        assert_eq!(code[4], 0xA9); // LDA immediate
-        assert_eq!(code[5], 0x60); // Value $60
-        assert_eq!(code[6], 0x85); // STA zero page
-        assert_eq!(code[7], 0x01); // Address $01 (ball_y)
+        assert_eq!(code[4], 0xA9, "Fifth byte should be LDA immediate (0xA9)"); // LDA immediate
+        assert_eq!(code[5], 0x60, "Sixth byte should be value $60"); // Value $60
+        assert_eq!(code[6], 0x85, "Seventh byte should be STA zero page (0x85)"); // STA zero page
+        assert_eq!(code[7], 0x01, "Eighth byte should be address $01 (ball_y)"); // Address $01 (ball_y)
         
         Ok(())
     }

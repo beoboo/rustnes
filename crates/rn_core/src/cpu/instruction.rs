@@ -169,6 +169,11 @@ impl InstructionDecoder {
         
         // Register transfer instructions
         self.add_instruction(0x9A, Instruction::TXS, AddressingMode::Implied, 1, 2);
+
+        // Indexed addressing modes for CMP
+        self.add_instruction(0xD5, Instruction::CMP, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0xDD, Instruction::CMP, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0xD9, Instruction::CMP, AddressingMode::AbsoluteY, 3, 4);
     }
 
     /// Add an instruction to the lookup tables

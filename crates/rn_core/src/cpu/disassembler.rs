@@ -45,11 +45,39 @@ impl Disassembler {
                     "$??".to_string() // Error case - missing operand
                 }
             },
+            AddressingMode::ZeroPageX => {
+                if !operand_bytes.is_empty() {
+                    format!("${:02X},X", operand_bytes[0])
+                } else {
+                    "$??,X".to_string() // Error case - missing operand
+                }
+            },
+            AddressingMode::ZeroPageY => {
+                if !operand_bytes.is_empty() {
+                    format!("${:02X},Y", operand_bytes[0])
+                } else {
+                    "$??,Y".to_string() // Error case - missing operand
+                }
+            },
             AddressingMode::Absolute => {
                 if operand_bytes.len() >= 2 {
                     format!("${:02X}{:02X}", operand_bytes[1], operand_bytes[0])
                 } else {
                     "$????".to_string() // Error case - missing operand
+                }
+            },
+            AddressingMode::AbsoluteX => {
+                if operand_bytes.len() >= 2 {
+                    format!("${:02X}{:02X},X", operand_bytes[1], operand_bytes[0])
+                } else {
+                    "$????,X".to_string() // Error case - missing operand
+                }
+            },
+            AddressingMode::AbsoluteY => {
+                if operand_bytes.len() >= 2 {
+                    format!("${:02X}{:02X},Y", operand_bytes[1], operand_bytes[0])
+                } else {
+                    "$????,Y".to_string() // Error case - missing operand
                 }
             },
             AddressingMode::Implied => "".to_string(),
@@ -257,6 +285,49 @@ mod tests {
         let disassembly = disassembler.disassemble_program(&memory, 0, memory.len());
         assert_eq!(disassembly.len(), 1);
         assert_eq!(disassembly[0].2, ".byte $FF");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_disassemble_comparison_instructions() -> Result<()> {
+        let disassembler = Disassembler::new();
+
+        // Test CMP immediate (C9 40)
+        let memory = [0xC9, 0x40];
+        let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;
+        assert_eq!(instruction, "CMP #$40");
+        assert_eq!(bytes, 2);
+
+        // Test CMP zero page (C5 10)
+        let memory = [0xC5, 0x10];
+        let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;
+        assert_eq!(instruction, "CMP $10");
+        assert_eq!(bytes, 2);
+        
+        // Test CMP absolute (CD 00 10)
+        let memory = [0xCD, 0x00, 0x10];
+        let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;
+        assert_eq!(instruction, "CMP $1000");
+        assert_eq!(bytes, 3);
+        
+        // Test CMP zero page,X (D5 10)
+        let memory = [0xD5, 0x10];
+        let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;
+        assert_eq!(instruction, "CMP $10,X");
+        assert_eq!(bytes, 2);
+        
+        // Test CMP absolute,X (DD 00 10)
+        let memory = [0xDD, 0x00, 0x10];
+        let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;
+        assert_eq!(instruction, "CMP $1000,X");
+        assert_eq!(bytes, 3);
+        
+        // Test CMP absolute,Y (D9 00 10)
+        let memory = [0xD9, 0x00, 0x10];
+        let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;
+        assert_eq!(instruction, "CMP $1000,Y");
+        assert_eq!(bytes, 3);
 
         Ok(())
     }
