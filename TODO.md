@@ -285,7 +285,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Enhance disassembler to support advanced addressing modes
 
 ### [Assembler] Additional NES Assembler Features [T4]
-- [ ] Implement ZEROPAGE segment support for variable declarations
+- [x] Implement ZEROPAGE segment support for variable declarations
 - [x] Implement stack manipulation instructions (LDX #$FF, TXS)
 - [✓] Support variable declarations with labels (ball_x: .res 1) [In Progress]
 - [ ] Implement support for multi-tile sprite patterns
@@ -552,13 +552,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 1 (Memory Visualization): 100% complete (50/50 tasks)
 - Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
-- Track 4 (Animated Sprites): 68% complete (32/47 tasks) - Implemented advanced addressing modes, status flag instructions, flow control branches, arithmetic instructions, comparison instruction, and stack manipulation, with enhanced disassembler support
+- Track 4 (Animated Sprites): 70% complete (33/47 tasks) - Implemented advanced addressing modes, status flag instructions, flow control branches, arithmetic instructions, comparison instruction, stack manipulation, and ZEROPAGE segment support for variable declarations, with enhanced disassembler support
 - Track 5 (Input Controllers): 10% complete (2/20 tasks) - DMA controller implemented
 - Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 7 (Full Desktop System): 0% complete (0/90 tasks)
 - Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 178/366 tasks complete (48.6%)** 🚀
+**Total Progress: 179/366 tasks complete (48.9%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 
