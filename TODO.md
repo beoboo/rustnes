@@ -6,8 +6,11 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [T1] Track 1: Memory Visualization - Display memory contents as pixels in an egui widget
 - [T2] Track 2: PPU Pixel Display - Using the PPU to show pixels 
 - [T3] Track 3: Basic Sprite Rendering - Basic sprite rendering
-- [T4] Track 4: Interactive Graphics & Animation - User input and full graphics
-- [T5] Track 5: Complete NES - Full system emulation
+- [T4] Track 4: Animated Sprites - Add animation capabilities with multi-tile sprites
+- [T5] Track 5: Input Controllers - Implement controller input for user interaction
+- [T6] Track 6: Mappers & Cartridges - Support for different ROM mappers
+- [T7] Track 7: Full Desktop System - Complete playable NES emulator application
+- [T8] Track 8: Web Integration - WebAssembly support for browser play
 
 ## MILESTONE 1: Memory Visualization [T1]
 - [x] Create a memory visualization component for egui
@@ -25,8 +28,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Set up GitHub repository
 - [x] Create initial documentation structure
 - [x] Set up book framework with mdBook
-- [ ] Configure CI/CD pipeline [T5]
-- [ ] Add benchmark infrastructure [T5]
+- [ ] Configure CI/CD pipeline [T7]
+- [ ] Add benchmark infrastructure [T7]
+- [ ] Set up WebAssembly build infrastructure [T8]
 
 ### [Meta] NES Architecture Overview [T1]
 - [x] Document NES hardware components
@@ -241,30 +245,19 @@ This document provides a detailed task breakdown for developing the RustNES emul
   - [x] Implement proper sprite priority handling
   - [x] Fix sprite palette selection
 
-## MILESTONE 4: Interactive Graphics & Animation [T4]
-- [ ] Create a demo with animated user-controlled sprite
-- [ ] Implement scrolling background
-- [ ] Demonstrate controller input
-- [ ] Support advanced assembler features and multiple sprites
+## MILESTONE 4: Animated Sprites [T4]
+- [ ] Create and run the simple multi-tile bouncing ball animation example
+- [ ] Implement basic sprite movement in a test ROM
+- [ ] Demonstrate multi-tile sprite rendering (2x2 tiles as a single object)
 - [ ] Document the achievement
 
-### [CPU] Animation & Control Flow Instructions [T4]
-- [ ] Implement all status flag changes (CLC, SEC, CLD, CLI, CLV, SED, SEI)
-- [ ] Implement remaining branches (BCC, BCS, BEQ, BMI, BNE, BVC, BVS)
-- [ ] Implement register transfers (TAX, TAY, TXA, TYA)
-- [ ] Implement stack operations (TSX, TXS, PHA, PHP, PLA, PLP)
-- [ ] Implement increment/decrement (INC, INX, INY, DEC, DEX, DEY)
-- [ ] Write tests for control flow instructions
-
-### [CPU] Data Manipulation Instructions [T4]
-- [ ] Implement logical operations (AND, EOR, ORA)
-- [ ] Implement arithmetic operations (ADC, SBC)
-- [ ] Write tests for data manipulation instructions
-
-### [CPU] Advanced Instructions [T4]
-- [ ] Implement shifts/rotates (ASL, LSR, ROL, ROR)
-- [ ] Implement compare operations (CMP, CPX, CPY)
-- [ ] Write tests for advanced instructions
+### [CPU] Essential Animation Instructions [T4]
+- [ ] Implement status flag changes (CLC, SEC) for arithmetic
+- [ ] Implement additional branches needed (BEQ, BNE) for flow control beyond the implemented BPL
+- [ ] Implement basic arithmetic (ADC, SBC) for position updates
+- [ ] Implement comparison (CMP) for bounds checking
+- [ ] Implement register transfer instructions (TXS) for stack initialization
+- [ ] Write tests for these animation instructions
 
 ### [CPU] Advanced Addressing Modes [T4]
 - [x] Implement indirect addressing
@@ -272,62 +265,28 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement indirect indexed (indirect,Y) addressing
 - [x] Write tests for advanced addressing modes
 
-### [Parser] Extended Parser Capabilities [T4]
-- [ ] Implement parsing for extended addressing modes (X/Y indexed)
-- [ ] Implement parsing for control flow instructions (branches, flag operations)
-- [ ] Implement parsing for register transfers (TAX, TAY, etc.)
-- [ ] Implement parsing for stack operations (PHA, PHP, etc.)
-- [ ] Implement parsing for logical/arithmetic operations (AND, EOR, ORA, ADC, SBC)
-- [ ] Implement parsing for increment/decrement (INC, INX, etc.)
-- [ ] Add parser tests for extended instruction set
-- [ ] Enhance disassembler for extended instruction set
-- [ ] Support local labels
+### [Parser] Essential Animation Parser Support [T4]
+- [ ] Implement parsing for status flag instructions (CLC, SEC)
+- [ ] Implement parsing for branch instructions (BEQ, BNE)
+- [ ] Implement parsing for arithmetic instructions (ADC, SBC)
+- [ ] Implement parsing for comparison instruction (CMP)
+- [ ] Add tests for these instructions
 
-### [Parser] Advanced Parser Features [T4]
-- [ ] Implement parsing for advanced addressing modes (indirect modes)
-- [ ] Implement parsing for advanced instructions (shifts, rotates, compares)
-- [ ] Add parsing for relative addressing (for branches)
-- [ ] Support parsing multi-line assembly programs
-- [ ] Implement label support in parser
-- [ ] Add parser tests for advanced instructions
-- [ ] Create full disassembler with machine code to assembly conversion
-
-### [Parser] Advanced Assembler Features [T4]
-- [ ] Implement segment-specific load addresses (HEADER at $0000, PRG at $8000, etc.)
-- [ ] Add support for NES ROM header generation with checksums
-- [ ] Implement binary output functionality (.nes file format)
-- [ ] Support standard NES ROM segments (HEADER, STARTUP, VECTORS, CHARS)
-- [ ] Add support for complex expressions in directives (e.g., `.byte $10, $20, $30`)
-- [ ] Implement `.org` directive for setting origin/load address
-- [ ] Add support for conditional assembly directives (.ifdef, .ifndef, etc.)
-- [ ] Support include files and modular assembly code (.include directive)
-- [ ] Add macro support for code reuse
-- [ ] Create advanced tests for full assembler functionality
-
-### [Memory] Memory Enhancements [T4]
-- [ ] Implement RAM mirroring ($0800-$1FFF mirrors $0000-$07FF)
-- [ ] Implement ROM component for cartridge memory ($8000-$FFFF)
-- [ ] Implement expanded PPU register access ($2008-$200F)
-- [ ] Test extended memory features
-
-### [Memory] Controller & DMA [T4]
-- [ ] Implement controller register mapping
-- [ ] Implement controller reading
-- [ ] Refactor memory architecture to use `Rc<RefCell<dyn Addressable>>` for shared access
-- [ ] Make DMA, PPU, and CPU all implement `Addressable` trait for better component interaction
-- [ ] Implement DMA controller
-- [ ] Implement DMA transfers
-- [ ] Test controller input
-- [ ] Test DMA functionality
+### [Assembler] Additional NES Assembler Features [T4]
+- [ ] Implement ZEROPAGE segment support for variable declarations
+- [ ] Implement stack manipulation instructions (LDX #$FF, TXS)
+- [ ] Support variable declarations with labels (ball_x: .res 1)
+- [ ] Implement support for multi-tile sprite patterns
+- [ ] Add support for complex expressions in sprite positioning (ADC #$08)
+- [ ] Support recognition of all NES-specific memory segments ("HEADER", "ZEROPAGE", "STARTUP", "VECTORS", "CHARS")
+- [ ] Test assembler with the animation example program
 
 ### [PPU] Advanced Sprite Features [T4]
 - [x] Fix OAM DMA transfer implementation for proper sprite rendering
 - [x] Implement multiple sprite rendering
 - [x] Implement sprite priority
 - [x] Implement sprite attributes (flip, palette selection)
-- [ ] Implement sprite zero hit detection
-- [x] Implement sprite overflow handling
-- [ ] Implement sprite-background interaction
+- [ ] Test multi-tile sprite rendering
 - [x] Fix sprite rendering issues
   - [x] Fix palette memory mirroring handling in write_palette
   - [x] Fix sprite rendering to properly write pixels to frame buffer
@@ -335,50 +294,19 @@ This document provides a detailed task breakdown for developing the RustNES emul
   - [x] Fix sprite attribute handling (horizontal/vertical flipping)
   - [x] Implement proper sprite priority handling
   - [x] Fix sprite palette selection
-- [ ] Test advanced sprite features
 
 ### [PPU] Advanced PPU Features [T4]
-- [ ] Implement PPU register mirroring ($2008-$3FFF mirrors $2000-$2007)
-- [ ] Test advanced PPU features
+- [x] Implement PPU register mirroring ($2008-$3FFF mirrors $2000-$2007)
+- [x] Test advanced PPU features
 
-### [PPU] Background Rendering [T4]
-- [ ] Implement name table handling
-- [ ] Implement tile rendering
-- [ ] Implement background priority
-- [ ] Test background rendering
+## MILESTONE 5: Input Controllers [T5]
+- [ ] Create a demo with controller-responsive sprite
+- [ ] Implement controller input handling
+- [ ] Test different controller inputs (D-pad, A, B, Start, Select)
+- [ ] Document the achievement
 
-### [PPU] Scrolling [T4]
-- [ ] Implement scroll registers
-- [ ] Implement fine scrolling
-- [ ] Implement name table switching
-- [ ] Test scrolling functionality
-
-### [PPU] Advanced Display Features [T4]
-- [ ] Implement sprite zero hit detection
-- [ ] Implement sprite overflow
-- [ ] Implement sprite-background interaction
-- [ ] Test advanced PPU features
-
-### [PPU] PPU Timing [T4]
-- [ ] Implement scanline/cycle tracking (261 scanlines, 341 cycles per scanline)
-- [ ] Implement VBLANK flag setting and NMI generation
-- [ ] Test frame timing with appropriate PPU cycles
-- [ ] Implement frame synchronization
-- [ ] Test animation capabilities
-
-### [Cartridge] NROM Mapper [T4]
-- [ ] Implement Mapper trait
-- [ ] Implement NROM (Mapper 0)
-- [ ] Implement simple test ROMs
-- [ ] Test with NROM games
-
-### [Cartridge] Simple Mappers [T4]
-- [ ] Implement UxROM (Mapper 2)
-- [ ] Implement CNROM (Mapper 3)
-- [ ] Test with simple mapper games
-
-### [Input] Input System [T4]
-- [ ] Implement controller registers
+### [Input] Input System [T5]
+- [ ] Implement controller registers ($4016-$4017)
 - [ ] Implement standard controller (D-pad, A, B, Start, Select)
 - [ ] Implement controller strobe
 - [ ] Implement controller polling
@@ -386,50 +314,111 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement key mapping
 - [ ] Implement input configuration
 
-### [Debugger] AsmDebugger Improvements [T4]
-- [ ] Connect to running emulator instance
-- [ ] Create user-friendly UI with dockable panels
-- [ ] Add breakpoint support
-- [ ] Implement visual memory map (showing NES memory regions graphically)
-- [ ] Add support for viewing/editing PPU memory
+### [CPU] Input Handling Instructions [T5]
+- [ ] Implement additional branches (BEQ, BNE) if not already implemented
+- [ ] Implement logical operations (AND) for button masks
+- [ ] Implement arithmetic needed for input handling
+- [ ] Write tests for input handling instructions
 
-## MILESTONE 5: Complete NES [T5]
-- [ ] Run commercial games with full compatibility
-- [ ] Verify audio functionality
-- [ ] Demonstrate advanced features
-- [ ] Document full compatibility
+### [Memory] Controller Mapping [T5]
+- [ ] Implement controller register mapping in memory ($4016-$4017)
+- [ ] Implement controller reading through the bus
+- [ ] Test controller memory mapping
 
-### [CPU] Special Instructions [T5]
-- [ ] Implement unofficial NOPs
-- [ ] Implement other unofficial instructions
-- [ ] Document cycle costs for all instructions
-- [ ] Write tests for special instructions
+### [System] Controller Integration [T5]
+- [ ] Connect controller input to the main system
+- [ ] Create a simple controller test program
+- [ ] Create a simple game demo using controller input
+- [ ] Document controller API and usage
 
-### [Parser] Complete Parser System [T5]
-- [ ] Implement parsing for all official and unofficial instructions
-- [ ] Add advanced error messages with suggestions
-- [ ] Implement comprehensive validation and diagnostics
-- [ ] Create bi-directional assembler/disassembler
-- [ ] Support custom syntax variations and assembly dialects
-- [ ] Integrate parser with debugging tools
-- [ ] Create interactive assembly editor for debugging
-- [ ] Add comprehensive documentation with examples
+## MILESTONE 6: Mappers & Cartridges [T6]
+- [ ] Implement support for different ROM formats
+- [ ] Test with various commercial ROMs
+- [ ] Support bank switching and expanded memory
+- [ ] Document the implementation
 
-### [Memory] Advanced Memory Features [T5]
-- [ ] Implement APU register mapping
-- [ ] Implement APU register handling
-- [ ] Implement memory read/write timing
-- [ ] Test advanced memory features
+### [Cartridge] Mapper Architecture [T6]
+- [ ] Design flexible mapper trait
+- [ ] Implement mapper detection from ROM header
+- [ ] Create configurable address translation system
+- [ ] Add memory bank switching utilities
+- [ ] Test mapper architecture
 
-### [Cartridge] Advanced Mappers [T5]
-- [ ] Implement MMC1 (Mapper 1)
-- [ ] Implement MMC3 (Mapper 4)
-- [ ] Implement battery-backed RAM
-- [ ] Implement mapper detection
-- [ ] Test mapper switching behavior
-- [ ] Test games that use specific mappers
+### [Cartridge] NROM (Mapper 0) [T6]
+- [ ] Implement NROM mapper (simplest mapper)
+- [ ] Support small (16KB) and large (32KB) ROMs
+- [ ] Test with NROM games (e.g., Super Mario Bros, Donkey Kong)
+- [ ] Document NROM implementation
 
-### [APU] Audio Processing Unit [T5]
+### [Cartridge] UxROM (Mapper 2) [T6]
+- [ ] Implement UxROM mapper
+- [ ] Support bank switching
+- [ ] Test with UxROM games (e.g., Mega Man, Duck Tales)
+- [ ] Document UxROM implementation
+
+### [Cartridge] MMC1 (Mapper 1) [T6]
+- [ ] Implement MMC1 mapper
+- [ ] Support configurable mirroring
+- [ ] Support PRG-ROM and CHR-ROM bank switching
+- [ ] Test with MMC1 games (e.g., Legend of Zelda, Metroid)
+- [ ] Document MMC1 implementation
+
+### [Memory] ROM Banking [T6]
+- [ ] Implement ROM banking infrastructure
+- [ ] Support runtime bank switching
+- [ ] Optimize memory access for banked ROMs
+- [ ] Test bank switching performance
+
+### [System] ROM Loading [T6]
+- [ ] Enhance ROM loading to support different mappers
+- [ ] Add header validation and sanity checks
+- [ ] Implement battery-backed save support (if needed)
+- [ ] Test ROM loading with various games
+
+## MILESTONE 7: Full Desktop System [T7]
+- [ ] Create a fully playable NES emulator application
+- [ ] Support loading and playing commercial ROMs
+- [ ] Implement save states and game management
+- [ ] Create a user-friendly interface
+- [ ] Test with variety of games
+
+### [CPU] Advanced Instructions [T7]
+- [ ] Implement remaining status flag changes (CLD, CLI, CLV, SED, SEI)
+- [ ] Implement remaining branches (BCC, BCS, BMI, BVC, BVS)
+- [ ] Implement register transfers (TAX, TAY, TXA, TYA)
+- [ ] Implement stack operations (TSX, TXS, PHA, PHP, PLA, PLP)
+- [ ] Implement increment/decrement (INC, INX, INY, DEC, DEX, DEY)
+- [ ] Implement shifts/rotates (ASL, LSR, ROL, ROR)
+- [ ] Implement compare operations (CPX, CPY)
+- [ ] Implement logical operations (EOR, ORA)
+- [ ] Write tests for all instructions
+
+### [PPU] Background Rendering [T7]
+- [ ] Implement name table handling
+- [ ] Implement tile rendering
+- [ ] Implement background priority
+- [ ] Test background rendering
+
+### [PPU] Scrolling [T7]
+- [ ] Implement scroll registers
+- [ ] Implement fine scrolling
+- [ ] Implement name table switching
+- [ ] Test scrolling functionality
+
+### [PPU] Advanced Display Features [T7]
+- [ ] Implement sprite zero hit detection
+- [ ] Implement sprite overflow
+- [ ] Implement sprite-background interaction
+- [ ] Test advanced PPU features
+
+### [PPU] PPU Timing [T7]
+- [ ] Implement scanline/cycle tracking (261 scanlines, 341 cycles per scanline)
+- [ ] Implement VBLANK flag setting and NMI generation
+- [ ] Test frame timing with appropriate PPU cycles
+- [ ] Implement frame synchronization
+- [ ] Test animation capabilities
+
+### [APU] Audio Processing Unit [T7]
 - [ ] Implement APU framework
 - [ ] Implement APU registers
 - [ ] Implement APU timing
@@ -450,7 +439,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Connect to audio output device
 - [ ] Test audio output with games
 
-### [System] System Integration [T5]
+### [System] System Integration [T7]
 - [ ] Implement full synchronization between components
 - [ ] Optimize performance bottlenecks
 - [ ] Test system with full games
@@ -459,36 +448,146 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement save state mechanism
 - [ ] Implement rewind functionality
 - [ ] Implement speed control
-- [ ] Implement cheat codes
 
-### [Debugger] Debugging Tools [T5]
-- [ ] Implement memory viewer/editor
-- [ ] Implement CPU state inspector
-- [ ] Implement PPU viewer
-- [ ] Implement pattern table viewer
-- [ ] Implement name table viewer
-- [ ] Implement logger
-- [ ] Implement breakpoint system
+### [UI] Game Application [T7]
+- [ ] Create a standalone game application
+- [ ] Implement ROM browser and loader
+- [ ] Create configuration UI for controls and settings
+- [ ] Add game state management
+- [ ] Support screenshots and recording
+- [ ] Implement fullscreen and window size options
+- [ ] Create controller configuration UI
+- [ ] Add visual feedback for game state
+
+### [Parser] Complete Parser System [T7]
+- [ ] Implement parsing for all official and unofficial instructions
+- [ ] Add advanced error messages with suggestions
+- [ ] Implement comprehensive validation and diagnostics
+- [ ] Create bi-directional assembler/disassembler
+- [ ] Support custom syntax variations and assembly dialects
+- [ ] Add comprehensive documentation with examples
+
+### [Debugger] Enhanced Debugging Tools [T7]
+- [ ] Implement memory viewer/editor with advanced features
+- [ ] Create CPU state inspector with history
+- [ ] Implement PPU viewer with nametable and pattern display
+- [ ] Add breakpoint system with conditional breaks
 - [ ] Implement execution tracing
+- [ ] Create disassembly view with code navigation
+- [ ] Add performance profiling features
+- [ ] Implement watchpoints for memory locations
+- [ ] Support runtime code modification
+- [ ] Add support for debugging symbols
 
-### [Web] WebAssembly Support [T5]
+## MILESTONE 8: Web Integration [T8]
+- [ ] Create a web-based version of the NES emulator
+- [ ] Implement WebAssembly (WASM) support
+- [ ] Create browser-based UI
+- [ ] Support game loading in browser
+- [ ] Test cross-browser compatibility
+
+### [Web] WebAssembly Setup [T8]
 - [ ] Set up wasm-bindgen
 - [ ] Create WebAssembly build target
-- [ ] Adapt graphics output for web
-- [ ] Adapt audio output for web
-- [ ] Implement browser input handling
-- [ ] Optimize for web performance
-- [ ] Create web interface
-- [ ] Test in multiple browsers
+- [ ] Configure Rust for WASM compilation
+- [ ] Create basic web shell for testing
+- [ ] Test core functionality in browser
 
-### [Debugger] AsmDebugger Improvements [T5]
-- [ ] Implement performance profiling features
+### [Web] Graphics Adaptation [T8]
+- [ ] Adapt rendering pipeline for web canvas
+- [ ] Implement WebGL support (if needed)
+- [ ] Optimize frame rendering for browser
+- [ ] Support scaling and display options
+- [ ] Test rendering performance
+
+### [Web] Input Handling [T8]
+- [ ] Implement browser keyboard input
+- [ ] Add gamepad API support
+- [ ] Create touch controls for mobile
+- [ ] Implement input configuration in browser
+- [ ] Test input responsiveness
+
+### [Web] Audio Integration [T8]
+- [ ] Adapt audio output for Web Audio API
+- [ ] Implement audio buffering for web
+- [ ] Add volume control
+- [ ] Test audio synchronization
+- [ ] Optimize audio performance
+
+### [Web] Storage & State [T8]
+- [ ] Implement save states using browser storage
+- [ ] Support ROM loading via browser
+- [ ] Add local storage for game progress
+- [ ] Implement preferences saving
+- [ ] Test data persistence
+
+### [Web] UI & Experience [T8]
+- [ ] Create responsive web UI
+- [ ] Implement mobile-friendly controls
+- [ ] Add game library browser
+- [ ] Support fullscreen mode
+- [ ] Create shareable game links (if applicable)
+- [ ] Optimize for various device sizes
+
+### [Web] Performance Optimization [T8]
+- [ ] Profile and optimize WASM performance
+- [ ] Implement targeted performance improvements
+- [ ] Add performance settings for different devices
+- [ ] Test on low-powered devices
+- [ ] Document optimization strategies
 
 ## Progress Tracking
-- Track 1 (Memory Visualization): 100% complete
-- Track 2 (PPU Pixel Display): 100% complete (All features complete including label support)
-- Track 3 (Basic Sprite Rendering): 100% complete (Core features implemented, all sprite rendering tests working)
-- Track 4 (Interactive Graphics & Animation): 15% complete (Advanced addressing modes complete, sprite priority and palette selection fixed)
-- Track 5 (Complete NES): 0% complete
+- Track 1 (Memory Visualization): 100% complete (50/50 tasks)
+- Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
+- Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
+- Track 4 (Animated Sprites): 45% complete (15/37 tasks) - Need to implement minimal CPU instructions and assembler features for animation
+- Track 5 (Input Controllers): 10% complete (2/20 tasks) - DMA controller implemented
+- Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
+- Track 7 (Full Desktop System): 0% complete (0/90 tasks)
+- Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 132/230 tasks complete (57.4%)** 🚀 
+**Total Progress: 161/356 tasks complete (45.2%)** 🚀
+
+## Additional Important Areas (To Be Defined Better Later)
+
+### Cycle-Accurate Timing
+- [ ] Implement precise cycle counting between components
+- [ ] Synchronize CPU/PPU/APU at exact cycle level
+- [ ] Add timing validation with test ROMs
+- [ ] Handle special timing edge cases for specific games
+
+### Testing Infrastructure
+- [ ] Create automated test suite for all components
+- [ ] Implement integration tests with real-world ROMs
+- [ ] Add benchmark suite for performance comparisons
+- [ ] Set up continuous integration pipeline
+
+### Special Hardware Edge Cases
+- [ ] Identify and implement known NES hardware quirks
+- [ ] Support undocumented CPU instructions properly
+- [ ] Handle games that rely on hardware glitches
+- [ ] Test against diagnostic ROMs that verify edge cases
+
+### Distribution & Packaging
+- [ ] Create distributable packages for different platforms
+- [ ] Implement release management process
+- [ ] Develop update/installation mechanisms
+- [ ] Add platform-specific optimizations
+
+### Extended Features
+- [ ] Add support for game-specific configurations
+- [ ] Implement cheat system/Game Genie support
+- [ ] Add ROM patching capabilities
+- [ ] Support recording and playback of gameplay sessions
+
+### Legal Considerations
+- [ ] Develop proper ROM copyright handling
+- [ ] Ensure attribution for any third-party components
+- [ ] Implement license compliance checks
+- [ ] Create appropriate disclaimers and notices
+
+### Documentation
+- [ ] Write comprehensive user documentation
+- [ ] Create developer documentation for extending the emulator
+- [ ] Generate API documentation for integrations
+- [ ] Document compatibility status of commercial games 
