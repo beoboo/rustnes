@@ -67,7 +67,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement BRK instruction for interrupt handling
 - [x] Write tests for essential instructions
 
-### [Parser] Basic Parser Framework [T1]
+### [Assembler] Basic Assembler Framework [T1]
 - [x] Create instruction parser module with error handling
 - [x] Implement parsing for basic addressing modes (immediate, zero page, absolute)
 - [x] Implement parsing for essential load instructions (LDA, LDX, LDY)
@@ -75,7 +75,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement parsing for basic jumps and subroutines (JMP, JSR, RTS) (JMP implemented)
 - [x] Implement parsing for BRK instruction
 - [x] Add parser tests for essential instructions
-- [x] Create basic disassembler for essential instructions
+
+### [Disassembler] Basic Disassembler [T1]
+- [x] Create basic disassembler module
+- [x] Implement disassembling of essential instructions
+- [x] Support disassembling of all implemented addressing modes
+- [x] Add disassembler tests
 
 ### [Memory] Component-Based Bus Architecture [T1]
 - [x] Refactor `Ram` to its own module for better code organization
@@ -150,7 +155,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement basic main loop with proper timing
 - [x] Add display mode switching in the debugger UI
 
-### [Parser] Label Support [T2]
+### [Assembler] Label Support [T2]
 - [x] Add label declaration support in the parser
 - [x] Implement label resolution for jump instructions
 - [x] Add tests for label parsing and resolution
@@ -200,7 +205,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Make CHR ROM data accessible to pattern tables
 - [x] Test ROM loading with sprite pattern
 
-### [Parser] Assembler Directives Support [T3]
+### [Assembler] Assembler Directives Support [T3]
 - [x] Implement `.segment` directive for defining basic sections (HEADER, STARTUP, VECTORS, CHARS)
 - [x] Implement `.byte` directive for defining byte arrays
 - [x] Implement `.word` directive for defining word values
@@ -253,7 +258,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### [CPU] Essential Animation Instructions [T4]
 - [x] Implement status flag changes (CLC, SEC) for arithmetic
-- [x] Implement additional branches needed (BEQ, BNE) for flow control beyond the implemented BPL
+- [x] Implement additional branches needed (BEQ, BNE) for flow control
 - [ ] Implement basic arithmetic (ADC, SBC) for position updates
 - [ ] Implement comparison (CMP) for bounds checking
 - [ ] Implement register transfer instructions (TXS) for stack initialization
@@ -265,12 +270,19 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement indirect indexed (indirect,Y) addressing
 - [x] Write tests for advanced addressing modes
 
-### [Parser] Essential Animation Parser Support [T4]
+### [Assembler] Essential Animation Instruction Support [T4]
 - [x] Implement parsing for status flag instructions (CLC, SEC)
 - [x] Implement parsing for branch instructions (BEQ, BNE)
 - [ ] Implement parsing for arithmetic instructions (ADC, SBC)
 - [ ] Implement parsing for comparison instruction (CMP)
 - [ ] Add tests for these instructions
+
+### [Disassembler] Extended Support [T4]
+- [x] Add support for disassembling status flag instructions (CLC, SEC)
+- [x] Add support for disassembling branch instructions (BEQ, BNE)
+- [ ] Add support for disassembling arithmetic instructions (ADC, SBC)
+- [ ] Add support for disassembling comparison instruction (CMP)
+- [ ] Enhance disassembler to support advanced addressing modes
 
 ### [Assembler] Additional NES Assembler Features [T4]
 - [ ] Implement ZEROPAGE segment support for variable declarations
@@ -540,13 +552,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 1 (Memory Visualization): 100% complete (50/50 tasks)
 - Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
-- Track 4 (Animated Sprites): 51% complete (19/37 tasks) - Implemented advanced addressing modes, status flag instructions, and flow control branches
+- Track 4 (Animated Sprites): 51% complete (24/47 tasks) - Implemented advanced addressing modes, status flag instructions, and flow control branches
 - Track 5 (Input Controllers): 10% complete (2/20 tasks) - DMA controller implemented
 - Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 7 (Full Desktop System): 0% complete (0/90 tasks)
 - Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 165/356 tasks complete (46.3%)** 🚀
+**Total Progress: 170/366 tasks complete (46.4%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 

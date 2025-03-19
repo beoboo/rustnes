@@ -189,10 +189,8 @@ impl<'a> TabViewer for NesTabViewer<'a> {
 
                 egui::ScrollArea::vertical()
                     .id_salt("assembled_code_scroll")
+                    .auto_shrink([false, true])
                     .show(ui, |ui| {
-                        let text_style = egui::TextStyle::Monospace;
-                        let _row_height = ui.text_style_height(&text_style) + 4.0;
-
                         for chunk in bytes.chunks(bytes_per_row) {
                             ui.horizontal(|ui| {
                                 // Show address
@@ -208,13 +206,8 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                     });
             },
             DockTab::Disassembly => {
-                // Disassembly Tab content
-                egui::ScrollArea::vertical()
-                    .id_salt("disassembly_scroll")
-                    .show(ui, |ui| {
-                        let system_ref = self.system.borrow();
-                        let _ = self.disasm_widget.ui(ui, system_ref.cpu());
-                    });
+                let system_ref = self.system.borrow();
+                let _ = self.disasm_widget.ui(ui, system_ref.cpu());
             },
             DockTab::Memory => {
                 // Memory Tab content
