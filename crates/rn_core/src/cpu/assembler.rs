@@ -1268,4 +1268,41 @@ mod tests {
         
         Ok(())
     }
+
+    #[test]
+    fn test_assemble_branch_eq_ne() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000);
+        
+        // Test BEQ
+        let beq_program = "
+            LDA #$00    ; Load 0 (sets Z flag)
+            BEQ target  ; Branch if Equal
+            LDA #$FF    ; Should be skipped
+        target:
+            LDA #$42    ; Target
+        ";
+        
+        let segments = assembler.assemble_program(beq_program)?;
+        let code = segments.get("STARTUP").unwrap();
+        
+        // BEQ should be present with opcode 0xF0
+        assert_eq!(code[2], 0xF0);
+        
+        // Test BNE
+        let bne_program = "
+            LDA #$01    ; Load 1 (clears Z flag)
+            BNE target  ; Branch if Not Equal
+            LDA #$FF    ; Should be skipped
+        target:
+            LDA #$42    ; Target
+        ";
+        
+        let segments = assembler.assemble_program(bne_program)?;
+        let code = segments.get("STARTUP").unwrap();
+        
+        // BNE should be present with opcode 0xD0
+        assert_eq!(code[2], 0xD0);
+        
+        Ok(())
+    }
 }

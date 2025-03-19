@@ -38,15 +38,29 @@ pub enum Instruction {
     BPL, // Branch on Plus (N flag = 0)
     CLC, // Clear Carry Flag
     SEC, // Set Carry Flag
+    BEQ, // Branch if Equal (Z flag = 1)
+    BNE, // Branch if Not Equal (Z flag = 0)
 }
 
 impl Instruction {
+    /// Returns true if the instruction is a branch instruction
     pub fn is_branch(&self) -> bool {
-        matches!(self, Instruction::BPL)
+        matches!(self, Instruction::BPL | Instruction::BEQ | Instruction::BNE)
     }
 
+    /// Returns true if the instruction has implied addressing
     pub fn has_implied_addressing(&self) -> bool {
-        matches!(self, Instruction::BRK | Instruction::RTS | Instruction::NOP | Instruction::CLC | Instruction::SEC)
+        matches!(self, Instruction::RTS | Instruction::BRK | Instruction::NOP | Instruction::CLC | Instruction::SEC)
+    }
+    
+    /// Returns true if the instruction directly modifies the program counter
+    pub fn modifies_pc(&self) -> bool {
+        matches!(
+            self,
+            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK |
+            // Branch instructions
+            Instruction::BPL | Instruction::BEQ | Instruction::BNE
+        )
     }
 }
 
@@ -143,6 +157,14 @@ impl InstructionDecoder {
         // SEC - Set Carry Flag
         self.add_instruction(0x38, Instruction::SEC, AddressingMode::Implied, 1, 2);
         // SEC Implied
+
+        // BEQ - Branch if Equal (Z flag = 1)
+        self.add_instruction(0xF0, Instruction::BEQ, AddressingMode::Relative, 2, 2);
+        // BEQ Relative
+
+        // BNE - Branch if Not Equal (Z flag = 0)
+        self.add_instruction(0xD0, Instruction::BNE, AddressingMode::Relative, 2, 2);
+        // BNE Relative
     }
 
     /// Add an instruction to the lookup tables
@@ -218,13 +240,18 @@ impl Cpu {
             },
             Instruction::CLC => self.clc(),
             Instruction::SEC => self.sec(),
+            Instruction::BEQ => {
+                let additional_cycles = self.beq()?;
+                cycles = cycles.wrapping_add(additional_cycles);
+            },
+            Instruction::BNE => {
+                let additional_cycles = self.bne()?;
+                cycles = cycles.wrapping_add(additional_cycles);
+            },
         }
 
         // Increment PC for non-jump/call/branch instructions (already incremented by 1 in fetch)
-        if !matches!(
-            instruction_metadata.instruction,
-            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK | Instruction::BPL | Instruction::CLC | Instruction::SEC
-        ) {
+        if !instruction_metadata.instruction.modifies_pc() {
             self.registers.pc = self.registers.pc.wrapping_add((instruction_metadata.bytes - 1) as u16);
         }
 
@@ -430,6 +457,86 @@ impl Cpu {
     /// SEC - Set Carry Flag
     pub fn sec(&mut self) {
         self.set_flag(CpuFlag::Carry, true);
+    }
+
+    /// BEQ - Branch if Equal (Z flag = 1)
+    pub fn beq(&mut self) -> Result<u8, NesError> {
+        // Initially no additional cycles
+        let mut additional_cycles = 0;
+
+        // Only branch if the Zero flag is set (positive result)
+        if self.get_flag(CpuFlag::Zero) {
+            // For branch instructions, we need to read the offset directly
+            // The offset is stored at PC (PC points to the offset byte after fetch)
+            let offset = self.read_byte(self.registers.pc)? as i8; // Read as signed byte
+
+            // Add 1 cycle for taking the branch
+            additional_cycles += 1;
+
+            // Save the old PC for page boundary check
+            let old_pc = self.registers.pc;
+
+            // Calculate the target address
+            // PC+1 is the address of the next instruction after BEQ
+            // We add the offset to that
+            let target = ((self.registers.pc as i32) + 1 + (offset as i32)) as u16;
+
+            // Set the PC to the target address
+            self.registers.pc = target;
+
+            // Add 1 more cycle if the branch crosses a page boundary
+            if (old_pc & 0xFF00) != (target & 0xFF00) {
+                additional_cycles += 1;
+            }
+
+            // No need to subtract from PC since we're setting it directly to the target
+            // and execute() won't increment it for branch instructions
+        } else {
+            // When branch is not taken, we need to increment the PC to skip the offset byte
+            self.registers.pc = self.registers.pc.wrapping_add(1);
+        }
+
+        Ok(additional_cycles)
+    }
+
+    /// BNE - Branch if Not Equal (Z flag = 0)
+    pub fn bne(&mut self) -> Result<u8, NesError> {
+        // Initially no additional cycles
+        let mut additional_cycles = 0;
+
+        // Only branch if the Zero flag is clear (negative result)
+        if !self.get_flag(CpuFlag::Zero) {
+            // For branch instructions, we need to read the offset directly
+            // The offset is stored at PC (PC points to the offset byte after fetch)
+            let offset = self.read_byte(self.registers.pc)? as i8; // Read as signed byte
+
+            // Add 1 cycle for taking the branch
+            additional_cycles += 1;
+
+            // Save the old PC for page boundary check
+            let old_pc = self.registers.pc;
+
+            // Calculate the target address
+            // PC+1 is the address of the next instruction after BNE
+            // We add the offset to that
+            let target = ((self.registers.pc as i32) + 1 + (offset as i32)) as u16;
+
+            // Set the PC to the target address
+            self.registers.pc = target;
+
+            // Add 1 more cycle if the branch crosses a page boundary
+            if (old_pc & 0xFF00) != (target & 0xFF00) {
+                additional_cycles += 1;
+            }
+
+            // No need to subtract from PC since we're setting it directly to the target
+            // and execute() won't increment it for branch instructions
+        } else {
+            // When branch is not taken, we need to increment the PC to skip the offset byte
+            self.registers.pc = self.registers.pc.wrapping_add(1);
+        }
+
+        Ok(additional_cycles)
     }
 }
 
@@ -1241,6 +1348,178 @@ mod tests {
     }
 
     #[test]
+    fn test_beq_instruction() {
+        // Create CPU and memory
+        let mut cpu = Cpu::new();
+        let memory = Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF)));
+        cpu.connect_memory(memory);
+
+        // Program: Set Zero flag, then BEQ to skip over an instruction
+        let program = [
+            0xA9, 0x00,  // LDA #$00 (sets Z flag since A = 0)
+            0xF0, 0x02,  // BEQ +2 (branch forward 2 bytes)
+            0xA9, 0x01,  // LDA #$01 (should be skipped)
+            0xA9, 0x02,  // LDA #$02 (should be executed if branch works)
+            0x00,        // BRK
+        ];
+
+        cpu.load_program(&program, 0x8000).unwrap();
+
+        // Execute LDA #$00
+        cpu.step().unwrap();
+        assert_eq!(cpu.registers.a, 0x00);
+        assert!(cpu.get_flag(CpuFlag::Zero));
+
+        // Execute BEQ +2
+        cpu.step().unwrap();
+        
+        // BEQ should have branched past the LDA #$01
+        assert_eq!(cpu.registers.pc, 0x8006); // Should be at LDA #$02
+        
+        // Execute LDA #$02
+        cpu.step().unwrap();
+        assert_eq!(cpu.registers.a, 0x02);
+    }
+
+    #[test]
+    fn test_bne_instruction() {
+        // Create CPU and memory
+        let mut cpu = Cpu::new();
+        let memory = Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF)));
+        cpu.connect_memory(memory);
+
+        // Program: Clear Zero flag, then BNE to skip over an instruction
+        let program = [
+            0xA9, 0x01,  // LDA #$01 (clears Z flag since A != 0)
+            0xD0, 0x02,  // BNE +2 (branch forward 2 bytes)
+            0xA9, 0x00,  // LDA #$00 (should be skipped)
+            0xA9, 0x02,  // LDA #$02 (should be executed if branch works)
+            0x00,        // BRK
+        ];
+
+        cpu.load_program(&program, 0x8000).unwrap();
+
+        // Execute LDA #$01
+        cpu.step().unwrap();
+        assert_eq!(cpu.registers.a, 0x01);
+        assert!(!cpu.get_flag(CpuFlag::Zero));
+
+        // Execute BNE +2
+        cpu.step().unwrap();
+        
+        // BNE should have branched past the LDA #$00
+        assert_eq!(cpu.registers.pc, 0x8006); // Should be at LDA #$02
+        
+        // Execute LDA #$02
+        cpu.step().unwrap();
+        assert_eq!(cpu.registers.a, 0x02);
+    }
+
+    #[test]
+    fn test_beq_not_taken() {
+        // Create CPU and memory
+        let mut cpu = Cpu::new();
+        let memory = Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF)));
+        cpu.connect_memory(memory);
+
+        // Program: Clear Zero flag, then BEQ which shouldn't branch
+        let program = [
+            0xA9, 0x01,  // LDA #$01 (clears Z flag since A != 0)
+            0xF0, 0x02,  // BEQ +2 (should not branch)
+            0xA9, 0x03,  // LDA #$03 (should be executed)
+            0x00,        // BRK
+        ];
+
+        cpu.load_program(&program, 0x8000).unwrap();
+
+        // Execute LDA #$01
+        cpu.step().unwrap();
+        assert_eq!(cpu.registers.a, 0x01);
+        assert!(!cpu.get_flag(CpuFlag::Zero));
+
+        // Execute BEQ +2 (should not branch)
+        cpu.step().unwrap();
+        
+        // Should not branch, so we execute the next instruction
+        assert_eq!(cpu.registers.pc, 0x8004); // Should be at LDA #$03
+        
+        // Execute LDA #$03
+        cpu.step().unwrap();
+        assert_eq!(cpu.registers.a, 0x03);
+    }
+
+    #[test]
+    fn test_bne_not_taken() {
+        // Create CPU and memory
+        let mut cpu = Cpu::new();
+        let memory = Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF)));
+        cpu.connect_memory(memory);
+
+        // Program: Set Zero flag, then BNE which shouldn't branch
+        let program = [
+            0xA9, 0x00,  // LDA #$00 (sets Z flag since A == 0)
+            0xD0, 0x02,  // BNE +2 (should not branch)
+            0xA9, 0x03,  // LDA #$03 (should be executed)
+            0x00,        // BRK
+        ];
+
+        cpu.load_program(&program, 0x8000).unwrap();
+
+        // Execute LDA #$00
+        cpu.step().unwrap();
+        assert_eq!(cpu.registers.a, 0x00);
+        assert!(cpu.get_flag(CpuFlag::Zero));
+
+        // Execute BNE +2 (should not branch)
+        cpu.step().unwrap();
+        
+        // Should not branch, so we execute the next instruction
+        assert_eq!(cpu.registers.pc, 0x8004); // Should be at LDA #$03
+        
+        // Execute LDA #$03
+        cpu.step().unwrap();
+        assert_eq!(cpu.registers.a, 0x03);
+    }
+
+    #[test]
+    fn test_branch_cycles() {
+        // Create CPU and memory
+        let mut cpu = Cpu::new();
+        let memory = Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF)));
+        cpu.connect_memory(memory);
+
+        // Test case 1: Branch taken, no page boundary crossed
+        let program1 = [
+            0xA9, 0x00,  // LDA #$00 (sets Z flag)
+            0xF0, 0x01,  // BEQ +1 (branch taken, no page cross)
+        ];
+        cpu.load_program(&program1, 0x8000).unwrap();
+        cpu.step().unwrap(); // LDA #$00
+        let cycles = cpu.step().unwrap(); // BEQ +1
+        assert_eq!(cycles, 3); // Base 2 cycles + 1 for branch taken
+
+        // Test case 2: Branch taken with page boundary crossed
+        let program2 = [
+            0xA9, 0x00,  // LDA #$00 (sets Z flag)
+            0xF0, 0x7F,  // BEQ +127 (branch taken, crosses page)
+        ];
+        cpu.load_program(&program2, 0x80F0).unwrap(); // Place near page boundary
+        cpu.step().unwrap(); // LDA #$00
+        let cycles = cpu.step().unwrap(); // BEQ +127
+        assert_eq!(cycles, 4); // Base 2 cycles + 1 for branch taken + 1 for page cross
+
+        // Test case 3: Branch not taken
+        let program3 = [
+            0xA9, 0x01,  // LDA #$01 (clears Z flag)
+            0xF0, 0x10,  // BEQ +16 (branch not taken)
+        ];
+        cpu.load_program(&program3, 0x8000).unwrap();
+        cpu.step().unwrap(); // LDA #$01
+        let cycles = cpu.step().unwrap(); // BEQ +16 not taken
+        assert_eq!(cycles, 2); // Base 2 cycles, no branch
+    }
+
+    #[test]
     fn test_clc() {
         let mut cpu = Cpu::new();
         
@@ -1268,8 +1547,6 @@ mod tests {
 
     #[test]
     fn test_clc_sec_execution() {
-        use std::{cell::RefCell, rc::Rc};
-        
         // Create CPU and memory
         let mut cpu = Cpu::new();
         

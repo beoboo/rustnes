@@ -253,7 +253,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### [CPU] Essential Animation Instructions [T4]
 - [x] Implement status flag changes (CLC, SEC) for arithmetic
-- [ ] Implement additional branches needed (BEQ, BNE) for flow control
+- [x] Implement additional branches needed (BEQ, BNE) for flow control beyond the implemented BPL
 - [ ] Implement basic arithmetic (ADC, SBC) for position updates
 - [ ] Implement comparison (CMP) for bounds checking
 - [ ] Implement register transfer instructions (TXS) for stack initialization
@@ -267,7 +267,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### [Parser] Essential Animation Parser Support [T4]
 - [x] Implement parsing for status flag instructions (CLC, SEC)
-- [ ] Implement parsing for branch instructions (BEQ, BNE)
+- [x] Implement parsing for branch instructions (BEQ, BNE)
 - [ ] Implement parsing for arithmetic instructions (ADC, SBC)
 - [ ] Implement parsing for comparison instruction (CMP)
 - [ ] Add tests for these instructions
@@ -540,13 +540,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 1 (Memory Visualization): 100% complete (50/50 tasks)
 - Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
-- Track 4 (Animated Sprites): 47% complete (17/37 tasks) - Implemented advanced addressing modes and status flag instructions
+- Track 4 (Animated Sprites): 51% complete (19/37 tasks) - Implemented advanced addressing modes, status flag instructions, and flow control branches
 - Track 5 (Input Controllers): 10% complete (2/20 tasks) - DMA controller implemented
 - Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 7 (Full Desktop System): 0% complete (0/90 tasks)
 - Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 163/356 tasks complete (45.8%)** 🚀
+**Total Progress: 165/356 tasks complete (46.3%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 
