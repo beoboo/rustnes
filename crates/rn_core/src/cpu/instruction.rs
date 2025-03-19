@@ -40,6 +40,8 @@ pub enum Instruction {
     SEC, // Set Carry Flag
     BEQ, // Branch if Equal (Z flag = 1)
     BNE, // Branch if Not Equal (Z flag = 0)
+    ADC, // Add Memory to Accumulator with Carry
+    SBC, // Subtract Memory from Accumulator with Borrow
 }
 
 impl Instruction {
@@ -165,6 +167,16 @@ impl InstructionDecoder {
         // BNE - Branch if Not Equal (Z flag = 0)
         self.add_instruction(0xD0, Instruction::BNE, AddressingMode::Relative, 2, 2);
         // BNE Relative
+        
+        // ADC - Add Memory to Accumulator with Carry
+        self.add_instruction(0x69, Instruction::ADC, AddressingMode::Immediate, 2, 2); // ADC Immediate
+        self.add_instruction(0x65, Instruction::ADC, AddressingMode::ZeroPage, 2, 3); // ADC Zero Page
+        self.add_instruction(0x6D, Instruction::ADC, AddressingMode::Absolute, 3, 4); // ADC Absolute
+        
+        // SBC - Subtract Memory from Accumulator with Borrow
+        self.add_instruction(0xE9, Instruction::SBC, AddressingMode::Immediate, 2, 2); // SBC Immediate
+        self.add_instruction(0xE5, Instruction::SBC, AddressingMode::ZeroPage, 2, 3); // SBC Zero Page
+        self.add_instruction(0xED, Instruction::SBC, AddressingMode::Absolute, 3, 4); // SBC Absolute
     }
 
     /// Add an instruction to the lookup tables
@@ -248,6 +260,8 @@ impl Cpu {
                 let additional_cycles = self.bne()?;
                 cycles = cycles.wrapping_add(additional_cycles);
             },
+            Instruction::ADC => self.adc(instruction_metadata.addressing_mode)?,
+            Instruction::SBC => self.sbc(instruction_metadata.addressing_mode)?,
         }
 
         // Increment PC for non-jump/call/branch instructions (already incremented by 1 in fetch)
@@ -538,6 +552,70 @@ impl Cpu {
 
         Ok(additional_cycles)
     }
+
+    /// ADC - Add Memory to Accumulator with Carry
+    pub fn adc(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.load_register(addressing_mode)?;
+        let carry = if self.get_flag(CpuFlag::Carry) { 1 } else { 0 };
+        
+        // Add with carry (A + M + C)
+        let result = self.registers.a as u16 + value as u16 + carry as u16;
+        
+        // Set carry flag based on whether result exceeds 255
+        self.set_flag(CpuFlag::Carry, result > 0xFF);
+        
+        // Convert result back to u8 (automatically handles overflow)
+        let result = result as u8;
+        
+        // Set overflow flag
+        // Overflow occurs when the sign of the inputs is the same but differs from the result
+        let overflow = ((self.registers.a ^ value) & 0x80) == 0 && 
+                       ((self.registers.a ^ result) & 0x80) != 0;
+        self.set_flag(CpuFlag::Overflow, overflow);
+        
+        // Update accumulator with result
+        self.registers.a = result;
+        
+        // Set zero and negative flags based on result
+        self.set_flag(CpuFlag::Zero, self.registers.a == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
+        
+        Ok(())
+    }
+
+    /// SBC - Subtract Memory from Accumulator with Borrow
+    pub fn sbc(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.load_register(addressing_mode)?;
+        let carry = if self.get_flag(CpuFlag::Carry) { 1 } else { 0 };
+        
+        // On 6502, SBC is actually A - M - (1-C)
+        // Where C is 1 when carry is set, 0 when carry is clear
+        // So we can rewrite as A + ~M + C
+        let inverted_value = value ^ 0xFF; // Bitwise NOT (one's complement)
+        
+        // Then use the same logic as ADC
+        let result = self.registers.a as u16 + inverted_value as u16 + carry as u16;
+        
+        // Set carry flag (not borrow flag)
+        self.set_flag(CpuFlag::Carry, result > 0xFF);
+        
+        // Convert result back to u8
+        let result = result as u8;
+        
+        // Set overflow flag
+        let overflow = ((self.registers.a ^ inverted_value) & 0x80) == 0 && 
+                       ((self.registers.a ^ result) & 0x80) != 0;
+        self.set_flag(CpuFlag::Overflow, overflow);
+        
+        // Update accumulator
+        self.registers.a = result;
+        
+        // Set zero and negative flags
+        self.set_flag(CpuFlag::Zero, self.registers.a == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
+        
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -547,7 +625,7 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
-    use crate::{cpu::assembler::Assembler, memory::Ram};
+    use crate::{cpu::assembler::Assembler, memory::{Addressable, Ram}, system::Bus};
 
     /// Helper function to set up a CPU with memory for testing
     fn setup_cpu() -> Cpu {
@@ -1575,5 +1653,151 @@ mod tests {
         // Execute CLC again - should clear carry flag
         cpu.step().unwrap();
         assert!(!cpu.is_flag_set(CpuFlag::Carry));
+    }
+
+    /// Tests for ADC and SBC instructions
+    #[test]
+    fn test_adc_instruction() -> Result<()> {
+        // Set up CPU with memory
+        let mut cpu = Cpu::new();
+        let memory = Rc::new(RefCell::new(Bus::new()));
+        memory.borrow_mut().attach_component(Box::new(Ram::with_range(0x0000, 0xFFFF)));
+        cpu.connect_memory(memory.clone());
+
+        // Case 1: Basic addition without carry
+        cpu.set_flag(CpuFlag::Carry, false);
+        cpu.registers.a = 0x10;
+        
+        // Write ADC #$10 to memory (opcode 0x69 followed by immediate value 0x10)
+        memory.borrow_mut().write_byte(0x8000, 0x69)?;
+        memory.borrow_mut().write_byte(0x8001, 0x10)?;
+        
+        // Set PC to instruction
+        cpu.registers.pc = 0x8000;
+        
+        // Execute instruction
+        let opcode = cpu.fetch()?;
+        let metadata = cpu.decoder.decode(opcode)?;
+        cpu.execute(metadata)?;
+        
+        // Result should be 0x20 (0x10 + 0x10), no carry
+        assert_eq!(cpu.registers.a, 0x20, "Basic addition failed");
+        assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should not be set");
+        
+        // Case 2: Addition with carry flag set
+        cpu.set_flag(CpuFlag::Carry, true);
+        cpu.registers.a = 0x40;
+        
+        // Write ADC #$40 to memory
+        memory.borrow_mut().write_byte(0x8002, 0x69)?;
+        memory.borrow_mut().write_byte(0x8003, 0x40)?;
+        
+        // Set PC to instruction
+        cpu.registers.pc = 0x8002;
+        
+        // Execute instruction
+        let opcode = cpu.fetch()?;
+        let metadata = cpu.decoder.decode(opcode)?;
+        cpu.execute(metadata)?;
+        
+        // Result should be 0x81 (0x40 + 0x40 + 0x01 from carry), no carry out
+        assert_eq!(cpu.registers.a, 0x81, "Addition with carry in failed");
+        assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should not be set");
+        
+        // Case 3: Addition with carry out
+        cpu.set_flag(CpuFlag::Carry, false);
+        cpu.registers.a = 0xFF;
+        
+        // Write ADC #$01 to memory
+        memory.borrow_mut().write_byte(0x8004, 0x69)?;
+        memory.borrow_mut().write_byte(0x8005, 0x01)?;
+        
+        // Set PC to instruction
+        cpu.registers.pc = 0x8004;
+        
+        // Execute instruction
+        let opcode = cpu.fetch()?;
+        let metadata = cpu.decoder.decode(opcode)?;
+        cpu.execute(metadata)?;
+        
+        // Result should be 0x00 (0xFF + 0x01 = 0x100, which wraps to 0x00), with carry set
+        assert_eq!(cpu.registers.a, 0x00, "Addition with carry out failed");
+        assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
+        assert_eq!(cpu.get_flag(CpuFlag::Zero), true, "Zero flag should be set");
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_sbc_instruction() -> Result<()> {
+        // Set up CPU with memory
+        let mut cpu = Cpu::new();
+        let memory = Rc::new(RefCell::new(Bus::new()));
+        memory.borrow_mut().attach_component(Box::new(Ram::with_range(0x0000, 0xFFFF)));
+        cpu.connect_memory(memory.clone());
+
+        // Case 1: Basic subtraction with carry set (no borrow)
+        cpu.set_flag(CpuFlag::Carry, true); // Note: For SBC, carry = !borrow
+        cpu.registers.a = 0x50;
+        
+        // Write SBC #$30 to memory (opcode 0xE9 followed by immediate value 0x30)
+        memory.borrow_mut().write_byte(0x8000, 0xE9)?;
+        memory.borrow_mut().write_byte(0x8001, 0x30)?;
+        
+        // Set PC to instruction
+        cpu.registers.pc = 0x8000;
+        
+        // Execute instruction
+        let opcode = cpu.fetch()?;
+        let metadata = cpu.decoder.decode(opcode)?;
+        cpu.execute(metadata)?;
+        
+        // Result should be 0x20 (0x50 - 0x30), with carry still set (no borrow)
+        assert_eq!(cpu.registers.a, 0x20, "Basic subtraction failed");
+        assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should still be set");
+        
+        // Case 2: Subtraction with carry clear (indicating borrow)
+        cpu.set_flag(CpuFlag::Carry, false); // Carry clear = borrow
+        cpu.registers.a = 0x50;
+        
+        // Write SBC #$30 to memory
+        memory.borrow_mut().write_byte(0x8002, 0xE9)?;
+        memory.borrow_mut().write_byte(0x8003, 0x30)?;
+        
+        // Set PC to instruction
+        cpu.registers.pc = 0x8002;
+        
+        // Execute instruction
+        let opcode = cpu.fetch()?;
+        let metadata = cpu.decoder.decode(opcode)?;
+        cpu.execute(metadata)?;
+        
+        // Result should be 0x1F (0x50 - 0x30 - 0x01), with carry set (no further borrow)
+        assert_eq!(cpu.registers.a, 0x1F, "Subtraction with borrow failed");
+        assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
+        
+        // Case 3: Subtraction causing borrow
+        cpu.set_flag(CpuFlag::Carry, true); // No initial borrow
+        cpu.registers.a = 0x30;
+        
+        // Write SBC #$40 to memory
+        memory.borrow_mut().write_byte(0x8004, 0xE9)?;
+        memory.borrow_mut().write_byte(0x8005, 0x40)?;
+        
+        // Set PC to instruction
+        cpu.registers.pc = 0x8004;
+        
+        // Execute instruction
+        let opcode = cpu.fetch()?;
+        let metadata = cpu.decoder.decode(opcode)?;
+        cpu.execute(metadata)?;
+        
+        // Result should be 0xF0 (0x30 - 0x40 = -0x10, which is 0xF0 in two's complement)
+        // Carry should be clear (indicating borrow)
+        assert_eq!(cpu.registers.a, 0xF0, "Subtraction with result borrow failed");
+        assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should be clear (borrow)");
+        assert_eq!(cpu.get_flag(CpuFlag::Negative), true, "Negative flag should be set");
+        
+        Ok(())
     }
 }

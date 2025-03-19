@@ -1305,4 +1305,60 @@ mod tests {
         
         Ok(())
     }
+
+    #[test]
+    fn test_assemble_arithmetic_instructions() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000);
+        
+        // Test ADC and SBC with immediate addressing
+        let program = "
+            CLC         ; Clear carry before add
+            ADC #$01    ; Add 1 to accumulator
+            SEC         ; Set carry before subtract
+            SBC #$01    ; Subtract 1 from accumulator
+        ";
+        
+        let segments = assembler.assemble_program(program)?;
+        let code = segments.get("STARTUP").unwrap();
+        
+        // Check that opcodes match expected values
+        assert_eq!(code[0], 0x18); // CLC
+        assert_eq!(code[1], 0x69); // ADC #$01
+        assert_eq!(code[2], 0x01); // The value $01
+        assert_eq!(code[3], 0x38); // SEC
+        assert_eq!(code[4], 0xE9); // SBC #$01
+        assert_eq!(code[5], 0x01); // The value $01
+        
+        // Test with zero page addressing
+        let zp_program = "
+            ADC $10     ; Add value at zero page address $10
+            SBC $20     ; Subtract value at zero page address $20
+        ";
+        
+        let segments = assembler.assemble_program(zp_program)?;
+        let code = segments.get("STARTUP").unwrap();
+        
+        assert_eq!(code[0], 0x65); // ADC $10
+        assert_eq!(code[1], 0x10); // Zero page address $10
+        assert_eq!(code[2], 0xE5); // SBC $20
+        assert_eq!(code[3], 0x20); // Zero page address $20
+        
+        // Test with absolute addressing
+        let abs_program = "
+            ADC $1000   ; Add value at address $1000
+            SBC $2000   ; Subtract value at address $2000
+        ";
+        
+        let segments = assembler.assemble_program(abs_program)?;
+        let code = segments.get("STARTUP").unwrap();
+        
+        assert_eq!(code[0], 0x6D); // ADC $1000
+        assert_eq!(code[1], 0x00); // Low byte of $1000
+        assert_eq!(code[2], 0x10); // High byte of $1000
+        assert_eq!(code[3], 0xED); // SBC $2000
+        assert_eq!(code[4], 0x00); // Low byte of $2000
+        assert_eq!(code[5], 0x20); // High byte of $2000
+        
+        Ok(())
+    }
 }
