@@ -348,7 +348,7 @@ impl AsmWidget {
             ui.add(
                 egui::DragValue::new(&mut self.cycles_per_frame)
                     .speed(10)
-                    .clamp_range(10..=10000)
+                    .range(10..=10000)
             );
         });
 

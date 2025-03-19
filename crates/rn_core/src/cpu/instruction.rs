@@ -36,6 +36,8 @@ pub enum Instruction {
     NOP, // No Operation
     BIT, // Bit Test with memory
     BPL, // Branch on Plus (N flag = 0)
+    CLC, // Clear Carry Flag
+    SEC, // Set Carry Flag
 }
 
 impl Instruction {
@@ -44,7 +46,7 @@ impl Instruction {
     }
 
     pub fn has_implied_addressing(&self) -> bool {
-        matches!(self, Instruction::BRK | Instruction::RTS | Instruction::NOP)
+        matches!(self, Instruction::BRK | Instruction::RTS | Instruction::NOP | Instruction::CLC | Instruction::SEC)
     }
 }
 
@@ -133,6 +135,14 @@ impl InstructionDecoder {
         // BPL - Branch on Plus (N flag = 0)
         self.add_instruction(0x10, Instruction::BPL, AddressingMode::Relative, 2, 2);
         // BPL Relative
+
+        // CLC - Clear Carry Flag
+        self.add_instruction(0x18, Instruction::CLC, AddressingMode::Implied, 1, 2);
+        // CLC Implied
+
+        // SEC - Set Carry Flag
+        self.add_instruction(0x38, Instruction::SEC, AddressingMode::Implied, 1, 2);
+        // SEC Implied
     }
 
     /// Add an instruction to the lookup tables
@@ -206,12 +216,14 @@ impl Cpu {
                 let additional_cycles = self.bpl()?;
                 cycles = cycles.wrapping_add(additional_cycles);
             },
+            Instruction::CLC => self.clc(),
+            Instruction::SEC => self.sec(),
         }
 
         // Increment PC for non-jump/call/branch instructions (already incremented by 1 in fetch)
         if !matches!(
             instruction_metadata.instruction,
-            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK | Instruction::BPL
+            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK | Instruction::BPL | Instruction::CLC | Instruction::SEC
         ) {
             self.registers.pc = self.registers.pc.wrapping_add((instruction_metadata.bytes - 1) as u16);
         }
@@ -408,6 +420,16 @@ impl Cpu {
         }
 
         Ok(additional_cycles)
+    }
+
+    /// CLC - Clear Carry Flag
+    pub fn clc(&mut self) {
+        self.set_flag(CpuFlag::Carry, false);
+    }
+
+    /// SEC - Set Carry Flag
+    pub fn sec(&mut self) {
+        self.set_flag(CpuFlag::Carry, true);
     }
 }
 
@@ -1216,5 +1238,65 @@ mod tests {
         assert_eq!(cycles, 4, "Branch taken with page cross should take 4 cycles");
 
         Ok(())
+    }
+
+    #[test]
+    fn test_clc() {
+        let mut cpu = Cpu::new();
+        
+        // Set carry flag first
+        cpu.set_flag(CpuFlag::Carry, true);
+        assert!(cpu.is_flag_set(CpuFlag::Carry));
+        
+        // Execute CLC
+        cpu.clc();
+        assert!(!cpu.is_flag_set(CpuFlag::Carry));
+    }
+
+    #[test]
+    fn test_sec() {
+        let mut cpu = Cpu::new();
+        
+        // Clear carry flag first
+        cpu.set_flag(CpuFlag::Carry, false);
+        assert!(!cpu.is_flag_set(CpuFlag::Carry));
+        
+        // Execute SEC
+        cpu.sec();
+        assert!(cpu.is_flag_set(CpuFlag::Carry));
+    }
+
+    #[test]
+    fn test_clc_sec_execution() {
+        use std::{cell::RefCell, rc::Rc};
+        
+        // Create CPU and memory
+        let mut cpu = Cpu::new();
+        
+        // Create memory for the CPU
+        let memory = Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF)));
+        cpu.connect_memory(memory);
+        
+        // Load a program that uses CLC and SEC
+        let program = [
+            0x18,       // CLC
+            0x38,       // SEC
+            0x18,       // CLC
+            0x00,       // BRK
+        ];
+        
+        cpu.load_program(&program, 0x8000).unwrap();
+        
+        // Execute CLC - should clear carry flag
+        cpu.step().unwrap();
+        assert!(!cpu.is_flag_set(CpuFlag::Carry));
+        
+        // Execute SEC - should set carry flag
+        cpu.step().unwrap();
+        assert!(cpu.is_flag_set(CpuFlag::Carry));
+        
+        // Execute CLC again - should clear carry flag
+        cpu.step().unwrap();
+        assert!(!cpu.is_flag_set(CpuFlag::Carry));
     }
 }

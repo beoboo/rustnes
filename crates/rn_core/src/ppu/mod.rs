@@ -1512,7 +1512,7 @@ mod tests {
         ppu.write_address(0x00); // Low byte
         
         // The first read is buffered, so this value will not be our test_value yet
-        let first_read = ppu.read_data();
+        let _ = ppu.read_data();
         
         // The address should increment by 32 after read
         assert_eq!(ppu.ppu_addr.get(), 0x2020, "Address should increment by 32 after read with CTRL_INCREMENT_MODE");

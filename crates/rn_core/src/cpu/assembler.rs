@@ -1252,4 +1252,20 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_assemble_status_flag_instructions() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000);
+        let program = "
+            CLC         ; Clear carry flag
+            SEC         ; Set carry flag
+        ";
+        
+        // Test the full program assembly
+        let segments = assembler.assemble_program(program)?;
+        assert_eq!(segments.get("STARTUP").unwrap()[0], 0x18); // CLC
+        assert_eq!(segments.get("STARTUP").unwrap()[1], 0x38); // SEC
+        
+        Ok(())
+    }
 }

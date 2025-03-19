@@ -175,6 +175,16 @@ impl Cpu {
         }
     }
 
+    /// Checks if a specific flag is set
+    pub fn is_flag_set(&self, flag: CpuFlag) -> bool {
+        (self.registers.status & (flag as u8)) != 0
+    }
+
+    /// Clears a status flag
+    pub fn clear_flag(&mut self, flag: CpuFlag) {
+        self.registers.status &= !(flag as u8);
+    }
+
     /// Read a byte from memory
     pub fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         self.memory()?.read_byte(address)

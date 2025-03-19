@@ -252,8 +252,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Document the achievement
 
 ### [CPU] Essential Animation Instructions [T4]
-- [ ] Implement status flag changes (CLC, SEC) for arithmetic
-- [ ] Implement additional branches needed (BEQ, BNE) for flow control beyond the implemented BPL
+- [x] Implement status flag changes (CLC, SEC) for arithmetic
+- [ ] Implement additional branches needed (BEQ, BNE) for flow control
 - [ ] Implement basic arithmetic (ADC, SBC) for position updates
 - [ ] Implement comparison (CMP) for bounds checking
 - [ ] Implement register transfer instructions (TXS) for stack initialization
@@ -266,7 +266,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Write tests for advanced addressing modes
 
 ### [Parser] Essential Animation Parser Support [T4]
-- [ ] Implement parsing for status flag instructions (CLC, SEC)
+- [x] Implement parsing for status flag instructions (CLC, SEC)
 - [ ] Implement parsing for branch instructions (BEQ, BNE)
 - [ ] Implement parsing for arithmetic instructions (ADC, SBC)
 - [ ] Implement parsing for comparison instruction (CMP)
@@ -540,13 +540,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 1 (Memory Visualization): 100% complete (50/50 tasks)
 - Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
-- Track 4 (Animated Sprites): 45% complete (15/37 tasks) - Need to implement minimal CPU instructions and assembler features for animation
+- Track 4 (Animated Sprites): 47% complete (17/37 tasks) - Implemented advanced addressing modes and status flag instructions
 - Track 5 (Input Controllers): 10% complete (2/20 tasks) - DMA controller implemented
 - Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 7 (Full Desktop System): 0% complete (0/90 tasks)
 - Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 161/356 tasks complete (45.2%)** 🚀
+**Total Progress: 163/356 tasks complete (45.8%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 
