@@ -1,0 +1,15 @@
+[package]
+name = "nes_asm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+rn_core = { path = "../../crates/rn_core" }
+anyhow.workspace = true
+clap = { version = "4.4", features = ["derive"] }
+log.workspace = true
+env_logger = "0.10"

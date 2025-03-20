@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/rn_core",
-    "crates/rn_ui",
+    "crates/rn_ui", "tools/nes_asm",
     "tools/nes_debugger",
 ]
 resolver = "2"

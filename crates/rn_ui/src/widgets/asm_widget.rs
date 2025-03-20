@@ -167,15 +167,34 @@ impl AsmWidget {
 
     /// Run the program until completion or error, using the configured cycle limit
     pub fn run_program(&mut self, system: &mut NesSystem) -> Result<()> {
-        // Only run if the system is in the right state
-        if !matches!(system.state(), SystemState::Loaded | SystemState::Running) {
-            return Ok(());
-        }
-
         // Check if continuous mode is enabled - if so, we'll just toggle the flag
         if self.continuous_run {
             self.continuous_run = false;
             return Ok(());
+        }
+        
+        // Only run if the system is in a valid state (Ready, Loaded, Running, or Finished)
+        if !matches!(system.state(), SystemState::Ready | SystemState::Loaded | SystemState::Running | SystemState::Finished) {
+            return Ok(());
+        }
+
+        // If system is in Finished state, reset it first
+        if system.state() == SystemState::Finished {
+            // Reset the system
+            log::info!("System in Finished state, resetting before run");
+            system.reset()?;
+            
+            // Reload the program if assembled
+            if self.assembled {
+                system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
+                
+                // Also load CHR ROM data if available
+                if let Some(chr_data) = self.assembled_segments.get("CHARS") {
+                    if !chr_data.is_empty() {
+                        system.load_chr_rom(&chr_data)?;
+                    }
+                }
+            }
         }
 
         // Start continuous running
@@ -273,15 +292,16 @@ impl AsmWidget {
                 self.assemble_code(system)?;
             }
 
-            // Run button - enabled when system is loaded or running
-            let can_run = system.state() == SystemState::Loaded || system.state() == SystemState::Running;
+            // Run button - enabled when system is loaded, running, or finished
+            let can_run = matches!(system.state(), SystemState::Loaded | SystemState::Running | SystemState::Finished);
             let run_text = if self.continuous_run { "Stop" } else { "Run" };
             if ui.add_enabled(can_run, egui::Button::new(run_text)).clicked() {
                 self.run_program(system)?;
             }
 
             // Step button - enabled when system is loaded or running
-            if ui.add_enabled(can_run, egui::Button::new("Step")).clicked() {
+            let can_step = matches!(system.state(), SystemState::Loaded | SystemState::Running);
+            if ui.add_enabled(can_step, egui::Button::new("Step")).clicked() {
                 self.step(system)?;
             }
 
@@ -295,24 +315,42 @@ impl AsmWidget {
                 self.continuous_run = false;
             }
 
-            // Run to Next Frame button
+            // Run to Next Frame button - enabled when system is loaded, running, or finished
             if ui.add_enabled(can_run, egui::Button::new("Run to Next Frame")).clicked() {
+                // If system is in Finished state, reset it first
+                if system.state() == SystemState::Finished {
+                    // Reset the system
+                    log::info!("System in Finished state, resetting before running to next frame");
+                    system.reset()?;
+                    
+                    // Reload the program if assembled
+                    if self.assembled {
+                        system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
+                        
+                        // Also load CHR ROM data if available
+                        if let Some(chr_data) = self.assembled_segments.get("CHARS") {
+                            if !chr_data.is_empty() {
+                                system.load_chr_rom(&chr_data)?;
+                            }
+                        }
+                    }
+                }
+                
                 // Run up to PPU frame completion
                 let current_frame = system.ppu().frame_count();
                 let target_frame = current_frame + 1;
                 
-                // Run until we reach the next frame
-                let mut max_steps = 100000; // safety limit
-                while system.ppu().frame_count() < target_frame && max_steps > 0 {
+                // Run until we reach the next frame - no safety limit
+                while system.ppu().frame_count() < target_frame {
                     if let Err(e) = system.step() {
                         self.error_message = Some(format!("Error stepping to next frame: {}", e));
                         break;
                     }
-                    max_steps -= 1;
-                }
-                
-                if max_steps == 0 {
-                    self.error_message = Some("Reached maximum steps while running to next frame".to_string());
+                    
+                    // Also check if we've hit the Finished state
+                    if system.state() == SystemState::Finished {
+                        break; // Stop running if we hit a BRK
+                    }
                 }
                 
                 // Force a frame render
@@ -369,7 +407,46 @@ impl AsmWidget {
             return false;
         }
         
-        let cycles_to_run = self.cycles_per_frame;
+        // Check if system is in Finished state and reset if needed
+        if system.state() == SystemState::Finished {
+            // Reset the system
+            log::info!("System in Finished state, resetting before continuous run");
+            if let Err(e) = system.reset() {
+                self.error_message = Some(format!("Error resetting system: {}", e));
+                self.continuous_run = false;
+                return false;
+            }
+            
+            // Reload the program if assembled
+            if self.assembled {
+                match system.load_program(&self.assembled_bytes, self.assembler.load_address) {
+                    Ok(_) => {
+                        // Also load CHR ROM data if available
+                        if let Some(chr_data) = self.assembled_segments.get("CHARS") {
+                            if !chr_data.is_empty() {
+                                if let Err(e) = system.load_chr_rom(&chr_data) {
+                                    self.error_message = Some(format!("Error loading CHR ROM: {}", e));
+                                    self.continuous_run = false;
+                                    return false;
+                                }
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        self.error_message = Some(format!("Error loading program: {}", e));
+                        self.continuous_run = false;
+                        return false;
+                    }
+                }
+            }
+        }
+        
+        // If no cycle limit, run a much larger number of cycles
+        let cycles_to_run = if self.no_cycle_limit {
+            1_000_000 // Run a lot of cycles per frame when unlimited
+        } else {
+            self.cycles_per_frame
+        };
         
         // Run a fixed number of cycles
         let mut cycles_run = 0;
@@ -387,14 +464,16 @@ impl AsmWidget {
             
             // Check if we've hit a terminal state
             if system.state() == SystemState::Finished {
-                self.continuous_run = false;
-                return false;
+                // Don't stop the continuous run - we'll reset on next frame
+                break;
             }
         }
         
         // Force a frame render periodically
-        if cycles_run > 0 && cycles_run % 1000 == 0 {
-            system.ppu().force_render_frame();
+        if cycles_run > 0 {
+            if self.no_cycle_limit || cycles_run % 1000 == 0 {
+                system.ppu().force_render_frame();
+            }
         }
         
         // Continue running
