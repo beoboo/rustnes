@@ -65,11 +65,18 @@ impl Instruction {
         )
     }
     
-    /// Returns true if the instruction directly modifies the program counter
+    /// Returns true if the instruction requires absolute addressing mode
+    /// even for zero page addresses (such as JMP and JSR)
+    pub fn is_jump(&self) -> bool {
+        matches!(self, Instruction::JMP | Instruction::JSR)
+    }
+    
+    /// Returns true if the instruction modifies the program counter
     pub fn modifies_pc(&self) -> bool {
         matches!(
             self,
-            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK | Instruction::BPL | Instruction::BEQ | Instruction::BNE
+            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK |
+            Instruction::BPL | Instruction::BNE | Instruction::BEQ
         )
     }
 }
@@ -422,7 +429,7 @@ impl Cpu {
         // Only branch if the Negative flag is clear (positive result)
         if !self.get_flag(CpuFlag::Negative) {
             // For branch instructions, we need to read the offset directly
-            // The offset is stored at PC (PC points to the offset byte after fetch)
+            // The offset is stored at PC (PC already points to the offset byte after fetch)
             let offset = self.read_byte(self.registers.pc)? as i8; // Read as signed byte
 
             // Add 1 cycle for taking the branch
@@ -432,9 +439,8 @@ impl Cpu {
             let old_pc = self.registers.pc;
 
             // Calculate the target address
-            // PC+1 is the address of the next instruction after BPL
-            // We add the offset to that
-            let target = ((self.registers.pc as i32) + 1 + (offset as i32)) as u16;
+            // PC+1 is the address of the next instruction (after the branch opcode and offset byte)
+            let target = ((self.registers.pc.wrapping_add(1) as i32) + (offset as i32)) as u16;
 
             // Set the PC to the target address
             self.registers.pc = target;
@@ -443,14 +449,12 @@ impl Cpu {
             if (old_pc & 0xFF00) != (target & 0xFF00) {
                 additional_cycles += 1;
             }
-
-            // No need to subtract from PC since we're setting it directly to the target
-            // and execute() won't increment it for branch instructions
         } else {
             // When branch is not taken, we need to increment the PC to skip the offset byte
+            // Since we're marked as a PC-modifying instruction, we need to handle this ourselves
             self.registers.pc = self.registers.pc.wrapping_add(1);
         }
-
+        
         Ok(additional_cycles)
     }
 
@@ -469,10 +473,10 @@ impl Cpu {
         // Initially no additional cycles
         let mut additional_cycles = 0;
 
-        // Only branch if the Zero flag is set (positive result)
+        // Only branch if the Zero flag is set
         if self.get_flag(CpuFlag::Zero) {
             // For branch instructions, we need to read the offset directly
-            // The offset is stored at PC (PC points to the offset byte after fetch)
+            // The offset is stored at PC (PC already points to the offset byte after fetch)
             let offset = self.read_byte(self.registers.pc)? as i8; // Read as signed byte
 
             // Add 1 cycle for taking the branch
@@ -482,9 +486,8 @@ impl Cpu {
             let old_pc = self.registers.pc;
 
             // Calculate the target address
-            // PC+1 is the address of the next instruction after BEQ
-            // We add the offset to that
-            let target = ((self.registers.pc as i32) + 1 + (offset as i32)) as u16;
+            // PC+1 is the address of the next instruction (after the branch opcode and offset byte)
+            let target = ((self.registers.pc.wrapping_add(1) as i32) + (offset as i32)) as u16;
 
             // Set the PC to the target address
             self.registers.pc = target;
@@ -493,14 +496,12 @@ impl Cpu {
             if (old_pc & 0xFF00) != (target & 0xFF00) {
                 additional_cycles += 1;
             }
-
-            // No need to subtract from PC since we're setting it directly to the target
-            // and execute() won't increment it for branch instructions
         } else {
             // When branch is not taken, we need to increment the PC to skip the offset byte
+            // Since we're marked as a PC-modifying instruction, we need to handle this ourselves
             self.registers.pc = self.registers.pc.wrapping_add(1);
         }
-
+        
         Ok(additional_cycles)
     }
 
@@ -509,10 +510,10 @@ impl Cpu {
         // Initially no additional cycles
         let mut additional_cycles = 0;
 
-        // Only branch if the Zero flag is clear (negative result)
+        // Only branch if the Zero flag is clear
         if !self.get_flag(CpuFlag::Zero) {
             // For branch instructions, we need to read the offset directly
-            // The offset is stored at PC (PC points to the offset byte after fetch)
+            // The offset is stored at PC (PC already points to the offset byte after fetch)
             let offset = self.read_byte(self.registers.pc)? as i8; // Read as signed byte
 
             // Add 1 cycle for taking the branch
@@ -522,9 +523,8 @@ impl Cpu {
             let old_pc = self.registers.pc;
 
             // Calculate the target address
-            // PC+1 is the address of the next instruction after BNE
-            // We add the offset to that
-            let target = ((self.registers.pc as i32) + 1 + (offset as i32)) as u16;
+            // PC+1 is the address of the next instruction (after the branch opcode and offset byte)
+            let target = ((self.registers.pc.wrapping_add(1) as i32) + (offset as i32)) as u16;
 
             // Set the PC to the target address
             self.registers.pc = target;
@@ -533,14 +533,12 @@ impl Cpu {
             if (old_pc & 0xFF00) != (target & 0xFF00) {
                 additional_cycles += 1;
             }
-
-            // No need to subtract from PC since we're setting it directly to the target
-            // and execute() won't increment it for branch instructions
         } else {
             // When branch is not taken, we need to increment the PC to skip the offset byte
+            // Since we're marked as a PC-modifying instruction, we need to handle this ourselves
             self.registers.pc = self.registers.pc.wrapping_add(1);
         }
-
+        
         Ok(additional_cycles)
     }
 

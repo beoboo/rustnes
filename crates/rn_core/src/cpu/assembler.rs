@@ -179,7 +179,11 @@ impl Assembler {
         }
     }
 
-    /// Configure default NES ROM segments
+    /// Initializes the assembler with standard NES segments
+    ///
+    /// This adds the HEADER, ZEROPAGE, STARTUP, VECTORS, and CHARS segments
+    /// that are commonly used in NES programs.
+    /// This is the owned version that consumes self and returns Self.
     pub fn with_nes_segments(mut self) -> Self {
         self.segments.add("HEADER", 0x0000); // iNES header at the start
         self.segments.add("ZEROPAGE", 0x0000); // Zero page variables (0x0000-0x00FF)
@@ -810,8 +814,10 @@ impl Assembler {
         // Select the appropriate addressing mode based on the instruction and address
         let addressing_mode = if instruction.is_branch() {
             AddressingMode::Relative
+        } else if instruction.is_jump() {
+            AddressingMode::Absolute
         } else if *address <= 0xFF {
-            // Zero page addressing for addresses $00-$FF
+            // Zero page addressing for addresses $00-$FF, unless the instruction requires absolute
             AddressingMode::ZeroPage
         } else {
             // Absolute addressing for addresses $0100-$FFFF
@@ -1920,6 +1926,283 @@ mod tests {
         assert_eq!(chars_segment[48], 0x3C, "First byte of bottom-right tile incorrect"); // %00111100 - bit plane 0
         assert_eq!(chars_segment[56], 0x00, "Ninth byte of bottom-right tile incorrect"); // %00000000 - bit plane 1
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod label_resolution_tests {
+    use super::*;
+    use anyhow::Result;
+    use crate::cpu::disassembler::Disassembler;
+
+    fn disassemble_program(bytes: &[u8], start_address: u16) -> Vec<(u16, Vec<u8>, String)> {
+        let disassembler = Disassembler::new();
+        let disassembly = disassembler.disassemble_program(bytes, 0, bytes.len());
+        
+        // Convert offset-based addresses to absolute addresses
+        disassembly
+            .into_iter()
+            .map(|(offset, bytes, instruction)| {
+                (start_address + offset as u16, bytes, instruction)
+            })
+            .collect()
+    }
+
+    fn print_disassembly(disassembly: &[(u16, Vec<u8>, String)]) -> String {
+        let mut output = String::new();
+        for (addr, bytes, instruction) in disassembly {
+            let bytes_str: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
+            output.push_str(&format!("{:04X}: {:<8} {}\n", addr, bytes_str.join(" "), instruction));
+        }
+        output
+    }
+
+    #[test]
+    fn test_simple_jsr_rts() -> Result<()> {
+        // Create a simple program with JSR and RTS
+        let program = "
+            .segment \"STARTUP\"
+            JSR Subroutine  ; Jump to subroutine
+            BRK             ; End program
+            
+            Subroutine:     ; Define subroutine
+              LDA #$42      ; Load value into A
+              RTS           ; Return from subroutine
+        ";
+        
+        // Create assembler in two steps to avoid temporary value issue
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        
+        // First collect labels to get actual label positions
+        let labels = assembler.collect_labels(program)?;
+        let subroutine_addr = labels.get("Subroutine").unwrap();
+        
+        let segments = assembler.assemble_program(program)?;
+        let bytes = segments.get("STARTUP").unwrap();
+        
+        // Disassemble for verification
+        let disassembly = disassemble_program(bytes, 0x8000);
+        println!("Simple JSR test disassembly:\n{}", print_disassembly(&disassembly));
+        
+        // Format the expected JSR instruction with the label address
+        let expected_jsr = format!("JSR ${:04X}", subroutine_addr);
+        
+        // Check if JSR instruction points to the correct address
+        assert_eq!(disassembly[0].2, expected_jsr, "JSR should point to the subroutine address");
+        
+        // Extract target address from JSR bytes
+        let target_addr = ((disassembly[0].1[2] as u16) << 8) | (disassembly[0].1[1] as u16);
+        
+        // Check that the bytes in the instruction match the label address
+        assert_eq!(target_addr, *subroutine_addr, "JSR bytes should encode the correct address");
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_jsr_to_label_after_jsr() -> Result<()> {
+        // Test JSR where the target label is after the JSR instruction
+        let program = "
+            .segment \"STARTUP\"
+            JSR WaitForVBlank  ; Jump to WaitForVBlank
+            BRK                ; End program
+            
+            WaitForVBlank:     ; Define WaitForVBlank routine
+              BIT $2002        ; Test VBLANK flag
+              BPL WaitVBlankStart ; Loop if VBLANK not set
+              RTS              ; Return
+
+            WaitVBlankStart:   ; Define WaitVBlankStart label
+              BIT $2002        ; Test VBLANK flag
+              BPL WaitVBlankStart ; Loop if VBLANK not set
+              RTS              ; Return
+        ";
+        
+        // Create assembler in two steps to avoid temporary value issue
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        
+        let segments = assembler.assemble_program(program)?;
+        let bytes = segments.get("STARTUP").unwrap();
+        
+        // Disassemble for verification
+        let disassembly = disassemble_program(bytes, 0x8000);
+        println!("JSR to later label test disassembly:\n{}", print_disassembly(&disassembly));
+        
+        // Find the address of WaitForVBlank
+        let waitforvblank_addr = disassembly.iter()
+            .position(|(_, _, instr)| instr == "BIT $2002")
+            .map(|pos| disassembly[pos].0)
+            .unwrap();
+        
+        // Check if JSR instruction points to the correct address
+        let jsr_instr = &disassembly[0].2;
+        let expected_jsr = format!("JSR ${:04X}", waitforvblank_addr);
+        assert_eq!(jsr_instr, &expected_jsr, "JSR should point to the WaitForVBlank address");
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_animation_program_snippet() -> Result<()> {
+        // Test a snippet from the animation program that's failing
+        let program = "
+            .segment \"STARTUP\"
+            ; Initialize some variables
+            LDX #$FF
+            TXS
+            LDA #$80
+            STA $00   ; ball_x
+            LDA #$80
+            STA $01   ; ball_y
+            
+            ; Wait for vblank
+            JSR WaitForVBlank
+            
+            ; Continue with program
+            LDA #$3F
+            STA $2006
+            
+            ; Later in the code we define WaitForVBlank
+            ; ...
+            ; ...
+            
+            WaitForVBlank:
+              BIT $2002        ; Clear VBLANK flag
+            WaitVBlankStart:
+              BIT $2002        ; Test VBLANK flag
+              BPL WaitVBlankStart ; Loop until VBLANK flag is set
+              RTS
+        ";
+        
+        // Create assembler in two steps to avoid temporary value issue
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        
+        // First collect labels to get actual label positions
+        let labels = assembler.collect_labels(program)?;
+        let waitforvblank_addr = *labels.get("WaitForVBlank").unwrap();
+        
+        let segments = assembler.assemble_program(program)?;
+        let bytes = segments.get("STARTUP").unwrap();
+        
+        // Disassemble for verification
+        let disassembly = disassemble_program(bytes, 0x8000);
+        println!("Animation snippet test disassembly:\n{}", print_disassembly(&disassembly));
+        
+        // Find the JSR instruction
+        let jsr_pos = disassembly.iter()
+            .position(|(_, _, instr)| instr.starts_with("JSR"))
+            .unwrap();
+        
+        // Extract the target address from the bytes directly
+        let jsr_bytes = &disassembly[jsr_pos].1;
+        let jsr_bytes_addr = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
+        
+        println!("Label WaitForVBlank at: ${:04X}", waitforvblank_addr);
+        println!("JSR targets: ${:04X} (from bytes)", jsr_bytes_addr);
+        
+        // Check that the JSR instruction targets the correct address
+        assert_eq!(
+            jsr_bytes_addr, 
+            waitforvblank_addr, 
+            "JSR bytes should encode the correct WaitForVBlank address"
+        );
+        
+        // Also verify the disassembly output matches
+        let expected_jsr = format!("JSR ${:04X}", waitforvblank_addr);
+        assert_eq!(
+            disassembly[jsr_pos].2,
+            expected_jsr,
+            "JSR instruction text should match expected address"
+        );
+        
+        Ok(())
+    }
+    
+    #[test]
+    fn test_animation_program_full() -> Result<()> {
+        // Simple snippet instead of reading file
+        let program = "
+            .segment \"ZEROPAGE\"
+            ball_x:      .res 1   ; Ball X position
+            ball_y:      .res 1   ; Ball Y position
+            x_vel:       .res 1   ; X velocity
+            y_vel:       .res 1   ; Y velocity
+
+            .segment \"STARTUP\"
+            RESET:
+              ; Set up the stack
+              LDX #$FF
+              TXS
+              
+              ; Initialize variables
+              LDA #$80        ; Start position X
+              STA ball_x
+              LDA #$80        ; Start position Y
+              STA ball_y
+              LDA #$01        ; Moving right
+              STA x_vel
+              LDA #$01        ; Moving down
+              STA y_vel
+            
+              ; Wait for vblank
+              JSR WaitForVBlank
+            
+              ; Main game loop
+            MainLoop:
+              JSR WaitForVBlank     ; Wait for VBLANK
+              JMP MainLoop          ; Repeat forever
+            
+            WaitForVBlank:
+              BIT $2002             ; Clear VBLANK flag
+              BIT $2002             ; Test VBLANK flag
+              BPL WaitForVBlank     ; Loop until set
+              RTS
+        ";
+        
+        // Create assembler
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        
+        // First get label addresses
+        let labels = assembler.collect_labels(program)?;
+        let waitforvblank_addr = *labels.get("WaitForVBlank").unwrap();
+        
+        // Assemble program
+        let segments = assembler.assemble_program(program)?;
+        let bytes = segments.get("STARTUP").unwrap();
+        
+        // Disassemble
+        let disassembly = disassemble_program(bytes, 0x8000);
+        
+        // Find all JSR instructions
+        let jsr_instructions: Vec<(u16, &Vec<u8>)> = disassembly
+            .iter()
+            .filter_map(|(addr, bytes, instr)| {
+                if instr.starts_with("JSR") {
+                    Some((*addr, bytes))
+                } else {
+                    None
+                }
+            })
+            .collect();
+            
+        // Check each JSR instruction
+        for (jsr_addr, jsr_bytes) in &jsr_instructions {
+            // Extract target address from JSR bytes
+            let target_addr = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
+            
+            println!("JSR at ${:04X} targets ${:04X}", jsr_addr, target_addr);
+            println!("WaitForVBlank label at ${:04X}", waitforvblank_addr);
+            
+            // Verify JSR targets the correct address
+            assert_eq!(
+                target_addr, 
+                waitforvblank_addr,
+                "JSR at ${:04X} points to ${:04X} but should point to ${:04X}",
+                jsr_addr, target_addr, waitforvblank_addr
+            );
+        }
+        
         Ok(())
     }
 }
