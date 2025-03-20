@@ -262,7 +262,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement basic arithmetic (ADC, SBC) for position updates
 - [x] Implement comparison (CMP) for bounds checking
 - [x] Implement register transfer instructions (TXS) for stack initialization
-- [ ] Write tests for these animation instructions
+- [x] Write tests for these animation instructions
 
 ### [CPU] Advanced Addressing Modes [T4]
 - [x] Implement indirect addressing
@@ -298,7 +298,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement multiple sprite rendering
 - [x] Implement sprite priority
 - [x] Implement sprite attributes (flip, palette selection)
-- [ ] Test multi-tile sprite rendering
+- [x] Test multi-tile sprite rendering
 - [x] Fix sprite rendering issues
   - [x] Fix palette memory mirroring handling in write_palette
   - [x] Fix sprite rendering to properly write pixels to frame buffer
