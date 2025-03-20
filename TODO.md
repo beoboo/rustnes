@@ -287,7 +287,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ### [Assembler] Additional NES Assembler Features [T4]
 - [x] Implement ZEROPAGE segment support for variable declarations
 - [x] Implement stack manipulation instructions (LDX #$FF, TXS)
-- [✓] Support variable declarations with labels (ball_x: .res 1) [In Progress]
+- [x] Support variable declarations with labels (ball_x: .res 1)
 - [ ] Implement support for multi-tile sprite patterns
 - [ ] Add support for complex expressions in sprite positioning (ADC #$08)
 - [ ] Support recognition of all NES-specific memory segments ("HEADER", "ZEROPAGE", "STARTUP", "VECTORS", "CHARS")

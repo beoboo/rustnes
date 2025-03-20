@@ -333,48 +333,19 @@ impl Assembler {
         Ok(result)
     }
 
-    /// Helper method to handle a segment directive during label collection
-    fn handle_segment_directive_for_labels(&self, line: &str, current_address: &mut u16) -> bool {
-        if line.starts_with(".segment") {
-            // Minimal parsing for segment name
-            let parts: Vec<&str> = line.splitn(2, ' ').collect();
-
-            if parts.len() > 1 {
-                let segment_name = format_segment_name(parts[1]);
-                if let Some(segment) = self.segments.get(segment_name) {
-                    *current_address = segment.load_address; // Update current address for the segment
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    /// Helper method to handle .res directive during label collection
-    fn handle_res_directive_for_labels(&self, line: &str, current_address: &mut u16) -> bool {
-        if line.starts_with(".res") {
-            // Parse res size to update current_address
-            let parts: Vec<&str> = line.splitn(2, ' ').collect();
-            
-            if parts.len() > 1 {
-                let params: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
-                if !params.is_empty() {
-                    if let Ok(size) = parse_value::<u16>(params[0]) {
-                        *current_address += size;
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-
     /// Collects labels and their positions from a program
     fn collect_labels(&mut self, program: &str) -> AssembleResult<HashMap<String, u16>> {
         let mut labels = HashMap::new();
 
         // Initialize with default load address
         let mut current_address = self.load_address;
+        
+        // Track segment-specific addresses
+        let mut segment_addresses = HashMap::new();
+        segment_addresses.insert("STARTUP".to_string(), current_address);
+        
+        // Current segment name
+        let mut current_segment = "STARTUP".to_string();
 
         // Create a list of lines for easier handling of directives that appear after labels
         let lines: Vec<&str> = program.lines().collect();
@@ -387,43 +358,94 @@ impl Assembler {
                 continue;
             };
 
-            // Check for segment directives to track the current segment
-            if self.handle_segment_directive_for_labels(&line, &mut current_address) {
+            // Handle segment directives
+            if line.starts_with(".segment") {
+                let parts: Vec<&str> = line.splitn(2, ' ').collect();
+                if parts.len() > 1 {
+                    let segment_name = format_segment_name(parts[1]).to_string();
+                    
+                    // Update current segment
+                    current_segment = segment_name.clone();
+                    
+                    // Check if we have an address for this segment already
+                    if let Some(&addr) = segment_addresses.get(&current_segment) {
+                        current_address = addr;
+                    } else {
+                        // Initialize new segments appropriately
+                        if current_segment == "ZEROPAGE" {
+                            current_address = 0; // ZEROPAGE starts at 0
+                        } else if let Some(segment) = self.segments.get(&current_segment) {
+                            current_address = segment.load_address;
+                        }
+                        segment_addresses.insert(current_segment.clone(), current_address);
+                    }
+                }
+                
                 line_index += 1;
                 continue;
             }
 
             // Process the line to get label and code
             let (label, code_opt) = process_line(&line)?;
-
+            
             // If we found a label, record it with current address
             if !label.is_empty() {
                 // Check for duplicate labels
                 if labels.contains_key(&label) {
                     return Err(AssembleError::LabelError(format!("Duplicate label: {}", label)));
                 }
-
+                
                 // Record the label's position
-                labels.insert(label, current_address);
-
+                labels.insert(label.clone(), current_address);
+                
                 // If there's no code after the label, check if the next line is a directive
                 if code_opt.is_none() && line_index + 1 < lines.len() {
                     if let Some(next_line) = self.clean_line(lines[line_index + 1]) {
-                        if next_line.starts_with('.') && self.handle_res_directive_for_labels(&next_line, &mut current_address) {
-                            // Skip the directive line in the next iteration
-                            line_index += 2;
-                            continue;
+                        if next_line.starts_with(".res") {
+                            let parts: Vec<&str> = next_line.splitn(2, ' ').collect();
+                            if parts.len() > 1 {
+                                let params: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
+                                if !params.is_empty() {
+                                    if let Ok(size) = parse_value::<u16>(params[0]) {
+                                        // Update address after the .res directive
+                                        current_address += size;
+                                        
+                                        // Update segment address
+                                        segment_addresses.insert(current_segment.clone(), current_address);
+                                        
+                                        // Skip the directive line in the next iteration
+                                        line_index += 2;
+                                        continue;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            // If we have code to process
+            // Process directive on same line as label
             if let Some(code) = code_opt {
-                // Skip directives in first pass, but handle other instructions
-                if !code.starts_with('.') {
-                    // Calculate instruction size to update current_address
+                if code.starts_with(".res") {
+                    let parts: Vec<&str> = code.splitn(2, ' ').collect();
+                    if parts.len() > 1 {
+                        let params: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
+                        if !params.is_empty() {
+                            if let Ok(size) = parse_value::<u16>(params[0]) {
+                                // Update address after the .res directive
+                                current_address += size;
+                                
+                                // Update segment address
+                                segment_addresses.insert(current_segment.clone(), current_address);
+                            }
+                        }
+                    }
+                } else if !code.starts_with('.') {
+                    // For non-directive code, estimate instruction size
                     current_address += self.calculate_instruction_size(&code)?;
+                    
+                    // Update segment address
+                    segment_addresses.insert(current_segment.clone(), current_address);
                 }
             }
 
@@ -647,12 +669,8 @@ impl Assembler {
                 ]);
             }
 
-            // Return opcode + 16-bit address (little endian)
-            return Ok(vec![
-                metadata.opcode,
-                (address & 0xFF) as u8, // Low byte first
-                (address >> 8) as u8,   // High byte second
-            ]);
+            // Use encode_instruction for all other addressing modes
+            return self.encode_instruction(metadata.opcode, metadata.addressing_mode, address);
         }
 
         // Handle standard addressing modes
@@ -841,7 +859,8 @@ impl Assembler {
             },
             AddressingMode::Absolute | 
             AddressingMode::AbsoluteX | 
-            AddressingMode::AbsoluteY => {
+            AddressingMode::AbsoluteY |
+            AddressingMode::Indirect => {
                 bytes.push((operand_value & 0xFF) as u8);
                 bytes.push((operand_value >> 8) as u8);
             },
@@ -1619,42 +1638,44 @@ mod tests {
 
     #[test]
     fn test_variable_declarations_with_labels() -> AssembleResult<()> {
-        let mut assembler = Assembler::new(0x8000);
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
         
-        // Add required segments
-        assembler.segments.add("ZEROPAGE", 0x0000);
-        assembler.segments.add("STARTUP", 0x8000);
-        
-        // First test the simple case (no labels)
-        let program = "
-            .segment \"ZEROPAGE\"
-            ; Define variables directly with .res
-            .res 1    ; ball_x at $0000
-            .res 1    ; ball_y at $0001
+        // Test program with labeled variable declarations in ZEROPAGE segment
+        let program = r#"
+            .segment "ZEROPAGE"
+            ball_x:     .res 1   ; Ball X position
+            ball_y:     .res 1   ; Ball Y position
             
-            .segment \"STARTUP\"
+            .segment "STARTUP"
             LDA #$50          ; Initial X position
-            STA $00           ; Store in ball_x variable
+            STA ball_x        ; Store in ball_x variable using label
             
             LDA #$60          ; Initial Y position
-            STA $01           ; Store in ball_y variable
-        ";
+            STA ball_y        ; Store in ball_y variable using label
+        "#;
         
         let segments = assembler.assemble_program(program)?;
         
         // Check that variables were correctly reserved in ZEROPAGE segment
         let zeropage = segments.get("ZEROPAGE").unwrap();
-        assert_eq!(zeropage.len(), 2, "ZEROPAGE segment should have 2 bytes reserved"); // Two bytes reserved
+        assert_eq!(zeropage.len(), 2, "ZEROPAGE segment should have 2 bytes reserved");
         
         // Check code in STARTUP segment
         let code = segments.get("STARTUP").unwrap();
+        
+        // First instruction: LDA #$50
         assert_eq!(code[0], 0xA9, "First byte should be LDA immediate (0xA9)"); // LDA immediate
         assert_eq!(code[1], 0x50, "Second byte should be value $50"); // Value $50
+        
+        // Second instruction: STA ball_x (should be STA $00, as ball_x is at address $0000)
         assert_eq!(code[2], 0x85, "Third byte should be STA zero page (0x85)"); // STA zero page
         assert_eq!(code[3], 0x00, "Fourth byte should be address $00 (ball_x)"); // Address $00 (ball_x)
         
+        // Third instruction: LDA #$60
         assert_eq!(code[4], 0xA9, "Fifth byte should be LDA immediate (0xA9)"); // LDA immediate
         assert_eq!(code[5], 0x60, "Sixth byte should be value $60"); // Value $60
+        
+        // Fourth instruction: STA ball_y
         assert_eq!(code[6], 0x85, "Seventh byte should be STA zero page (0x85)"); // STA zero page
         assert_eq!(code[7], 0x01, "Eighth byte should be address $01 (ball_y)"); // Address $01 (ball_y)
         
@@ -1681,18 +1702,12 @@ mod tests {
         
         let segments = assembler.assemble_program(program)?;
         
-        // Debug print segment contents
-        for (name, bytes) in &segments {
-            println!("Segment '{}': {:?}", name, bytes);
-        }
-        
         // Check that variables were correctly reserved in ZEROPAGE segment
         let zeropage = segments.get("ZEROPAGE").unwrap();
         assert_eq!(zeropage.len(), 2, "ZEROPAGE segment should have 2 bytes reserved");
         
         // Check code in STARTUP segment
         let code = segments.get("STARTUP").unwrap();
-        println!("STARTUP segment length: {}", code.len());
         
         // First instruction: LDA #$50
         assert_eq!(code[0], 0xA9, "First byte should be LDA immediate (0xA9)"); // LDA immediate
@@ -1702,19 +1717,64 @@ mod tests {
         assert_eq!(code[2], 0x85, "Third byte should be STA zero page (0x85)"); // STA zero page
         assert_eq!(code[3], 0x00, "Fourth byte should be address $00 (ball_x)"); // Address $00 (ball_x)
         
-        // Note: The output seems to have an extra byte after each STA instruction
-        // This is likely due to how the assembler is handling label references
-        
-        // Third instruction: LDA #$60 (at position 4 or 5 depending on extra bytes)
-        assert_eq!(code[5], 0xA9, "LDA immediate (0xA9) expected at position 5"); // LDA immediate
-        assert_eq!(code[6], 0x60, "Value $60 expected at position 6"); // Value $60
+        // Third instruction: LDA #$60
+        assert_eq!(code[4], 0xA9, "Fifth byte should be LDA immediate (0xA9)"); // LDA immediate
+        assert_eq!(code[5], 0x60, "Sixth byte should be value $60"); // Value $60
         
         // Fourth instruction: STA ball_y
-        assert_eq!(code[7], 0x85, "STA zero page (0x85) expected at position 7"); // STA zero page
+        assert_eq!(code[6], 0x85, "Seventh byte should be STA zero page (0x85)"); // STA zero page
+        assert_eq!(code[7], 0x01, "Eighth byte should be address $01 (ball_y)"); // Address $01 (ball_y)
         
-        // The expected address should be 1 for ball_y (second variable in ZEROPAGE)
-        // However, the current implementation seems to incorrectly use 0
-        // This will need to be fixed in the label resolution code
+        Ok(())
+    }
+
+    #[test]
+    fn test_zeropage_operand_size() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        
+        // Test program focusing on zero page addressing operand size
+        let program = r#"
+            .segment "ZEROPAGE"
+            var_x:     .res 1   ; Variable at $00
+            var_y:     .res 1   ; Variable at $01
+            
+            .segment "STARTUP"
+            ; Store values in zero page variables
+            LDA #$42
+            STA var_x  ; This should assemble to 85 00 (2 bytes only)
+            
+            LDA #$24
+            STA var_y  ; This should assemble to 85 01 (2 bytes only)
+            
+            ; For comparison, absolute addressing
+            LDA #$FF
+            STA $2000  ; This should be 8D 00 20 (3 bytes)
+        "#;
+        
+        let segments = assembler.assemble_program(program)?;
+        
+        // Get the STARTUP segment
+        let code = segments.get("STARTUP").unwrap();
+        
+        // Check zero page addressing instructions
+        assert_eq!(code[0], 0xA9, "First byte should be LDA immediate");
+        assert_eq!(code[1], 0x42, "Second byte should be the immediate value $42");
+        assert_eq!(code[2], 0x85, "Third byte should be STA zero page");
+        assert_eq!(code[3], 0x00, "Fourth byte should be zero page address $00");
+        
+        // Check that the next instruction starts immediately after (position 4)
+        // If there's an extra byte incorrectly added for zero page, this will fail
+        assert_eq!(code[4], 0xA9, "Fifth byte should be next LDA immediate");
+        assert_eq!(code[5], 0x24, "Sixth byte should be the immediate value $24");
+        assert_eq!(code[6], 0x85, "Seventh byte should be STA zero page");
+        assert_eq!(code[7], 0x01, "Eighth byte should be zero page address $01");
+        
+        // Check absolute addressing has correct size
+        assert_eq!(code[8], 0xA9, "Should be LDA immediate");
+        assert_eq!(code[9], 0xFF, "Should be the immediate value $FF");
+        assert_eq!(code[10], 0x8D, "Should be STA absolute");
+        assert_eq!(code[11], 0x00, "Should be low byte of address $2000");
+        assert_eq!(code[12], 0x20, "Should be high byte of address $2000");
         
         Ok(())
     }
