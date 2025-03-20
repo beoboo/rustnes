@@ -64,6 +64,7 @@ enum Directive {
     Byte(Vec<u8>),
     Word(Vec<u16>),
     Res(u16, u8), // Size, fill value (defaults to 0)
+    Sprite(u8, u8, Vec<u8>), // Width (tiles), Height (tiles), pattern data
 }
 
 struct Segment {
@@ -475,6 +476,7 @@ impl Assembler {
             ".byte" => self.parse_byte_directive(args)?,
             ".word" => self.parse_word_directive(args, labels)?,
             ".res" => self.parse_res_directive(args)?,
+            ".sprite" => self.parse_sprite_directive(args)?,
             _ => {
                 return Err(AssembleError::DirectiveError(format!(
                     "Unknown directive: {}",
@@ -577,31 +579,133 @@ impl Assembler {
         Ok(Directive::Res(size, fill))
     }
 
+    /// Parse a sprite directive
+    fn parse_sprite_directive(&self, args: &str) -> AssembleResult<Directive> {
+        if args.is_empty() {
+            return Err(AssembleError::DirectiveError("Missing sprite parameters".to_string()));
+        }
+
+        // Extract width and height parameters
+        let mut parts = args.splitn(3, ',');
+        
+        // Get width
+        let width_str = parts.next()
+            .ok_or_else(|| AssembleError::DirectiveError("Missing width parameter".to_string()))?
+            .trim();
+        let width = width_str.parse::<u8>()
+            .map_err(|_| AssembleError::DirectiveError(format!("Invalid width: {}", width_str)))?;
+        
+        // Get height
+        let height_str = parts.next()
+            .ok_or_else(|| AssembleError::DirectiveError("Missing height parameter".to_string()))?
+            .trim();
+        let height = height_str.parse::<u8>()
+            .map_err(|_| AssembleError::DirectiveError(format!("Invalid height: {}", height_str)))?;
+        
+        // Get pattern data string
+        let pattern_str = parts.next()
+            .ok_or_else(|| AssembleError::DirectiveError("Missing pattern data".to_string()))?;
+        
+        // Process the pattern data
+        let mut pattern_data = Vec::new();
+        
+        // Split the pattern data by commas and process each token
+        for token in pattern_str.split(',') {
+            let token = token.trim();
+            if token.is_empty() {
+                continue;
+            }
+            
+            // Parse the binary value
+            if token.starts_with('%') {
+                let binary_str = &token[1..];
+                match u8::from_str_radix(binary_str, 2) {
+                    Ok(value) => pattern_data.push(value),
+                    Err(_) => return Err(AssembleError::DirectiveError(
+                        format!("Invalid binary value: {}", token)
+                    )),
+                }
+            } else if token.starts_with("$") {
+                // Handle hex values
+                let hex_str = &token[1..];
+                match u8::from_str_radix(hex_str, 16) {
+                    Ok(value) => pattern_data.push(value),
+                    Err(_) => return Err(AssembleError::DirectiveError(
+                        format!("Invalid hex value: {}", token)
+                    )),
+                }
+            } else {
+                // Handle decimal values
+                match token.parse::<u8>() {
+                    Ok(value) => pattern_data.push(value),
+                    Err(_) => return Err(AssembleError::DirectiveError(
+                        format!("Invalid decimal value: {}", token)
+                    )),
+                }
+            }
+        }
+        
+        // Check if we have the correct amount of pattern data
+        let expected_bytes = width as usize * height as usize * 16; // 16 bytes per tile (8+8 bytes for 2 bit planes)
+        if pattern_data.len() != expected_bytes {
+            return Err(AssembleError::DirectiveError(
+                format!("Incorrect pattern data size: expected {} bytes, got {} bytes", 
+                        expected_bytes, pattern_data.len())
+            ));
+        }
+        
+        Ok(Directive::Sprite(width, height, pattern_data))
+    }
+
     /// Apply the effects of a directive
     fn apply_directive(&mut self, directive: &Directive) -> AssembleResult<()> {
         match directive {
             Directive::Segment(name) => {
-                self.segments.current = Some(name.clone());
+                let name = format_segment_name(name);
+                
+                // If segment doesn't exist, create it with default load address
+                if !self.segments.contains(name) {
+                    self.segments.add(name, self.load_address);
+                }
+                
+                // Set as current segment
+                self.segments.current = Some(name.to_string());
                 Ok(())
             },
-            Directive::Byte(bytes) => {
-                // Add bytes to the current segment
-                let segment = self.segments.current_or_first_mut()?;
-                segment.extend(bytes);
+            Directive::Byte(values) => {
+                // Get current segment to add bytes
+                if let Ok(segment) = self.segments.current_mut() {
+                    segment.extend(values);
+                }
                 Ok(())
             },
-            Directive::Word(words) => {
-                // Add words as bytes (little-endian) to the current segment
-                let segment = self.segments.current_or_first_mut()?;
-                for &word in words {
-                    segment.extend(&vec![(word & 0xFF) as u8, ((word >> 8) & 0xFF) as u8]);
+            Directive::Word(values) => {
+                // Get current segment to add words
+                if let Ok(segment) = self.segments.current_mut() {
+                    for value in values {
+                        // Store words in little-endian format
+                        segment.extend(&value.to_le_bytes());
+                    }
                 }
                 Ok(())
             },
             Directive::Res(size, fill) => {
-                // Add reserved bytes to the current segment
-                let segment = self.segments.current_or_first_mut()?;
-                segment.extend(&vec![*fill; *size as usize]);
+                // Get current segment to reserve space
+                if let Ok(segment) = self.segments.current_mut() {
+                    // Create a vector of the fill value with the specified size
+                    let data = vec![*fill; *size as usize];
+                    segment.extend(&data);
+                }
+                Ok(())
+            },
+            Directive::Sprite(_width, _height, pattern_data) => {
+                // Get current segment to add sprite data
+                if let Ok(segment) = self.segments.current_mut() {
+                    // Append the pattern data to the current segment
+                    // The pattern data is already arranged in the correct order:
+                    // For each tile: 8 bytes for bit plane 0, followed by 8 bytes for bit plane 1
+                    segment.extend(pattern_data);
+                }
                 Ok(())
             },
         }
@@ -1272,6 +1376,7 @@ mod tests {
                 Directive::Byte(_) => panic!("Expected Segment directive, got Byte"),
                 Directive::Word(_) => panic!("Expected Segment directive, got Word"),
                 Directive::Res(_, _) => panic!("Expected Segment directive, got Res"),
+                Directive::Sprite(_, _, _) => panic!("Expected Segment directive, got Sprite"),
             }
         } else {
             panic!("Expected Segment directive");
@@ -1776,6 +1881,45 @@ mod tests {
         assert_eq!(code[11], 0x00, "Should be low byte of address $2000");
         assert_eq!(code[12], 0x20, "Should be high byte of address $2000");
         
+        Ok(())
+    }
+
+    /// Test the .sprite directive for defining multi-tile sprites
+    #[test]
+    fn test_sprite_directive() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        
+        // Test program with a 2x2 sprite
+        let program = r#"
+            .segment "CHARS"
+            .sprite 2, 2, %00111100, %01000010, %10000001, %10000001, %10000001, %10000001, %01000010, %00111100, %00000000, %00111100, %01111110, %01111110, %01111110, %01111110, %00111100, %00000000, %00111100, %01000010, %10000001, %10000001, %10000001, %10000001, %01000010, %00111100, %00000000, %00111100, %01111110, %01111110, %01111110, %01111110, %00111100, %00000000, %00111100, %01000010, %10000001, %10000001, %10000001, %10000001, %01000010, %00111100, %00000000, %00111100, %01111110, %01111110, %01111110, %01111110, %00111100, %00000000, %00111100, %01000010, %10000001, %10000001, %10000001, %10000001, %01000010, %00111100, %00000000, %00111100, %01111110, %01111110, %01111110, %01111110, %00111100, %00000000
+        "#;
+
+        let segments = assembler.assemble_program(program)?;
+
+        // Verify the CHARS segment
+        let chars_segment = segments.get("CHARS").expect("CHARS segment missing");
+        
+        // Should have 64 bytes (2x2 sprite, 16 bytes per tile)
+        assert_eq!(chars_segment.len(), 64, "Expected 64 bytes for a 2x2 sprite pattern");
+        
+        // Check the pattern data (first few bytes)
+        // First tile (top-left)
+        assert_eq!(chars_segment[0], 0x3C, "First byte of top-left tile incorrect"); // %00111100 - bit plane 0
+        assert_eq!(chars_segment[8], 0x00, "Ninth byte of top-left tile incorrect"); // %00000000 - bit plane 1
+        
+        // Second tile (top-right)
+        assert_eq!(chars_segment[16], 0x3C, "First byte of top-right tile incorrect"); // %00111100 - bit plane 0
+        assert_eq!(chars_segment[24], 0x00, "Ninth byte of top-right tile incorrect"); // %00000000 - bit plane 1
+        
+        // Third tile (bottom-left)
+        assert_eq!(chars_segment[32], 0x3C, "First byte of bottom-left tile incorrect"); // %00111100 - bit plane 0
+        assert_eq!(chars_segment[40], 0x00, "Ninth byte of bottom-left tile incorrect"); // %00000000 - bit plane 1
+        
+        // Fourth tile (bottom-right)
+        assert_eq!(chars_segment[48], 0x3C, "First byte of bottom-right tile incorrect"); // %00111100 - bit plane 0
+        assert_eq!(chars_segment[56], 0x00, "Ninth byte of bottom-right tile incorrect"); // %00000000 - bit plane 1
+
         Ok(())
     }
 }
