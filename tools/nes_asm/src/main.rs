@@ -285,7 +285,7 @@ fn analyze_file(input_file: PathBuf) -> Result<()> {
         .with_context(|| format!("Failed to read input file: {}", input_file.display()))?;
     
     // Split into lines for analysis
-    let lines: Vec<&str> = source_code.lines().collect();
+    let _lines: Vec<&str> = source_code.lines().collect();
     
     // Create assembler with proper NES segments
     let mut assembler = Assembler::new(0x8000).with_nes_segments();

@@ -2101,15 +2101,6 @@ mod label_resolution_tests {
             .collect()
     }
 
-    fn print_disassembly(disassembly: &[(u16, Vec<u8>, String)]) -> String {
-        let mut output = String::new();
-        for (addr, bytes, instruction) in disassembly {
-            let bytes_str: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
-            output.push_str(&format!("{:04X}: {:<8} {}\n", addr, bytes_str.join(" "), instruction));
-        }
-        output
-    }
-
     #[test]
     fn test_simple_jsr_rts() -> Result<()> {
         // Create a simple program with JSR and RTS
@@ -2135,7 +2126,6 @@ mod label_resolution_tests {
         
         // Disassemble for verification
         let disassembly = disassemble_program(bytes, 0x8000);
-        println!("Simple JSR test disassembly:\n{}", print_disassembly(&disassembly));
         
         // Format the expected JSR instruction with the label address
         let expected_jsr = format!("JSR ${:04X}", subroutine_addr);
@@ -2179,7 +2169,6 @@ mod label_resolution_tests {
         
         // Disassemble for verification
         let disassembly = disassemble_program(bytes, 0x8000);
-        println!("JSR to later label test disassembly:\n{}", print_disassembly(&disassembly));
         
         // Find the address of WaitForVBlank
         let waitforvblank_addr = disassembly.iter()
@@ -2239,7 +2228,6 @@ mod label_resolution_tests {
         
         // Disassemble for verification
         let disassembly = disassemble_program(bytes, 0x8000);
-        println!("Animation snippet test disassembly:\n{}", print_disassembly(&disassembly));
         
         // Find the JSR instruction
         let jsr_pos = disassembly.iter()
@@ -2249,9 +2237,6 @@ mod label_resolution_tests {
         // Extract the target address from the bytes directly
         let jsr_bytes = &disassembly[jsr_pos].1;
         let jsr_bytes_addr = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
-        
-        println!("Label WaitForVBlank at: ${:04X}", waitforvblank_addr);
-        println!("JSR targets: ${:04X} (from bytes)", jsr_bytes_addr);
         
         // Check that the JSR instruction targets the correct address
         assert_eq!(
@@ -2343,9 +2328,6 @@ mod label_resolution_tests {
             // Extract target address from JSR bytes
             let target_addr = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
             
-            println!("JSR at ${:04X} targets ${:04X}", jsr_addr, target_addr);
-            println!("WaitForVBlank label at ${:04X}", waitforvblank_addr);
-            
             // Verify JSR targets the correct address
             assert_eq!(
                 target_addr, 
@@ -2399,23 +2381,6 @@ mod label_resolution_tests {
         // Create assembler
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
         
-        // First pass to collect labels - get offset to label
-        let bytes_to_waitforvblank_label = program
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .take_while(|line| !line.contains("WaitForVBlank:"))
-            .filter(|line| {
-                // Only count lines that generate code (not comments or blank lines)
-                let trimmed = line.trim();
-                !trimmed.is_empty() && 
-                !trimmed.starts_with(';') && 
-                !trimmed.starts_with('.') &&
-                trimmed.contains("  ") // Has at least some indentation/instruction
-            })
-            .count();
-        
-        println!("Calculated instruction count to WaitForVBlank: {}", bytes_to_waitforvblank_label);
-        
         // Assemble the program
         let segments = assembler.assemble_program(program)?;
         let bytes = segments.get("STARTUP").unwrap();
@@ -2440,11 +2405,6 @@ mod label_resolution_tests {
         // Extract the target address from the JSR instruction bytes
         let jsr_bytes = &disassembly[jsr_pos].1;
         let jsr_target_addr = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
-        
-        println!("JSR instruction at position {}: {:?}", jsr_pos, disassembly[jsr_pos]);
-        println!("WaitForVBlank label at position {}: {:?}", waitforvblank_pos, disassembly[waitforvblank_pos]);
-        println!("WaitForVBlank address: ${:04X}", waitforvblank_addr);
-        println!("JSR target address from bytes: ${:04X}", jsr_target_addr);
         
         // This is the failing assertion - the JSR instruction should target the WaitForVBlank address
         assert_eq!(
@@ -2518,26 +2478,11 @@ WaitVBlankStart:
         let disassembler = Disassembler::new();
         let disassembly = disassembler.disassemble_program(bytes, 0, bytes.len());
         
-        // Print the full disassembly for analysis
-        println!("Disassembly:");
-        for (i, (offset, bytes, instr)) in disassembly.iter().enumerate() {
-            let addr = *offset as u16 + assembler.load_address;
-            let bytes_str = bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
-            println!("{:04X}: {:<8} {} (pos: {})", addr, bytes_str, instr, i);
-        }
-        
         // Find all JSR instructions
         let jsr_positions: Vec<_> = disassembly.iter()
             .enumerate()
             .filter(|(_, (_, _, instr))| instr.starts_with("JSR"))
             .collect();
-        
-        println!("\nFound {} JSR instructions:", jsr_positions.len());
-        for (idx, (offset, bytes, instr)) in &jsr_positions {
-            let addr = *offset as u16 + assembler.load_address;
-            let target = ((bytes[2] as u16) << 8) | (bytes[1] as u16);
-            println!("  #{}: At ${:04X}: {} -> ${:04X}", idx, addr, instr, target);
-        }
         
         // Find the WaitForVBlank label position (first BIT $2002 instruction)
         let waitforvblank_pos = disassembly.iter()
@@ -2545,14 +2490,12 @@ WaitVBlankStart:
             .find(|(_, (_, _, instr))| instr == "BIT $2002")
             .map(|(idx, (offset, _, _))| (idx, *offset));
         
-        if let Some((idx, offset)) = waitforvblank_pos {
+        if let Some((_idx, offset)) = waitforvblank_pos {
             let waitforvblank_addr = offset as u16 + assembler.load_address;
-            println!("\nFound WaitForVBlank at position {}, address ${:04X}", idx, waitforvblank_addr);
             
             // Get the first JSR instruction
             if let Some((_, (_, jsr_bytes, _))) = jsr_positions.get(0) {
                 let jsr_target = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
-                println!("First JSR targets ${:04X}", jsr_target);
                 
                 // Updated assertion to match what's actually happening in the assembler
                 // The test still passes if the JSR points to the right code, even if not
@@ -2613,20 +2556,11 @@ InlineLabel: RTS
         // Disassemble the program and check label positions
         let disassembly = disassemble_program(bytes, assembler.load_address);
         
-        // Print the disassembly for analysis
-        println!("Disassembly for test_label_positions:\n{}", print_disassembly(&disassembly));
-        
         // Find JSR instructions
         let jsr_positions: Vec<_> = disassembly.iter()
             .enumerate()
             .filter(|(_, (_, _, instr))| instr.starts_with("JSR"))
             .collect();
-        
-        println!("JSR instructions:");
-        for (idx, (addr, bytes, instr)) in &jsr_positions {
-            let target = ((bytes[2] as u16) << 8) | (bytes[1] as u16);
-            println!("  #{}: At ${:04X}: {} -> ${:04X}", idx, addr, instr, target);
-        }
         
         // Verify JSR Standalone points to the first BIT instruction
         if let Some((_, (_addr, jsr_bytes, _))) = jsr_positions.get(0) {
@@ -2718,9 +2652,6 @@ Vector:
         let startup_disasm = disassemble_program(startup_bytes, 0x8000);
         let vectors_disasm = disassemble_program(vectors_bytes, 0xC000);
         
-        println!("STARTUP segment:\n{}", print_disassembly(&startup_disasm));
-        println!("VECTORS segment:\n{}", print_disassembly(&vectors_disasm));
-        
         // Find JSR to Subroutine
         let jsr_position = startup_disasm.iter()
             .find(|(_, _, instr)| instr.starts_with("JSR"))
@@ -2805,7 +2736,6 @@ ThirdLabel:
         
         // Disassemble and print
         let disassembly = disassemble_program(bytes, assembler.load_address);
-        println!("Disassembly for test_sequential_labels:\n{}", print_disassembly(&disassembly));
         
         // Find the address of LDA #$01
         let lda_addr = disassembly.iter()
@@ -2864,7 +2794,6 @@ EndOfTest:
         
         // Disassemble and print
         let disassembly = disassemble_program(bytes, assembler.load_address);
-        println!("Disassembly for test_branches_with_labels:\n{}", print_disassembly(&disassembly));
         
         // Get all instructions for reference
         let all_instructions: Vec<(u16, Vec<u8>, String)> = disassembly.clone();
@@ -2897,21 +2826,10 @@ EndOfTest:
             .expect("RTS not found");
             
         // Find branch instructions - get their offsets and target addresses
-        for (i, (_, (branch_addr, branch_bytes, branch_instr))) in branches.iter().enumerate() {
+        for (i, (_, (branch_addr, branch_bytes, _branch_instr))) in branches.iter().enumerate() {
             // Calculate target address using the branch offset
             let offset = branch_bytes[1] as i8;
             let target_addr = (*branch_addr as i32 + 2 + offset as i32) as u16;
-            
-            // Find the instruction at the target address
-            let target_instr_opt = all_instructions.iter()
-                .find(|(addr, _, _)| *addr == target_addr)
-                .map(|(_, _, instr)| instr.clone());
-                
-            let target_instr = target_instr_opt.unwrap_or_else(|| 
-                format!("Unknown (address ${:04X})", target_addr));
-                
-            println!("Branch #{}: {} at ${:04X} with offset ${:02X} targets ${:04X} ({})",
-                i, branch_instr, branch_addr, offset, target_addr, target_instr);
             
             // Verify branch targets based on observed behavior
             match i {
