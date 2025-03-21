@@ -35,6 +35,10 @@ enum Commands {
         /// Also generate disassembly of the assembled code
         #[clap(short, long)]
         disassemble: bool,
+        
+        /// Enable debug mode for debugging label resolution
+        #[clap(short, long)]
+        debug: bool,
     },
     
     /// Disassemble binary code to 6502 assembly
@@ -78,9 +82,10 @@ fn main() -> Result<()> {
             output, 
             address, 
             verbose,
-            disassemble
+            disassemble,
+            debug
         } => {
-            assemble_file(input_file, output, address, verbose, disassemble)?;
+            assemble_file(input_file, output, address, verbose, disassemble, debug)?;
         },
         
         Commands::Disassemble { 
@@ -100,13 +105,46 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Post-process disassembly to fix branch target addresses
+fn fix_branch_targets(disassembly: &mut [(usize, Vec<u8>, String)], base_address: u16) {
+    for (offset, bytes, instruction) in disassembly.iter_mut() {
+        // Check if this is a branch instruction
+        if instruction.starts_with("BPL ") || 
+           instruction.starts_with("BMI ") || 
+           instruction.starts_with("BVC ") || 
+           instruction.starts_with("BVS ") || 
+           instruction.starts_with("BCC ") || 
+           instruction.starts_with("BCS ") || 
+           instruction.starts_with("BNE ") || 
+           instruction.starts_with("BEQ ") {
+            
+            // Get the target address from the operand bytes
+            if bytes.len() >= 2 {
+                // For branch instructions, the second byte is a signed offset
+                // from the next instruction (PC+2)
+                let offset_byte = bytes[1] as i8;
+                let pc_plus_2 = (*offset + 2) as isize;
+                let target_offset = pc_plus_2 + offset_byte as isize;
+                
+                // Calculate the absolute target address including the base
+                let absolute_target = base_address as usize + target_offset as usize;
+                
+                // Replace the branch target in the instruction
+                let prefix = &instruction[..instruction.find(' ').unwrap_or(instruction.len())];
+                *instruction = format!("{} ${:04X}", prefix, absolute_target);
+            }
+        }
+    }
+}
+
 /// Assemble a file containing 6502 assembly code
 fn assemble_file(
     input_file: PathBuf, 
     output: Option<PathBuf>, 
     address_str: String, 
     verbose: bool,
-    disassemble: bool
+    disassemble: bool,
+    debug: bool
 ) -> Result<()> {
     // Read input file
     let source_code = fs::read_to_string(&input_file)
@@ -118,6 +156,13 @@ fn assemble_file(
     
     // Create assembler with proper address and NES segments
     let mut assembler = Assembler::new(address).with_nes_segments();
+    
+    // First do one assembly pass for debugging
+    if debug {
+        println!("DEBUG: Running with debug mode enabled");
+        println!("DEBUG: Input file: {}", input_file.display());
+        println!("DEBUG: Load address: ${:04X}", address);
+    }
     
     // Assemble the code
     let segments = assembler.assemble_program(&source_code)
@@ -133,7 +178,7 @@ fn assemble_file(
     };
     
     // Print info
-    if verbose {
+    if verbose || debug {
         println!("Assembly successful!");
         println!("Segments:");
         for (name, bytes) in &segments {
@@ -158,7 +203,10 @@ fn assemble_file(
         let bytes = primary_segment.1;
         
         // Simple disassembly
-        let disassembly = disassembler.disassemble_program(bytes, 0, bytes.len());
+        let mut disassembly = disassembler.disassemble_program(bytes, 0, bytes.len());
+        
+        // Post-process to fix branch target addresses
+        fix_branch_targets(&mut disassembly, assembler.load_address);
         
         // Print disassembly with proper formatting
         for (addr, bytes, instruction) in disassembly {
@@ -166,6 +214,15 @@ fn assemble_file(
             let bytes_hex: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
             let bytes_str = bytes_hex.join(" ");
             println!("{:04X}: {:<8} {}", addr_with_base, bytes_str, instruction);
+            
+            // Add debugging info for JSR instructions to track label references
+            if debug && instruction.starts_with("JSR") {
+                // Extract target address from instruction bytes (little-endian format)
+                if bytes.len() >= 3 {
+                    let target_addr = (bytes[2] as u16) << 8 | (bytes[1] as u16);
+                    println!("  DEBUG: JSR target address: ${:04X}", target_addr);
+                }
+            }
         }
     }
     
@@ -200,7 +257,11 @@ fn disassemble_file(
     // Disassemble
     println!("Disassembly of {} at ${:04X}:", input_file.display(), address);
     
-    let disassembly = disassembler.disassemble_program(&binary, 0, binary.len());
+    // Use the standard disassemble_program method
+    let mut disassembly = disassembler.disassemble_program(&binary, 0, binary.len());
+    
+    // Post-process to fix branch target addresses
+    fix_branch_targets(&mut disassembly, address);
     
     // Format output based on verbosity
     for (addr, bytes, instruction) in disassembly {
