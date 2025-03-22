@@ -332,7 +332,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement logical operations (AND) for button masks
 - [x] Implement bit shifting operations (ASL, LSR) for controller button reading
 - [x] Implement logical OR operation (ORA) for combining button states
-- [ ] Implement register transfers (TAY, TYA) for controller state manipulation
+- [x] Implement register transfers (TAY, TYA) for controller state manipulation
 - [ ] Implement X register operations (INX, DEX, CPX) for controller polling loops
 - [ ] Write tests for input handling instructions
 

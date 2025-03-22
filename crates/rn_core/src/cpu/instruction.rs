@@ -48,6 +48,8 @@ pub enum Instruction {
     ASL, // Arithmetic Shift Left
     LSR, // Logical Shift Right
     ORA, // Logical OR with Accumulator
+    TAY, // Transfer Accumulator to Y
+    TYA, // Transfer Y to Accumulator
 }
 
 impl Instruction {
@@ -204,6 +206,10 @@ impl InstructionDecoder {
         // Shift instructions
         self.add_instruction(0x0A, Instruction::ASL, AddressingMode::Accumulator, 1, 2);
         self.add_instruction(0x4A, Instruction::LSR, AddressingMode::Accumulator, 1, 2);
+
+        // Add TAY and TYA instructions
+        self.add_instruction(0xA8, Instruction::TAY, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x98, Instruction::TYA, AddressingMode::Implied, 1, 2);
     }
 
     /// Add an instruction to the lookup tables
@@ -287,6 +293,8 @@ impl Cpu {
             Instruction::ASL => self.asl(addressing_mode)?,
             Instruction::LSR => self.lsr(addressing_mode)?,
             Instruction::ORA => self.ora(addressing_mode)?,
+            Instruction::TAY => self.tay(),
+            Instruction::TYA => self.tya(),
         }
 
         // Increment PC for non-jump/call/branch instructions (already incremented by 1 in fetch)
@@ -715,6 +723,18 @@ impl Cpu {
         self.set_flag(CpuFlag::Zero, self.registers.a == 0);
         self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
         Ok(())
+    }
+
+    pub fn tay(&mut self) {
+        self.registers.y = self.registers.a;
+        self.set_flag(CpuFlag::Zero, self.registers.y == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.y & 0x80) != 0);
+    }
+
+    pub fn tya(&mut self) {
+        self.registers.a = self.registers.y;
+        self.set_flag(CpuFlag::Zero, self.registers.a == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
     }
 }
 
@@ -2394,6 +2414,105 @@ mod tests {
         assert!(cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_register_transfer_instructions() -> Result<()> {
+        let mut cpu = setup_cpu();
+        
+        // Test TAY instruction
+        // Test case 1: Transfer non-zero, non-negative value
+        cpu.registers.a = 0x42;
+        cpu.write_byte(0x0100, 0xA8)?; // TAY (implied)
+        cpu.registers.pc = 0x0100;
+        
+        // Execute the TAY instruction
+        cpu.step()?;
+        
+        // Y should now equal A
+        assert_eq!(cpu.registers.y, 0x42);
+        // Zero flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+        
+        // Test case 2: Transfer zero value
+        cpu.registers.a = 0x00;
+        cpu.write_byte(0x0200, 0xA8)?; // TAY (implied)
+        cpu.registers.pc = 0x0200;
+        
+        // Execute the TAY instruction
+        cpu.step()?;
+        
+        // Y should now equal A (0)
+        assert_eq!(cpu.registers.y, 0x00);
+        // Zero flag should be set
+        assert!(cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+        
+        // Test case 3: Transfer negative value
+        cpu.registers.a = 0x80;
+        cpu.write_byte(0x0300, 0xA8)?; // TAY (implied)
+        cpu.registers.pc = 0x0300;
+        
+        // Execute the TAY instruction
+        cpu.step()?;
+        
+        // Y should now equal A
+        assert_eq!(cpu.registers.y, 0x80);
+        // Zero flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be set
+        assert!(cpu.is_flag_set(CpuFlag::Negative));
+        
+        // Test TYA instruction
+        // Test case 1: Transfer non-zero, non-negative value
+        cpu.registers.y = 0x42;
+        cpu.write_byte(0x0400, 0x98)?; // TYA (implied)
+        cpu.registers.pc = 0x0400;
+        
+        // Execute the TYA instruction
+        cpu.step()?;
+        
+        // A should now equal Y
+        assert_eq!(cpu.registers.a, 0x42);
+        // Zero flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+        
+        // Test case 2: Transfer zero value
+        cpu.registers.y = 0x00;
+        cpu.write_byte(0x0500, 0x98)?; // TYA (implied)
+        cpu.registers.pc = 0x0500;
+        
+        // Execute the TYA instruction
+        cpu.step()?;
+        
+        // A should now equal Y (0)
+        assert_eq!(cpu.registers.a, 0x00);
+        // Zero flag should be set
+        assert!(cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+        
+        // Test case 3: Transfer negative value
+        cpu.registers.y = 0x80;
+        cpu.write_byte(0x0600, 0x98)?; // TYA (implied)
+        cpu.registers.pc = 0x0600;
+        
+        // Execute the TYA instruction
+        cpu.step()?;
+        
+        // A should now equal Y
+        assert_eq!(cpu.registers.a, 0x80);
+        // Zero flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be set
+        assert!(cpu.is_flag_set(CpuFlag::Negative));
         
         Ok(())
     }
