@@ -55,30 +55,50 @@ RESET:
   ; Wait for vblank (simplified)
   JSR WaitForVBlank
 
-  ; Set up sprite palette
+  ; Set up sprite palettes
   LDA #$3F        ; Palette memory high byte
   STA $2006
   LDA #$10        ; Sprite palette 0 address
   STA $2006
   
-  ; Set up palette with 4 different colors (blue, red, green, yellow)
+  ; Set up palette 0 with blue
   LDA #$0F        ; Background color (transparent for sprites)
   STA $2007
   LDA #$12        ; Blue
   STA $2007
-  LDA #$16        ; Red
+  LDA #$12        ; Blue again
   STA $2007
-  LDA #$2A        ; Green
+  LDA #$12        ; Blue again
   STA $2007
 
-  ; Set up sprite palette 1 (yellow)
+  ; Set up palette 1 with red
   LDA #$0F        ; Background color
   STA $2007
-  LDA #$12        ; Blue again for first color
+  LDA #$16        ; Red
   STA $2007
   LDA #$16        ; Red again
   STA $2007
+  LDA #$16        ; Red again
+  STA $2007
+  
+  ; Set up palette 2 with green
+  LDA #$0F        ; Background color
+  STA $2007
+  LDA #$2A        ; Green
+  STA $2007
+  LDA #$2A        ; Green again
+  STA $2007
+  LDA #$2A        ; Green again
+  STA $2007
+  
+  ; Set up palette 3 with yellow
+  LDA #$0F        ; Background color
+  STA $2007
   LDA #$28        ; Yellow
+  STA $2007
+  LDA #$28        ; Yellow again
+  STA $2007
+  LDA #$28        ; Yellow again
   STA $2007
 
   ; Set up initial sprite data for a 2x2 tile sprite
@@ -225,7 +245,7 @@ UpdateSpritePosition:
   STA $0204
   LDA #$01            ; Tile 1 (top-right of ball)
   STA $0205
-  LDA #$00            ; Attributes (palette 0 - red)
+  LDA #$01            ; Attributes (palette 1 - red)
   STA $0206
   LDA ball_x          ; X position
   CLC
@@ -239,7 +259,7 @@ UpdateSpritePosition:
   STA $0208
   LDA #$10            ; Tile 16 (bottom-left of ball)
   STA $0209
-  LDA #$00            ; Attributes (palette 0 - green)
+  LDA #$02            ; Attributes (palette 2 - green)
   STA $020A
   LDA ball_x          ; X position
   STA $020B
@@ -251,7 +271,7 @@ UpdateSpritePosition:
   STA $020C
   LDA #$11            ; Tile 17 (bottom-right of ball)
   STA $020D
-  LDA #$01            ; Attributes (palette 1 - yellow)
+  LDA #$03            ; Attributes (palette 3 - yellow)
   STA $020E
   LDA ball_x          ; X position
   CLC
