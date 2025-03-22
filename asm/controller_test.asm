@@ -98,13 +98,13 @@ ReadController:
 @ReadLoop:
   LDA $4016         ; Read next button state
   AND #$01          ; Isolate bit 0
-  ASL               ; Shift left because we read buttons in reverse order
-  ASL               ; from A, B, Select, Start, Up, Down, Left, Right
-  ASL               ; But we want to store them in the same order as
-  ASL               ; Button enum: A, B, Select, Start, Up, Down, Left, Right
+  ASL A             ; Shift left because we read buttons in reverse order
+  ASL A             ; from A, B, Select, Start, Up, Down, Left, Right
+  ASL A             ; But we want to store them in the same order as
+  ASL A             ; Button enum: A, B, Select, Start, Up, Down, Left, Right
   STA $00           ; Store in temporary zero page
   TYA               ; Get current button accumulator
-  LSR               ; Shift right to make room for new button
+  LSR A             ; Shift right to make room for new button
   ORA $00           ; Combine with new button
   TAY               ; Store back in Y
   DEX               ; Count down

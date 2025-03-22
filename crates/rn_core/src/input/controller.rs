@@ -120,7 +120,7 @@ pub struct Controller {
     port: ControllerPort,
 
     /// Current controller state
-    controller_state: ControllerState,
+    pub controller_state: ControllerState,
 
     /// Shift register for reading controller state one bit at a time
     shift_register: Cell<u8>,
@@ -278,6 +278,23 @@ impl ControllerHandlerWrapper {
     /// Set the state of controller 2
     pub fn set_controller2_state(&self, state: ControllerState) {
         self.handler.borrow_mut().set_controller2_state(state);
+    }
+    
+    /// Get a snapshot of controller 1's current state
+    pub fn get_controller1_state(&self) -> ControllerState {
+        // Since the controller handler doesn't directly store the state,
+        // we need to get it from the controller's internal state.
+        // This requires extending ControllerHandler with methods to expose the state.
+        let handler = self.handler.borrow();
+        let controller1 = &handler.controller1;
+        controller1.controller_state.clone()
+    }
+    
+    /// Get a snapshot of controller 2's current state
+    pub fn get_controller2_state(&self) -> ControllerState {
+        let handler = self.handler.borrow();
+        let controller2 = &handler.controller2;
+        controller2.controller_state.clone()
     }
 }
 

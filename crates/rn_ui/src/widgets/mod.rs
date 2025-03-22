@@ -2,6 +2,7 @@
 
 // Re-export widget modules
 mod asm_widget;
+mod controller_widget;
 mod cpu_widget;
 mod disasm_widget;
 mod dma_widget;
@@ -15,6 +16,7 @@ mod ppu_widget;
 
 // Re-export the widgets for easier access
 pub use asm_widget::AsmWidget;
+pub use controller_widget::ControllerWidget;
 pub use cpu_widget::CpuWidget;
 pub use disasm_widget::DisasmWidget;
 pub use dma_widget::DmaControllerWidget;

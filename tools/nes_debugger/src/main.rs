@@ -13,6 +13,7 @@ use rn_core::{
 };
 use rn_ui::widgets::{
     AsmWidget,
+    ControllerWidget,
     CpuWidget,
     DisasmWidget,
     DmaControllerWidget,
@@ -82,6 +83,7 @@ enum DockTab {
     Cpu,
     Ppu,
     Dma,
+    Controller,
     Display,
     AssembledCode,
 }
@@ -96,6 +98,7 @@ impl DockTab {
             DockTab::Cpu => "CPU State",
             DockTab::Ppu => "PPU State",
             DockTab::Dma => "DMA State",
+            DockTab::Controller => "Controller State",
             DockTab::Display => "Display",
             DockTab::AssembledCode => "Assembled Code",
         }
@@ -119,6 +122,7 @@ struct NesDebugger {
     cpu_widget: CpuWidget,
     ppu_widget: PpuWidget,
     dma_widget: DmaControllerWidget,
+    controller_widget: ControllerWidget,
     disasm_widget: DisasmWidget,
     memory_widget: MemoryWidget,
     pattern_table_widget: PatternTableWidget,
@@ -143,6 +147,7 @@ struct NesTabViewer<'a> {
     cpu_widget: &'a mut CpuWidget,
     ppu_widget: &'a mut PpuWidget,
     dma_widget: &'a mut DmaControllerWidget,
+    controller_widget: &'a mut ControllerWidget,
     disasm_widget: &'a mut DisasmWidget,
     memory_widget: &'a mut MemoryWidget,
     pattern_table_widget: &'a mut PatternTableWidget,
@@ -298,6 +303,11 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                 let system = self.system.borrow();
                 self.dma_widget.ui(ui, &system.dma());
             },
+            DockTab::Controller => {
+                // Controller Tab content
+                let system = self.system.borrow();
+                self.controller_widget.ui(ui, &system.controller_handler());
+            },
             DockTab::Display => {
                 // Display Tab content
 
@@ -376,11 +386,11 @@ impl NesDebugger {
             vec![DockTab::Cpu],
         );
 
-        // Split the left panel vertically to hold CPU, PPU, and DMA
+        // Split the left panel vertically to hold CPU, PPU, DMA, and Controller
         dock_state.main_surface_mut().split_below(
             left,
             0.4, // CPU takes 40% of height
-            vec![DockTab::Ppu, DockTab::Dma],
+            vec![DockTab::Ppu, DockTab::Dma, DockTab::Controller],
         );
 
         // Add Display on the right side of the center area
@@ -404,6 +414,7 @@ impl NesDebugger {
             cpu_widget: CpuWidget::new(),
             ppu_widget: PpuWidget::new(),
             dma_widget: DmaControllerWidget::new(),
+            controller_widget: ControllerWidget::new(),
             disasm_widget: DisasmWidget::new(),
             memory_widget: MemoryWidget::new()
                 .with_start_address(0x0000)
@@ -540,6 +551,7 @@ impl App for NesDebugger {
                 cpu_widget: &mut self.cpu_widget,
                 ppu_widget: &mut self.ppu_widget,
                 dma_widget: &mut self.dma_widget,
+                controller_widget: &mut self.controller_widget,
                 disasm_widget: &mut self.disasm_widget,
                 memory_widget: &mut self.memory_widget,
                 pattern_table_widget: &mut self.pattern_table_widget,

@@ -363,9 +363,20 @@ impl AddressingMode {
             return Ok(Self::Relative);
         }
 
-        // 2. Handle empty or "A" operand for implied/accumulator addressing
-        if operand.is_empty() || operand.eq_ignore_ascii_case("a") {
+        // 2. Handle empty operand for implied addressing
+        if operand.is_empty() {
             return Ok(Self::Implied);
+        }
+        
+        // 2a. Handle "A" operand for accumulator addressing
+        if operand.eq_ignore_ascii_case("a") {
+            // Check if the instruction supports accumulator addressing
+            match instruction {
+                Instruction::ASL | Instruction::LSR => {
+                    return Ok(Self::Accumulator);
+                },
+                _ => return Ok(Self::Implied),
+            }
         }
 
         // 3. Handle immediate addressing (#$xx)

@@ -153,7 +153,9 @@ impl AsmWidget {
                 );
             },
             Err(err) => {
-                self.error_message = Some(format!("Assembly error: {}", err));
+                // Format a more detailed error message
+                let error_message = format!("Assembly error: {}", err);
+                self.error_message = Some(error_message);
                 log::error!("Assembly error: {}", err);
                 self.assembled = false;
             },
@@ -449,10 +451,19 @@ impl AsmWidget {
         // Display any error message
         if let Some(err_msg) = system.error_message() {
             ui.add_space(5.0);
-            ui.colored_label(Color32::RED, err_msg);
+            ui.horizontal(|ui| {
+                ui.colored_label(Color32::RED, "🛑 System Error:");
+                ui.colored_label(Color32::RED, err_msg);
+            });
         } else if let Some(err_msg) = &self.error_message {
             ui.add_space(5.0);
-            ui.colored_label(Color32::RED, err_msg);
+            ui.horizontal(|ui| {
+                ui.colored_label(Color32::RED, "🛑 Assembly Error:");
+                ui.colored_label(Color32::RED, err_msg);
+            });
+            // Add hint to help the user
+            ui.add_space(2.0);
+            ui.label("Hint: For instructions like ASL and LSR with register A, the format should be 'ASL A'");
         }
     }
 
