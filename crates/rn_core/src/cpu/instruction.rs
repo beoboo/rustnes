@@ -47,6 +47,7 @@ pub enum Instruction {
     AND, // Logical AND with Accumulator
     ASL, // Arithmetic Shift Left
     LSR, // Logical Shift Right
+    ORA, // Logical OR with Accumulator
 }
 
 impl Instruction {
@@ -195,6 +196,11 @@ impl InstructionDecoder {
         self.add_instruction(0x25, Instruction::AND, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0x35, Instruction::AND, AddressingMode::ZeroPageX, 2, 4);
 
+        // Logical instructions - ORA
+        self.add_instruction(0x09, Instruction::ORA, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x05, Instruction::ORA, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x15, Instruction::ORA, AddressingMode::ZeroPageX, 2, 4);
+        
         // Shift instructions
         self.add_instruction(0x0A, Instruction::ASL, AddressingMode::Accumulator, 1, 2);
         self.add_instruction(0x4A, Instruction::LSR, AddressingMode::Accumulator, 1, 2);
@@ -280,6 +286,7 @@ impl Cpu {
             Instruction::AND => self.and(addressing_mode)?,
             Instruction::ASL => self.asl(addressing_mode)?,
             Instruction::LSR => self.lsr(addressing_mode)?,
+            Instruction::ORA => self.ora(addressing_mode)?,
         }
 
         // Increment PC for non-jump/call/branch instructions (already incremented by 1 in fetch)
@@ -698,6 +705,15 @@ impl Cpu {
         self.registers.a = result;
         self.set_flag(CpuFlag::Zero, result == 0);
         self.set_flag(CpuFlag::Negative, false); // Bit 7 is always 0 after LSR
+        Ok(())
+    }
+
+    /// ORA - Logical OR with Accumulator
+    pub fn ora(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.load_register(addressing_mode)?;
+        self.registers.a |= value;
+        self.set_flag(CpuFlag::Zero, self.registers.a == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
         Ok(())
     }
 }
@@ -2305,6 +2321,80 @@ mod tests {
         assert!(cpu.is_flag_set(CpuFlag::Zero)); // Result is zero
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_ora_instruction() -> Result<()> {
+        let mut cpu = setup_cpu();
+        
+        // Test case 1: ORA immediate mode
+        cpu.registers.a = 0b00001010; // %00001010
+        cpu.write_byte(0x0100, 0x09)?; // ORA #$55 (immediate)
+        cpu.write_byte(0x0101, 0x55)?; // Value: %01010101
+        cpu.registers.pc = 0x0100;
+        
+        // Execute the ORA instruction
+        cpu.step()?;
+        
+        // A should be %00001010 | %01010101 = %01011111
+        assert_eq!(cpu.registers.a, 0x5F);
+        // Zero flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+        
+        // Test case 2: ORA with negative result
+        cpu.registers.a = 0b00001010; // %00001010
+        cpu.write_byte(0x0200, 0x09)?; // ORA #$AA (immediate)
+        cpu.write_byte(0x0201, 0xAA)?; // Value: %10101010
+        cpu.registers.pc = 0x0200;
+        
+        // Execute the ORA instruction
+        cpu.step()?;
+        
+        // A should be %00001010 | %10101010 = %10101010
+        assert_eq!(cpu.registers.a, 0xAA);
+        // Zero flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be set (bit 7 is 1)
+        assert!(cpu.is_flag_set(CpuFlag::Negative));
+        
+        // Test case 3: ORA with zero page,X mode
+        cpu.registers.a = 0b00000000; // Set A to %00000000
+        cpu.registers.x = 0x01; // X = 1 (offset)
+        
+        cpu.write_byte(0x0300, 0x15)?; // ORA $10,X (zero page,X)
+        cpu.write_byte(0x0301, 0x10)?; // Base address: $10
+        cpu.write_byte(0x0011, 0x0F)?; // Value at $10+X=$11: %00001111
+        cpu.registers.pc = 0x0300;
+        
+        // Execute the ORA instruction
+        cpu.step()?;
+        
+        // A should be %00000000 | %00001111 = %00001111
+        assert_eq!(cpu.registers.a, 0x0F);
+        // Zero flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+        
+        // Test case 4: ORA with zero result
+        cpu.registers.a = 0x00;
+        cpu.write_byte(0x0400, 0x09)?; // ORA #$00 (immediate)
+        cpu.write_byte(0x0401, 0x00)?; // Value: %00000000
+        cpu.registers.pc = 0x0400;
+        
+        // Execute the ORA instruction
+        cpu.step()?;
+        
+        // A should remain 0
+        assert_eq!(cpu.registers.a, 0x00);
+        // Zero flag should be set
+        assert!(cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+        
         Ok(())
     }
 }
