@@ -7,6 +7,7 @@ use crate::{
     cartridge::Cartridge,
     cpu::{Cpu, CpuWrapper},
     errors::NesError,
+    input::{ControllerState, ControllerHandlerWrapper},
     memory::{Addressable, Ram},
     ppu::{Ppu, PpuWrapper},
     system::Bus,
@@ -32,6 +33,9 @@ pub struct NesSystem {
 
     /// The DMA controller
     dma: DmaControllerWrapper<CpuWrapper, PpuWrapper>,
+    
+    /// Controllers (both port 1 and port 2)
+    controller_handler: ControllerHandlerWrapper,
 
     /// Current system state
     state: SystemState,
@@ -60,6 +64,9 @@ impl NesSystem {
 
         // Create a DMA controller
         let mut dma = DmaControllerWrapper::new(DmaController::new());
+        
+        // Create a controller handler for both controllers
+        let controller_handler = ControllerHandlerWrapper::new();
 
         // Attach components to the bus
         {
@@ -67,6 +74,7 @@ impl NesSystem {
             bus.attach_component(Box::new(ppu.clone()));
             bus.attach_component(rom);
             bus.attach_component(Box::new(dma.clone()));
+            bus.attach_component(Box::new(controller_handler.clone()));
 
             // Debug: Print the memory map before attaching to CPU
             // This will help diagnose missing memory components during development
@@ -90,6 +98,7 @@ impl NesSystem {
             cpu,
             ppu,
             dma,
+            controller_handler,
             state: SystemState::Ready,
             error_message: None,
         }
@@ -324,6 +333,21 @@ impl NesSystem {
     /// This is a debugging method to verify sprite rendering
     pub fn write_ppu_test_sprite(&mut self) {
         self.ppu.write_test_sprite();
+    }
+
+    /// Get a reference to the controller handler
+    pub fn controller_handler(&self) -> ControllerHandlerWrapper {
+        self.controller_handler.clone()
+    }
+    
+    /// Set the state of controller 1
+    pub fn set_controller1_state(&self, state: ControllerState) {
+        self.controller_handler.set_controller1_state(state);
+    }
+    
+    /// Set the state of controller 2
+    pub fn set_controller2_state(&self, state: ControllerState) {
+        self.controller_handler.set_controller2_state(state);
     }
 }
 
