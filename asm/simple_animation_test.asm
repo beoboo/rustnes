@@ -61,14 +61,24 @@ RESET:
   LDA #$10        ; Sprite palette 0 address
   STA $2006
   
-  ; Set up palette (blue ball)
+  ; Set up palette with 4 different colors (blue, red, green, yellow)
   LDA #$0F        ; Background color (transparent for sprites)
   STA $2007
   LDA #$12        ; Blue
   STA $2007
-  LDA #$22        ; Darker blue
+  LDA #$16        ; Red
   STA $2007
-  LDA #$32        ; Light blue
+  LDA #$2A        ; Green
+  STA $2007
+
+  ; Set up sprite palette 1 (yellow)
+  LDA #$0F        ; Background color
+  STA $2007
+  LDA #$12        ; Blue again for first color
+  STA $2007
+  LDA #$16        ; Red again
+  STA $2007
+  LDA #$28        ; Yellow
   STA $2007
 
   ; Set up initial sprite data for a 2x2 tile sprite
@@ -205,7 +215,7 @@ UpdateSpritePosition:
   STA $0200
   LDA #$00            ; Tile 0 (top-left of ball)
   STA $0201
-  LDA #$00            ; Attributes (palette 0)
+  LDA #$00            ; Attributes (palette 0 - blue)
   STA $0202
   LDA ball_x          ; X position
   STA $0203
@@ -215,7 +225,7 @@ UpdateSpritePosition:
   STA $0204
   LDA #$01            ; Tile 1 (top-right of ball)
   STA $0205
-  LDA #$00            ; Attributes (palette 0)
+  LDA #$00            ; Attributes (palette 0 - red)
   STA $0206
   LDA ball_x          ; X position
   CLC
@@ -229,7 +239,7 @@ UpdateSpritePosition:
   STA $0208
   LDA #$10            ; Tile 16 (bottom-left of ball)
   STA $0209
-  LDA #$00            ; Attributes (palette 0)
+  LDA #$00            ; Attributes (palette 0 - green)
   STA $020A
   LDA ball_x          ; X position
   STA $020B
@@ -241,7 +251,7 @@ UpdateSpritePosition:
   STA $020C
   LDA #$11            ; Tile 17 (bottom-right of ball)
   STA $020D
-  LDA #$00            ; Attributes (palette 0)
+  LDA #$01            ; Attributes (palette 1 - yellow)
   STA $020E
   LDA ball_x          ; X position
   CLC
@@ -264,88 +274,88 @@ WaitVBlankStart:
   .word 0               ; Unused
 
 .segment "CHARS"
-  ; Top-left part of the ball (Tile 0) - Bit plane 0
-  .byte %00111100
-  .byte %01111110
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
+  ; Top-left part of the ball (Tile 0) - Bit plane 0 - Shape mask
+  .byte %00000111  ; Row 1: ·····███  
+  .byte %00011111  ; Row 2: ···█████  
+  .byte %00111111  ; Row 3: ··██████  
+  .byte %01111111  ; Row 4: ·███████  
+  .byte %01111111  ; Row 5: ·███████  
+  .byte %11111111  ; Row 6: ████████  
+  .byte %11111111  ; Row 7: ████████  
+  .byte %11111111  ; Row 8: ████████  
   
-  ; Top-left part of the ball - Bit plane 1
-  .byte %00000000
-  .byte %00111100
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
+  ; Top-left part of the ball - Bit plane 1 - Blue quadrant
+  .byte %00000111  ; Row 1: ·····███
+  .byte %00011111  ; Row 2: ···█████
+  .byte %00111111  ; Row 3: ··██████
+  .byte %01111111  ; Row 4: ·███████
+  .byte %01111111  ; Row 5: ·███████
+  .byte %11111111  ; Row 6: ████████
+  .byte %11111111  ; Row 7: ████████
+  .byte %11111111  ; Row 8: ████████
   
-  ; Top-right part of the ball (Tile 1) - Bit plane 0
-  .byte %00111100
-  .byte %01111110
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
+  ; Top-right part of the ball (Tile 1) - Bit plane 0 - Shape mask
+  .byte %11100000  ; Row 1: ███·····  
+  .byte %11111000  ; Row 2: █████···  
+  .byte %11111100  ; Row 3: ██████··  
+  .byte %11111110  ; Row 4: ███████·  
+  .byte %11111110  ; Row 5: ███████·  
+  .byte %11111111  ; Row 6: ████████  
+  .byte %11111111  ; Row 7: ████████  
+  .byte %11111111  ; Row 8: ████████  
   
-  ; Top-right part of the ball - Bit plane 1
-  .byte %00000000
-  .byte %00111100
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
+  ; Top-right part of the ball - Bit plane 1 - Red quadrant
+  .byte %11100000  ; Row 1: ███·····  
+  .byte %11111000  ; Row 2: █████···  
+  .byte %11111100  ; Row 3: ██████··  
+  .byte %11111110  ; Row 4: ███████·  
+  .byte %11111110  ; Row 5: ███████·  
+  .byte %11111111  ; Row 6: ████████  
+  .byte %11111111  ; Row 7: ████████  
+  .byte %11111111  ; Row 8: ████████  
 
   ; Fill the space between tiles 1 and 16 with empty tiles (14 tiles = 224 bytes)
   .res 224, $00
   
-  ; Bottom-left part of the ball (Tile 16) - Bit plane 0
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %01111110
-  .byte %00111100
-  .byte %00000000
+  ; Bottom-left part of the ball (Tile 16) - Bit plane 0 - Shape mask
+  .byte %11111111  ; Row 1: ████████  
+  .byte %11111111  ; Row 2: ████████  
+  .byte %11111111  ; Row 3: ████████  
+  .byte %01111111  ; Row 4: ·███████  
+  .byte %01111111  ; Row 5: ·███████  
+  .byte %00111111  ; Row 6: ··██████  
+  .byte %00011111  ; Row 7: ···█████  
+  .byte %00000111  ; Row 8: ·····███  
   
-  ; Bottom-left part of the ball - Bit plane 1
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %00111100
-  .byte %00000000
-  .byte %00000000
+  ; Bottom-left part of the ball - Bit plane 1 - Green quadrant
+  .byte %11111111  ; Row 1: ████████  
+  .byte %11111111  ; Row 2: ████████  
+  .byte %11111111  ; Row 3: ████████  
+  .byte %01111111  ; Row 4: ·███████  
+  .byte %01111111  ; Row 5: ·███████  
+  .byte %00111111  ; Row 6: ··██████  
+  .byte %00011111  ; Row 7: ···█████  
+  .byte %00000111  ; Row 8: ·····███  
   
-  ; Bottom-right part of the ball (Tile 17) - Bit plane 0
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %11111111
-  .byte %01111110
-  .byte %00111100
-  .byte %00000000
+  ; Bottom-right part of the ball (Tile 17) - Bit plane 0 - Shape mask
+  .byte %11111111  ; Row 1: ████████  
+  .byte %11111111  ; Row 2: ████████  
+  .byte %11111111  ; Row 3: ████████  
+  .byte %11111110  ; Row 4: ███████·  
+  .byte %11111110  ; Row 5: ███████·  
+  .byte %11111100  ; Row 6: ██████··  
+  .byte %11111000  ; Row 7: █████···  
+  .byte %11100000  ; Row 8: ███·····  
   
-  ; Bottom-right part of the ball - Bit plane 1
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %01111110
-  .byte %00111100
-  .byte %00000000
-  .byte %00000000
+  ; Bottom-right part of the ball - Bit plane 1 - Yellow quadrant (using palette 1)
+  .byte %11111111  ; Row 1: ████████  
+  .byte %11111111  ; Row 2: ████████  
+  .byte %11111111  ; Row 3: ████████  
+  .byte %11111110  ; Row 4: ███████·  
+  .byte %11111110  ; Row 5: ███████·  
+  .byte %11111100  ; Row 6: ██████··  
+  .byte %11111000  ; Row 7: █████···  
+  .byte %11100000  ; Row 8: ███·····  
   
   ; Fill the rest of the pattern table with empty tiles
   .res $1E00, $00 
