@@ -44,6 +44,9 @@ pub enum Instruction {
     SBC, // Subtract Memory from Accumulator with Borrow
     CMP, // Compare Memory with Accumulator
     TXS, // Transfer X to Stack Pointer
+    AND, // Logical AND with Accumulator
+    ASL, // Arithmetic Shift Left
+    LSR, // Logical Shift Right
 }
 
 impl Instruction {
@@ -64,19 +67,24 @@ impl Instruction {
                 | Instruction::TXS
         )
     }
-    
+
     /// Returns true if the instruction requires absolute addressing mode
     /// even for zero page addresses (such as JMP and JSR)
     pub fn is_jump(&self) -> bool {
         matches!(self, Instruction::JMP | Instruction::JSR)
     }
-    
+
     /// Returns true if the instruction modifies the program counter
     pub fn modifies_pc(&self) -> bool {
         matches!(
             self,
-            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK |
-            Instruction::BPL | Instruction::BNE | Instruction::BEQ
+            Instruction::JMP
+                | Instruction::JSR
+                | Instruction::RTS
+                | Instruction::BRK
+                | Instruction::BPL
+                | Instruction::BNE
+                | Instruction::BEQ
         )
     }
 }
@@ -173,7 +181,7 @@ impl InstructionDecoder {
         self.add_instruction(0xC9, Instruction::CMP, AddressingMode::Immediate, 2, 2);
         self.add_instruction(0xC5, Instruction::CMP, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0xCD, Instruction::CMP, AddressingMode::Absolute, 3, 4);
-        
+
         // Register transfer instructions
         self.add_instruction(0x9A, Instruction::TXS, AddressingMode::Implied, 1, 2);
 
@@ -181,6 +189,15 @@ impl InstructionDecoder {
         self.add_instruction(0xD5, Instruction::CMP, AddressingMode::ZeroPageX, 2, 4);
         self.add_instruction(0xDD, Instruction::CMP, AddressingMode::AbsoluteX, 3, 4);
         self.add_instruction(0xD9, Instruction::CMP, AddressingMode::AbsoluteY, 3, 4);
+
+        // Logical instructions - AND
+        self.add_instruction(0x29, Instruction::AND, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x25, Instruction::AND, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x35, Instruction::AND, AddressingMode::ZeroPageX, 2, 4);
+
+        // Shift instructions
+        self.add_instruction(0x0A, Instruction::ASL, AddressingMode::Accumulator, 1, 2);
+        self.add_instruction(0x4A, Instruction::LSR, AddressingMode::Accumulator, 1, 2);
     }
 
     /// Add an instruction to the lookup tables
@@ -260,6 +277,9 @@ impl Cpu {
             Instruction::SBC => self.sbc(addressing_mode)?,
             Instruction::CMP => self.cmp(addressing_mode)?,
             Instruction::TXS => self.txs(),
+            Instruction::AND => self.and(addressing_mode)?,
+            Instruction::ASL => self.asl(addressing_mode)?,
+            Instruction::LSR => self.lsr(addressing_mode)?,
         }
 
         // Increment PC for non-jump/call/branch instructions (already incremented by 1 in fetch)
@@ -454,7 +474,7 @@ impl Cpu {
             // Since we're marked as a PC-modifying instruction, we need to handle this ourselves
             self.registers.pc = self.registers.pc.wrapping_add(1);
         }
-        
+
         Ok(additional_cycles)
     }
 
@@ -501,7 +521,7 @@ impl Cpu {
             // Since we're marked as a PC-modifying instruction, we need to handle this ourselves
             self.registers.pc = self.registers.pc.wrapping_add(1);
         }
-        
+
         Ok(additional_cycles)
     }
 
@@ -538,7 +558,7 @@ impl Cpu {
             // Since we're marked as a PC-modifying instruction, we need to handle this ourselves
             self.registers.pc = self.registers.pc.wrapping_add(1);
         }
-        
+
         Ok(additional_cycles)
     }
 
@@ -546,29 +566,28 @@ impl Cpu {
     pub fn adc(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
         let value = self.load_register(addressing_mode)?;
         let carry = if self.get_flag(CpuFlag::Carry) { 1 } else { 0 };
-        
+
         // Add with carry (A + M + C)
         let result = self.registers.a as u16 + value as u16 + carry as u16;
-        
+
         // Set carry flag based on whether result exceeds 255
         self.set_flag(CpuFlag::Carry, result > 0xFF);
-        
+
         // Convert result back to u8 (automatically handles overflow)
         let result = result as u8;
-        
+
         // Set overflow flag
         // Overflow occurs when the sign of the inputs is the same but differs from the result
-        let overflow = ((self.registers.a ^ value) & 0x80) == 0 && 
-                       ((self.registers.a ^ result) & 0x80) != 0;
+        let overflow = ((self.registers.a ^ value) & 0x80) == 0 && ((self.registers.a ^ result) & 0x80) != 0;
         self.set_flag(CpuFlag::Overflow, overflow);
-        
+
         // Update accumulator with result
         self.registers.a = result;
-        
+
         // Set zero and negative flags based on result
         self.set_flag(CpuFlag::Zero, self.registers.a == 0);
         self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
-        
+
         Ok(())
     }
 
@@ -576,58 +595,110 @@ impl Cpu {
     pub fn sbc(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
         let value = self.load_register(addressing_mode)?;
         let carry = if self.get_flag(CpuFlag::Carry) { 1 } else { 0 };
-        
+
         // On 6502, SBC is actually A - M - (1-C)
         // Where C is 1 when carry is set, 0 when carry is clear
         // So we can rewrite as A + ~M + C
         let inverted_value = value ^ 0xFF; // Bitwise NOT (one's complement)
-        
+
         // Then use the same logic as ADC
         let result = self.registers.a as u16 + inverted_value as u16 + carry as u16;
-        
+
         // Set carry flag (not borrow flag)
         self.set_flag(CpuFlag::Carry, result > 0xFF);
-        
+
         // Convert result back to u8
         let result = result as u8;
-        
+
         // Set overflow flag
-        let overflow = ((self.registers.a ^ inverted_value) & 0x80) == 0 && 
-                       ((self.registers.a ^ result) & 0x80) != 0;
+        let overflow = ((self.registers.a ^ inverted_value) & 0x80) == 0 && ((self.registers.a ^ result) & 0x80) != 0;
         self.set_flag(CpuFlag::Overflow, overflow);
-        
+
         // Update accumulator
         self.registers.a = result;
-        
+
         // Set zero and negative flags
         self.set_flag(CpuFlag::Zero, self.registers.a == 0);
         self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
-        
+
         Ok(())
     }
 
     /// CMP - Compare Memory with Accumulator
     pub fn cmp(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
         let value = self.load_register(addressing_mode)?;
-        
+
         // Compare A with memory value
         // This is essentially A - M without storing the result
         let result = self.registers.a.wrapping_sub(value);
-        
+
         // Set the carry flag if A >= M (carry = NOT borrow)
         self.set_flag(CpuFlag::Carry, self.registers.a >= value);
-        
+
         // Set the zero flag if A = M
         self.set_flag(CpuFlag::Zero, self.registers.a == value);
-        
+
         // Set the negative flag based on bit 7 of the result
         self.set_flag(CpuFlag::Negative, (result & 0x80) != 0);
-        
+
         Ok(())
     }
 
     pub fn txs(&mut self) {
         self.registers.sp = self.registers.x;
+    }
+
+    /// AND - Logical AND with Accumulator
+    pub fn and(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.load_register(addressing_mode)?;
+        self.registers.a &= value;
+        self.set_flag(CpuFlag::Zero, self.registers.a == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
+        Ok(())
+    }
+
+    /// ASL - Arithmetic Shift Left
+    pub fn asl(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = match addressing_mode {
+            AddressingMode::Accumulator => {
+                // When using accumulator mode, we operate directly on the accumulator
+                self.registers.a
+            },
+            _ => {
+                // For memory operands, we need to read, modify, and write back
+                let addr = addressing_mode.get_operand_address(self)?;
+                self.read_byte(addr)?
+            },
+        };
+
+        let result = value << 1;
+        self.set_flag(CpuFlag::Carry, (value & 0x80) != 0);
+        self.registers.a = result;
+        self.set_flag(CpuFlag::Zero, result == 0);
+        self.set_flag(CpuFlag::Negative, (result & 0x80) != 0);
+        Ok(())
+    }
+
+    /// LSR - Logical Shift Right
+    pub fn lsr(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = match addressing_mode {
+            AddressingMode::Accumulator => {
+                // When using accumulator mode, we operate directly on the accumulator
+                self.registers.a
+            },
+            _ => {
+                // For memory operands, we need to read, modify, and write back
+                let addr = addressing_mode.get_operand_address(self)?;
+                self.read_byte(addr)?
+            },
+        };
+
+        let result = value >> 1;
+        self.set_flag(CpuFlag::Carry, (value & 0x01) != 0);
+        self.registers.a = result;
+        self.set_flag(CpuFlag::Zero, result == 0);
+        self.set_flag(CpuFlag::Negative, false); // Bit 7 is always 0 after LSR
+        Ok(())
     }
 }
 
@@ -638,7 +709,11 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
-    use crate::{cpu::assembler::Assembler, memory::{Addressable, Ram}, system::Bus};
+    use crate::{
+        cpu::{assembler::Assembler, Cpu, CpuFlag},
+        memory::{Addressable, Ram},
+        system::Bus,
+    };
 
     /// Helper function to set up a CPU with memory for testing
     fn setup_cpu() -> Cpu {
@@ -1447,11 +1522,11 @@ mod tests {
 
         // Program: Set Zero flag, then BEQ to skip over an instruction
         let program = [
-            0xA9, 0x00,  // LDA #$00 (sets Z flag since A = 0)
-            0xF0, 0x02,  // BEQ +2 (branch forward 2 bytes)
-            0xA9, 0x01,  // LDA #$01 (should be skipped)
-            0xA9, 0x02,  // LDA #$02 (should be executed if branch works)
-            0x00,        // BRK
+            0xA9, 0x00, // LDA #$00 (sets Z flag since A = 0)
+            0xF0, 0x02, // BEQ +2 (branch forward 2 bytes)
+            0xA9, 0x01, // LDA #$01 (should be skipped)
+            0xA9, 0x02, // LDA #$02 (should be executed if branch works)
+            0x00, // BRK
         ];
 
         cpu.load_program(&program, 0x8000).unwrap();
@@ -1463,10 +1538,10 @@ mod tests {
 
         // Execute BEQ +2
         cpu.step().unwrap();
-        
+
         // BEQ should have branched past the LDA #$01
         assert_eq!(cpu.registers.pc, 0x8006); // Should be at LDA #$02
-        
+
         // Execute LDA #$02
         cpu.step().unwrap();
         assert_eq!(cpu.registers.a, 0x02);
@@ -1481,11 +1556,11 @@ mod tests {
 
         // Program: Clear Zero flag, then BNE to skip over an instruction
         let program = [
-            0xA9, 0x01,  // LDA #$01 (clears Z flag since A != 0)
-            0xD0, 0x02,  // BNE +2 (branch forward 2 bytes)
-            0xA9, 0x00,  // LDA #$00 (should be skipped)
-            0xA9, 0x02,  // LDA #$02 (should be executed if branch works)
-            0x00,        // BRK
+            0xA9, 0x01, // LDA #$01 (clears Z flag since A != 0)
+            0xD0, 0x02, // BNE +2 (branch forward 2 bytes)
+            0xA9, 0x00, // LDA #$00 (should be skipped)
+            0xA9, 0x02, // LDA #$02 (should be executed if branch works)
+            0x00, // BRK
         ];
 
         cpu.load_program(&program, 0x8000).unwrap();
@@ -1497,10 +1572,10 @@ mod tests {
 
         // Execute BNE +2
         cpu.step().unwrap();
-        
+
         // BNE should have branched past the LDA #$00
         assert_eq!(cpu.registers.pc, 0x8006); // Should be at LDA #$02
-        
+
         // Execute LDA #$02
         cpu.step().unwrap();
         assert_eq!(cpu.registers.a, 0x02);
@@ -1515,10 +1590,10 @@ mod tests {
 
         // Program: Clear Zero flag, then BEQ which shouldn't branch
         let program = [
-            0xA9, 0x01,  // LDA #$01 (clears Z flag since A != 0)
-            0xF0, 0x02,  // BEQ +2 (should not branch)
-            0xA9, 0x03,  // LDA #$03 (should be executed)
-            0x00,        // BRK
+            0xA9, 0x01, // LDA #$01 (clears Z flag since A != 0)
+            0xF0, 0x02, // BEQ +2 (should not branch)
+            0xA9, 0x03, // LDA #$03 (should be executed)
+            0x00, // BRK
         ];
 
         cpu.load_program(&program, 0x8000).unwrap();
@@ -1530,10 +1605,10 @@ mod tests {
 
         // Execute BEQ +2 (should not branch)
         cpu.step().unwrap();
-        
+
         // Should not branch, so we execute the next instruction
         assert_eq!(cpu.registers.pc, 0x8004); // Should be at LDA #$03
-        
+
         // Execute LDA #$03
         cpu.step().unwrap();
         assert_eq!(cpu.registers.a, 0x03);
@@ -1548,10 +1623,10 @@ mod tests {
 
         // Program: Set Zero flag, then BNE which shouldn't branch
         let program = [
-            0xA9, 0x00,  // LDA #$00 (sets Z flag since A == 0)
-            0xD0, 0x02,  // BNE +2 (should not branch)
-            0xA9, 0x03,  // LDA #$03 (should be executed)
-            0x00,        // BRK
+            0xA9, 0x00, // LDA #$00 (sets Z flag since A == 0)
+            0xD0, 0x02, // BNE +2 (should not branch)
+            0xA9, 0x03, // LDA #$03 (should be executed)
+            0x00, // BRK
         ];
 
         cpu.load_program(&program, 0x8000).unwrap();
@@ -1563,10 +1638,10 @@ mod tests {
 
         // Execute BNE +2 (should not branch)
         cpu.step().unwrap();
-        
+
         // Should not branch, so we execute the next instruction
         assert_eq!(cpu.registers.pc, 0x8004); // Should be at LDA #$03
-        
+
         // Execute LDA #$03
         cpu.step().unwrap();
         assert_eq!(cpu.registers.a, 0x03);
@@ -1581,8 +1656,8 @@ mod tests {
 
         // Test case 1: Branch taken, no page boundary crossed
         let program1 = [
-            0xA9, 0x00,  // LDA #$00 (sets Z flag)
-            0xF0, 0x01,  // BEQ +1 (branch taken, no page cross)
+            0xA9, 0x00, // LDA #$00 (sets Z flag)
+            0xF0, 0x01, // BEQ +1 (branch taken, no page cross)
         ];
         cpu.load_program(&program1, 0x8000).unwrap();
         cpu.step().unwrap(); // LDA #$00
@@ -1591,8 +1666,8 @@ mod tests {
 
         // Test case 2: Branch taken with page boundary crossed
         let program2 = [
-            0xA9, 0x00,  // LDA #$00 (sets Z flag)
-            0xF0, 0x7F,  // BEQ +127 (branch taken, crosses page)
+            0xA9, 0x00, // LDA #$00 (sets Z flag)
+            0xF0, 0x7F, // BEQ +127 (branch taken, crosses page)
         ];
         cpu.load_program(&program2, 0x80F0).unwrap(); // Place near page boundary
         cpu.step().unwrap(); // LDA #$00
@@ -1601,8 +1676,8 @@ mod tests {
 
         // Test case 3: Branch not taken
         let program3 = [
-            0xA9, 0x01,  // LDA #$01 (clears Z flag)
-            0xF0, 0x10,  // BEQ +16 (branch not taken)
+            0xA9, 0x01, // LDA #$01 (clears Z flag)
+            0xF0, 0x10, // BEQ +16 (branch not taken)
         ];
         cpu.load_program(&program3, 0x8000).unwrap();
         cpu.step().unwrap(); // LDA #$01
@@ -1613,11 +1688,11 @@ mod tests {
     #[test]
     fn test_clc() {
         let mut cpu = Cpu::new();
-        
+
         // Set carry flag first
         cpu.set_flag(CpuFlag::Carry, true);
         assert!(cpu.is_flag_set(CpuFlag::Carry));
-        
+
         // Execute CLC
         cpu.clc();
         assert!(!cpu.is_flag_set(CpuFlag::Carry));
@@ -1626,11 +1701,11 @@ mod tests {
     #[test]
     fn test_sec() {
         let mut cpu = Cpu::new();
-        
+
         // Clear carry flag first
         cpu.set_flag(CpuFlag::Carry, false);
         assert!(!cpu.is_flag_set(CpuFlag::Carry));
-        
+
         // Execute SEC
         cpu.sec();
         assert!(cpu.is_flag_set(CpuFlag::Carry));
@@ -1640,29 +1715,29 @@ mod tests {
     fn test_clc_sec_execution() {
         // Create CPU and memory
         let mut cpu = Cpu::new();
-        
+
         // Create memory for the CPU
         let memory = Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF)));
         cpu.connect_memory(memory);
-        
+
         // Load a program that uses CLC and SEC
         let program = [
-            0x18,       // CLC
-            0x38,       // SEC
-            0x18,       // CLC
-            0x00,       // BRK
+            0x18, // CLC
+            0x38, // SEC
+            0x18, // CLC
+            0x00, // BRK
         ];
-        
+
         cpu.load_program(&program, 0x8000).unwrap();
-        
+
         // Execute CLC - should clear carry flag
         cpu.step().unwrap();
         assert!(!cpu.is_flag_set(CpuFlag::Carry));
-        
+
         // Execute SEC - should set carry flag
         cpu.step().unwrap();
         assert!(cpu.is_flag_set(CpuFlag::Carry));
-        
+
         // Execute CLC again - should clear carry flag
         cpu.step().unwrap();
         assert!(!cpu.is_flag_set(CpuFlag::Carry));
@@ -1674,70 +1749,72 @@ mod tests {
         // Set up CPU with memory
         let mut cpu = Cpu::new();
         let memory = Rc::new(RefCell::new(Bus::new()));
-        memory.borrow_mut().attach_component(Box::new(Ram::with_range(0x0000, 0xFFFF)));
+        memory
+            .borrow_mut()
+            .attach_component(Box::new(Ram::with_range(0x0000, 0xFFFF)));
         cpu.connect_memory(memory.clone());
 
         // Case 1: Basic addition without carry
         cpu.set_flag(CpuFlag::Carry, false);
         cpu.registers.a = 0x10;
-        
+
         // Write ADC #$10 to memory (opcode 0x69 followed by immediate value 0x10)
         memory.borrow_mut().write_byte(0x8000, 0x69)?;
         memory.borrow_mut().write_byte(0x8001, 0x10)?;
-        
+
         // Set PC to instruction
         cpu.registers.pc = 0x8000;
-        
+
         // Execute instruction
         let opcode = cpu.fetch()?;
         let metadata = cpu.decoder.decode(opcode)?;
         cpu.execute(metadata)?;
-        
+
         // Result should be 0x20 (0x10 + 0x10), no carry
         assert_eq!(cpu.registers.a, 0x20, "Basic addition failed");
         assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should not be set");
-        
+
         // Case 2: Addition with carry flag set
         cpu.set_flag(CpuFlag::Carry, true);
         cpu.registers.a = 0x40;
-        
+
         // Write ADC #$40 to memory
         memory.borrow_mut().write_byte(0x8002, 0x69)?;
         memory.borrow_mut().write_byte(0x8003, 0x40)?;
-        
+
         // Set PC to instruction
         cpu.registers.pc = 0x8002;
-        
+
         // Execute instruction
         let opcode = cpu.fetch()?;
         let metadata = cpu.decoder.decode(opcode)?;
         cpu.execute(metadata)?;
-        
+
         // Result should be 0x81 (0x40 + 0x40 + 0x01 from carry), no carry out
         assert_eq!(cpu.registers.a, 0x81, "Addition with carry in failed");
         assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should not be set");
-        
+
         // Case 3: Addition with carry out
         cpu.set_flag(CpuFlag::Carry, false);
         cpu.registers.a = 0xFF;
-        
+
         // Write ADC #$01 to memory
         memory.borrow_mut().write_byte(0x8004, 0x69)?;
         memory.borrow_mut().write_byte(0x8005, 0x01)?;
-        
+
         // Set PC to instruction
         cpu.registers.pc = 0x8004;
-        
+
         // Execute instruction
         let opcode = cpu.fetch()?;
         let metadata = cpu.decoder.decode(opcode)?;
         cpu.execute(metadata)?;
-        
+
         // Result should be 0x00 (0xFF + 0x01 = 0x100, which wraps to 0x00), with carry set
         assert_eq!(cpu.registers.a, 0x00, "Addition with carry out failed");
         assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
         assert_eq!(cpu.get_flag(CpuFlag::Zero), true, "Zero flag should be set");
-        
+
         Ok(())
     }
 
@@ -1746,71 +1823,77 @@ mod tests {
         // Set up CPU with memory
         let mut cpu = Cpu::new();
         let memory = Rc::new(RefCell::new(Bus::new()));
-        memory.borrow_mut().attach_component(Box::new(Ram::with_range(0x0000, 0xFFFF)));
+        memory
+            .borrow_mut()
+            .attach_component(Box::new(Ram::with_range(0x0000, 0xFFFF)));
         cpu.connect_memory(memory.clone());
 
         // Case 1: Basic subtraction with carry set (no borrow)
         cpu.set_flag(CpuFlag::Carry, true); // Note: For SBC, carry = !borrow
         cpu.registers.a = 0x50;
-        
+
         // Write SBC #$30 to memory (opcode 0xE9 followed by immediate value 0x30)
         memory.borrow_mut().write_byte(0x8000, 0xE9)?;
         memory.borrow_mut().write_byte(0x8001, 0x30)?;
-        
+
         // Set PC to instruction
         cpu.registers.pc = 0x8000;
-        
+
         // Execute instruction
         let opcode = cpu.fetch()?;
         let metadata = cpu.decoder.decode(opcode)?;
         cpu.execute(metadata)?;
-        
+
         // Result should be 0x20 (0x50 - 0x30), with carry still set (no borrow)
         assert_eq!(cpu.registers.a, 0x20, "Basic subtraction failed");
         assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should still be set");
-        
+
         // Case 2: Subtraction with carry clear (indicating borrow)
         cpu.set_flag(CpuFlag::Carry, false); // Carry clear = borrow
         cpu.registers.a = 0x50;
-        
+
         // Write SBC #$30 to memory
         memory.borrow_mut().write_byte(0x8002, 0xE9)?;
         memory.borrow_mut().write_byte(0x8003, 0x30)?;
-        
+
         // Set PC to instruction
         cpu.registers.pc = 0x8002;
-        
+
         // Execute instruction
         let opcode = cpu.fetch()?;
         let metadata = cpu.decoder.decode(opcode)?;
         cpu.execute(metadata)?;
-        
+
         // Result should be 0x1F (0x50 - 0x30 - 0x01), with carry set (no further borrow)
         assert_eq!(cpu.registers.a, 0x1F, "Subtraction with borrow failed");
         assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
-        
+
         // Case 3: Subtraction causing borrow
         cpu.set_flag(CpuFlag::Carry, true); // No initial borrow
         cpu.registers.a = 0x30;
-        
+
         // Write SBC #$40 to memory
         memory.borrow_mut().write_byte(0x8004, 0xE9)?;
         memory.borrow_mut().write_byte(0x8005, 0x40)?;
-        
+
         // Set PC to instruction
         cpu.registers.pc = 0x8004;
-        
+
         // Execute instruction
         let opcode = cpu.fetch()?;
         let metadata = cpu.decoder.decode(opcode)?;
         cpu.execute(metadata)?;
-        
+
         // Result should be 0xF0 (0x30 - 0x40 = -0x10, which is 0xF0 in two's complement)
         // Carry should be clear (indicating borrow)
         assert_eq!(cpu.registers.a, 0xF0, "Subtraction with result borrow failed");
-        assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should be clear (borrow)");
+        assert_eq!(
+            cpu.get_flag(CpuFlag::Carry),
+            false,
+            "Carry flag should be clear (borrow)"
+        );
         assert_eq!(cpu.get_flag(CpuFlag::Negative), true, "Negative flag should be set");
-        
+
         Ok(())
     }
 
@@ -1819,87 +1902,93 @@ mod tests {
         // Set up CPU with memory
         let mut cpu = Cpu::new();
         let memory = Rc::new(RefCell::new(Bus::new()));
-        memory.borrow_mut().attach_component(Box::new(Ram::with_range(0x0000, 0xFFFF)));
+        memory
+            .borrow_mut()
+            .attach_component(Box::new(Ram::with_range(0x0000, 0xFFFF)));
         cpu.connect_memory(memory.clone());
 
         // Case 1: A = M (Equal, Zero flag set, Carry flag set)
         cpu.registers.a = 0x40;
-        
+
         // Write CMP #$40 to memory (opcode 0xC9 followed by immediate value 0x40)
         memory.borrow_mut().write_byte(0x8000, 0xC9)?;
         memory.borrow_mut().write_byte(0x8001, 0x40)?;
-        
+
         // Set PC to instruction
         cpu.registers.pc = 0x8000;
-        
+
         // Execute instruction
         let opcode = cpu.fetch()?;
         let metadata = cpu.decoder.decode(opcode)?;
         cpu.execute(metadata)?;
-        
+
         // Result should set Zero flag and Carry flag, and not modify accumulator
         assert_eq!(cpu.registers.a, 0x40, "Accumulator should not be modified");
         assert_eq!(cpu.get_flag(CpuFlag::Zero), true, "Zero flag should be set");
         assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
-        assert_eq!(cpu.get_flag(CpuFlag::Negative), false, "Negative flag should not be set");
-        
+        assert_eq!(
+            cpu.get_flag(CpuFlag::Negative),
+            false,
+            "Negative flag should not be set"
+        );
+
         // Case 2: A > M (Carry set, Zero clear)
         cpu.registers.a = 0x50;
-        
+
         // Write CMP #$40 to memory
         memory.borrow_mut().write_byte(0x8002, 0xC9)?;
         memory.borrow_mut().write_byte(0x8003, 0x40)?;
-        
+
         // Set PC to instruction
         cpu.registers.pc = 0x8002;
-        
+
         // Execute instruction
         let opcode = cpu.fetch()?;
         let metadata = cpu.decoder.decode(opcode)?;
         cpu.execute(metadata)?;
-        
+
         // Result: A (0x50) > M (0x40), so carry set, zero clear
         assert_eq!(cpu.registers.a, 0x50, "Accumulator should not be modified");
         assert_eq!(cpu.get_flag(CpuFlag::Zero), false, "Zero flag should not be set");
         assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
-        
+
         // Case 3: A < M (Carry clear, Zero clear, potentially Negative set)
         cpu.registers.a = 0x30;
-        
+
         // Write CMP #$40 to memory
         memory.borrow_mut().write_byte(0x8004, 0xC9)?;
         memory.borrow_mut().write_byte(0x8005, 0x40)?;
-        
+
         // Set PC to instruction
         cpu.registers.pc = 0x8004;
-        
+
         // Execute instruction
         let opcode = cpu.fetch()?;
         let metadata = cpu.decoder.decode(opcode)?;
         cpu.execute(metadata)?;
-        
+
         // Result: A (0x30) < M (0x40), so carry clear, zero clear, negative likely set
         assert_eq!(cpu.registers.a, 0x30, "Accumulator should not be modified");
         assert_eq!(cpu.get_flag(CpuFlag::Zero), false, "Zero flag should not be set");
         assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should not be set");
         assert_eq!(cpu.get_flag(CpuFlag::Negative), true, "Negative flag should be set");
-        
+
         Ok(())
     }
 
     #[test]
     fn test_txs_instruction() {
         let mut cpu = setup_cpu();
-        
+
         // Set a value in X register
         cpu.registers.x = 0xAA;
-        
+
         // Execute TXS instruction
         cpu.txs();
-        
+
         // Verify SP was updated with X register value
         assert_eq!(cpu.registers.sp, 0xAA);
-        
+
         // Verify flags are not changed by TXS
         assert_eq!(cpu.registers.status, 0x34); // Default status
     }
@@ -1908,80 +1997,74 @@ mod tests {
     fn test_animation_physics_instructions() -> Result<()> {
         // Create a CPU and memory for testing
         let mut cpu = setup_cpu();
-        
+
         // Initialize memory locations for variables
-        let ball_x_addr: u16 = 0x00;        // Zero page address for ball_x
-        let ball_y_addr: u16 = 0x01;        // Zero page address for ball_y
-        let x_vel_addr: u16 = 0x02;         // Zero page address for x_vel
-        let y_vel_addr: u16 = 0x03;         // Zero page address for y_vel
-        
+        let ball_x_addr: u16 = 0x00; // Zero page address for ball_x
+        let ball_y_addr: u16 = 0x01; // Zero page address for ball_y
+        let x_vel_addr: u16 = 0x02; // Zero page address for x_vel
+        let y_vel_addr: u16 = 0x03; // Zero page address for y_vel
+
         // Manually create program bytes WITHOUT initialization
         // because we're manually initializing before each test case
         let program_bytes = vec![
             // Skip initialization - we'll do this manually
-            
+
             // Update X position
-            0xA5, 0x02,        // LDA $02
-            0xF0, 0x0C,        // BEQ $0C (to move_left)
-            
+            0xA5, 0x02, // LDA $02
+            0xF0, 0x0C, // BEQ $0C (to move_left)
             // Moving right - increment X position
-            0xA5, 0x00,        // LDA $00
-            0x18,              // CLC
-            0x69, 0x01,        // ADC #$01
-            0x85, 0x00,        // STA $00
-            0x4C, 0x1C, 0x80,  // JMP $801C (to update_y)
-            
+            0xA5, 0x00, // LDA $00
+            0x18, // CLC
+            0x69, 0x01, // ADC #$01
+            0x85, 0x00, // STA $00
+            0x4C, 0x1C, 0x80, // JMP $801C (to update_y)
             // move_left:
-            0xA5, 0x00,        // LDA $00
-            0x38,              // SEC
-            0xE9, 0x01,        // SBC #$01
-            0x85, 0x00,        // STA $00
-            
+            0xA5, 0x00, // LDA $00
+            0x38, // SEC
+            0xE9, 0x01, // SBC #$01
+            0x85, 0x00, // STA $00
             // update_y:
-            0xA5, 0x03,        // LDA $03
-            0xF0, 0x0C,        // BEQ $0C (to move_up)
-            
+            0xA5, 0x03, // LDA $03
+            0xF0, 0x0C, // BEQ $0C (to move_up)
             // Moving down - increment Y position
-            0xA5, 0x01,        // LDA $01
-            0x18,              // CLC
-            0x69, 0x01,        // ADC #$01
-            0x85, 0x01,        // STA $01
-            0x4C, 0x32, 0x80,  // JMP $8032 (to done)
-            
+            0xA5, 0x01, // LDA $01
+            0x18, // CLC
+            0x69, 0x01, // ADC #$01
+            0x85, 0x01, // STA $01
+            0x4C, 0x32, 0x80, // JMP $8032 (to done)
             // move_up:
-            0xA5, 0x01,        // LDA $01
-            0x38,              // SEC
-            0xE9, 0x01,        // SBC #$01
-            0x85, 0x01,        // STA $01
-            
+            0xA5, 0x01, // LDA $01
+            0x38, // SEC
+            0xE9, 0x01, // SBC #$01
+            0x85, 0x01, // STA $01
             // done:
-            0x00,              // BRK
+            0x00, // BRK
         ];
-        
+
         //--------------------------------------------------------------------
         // TEST CASE 1: Moving right and down
         //--------------------------------------------------------------------
-        
+
         // Load the program into memory
         cpu.load_program(&program_bytes, 0x8000)?;
-        
+
         // Initialize the variables manually
-        cpu.write_byte(ball_x_addr, 0x80)?;  // Initial X = 128
-        cpu.write_byte(ball_y_addr, 0x80)?;  // Initial Y = 128
-        cpu.write_byte(x_vel_addr, 0x01)?;   // X velocity = 1 (right)
-        cpu.write_byte(y_vel_addr, 0x01)?;   // Y velocity = 1 (down)
-        
+        cpu.write_byte(ball_x_addr, 0x80)?; // Initial X = 128
+        cpu.write_byte(ball_y_addr, 0x80)?; // Initial Y = 128
+        cpu.write_byte(x_vel_addr, 0x01)?; // X velocity = 1 (right)
+        cpu.write_byte(y_vel_addr, 0x01)?; // Y velocity = 1 (down)
+
         // Execute the program
         while cpu.read_byte(cpu.registers.pc)? != 0x00 {
             cpu.step()?;
         }
-        
+
         // Read final values of variables
         let final_ball_x = cpu.read_byte(ball_x_addr)?;
         let final_ball_y = cpu.read_byte(ball_y_addr)?;
         let final_x_vel = cpu.read_byte(x_vel_addr)?;
         let final_y_vel = cpu.read_byte(y_vel_addr)?;
-        
+
         // Test Case 1: Normal movement (not at edge)
         // For the starting values (128, 128) moving right and down,
         // we expect the ball to move to (129, 129)
@@ -1989,70 +2072,239 @@ mod tests {
         assert_eq!(final_ball_y, 0x82, "Ball should have moved down to 130");
         assert_eq!(final_x_vel, 0x01, "X velocity should still be 1 (right)");
         assert_eq!(final_y_vel, 0x01, "Y velocity should still be 1 (down)");
-        
+
         //--------------------------------------------------------------------
         // TEST CASE 2: Moving left
         //--------------------------------------------------------------------
-        
+
         // Now test left movement
         cpu.load_program(&program_bytes, 0x8000)?;
-        
+
         // Initialize for left movement test
-        cpu.write_byte(ball_x_addr, 0x80)?;  // Initial X = 128
-        cpu.write_byte(ball_y_addr, 0x80)?;  // Initial Y = 128
-        cpu.write_byte(x_vel_addr, 0x00)?;   // X velocity = 0 (left in our test program)
-        cpu.write_byte(y_vel_addr, 0x01)?;   // Y velocity = 1 (down)
-        
+        cpu.write_byte(ball_x_addr, 0x80)?; // Initial X = 128
+        cpu.write_byte(ball_y_addr, 0x80)?; // Initial Y = 128
+        cpu.write_byte(x_vel_addr, 0x00)?; // X velocity = 0 (left in our test program)
+        cpu.write_byte(y_vel_addr, 0x01)?; // Y velocity = 1 (down)
+
         // Execute the program
         while cpu.read_byte(cpu.registers.pc)? != 0x00 {
             cpu.step()?;
         }
-        
+
         // Read final values
         let final_ball_x = cpu.read_byte(ball_x_addr)?;
         let final_ball_y = cpu.read_byte(ball_y_addr)?;
         let final_x_vel = cpu.read_byte(x_vel_addr)?;
         let final_y_vel = cpu.read_byte(y_vel_addr)?;
-        
-        // Ball should have moved left - observed behavior shows 0xFF (255) 
+
+        // Ball should have moved left - observed behavior shows 0xFF (255)
         // because unsigned subtraction wraps around
         assert_eq!(final_ball_x, 0xFF, "Ball should have moved left to 255");
         assert_eq!(final_ball_y, 0x81, "Ball should have moved down to 129");
         assert_eq!(final_x_vel, 0x00, "X velocity should still be 0 (left)");
         assert_eq!(final_y_vel, 0x01, "Y velocity should still be 1 (down)");
-        
+
         //--------------------------------------------------------------------
         // TEST CASE 3: Moving up
         //--------------------------------------------------------------------
-        
+
         // Now test upward movement
         cpu.load_program(&program_bytes, 0x8000)?;
-        
+
         // Initialize for upward movement test
-        cpu.write_byte(ball_x_addr, 0x80)?;  // Initial X = 128
-        cpu.write_byte(ball_y_addr, 0x80)?;  // Initial Y = 128
-        cpu.write_byte(x_vel_addr, 0x01)?;   // X velocity = 1 (right)
-        cpu.write_byte(y_vel_addr, 0x00)?;   // Y velocity = 0 (up in our test program)
-        
+        cpu.write_byte(ball_x_addr, 0x80)?; // Initial X = 128
+        cpu.write_byte(ball_y_addr, 0x80)?; // Initial Y = 128
+        cpu.write_byte(x_vel_addr, 0x01)?; // X velocity = 1 (right)
+        cpu.write_byte(y_vel_addr, 0x00)?; // Y velocity = 0 (up in our test program)
+
         // Execute the program
         while cpu.read_byte(cpu.registers.pc)? != 0x00 {
             cpu.step()?;
         }
-        
+
         // Read final values
         let final_ball_x = cpu.read_byte(ball_x_addr)?;
         let final_ball_y = cpu.read_byte(ball_y_addr)?;
         let final_x_vel = cpu.read_byte(x_vel_addr)?;
         let final_y_vel = cpu.read_byte(y_vel_addr)?;
-        
-        // Ball should have moved right but not up due to branch issues 
+
+        // Ball should have moved right but not up due to branch issues
         assert_eq!(final_ball_x, 0x81, "Ball should have moved right to 129");
-        assert_eq!(final_ball_y, 0x82, "Ball should have moved down to 130"); 
+        assert_eq!(final_ball_y, 0x82, "Ball should have moved down to 130");
         assert_eq!(final_x_vel, 0x01, "X velocity should still be 1 (right)");
         assert_eq!(final_y_vel, 0x00, "Y velocity should still be 0 (up)");
-        
+
         // All tests pass!
-        
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_and_instruction() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        // Test cases for AND instruction
+
+        // Test case 1: AND with immediate mode, non-zero result
+        cpu.registers.a = 0b11110000; // Set A to %11110000
+        cpu.write_byte(0x0100, 0x29)?; // AND #$0F (immediate)
+        cpu.write_byte(0x0101, 0x0F)?; // Value: %00001111
+        cpu.registers.pc = 0x0100;
+
+        // Execute the AND instruction
+        cpu.step()?;
+
+        // A should be %11110000 & %00001111 = %00000000
+        assert_eq!(cpu.registers.a, 0x00);
+        // Zero flag should be set
+        assert!(cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+
+        // Test case 2: AND with immediate mode, with negative result
+        cpu.registers.a = 0b10101010; // Set A to %10101010
+        cpu.write_byte(0x0200, 0x29)?; // AND #$F0 (immediate)
+        cpu.write_byte(0x0201, 0xF0)?; // Value: %11110000
+        cpu.registers.pc = 0x0200;
+
+        // Execute the AND instruction
+        cpu.step()?;
+
+        // A should be %10101010 & %11110000 = %10100000
+        assert_eq!(cpu.registers.a, 0xA0);
+        // Zero flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be set (bit 7 is 1)
+        assert!(cpu.is_flag_set(CpuFlag::Negative));
+
+        // Test case 3: AND with zero page,X mode
+        cpu.registers.a = 0b11111111; // Set A to %11111111
+        cpu.registers.x = 0x01; // X = 1 (offset)
+
+        cpu.write_byte(0x0300, 0x35)?; // AND $10,X (zero page,X)
+        cpu.write_byte(0x0301, 0x10)?; // Base address: $10
+        cpu.write_byte(0x0011, 0x0F)?; // Value at $10+X=$11: %00001111
+        cpu.registers.pc = 0x0300;
+
+        // Execute the AND instruction
+        cpu.step()?;
+
+        // A should be %11111111 & %00001111 = %00001111
+        assert_eq!(cpu.registers.a, 0x0F);
+        // Zero flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        // Negative flag should be clear
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bit_shifting_instructions() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        // Test ASL with accumulator mode
+
+        // Test case 1: Basic shift, no carry, no negative
+        cpu.registers.a = 0b00101010; // %00101010
+        cpu.write_byte(0x0100, 0x0A)?; // ASL A (accumulator mode)
+        cpu.registers.pc = 0x0100;
+
+        // Execute the ASL instruction
+        cpu.step()?;
+
+        // Result should be %01010100 with no flags set
+        assert_eq!(cpu.registers.a, 0b01010100);
+        assert!(!cpu.is_flag_set(CpuFlag::Carry));
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+
+        // Test case 2: Shift with carry and negative result
+        cpu.registers.a = 0b10110010; // %10110010
+        cpu.write_byte(0x0200, 0x0A)?; // ASL A
+        cpu.registers.pc = 0x0200;
+
+        // Execute the ASL instruction
+        cpu.step()?;
+
+        // Result should be %01100100 with carry flag set
+        assert_eq!(cpu.registers.a, 0b01100100);
+        assert!(cpu.is_flag_set(CpuFlag::Carry)); // Bit 7 was 1
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+
+        // Test case 3: Shift resulting in zero and a negative result
+        cpu.registers.a = 0b01000000; // %01000000
+        cpu.write_byte(0x0300, 0x0A)?; // ASL A
+        cpu.registers.pc = 0x0300;
+
+        // Execute the ASL instruction
+        cpu.step()?;
+
+        // Result should be %10000000 with negative flag set
+        assert_eq!(cpu.registers.a, 0b10000000);
+        assert!(!cpu.is_flag_set(CpuFlag::Carry));
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        assert!(cpu.is_flag_set(CpuFlag::Negative)); // Bit 7 is now 1
+
+        // Test case 4: Shift resulting in zero
+        cpu.registers.a = 0b10000000; // %10000000
+        cpu.write_byte(0x0400, 0x0A)?; // ASL A
+        cpu.registers.pc = 0x0400;
+
+        // Execute the ASL instruction
+        cpu.step()?;
+
+        // Result should be %00000000 with zero and carry flags set
+        assert_eq!(cpu.registers.a, 0b00000000);
+        assert!(cpu.is_flag_set(CpuFlag::Carry)); // Bit 7 was 1
+        assert!(cpu.is_flag_set(CpuFlag::Zero)); // Result is zero
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+
+        // Test LSR with accumulator mode
+
+        // Test case 1: Basic shift, no carry, no negative or zero
+        cpu.registers.a = 0b01010100; // %01010100
+        cpu.write_byte(0x0500, 0x4A)?; // LSR A (accumulator mode)
+        cpu.registers.pc = 0x0500;
+
+        // Execute the LSR instruction
+        cpu.step()?;
+
+        // Result should be %00101010 with no flags set
+        assert_eq!(cpu.registers.a, 0b00101010);
+        assert!(!cpu.is_flag_set(CpuFlag::Carry));
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+
+        // Test case 2: Shift with carry
+        cpu.registers.a = 0b01010101; // %01010101
+        cpu.write_byte(0x0600, 0x4A)?; // LSR A
+        cpu.registers.pc = 0x0600;
+
+        // Execute the LSR instruction
+        cpu.step()?;
+
+        // Result should be %00101010 with carry flag set
+        assert_eq!(cpu.registers.a, 0b00101010);
+        assert!(cpu.is_flag_set(CpuFlag::Carry)); // Bit 0 was 1
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+
+        // Test case 3: Shift resulting in zero
+        cpu.registers.a = 0b00000001; // %00000001
+        cpu.write_byte(0x0700, 0x4A)?; // LSR A
+        cpu.registers.pc = 0x0700;
+
+        // Execute the LSR instruction
+        cpu.step()?;
+
+        // Result should be %00000000 with zero and carry flags set
+        assert_eq!(cpu.registers.a, 0b00000000);
+        assert!(cpu.is_flag_set(CpuFlag::Carry)); // Bit 0 was 1
+        assert!(cpu.is_flag_set(CpuFlag::Zero)); // Result is zero
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+
         Ok(())
     }
 }

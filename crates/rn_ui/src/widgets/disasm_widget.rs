@@ -3,7 +3,10 @@ use std::cell::Ref;
 
 use anyhow::Result;
 use egui::{self, Color32, Ui};
-use rn_core::{cpu::{Cpu, CpuWrapper, Disassembler}, memory::Addressable};
+use rn_core::{
+    cpu::{Cpu, CpuWrapper, Disassembler},
+    memory::Addressable,
+};
 /// A widget for disassembling and displaying 6502 machine code
 pub struct DisasmWidget {
     /// Memory range to disassemble
@@ -111,7 +114,7 @@ impl DisasmWidget {
 
         // Create a scrollable ID for this disassembly view (needed for scroll-to-item)
         let scroll_area_id = ui.make_persistent_id("disasm_scroll_area");
-        
+
         // Create a scrolling area for the disassembly
         egui::ScrollArea::vertical()
             .id_salt(scroll_area_id)

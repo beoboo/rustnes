@@ -1,7 +1,8 @@
 mod ram;
+use std::fmt::Debug;
+
 pub use ram::Ram;
 
-use std::fmt::Debug;
 use crate::errors::NesError;
 
 /// Trait for components that can be accessed via memory addresses

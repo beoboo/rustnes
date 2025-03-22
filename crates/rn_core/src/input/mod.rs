@@ -1,3 +1,11 @@
 pub mod controller;
 
-pub use controller::{Controller, ControllerPort, ControllerState, ControllerButton, ControllerHandler, ControllerHandlerWrapper, StrobeLatch}; 
+pub use controller::{
+    Controller,
+    ControllerButton,
+    ControllerHandler,
+    ControllerHandlerWrapper,
+    ControllerPort,
+    ControllerState,
+    StrobeLatch,
+};

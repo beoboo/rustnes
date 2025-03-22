@@ -47,15 +47,24 @@ impl PpuWidget {
             let ctrl = ppu.ctrl();
             let mask = ppu.mask();
             let status = ppu.status();
-            
-            log::info!("PPU Current Values - CTRL: ${:02X}, MASK: ${:02X}, STATUS: ${:02X}", 
-                ctrl, mask, status);
-            
+
+            log::info!(
+                "PPU Current Values - CTRL: ${:02X}, MASK: ${:02X}, STATUS: ${:02X}",
+                ctrl,
+                mask,
+                status
+            );
+
             // Show in UI too
-            ui.label(format!("CTRL: ${:02X}, MASK: ${:02X}, STATUS: ${:02X}", ctrl, mask, status));
-            ui.label(format!("Show sprites: {}, Show bg: {}", 
+            ui.label(format!(
+                "CTRL: ${:02X}, MASK: ${:02X}, STATUS: ${:02X}",
+                ctrl, mask, status
+            ));
+            ui.label(format!(
+                "Show sprites: {}, Show bg: {}",
                 (mask & ppu::MASK_SHOW_SPRITES) != 0,
-                (mask & ppu::MASK_SHOW_BACKGROUND) != 0));
+                (mask & ppu::MASK_SHOW_BACKGROUND) != 0
+            ));
         }
 
         // Access PPU registers and internal state through methods
@@ -257,9 +266,9 @@ impl PpuWidget {
 
             for &(mask_bit, label, tooltip) in &mask_flags {
                 ui.vertical(|ui| {
-                  ui.set_max_width(28.0);
+                    ui.set_max_width(28.0);
 
-                  // Flag name
+                    // Flag name
                     ui.with_layout(
                         egui::Layout::top_down_justified(egui::Align::Center).with_cross_align(egui::Align::Center),
                         |ui| {
@@ -313,9 +322,9 @@ impl PpuWidget {
 
             for &(mask_bit, label, tooltip) in &status_flags {
                 ui.vertical(|ui| {
-                  ui.set_max_width(40.0);
+                    ui.set_max_width(40.0);
 
-                  // Flag name
+                    // Flag name
                     ui.with_layout(
                         egui::Layout::top_down_justified(egui::Align::Center).with_cross_align(egui::Align::Center),
                         |ui| {

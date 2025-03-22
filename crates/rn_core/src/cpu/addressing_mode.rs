@@ -38,6 +38,7 @@ pub enum AddressingMode {
     IndirectIndexed, // (Indirect),Y - Post-indexed indirect
     Implied,         // Implied addressing mode (no operand)
     Relative,        // Relative addressing mode (for branch instructions)
+    Accumulator,     // Operations on the accumulator
 }
 
 impl FromStr for AddressingMode {
@@ -167,6 +168,7 @@ impl fmt::Display for AddressingMode {
             AddressingMode::IndirectIndexed => "Indirect Indexed (Y) mode",
             AddressingMode::Implied => "Implied mode",
             AddressingMode::Relative => "Relative mode",
+            AddressingMode::Accumulator => "Accumulator mode",
         };
         write!(f, "{}", description)
     }
@@ -176,7 +178,7 @@ impl AddressingMode {
     /// Returns the size in bytes of an instruction with this addressing mode
     pub fn size(&self) -> u16 {
         match self {
-            Self::Implied => 1,
+            Self::Implied | Self::Accumulator => 1,
             Self::Immediate
             | Self::ZeroPage
             | Self::ZeroPageX
@@ -290,6 +292,11 @@ impl AddressingMode {
                 let target = ((cpu.registers.pc as i32) + 2 + (offset as i32)) as u16;
 
                 Ok(target)
+            },
+            AddressingMode::Accumulator => {
+                // Accumulator mode doesn't use an operand address
+                // Return the current PC for consistency
+                Ok(cpu.registers.pc)
             },
         }
     }

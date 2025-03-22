@@ -37,7 +37,7 @@ impl DmaControllerWidget {
 
                 // Can't directly access internal state like source_high_byte, cycles_remaining
                 // since they're private. We only have access to what's exposed through the wrapper.
-                
+
                 // Add a visual indicator for active state
                 ui.label("Status:");
                 if dma.is_active() {
@@ -53,12 +53,12 @@ impl DmaControllerWidget {
                     ui.label("Cycles Remaining:");
                     ui.label(format!("{} of 513", dma.cycles_remaining()));
                     ui.end_row();
-                    
+
                     // Cycles elapsed
                     ui.label("Cycles Elapsed:");
                     ui.label(format!("{}", dma.cycles_elapsed()));
                     ui.end_row();
-                    
+
                     // Progress percentage
                     ui.label("Progress:");
                     let progress = (dma.cycles_elapsed() as f32 / 513.0) * 100.0;
@@ -67,16 +67,14 @@ impl DmaControllerWidget {
 
                     // Progress bar
                     ui.label("Transfer:");
-                    let progress_bar = egui::ProgressBar::new(progress / 100.0)
-                        .show_percentage()
-                        .animate(true);
+                    let progress_bar = egui::ProgressBar::new(progress / 100.0).show_percentage().animate(true);
                     ui.add(progress_bar);
                     ui.end_row();
-                    
+
                     ui.label("Note:");
                     ui.label("CPU execution is suspended during DMA transfer (513 cycles)");
                     ui.end_row();
                 }
             });
     }
-} 
+}

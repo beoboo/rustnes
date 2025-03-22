@@ -1,6 +1,8 @@
-use std::cell::Cell;
-use std::{cell::RefCell, rc::Rc};
-use std::fmt::Debug;
+use std::{
+    cell::{Cell, RefCell},
+    fmt::Debug,
+    rc::Rc,
+};
 
 use crate::{cartridge::Cartridge, errors::NesError, memory::Addressable};
 
@@ -66,16 +68,16 @@ impl PpuWrapper {
 
     pub fn force_render_frame(&self) {
         let mut ppu = self.ppu.borrow_mut();
-        
+
         // Temporarily save the current mask
         let original_mask = ppu.mask;
-        
+
         // Force enable sprites and background
         ppu.mask |= MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES;
-        
+
         // Render the frame
         ppu.render_frame();
-        
+
         // Restore original mask
         ppu.mask = original_mask;
     }
@@ -90,7 +92,7 @@ impl PpuWrapper {
             Err(NesError::MemoryAccessError(0)) // Use an existing error type
         }
     }
-    
+
     pub fn frame_buffer(&self) -> Vec<u8> {
         let ppu = self.ppu.borrow();
         ppu.frame_buffer().to_vec()
@@ -114,7 +116,7 @@ impl PpuWrapper {
         let mut ppu = self.ppu.borrow_mut();
         ppu.write_test_sprite();
     }
-    
+
     // Below are new accessor methods for PPU widget
 
     /// Get the current frame count
@@ -122,96 +124,98 @@ impl PpuWrapper {
         let ppu = self.ppu.borrow();
         ppu.frame_count
     }
-    
+
     /// Get the current scanline and cycle
     pub fn scanline_cycle(&self) -> (i16, u16) {
         let ppu = self.ppu.borrow();
         (ppu.scanline, ppu.cycle)
     }
-    
+
     /// Get the control register value
     pub fn ctrl(&self) -> u8 {
         let ppu = self.ppu.borrow();
         ppu.ctrl
     }
-    
+
     /// Set the control register value
     pub fn set_ctrl(&self, value: u8) {
         let mut ppu = self.ppu.borrow_mut();
         ppu.ctrl = value;
     }
-    
+
     /// Get the mask register value
     pub fn mask(&self) -> u8 {
         let ppu = self.ppu.borrow();
         ppu.mask
     }
-    
+
     /// Set the mask register value
     pub fn set_mask(&self, value: u8) {
         let mut ppu = self.ppu.borrow_mut();
         ppu.mask = value;
         // Log the update so we can debug rendering issues
-        log::info!("PPU MASK set via widget to {:02X} (show sprites: {}, show bg: {})", 
-               value, 
-               (value & MASK_SHOW_SPRITES) != 0,
-               (value & MASK_SHOW_BACKGROUND) != 0);
+        log::info!(
+            "PPU MASK set via widget to {:02X} (show sprites: {}, show bg: {})",
+            value,
+            (value & MASK_SHOW_SPRITES) != 0,
+            (value & MASK_SHOW_BACKGROUND) != 0
+        );
     }
-    
+
     /// Get the status register value
     pub fn status(&self) -> u8 {
         let ppu = self.ppu.borrow();
         ppu.status.get()
     }
-    
+
     /// Get the OAM address register value
     pub fn oam_addr(&self) -> u8 {
         let ppu = self.ppu.borrow();
         ppu.oam_addr
     }
-    
+
     /// Set the OAM address register value
     pub fn set_oam_addr(&self, value: u8) {
         let mut ppu = self.ppu.borrow_mut();
         ppu.oam_addr = value;
     }
-    
+
     /// Get the scroll X register value
     pub fn scroll_x(&self) -> u8 {
         let ppu = self.ppu.borrow();
         ppu.scroll_x
     }
-    
+
     /// Set the scroll X register value
     pub fn set_scroll_x(&self, value: u8) {
         let mut ppu = self.ppu.borrow_mut();
         ppu.scroll_x = value;
     }
-    
+
     /// Get the scroll Y register value
     pub fn scroll_y(&self) -> u8 {
         let ppu = self.ppu.borrow();
         ppu.scroll_y
     }
-    
+
     /// Set the scroll Y register value
     pub fn set_scroll_y(&self, value: u8) {
         let mut ppu = self.ppu.borrow_mut();
         ppu.scroll_y = value;
     }
-    
+
     /// Get the PPU address register value
     pub fn ppu_addr(&self) -> u16 {
         let ppu = self.ppu.borrow();
         ppu.ppu_addr.get()
     }
-    
+
     /// Set the PPU address register value
     pub fn set_ppu_addr(&self, value: u16) {
         let ppu = self.ppu.borrow_mut();
         ppu.ppu_addr.set(value);
     }
-    
+
     /// Reset the PPU
     pub fn reset(&self) {
         let mut ppu = self.ppu.borrow_mut();
@@ -245,20 +249,20 @@ pub struct Ppu {
     oam: [u8; 256],    // 256 bytes of Object Attribute Memory for sprites
 
     // Registers
-    ctrl: u8,      // PPUCTRL $2000
-    mask: u8,      // PPUMASK $2001
+    ctrl: u8,            // PPUCTRL $2000
+    mask: u8,            // PPUMASK $2001
     status: Cell<u8>,    // PPUSTATUS $2002
-    oam_addr: u8,  // OAMADDR $2003
-    scroll_x: u8,  // First write to PPUSCROLL $2005
-    scroll_y: u8,  // Second write to PPUSCROLL $2005
+    oam_addr: u8,        // OAMADDR $2003
+    scroll_x: u8,        // First write to PPUSCROLL $2005
+    scroll_y: u8,        // Second write to PPUSCROLL $2005
     ppu_addr: Cell<u16>, // PPUADDR $2006 (16-bit address)
 
     // Internal state
     read_buffer: Cell<u8>,    // Internal read buffer for PPUDATA reads
     write_toggle: Cell<bool>, // Tracks whether the next write is first (false) or second (true)
-    frame_count: u64,   // Total frames rendered
-    scanline: i16,      // Current scanline (-1 to 261)
-    cycle: u16,         // Current cycle (0 to 340)
+    frame_count: u64,         // Total frames rendered
+    scanline: i16,            // Current scanline (-1 to 261)
+    cycle: u16,               // Current cycle (0 to 340)
 
     // Rendering output
     frame_buffer: Vec<u8>,      // RGB data for the current frame
@@ -314,9 +318,13 @@ impl Ppu {
     /// The PPU runs at 3x the speed of the CPU, so this will be called
     /// three times for each CPU cycle.
     pub fn tick(&mut self) {
-        log::debug!("PPU tick: scanline={}, cycle={}, status=${:02X}", 
-            self.scanline, self.cycle, self.status.get());
-        
+        log::debug!(
+            "PPU tick: scanline={}, cycle={}, status=${:02X}",
+            self.scanline,
+            self.cycle,
+            self.status.get()
+        );
+
         // Increment cycle count
         self.cycle += 1;
 
@@ -329,14 +337,14 @@ impl Ppu {
             if self.scanline > 261 {
                 self.scanline = 0;
                 self.frame_count += 1;
-                
+
                 log::debug!("Start of new frame {} (scanline reset to 0, mask=${:02X}, status=${:02X}, bg_enabled={}, sprites_enabled={})",
                     self.frame_count,
                     self.mask,
                     self.status.get(),
                     (self.mask & MASK_SHOW_BACKGROUND) != 0,
                     (self.mask & MASK_SHOW_SPRITES) != 0);
-                
+
                 // Only render if background or sprites are enabled
                 if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
                     log::debug!("Calling render_frame at start of new frame with rendering enabled");
@@ -350,8 +358,11 @@ impl Ppu {
                 let old_status = self.status.get();
                 let new_status = old_status | STATUS_VBLANK;
                 self.status.set(new_status);
-                log::debug!("VBlank start (scanline 241) - Status changed from ${:02X} to ${:02X} - VBLANK flag now SET", 
-                    old_status, new_status);
+                log::debug!(
+                    "VBlank start (scanline 241) - Status changed from ${:02X} to ${:02X} - VBLANK flag now SET",
+                    old_status,
+                    new_status
+                );
 
                 // If NMI is enabled, this would trigger an interrupt
                 // In our emulator, this is a good time to render the frame
@@ -371,10 +382,12 @@ impl Ppu {
                 self.scanline = 0;
                 self.frame_count += 1;
                 log::debug!("New frame start (frame_count={})", self.frame_count);
-                log::debug!("Frame check: MASK={:02X}, show sprites: {}, show bg: {}", 
-                           self.mask,
-                           (self.mask & MASK_SHOW_SPRITES) != 0,
-                           (self.mask & MASK_SHOW_BACKGROUND) != 0);
+                log::debug!(
+                    "Frame check: MASK={:02X}, show sprites: {}, show bg: {}",
+                    self.mask,
+                    (self.mask & MASK_SHOW_SPRITES) != 0,
+                    (self.mask & MASK_SHOW_BACKGROUND) != 0
+                );
 
                 // Make sure we always render the frame, even if NMI isn't enabled
                 if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
@@ -391,11 +404,11 @@ impl Ppu {
         // // This helps ensure frame rendering happens during debugging and testing
         // // A complete NES frame should be 341 * 262 = 89,342 PPU cycles
         // if self.cycle % 30_000 == 0 {
-        //     log::info!("Safety check: MASK={:02X}, show sprites: {}, show bg: {}", 
+        //     log::info!("Safety check: MASK={:02X}, show sprites: {}, show bg: {}",
         //            self.mask,
         //            (self.mask & MASK_SHOW_SPRITES) != 0,
         //            (self.mask & MASK_SHOW_BACKGROUND) != 0);
-            
+
         //     if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
         //         // If rendering is enabled and we've gone 30k cycles without a render, do it now
         //         log::info!("Calling render_frame from safety measure (30k cycle interval)");
@@ -885,11 +898,13 @@ impl Ppu {
         match address & 0x7 {
             0x2 => {
                 let result = self.read_status();
-                log::info!("Read from status register: ${:02X} (VBLANK: {}, SPRITE_ZERO_HIT: {}, SPRITE_OVERFLOW: {})",
+                log::info!(
+                    "Read from status register: ${:02X} (VBLANK: {}, SPRITE_ZERO_HIT: {}, SPRITE_OVERFLOW: {})",
                     result,
                     (result & STATUS_VBLANK) != 0,
                     (result & STATUS_SPRITE_ZERO_HIT) != 0,
-                    (result & STATUS_SPRITE_OVERFLOW) != 0);
+                    (result & STATUS_SPRITE_OVERFLOW) != 0
+                );
                 result
             },
             0x4 => self.read_oam_data(),
@@ -897,7 +912,11 @@ impl Ppu {
             _ => {
                 // Most PPU registers are write-only
                 // Reading from write-only registers returns the internal read buffer
-                log::debug!("Read from write-only register ${:04X}, returning read buffer: ${:02X}", address, self.read_buffer.get());
+                log::debug!(
+                    "Read from write-only register ${:04X}, returning read buffer: ${:02X}",
+                    address,
+                    self.read_buffer.get()
+                );
                 self.read_buffer.get()
             },
         }
@@ -914,7 +933,7 @@ impl Ppu {
             0x5 => self.write_scroll(value),
             0x6 => self.write_address(value),
             0x7 => self.write_data(value),
-            _ => {}
+            _ => {},
         }
     }
 
@@ -945,13 +964,21 @@ impl Ppu {
         // Increment address after read
         let increment = if (self.ctrl & CTRL_INCREMENT_MODE) != 0 { 32 } else { 1 };
         self.ppu_addr.set(addr.wrapping_add(increment));
-        log::debug!("PPU read_data: Address incremented from ${:04X} to ${:04X} (increment={})", 
-            addr, self.ppu_addr.get(), increment);
+        log::debug!(
+            "PPU read_data: Address incremented from ${:04X} to ${:04X} (increment={})",
+            addr,
+            self.ppu_addr.get(),
+            increment
+        );
 
         // Palette memory reads are not buffered
         if addr >= 0x3F00 {
             let result = self.read_palette(addr);
-            log::debug!("PPU read_data: Direct palette read from ${:04X} = ${:02X}", addr, result);
+            log::debug!(
+                "PPU read_data: Direct palette read from ${:04X} = ${:02X}",
+                addr,
+                result
+            );
             return result;
         }
 
@@ -959,8 +986,12 @@ impl Ppu {
         let result = self.read_buffer.get();
         let new_buffered_value = self.read_ppu_memory(addr);
         self.read_buffer.set(new_buffered_value);
-        log::debug!("PPU read_data: Buffered read from ${:04X}, returning old buffer ${:02X}, new buffer ${:02X}", 
-            addr, result, new_buffered_value);
+        log::debug!(
+            "PPU read_data: Buffered read from ${:04X}, returning old buffer ${:02X}, new buffer ${:02X}",
+            addr,
+            result,
+            new_buffered_value
+        );
         result
     }
 
@@ -974,25 +1005,39 @@ impl Ppu {
     fn write_mask(&mut self, value: u8) {
         let old_mask = self.mask;
         self.mask = value;
-        
+
         // Log detailed mask state changes for debugging
         log::debug!(
-            "PPU write_mask: ${:02X} -> ${:02X} (sprites: {} -> {}, bg: {} -> {})", 
-            old_mask, 
+            "PPU write_mask: ${:02X} -> ${:02X} (sprites: {} -> {}, bg: {} -> {})",
+            old_mask,
             value,
             (old_mask & MASK_SHOW_SPRITES) != 0,
             (value & MASK_SHOW_SPRITES) != 0,
             (old_mask & MASK_SHOW_BACKGROUND) != 0,
             (value & MASK_SHOW_BACKGROUND) != 0
         );
-        
+
         // Important flag changes
         if (old_mask & MASK_SHOW_SPRITES) != (value & MASK_SHOW_SPRITES) {
-            log::debug!("SPRITES {}", if (value & MASK_SHOW_SPRITES) != 0 { "ENABLED" } else { "DISABLED" });
+            log::debug!(
+                "SPRITES {}",
+                if (value & MASK_SHOW_SPRITES) != 0 {
+                    "ENABLED"
+                } else {
+                    "DISABLED"
+                }
+            );
         }
-        
+
         if (old_mask & MASK_SHOW_BACKGROUND) != (value & MASK_SHOW_BACKGROUND) {
-            log::debug!("BACKGROUND {}", if (value & MASK_SHOW_BACKGROUND) != 0 { "ENABLED" } else { "DISABLED" });
+            log::debug!(
+                "BACKGROUND {}",
+                if (value & MASK_SHOW_BACKGROUND) != 0 {
+                    "ENABLED"
+                } else {
+                    "DISABLED"
+                }
+            );
         }
     }
 
@@ -1027,13 +1072,21 @@ impl Ppu {
             let high_byte = (value as u16) << 8;
             let low_byte = self.ppu_addr.get() & 0x00FF;
             self.ppu_addr.set(high_byte | low_byte);
-            log::debug!("PPU write_address: High byte ${:02X}, new address ${:04X}", value, self.ppu_addr.get());
+            log::debug!(
+                "PPU write_address: High byte ${:02X}, new address ${:04X}",
+                value,
+                self.ppu_addr.get()
+            );
         } else {
             // Second write: low byte
             let high_byte = self.ppu_addr.get() & 0xFF00;
             let low_byte = value as u16;
             self.ppu_addr.set(high_byte | low_byte);
-            log::debug!("PPU write_address: Low byte ${:02X}, new address ${:04X}", value, self.ppu_addr.get());
+            log::debug!(
+                "PPU write_address: Low byte ${:02X}, new address ${:04X}",
+                value,
+                self.ppu_addr.get()
+            );
         }
 
         self.write_toggle.set(!self.write_toggle.get());
@@ -1046,8 +1099,12 @@ impl Ppu {
         // Increment address after write
         let increment = if (self.ctrl & CTRL_INCREMENT_MODE) != 0 { 32 } else { 1 };
         self.ppu_addr.set(addr.wrapping_add(increment));
-        log::debug!("PPU write_data: Address incremented from ${:04X} to ${:04X} (increment={})", 
-            addr, self.ppu_addr.get(), increment);
+        log::debug!(
+            "PPU write_data: Address incremented from ${:04X} to ${:04X} (increment={})",
+            addr,
+            self.ppu_addr.get(),
+            increment
+        );
 
         self.write_ppu_memory(addr, value);
     }
@@ -1090,9 +1147,9 @@ impl Ppu {
     /// Write to PPU address space
     pub fn write_ppu_memory(&mut self, address: u16, value: u8) {
         log::debug!("PPU write_ppu_memory: ${:04X} = ${:02X}", address, value);
-        
+
         let addr = address & 0x3FFF; // Mirror down to 14 bits
-        
+
         // Handle different memory regions
         match addr {
             // Pattern Tables (CHR ROM/RAM)
@@ -1101,25 +1158,25 @@ impl Ppu {
                     cart.write_pattern_table(addr, value);
                 }
             },
-            
-            // Nametables 
+
+            // Nametables
             0x2000..=0x2FFF => {
                 // Map the address to the internal VRAM
                 self.write_nametable(addr, value);
             },
-            
+
             // Mirrors of nametables (treat as nametable writes)
             0x3000..=0x3EFF => {
                 // Mirror down to nametable range and write
                 let mirrored_addr = 0x2000 | (addr & 0x0FFF);
                 self.write_nametable(mirrored_addr, value);
             },
-            
+
             // Palette RAM
             0x3F00..=0x3FFF => {
                 self.write_palette(addr, value);
             },
-            
+
             // Should not happen with address already masked to 14 bits
             _ => unreachable!(),
         }
@@ -1367,18 +1424,18 @@ impl Addressable for Ppu {
         if address >= 0x2000 && address < 0x4000 {
             // Map $2000-$3FFF to $2000-$2007 (mirroring)
             let register = (address & 0x7) as u16;
-            
+
             // For status register at $2002
             if register == 2 {
                 let result = self.read_status();
                 log::debug!("Ppu read_byte: Read from status register: ${:02X}", result);
                 return Ok(result);
             }
-            
+
             // For other registers, return read buffer
             return Ok(self.read_buffer.get());
         }
-        
+
         // For other addresses, use read_ppu_memory
         Ok(self.read_ppu_memory(address))
     }
@@ -1397,7 +1454,7 @@ impl Addressable for Ppu {
     fn reset(&mut self) {
         self.ctrl = 0;
         self.mask = 0;
-        self.status .set(0);
+        self.status.set(0);
         self.oam_addr = 0;
         self.scroll_x = 0;
         self.scroll_y = 0;
@@ -1480,63 +1537,77 @@ mod tests {
         // For this test, we'll write to nametable memory which we control directly
         // First, let's make sure we know the nametable address we're targeting
         // We'll use nametable address 0x2000, which is the start of the first nametable
-        
+
         // Write to nametable memory at 0x2000
         ppu.write_address(0x20); // High byte
         ppu.write_address(0x00); // Low byte
-        
+
         // Get the actual address to make sure we're writing where we expect
         let actual_address = ppu.ppu_addr.get();
         assert_eq!(actual_address, 0x2000, "Address should be set to 0x2000");
-        
+
         // Write a specific value
         let test_value = 0xCD;
         ppu.write_data(test_value);
-        
+
         // Check that address increments by 1 after write (control bit 2 is 0 by default)
         assert_eq!(ppu.ppu_addr.get(), 0x2001, "Address should increment by 1 after write");
 
         // Set address increment to 32
         ppu.write_control(CTRL_INCREMENT_MODE);
         assert_eq!(ppu.ctrl, CTRL_INCREMENT_MODE, "CTRL should have INCREMENT_MODE bit set");
-        
+
         // Write a second value at address 0x2001
         let test_value2 = 0xAB;
         ppu.write_data(test_value2);
-        
+
         // Check that address increments by 32 after write
-        assert_eq!(ppu.ppu_addr.get(), 0x2021, "Address should increment by 32 after write with CTRL_INCREMENT_MODE");
+        assert_eq!(
+            ppu.ppu_addr.get(),
+            0x2021,
+            "Address should increment by 32 after write with CTRL_INCREMENT_MODE"
+        );
 
         // Now read back the values - first reset the address to 0x2000
         ppu.write_address(0x20); // High byte
         ppu.write_address(0x00); // Low byte
-        
+
         // The first read is buffered, so this value will not be our test_value yet
         let _ = ppu.read_data();
-        
+
         // The address should increment by 32 after read
-        assert_eq!(ppu.ppu_addr.get(), 0x2020, "Address should increment by 32 after read with CTRL_INCREMENT_MODE");
-        
+        assert_eq!(
+            ppu.ppu_addr.get(),
+            0x2020,
+            "Address should increment by 32 after read with CTRL_INCREMENT_MODE"
+        );
+
         // The buffer should now contain the value at 0x2000, so the next read at 0x2000 should return our first test value
         ppu.write_address(0x20); // High byte
         ppu.write_address(0x00); // Low byte
         let second_read = ppu.read_data();
-        assert_eq!(second_read, test_value, "Second read should return the value we wrote at 0x2000");
-        
+        assert_eq!(
+            second_read, test_value,
+            "Second read should return the value we wrote at 0x2000"
+        );
+
         // Similarly, read from 0x2001 to get the second test value
         ppu.write_address(0x20); // High byte
         ppu.write_address(0x01); // Low byte
-        
+
         // First read loads the buffer
         let _ = ppu.read_data();
-        
+
         // Reset to 0x2001
         ppu.write_address(0x20); // High byte
         ppu.write_address(0x01); // Low byte
-        
+
         // Now the second read should return our value
         let third_read = ppu.read_data();
-        assert_eq!(third_read, test_value2, "Third read should return the value we wrote at 0x2001");
+        assert_eq!(
+            third_read, test_value2,
+            "Third read should return the value we wrote at 0x2001"
+        );
     }
 
     #[test]
@@ -1652,10 +1723,10 @@ mod tests {
         assert_eq!(ppu.read_ppu_memory(0x0010), 0xFF, "Pattern data not correctly loaded");
         assert_eq!(ppu.read_ppu_memory(0x0011), 0xFF, "Pattern data not correctly loaded");
         assert_eq!(ppu.read_ppu_memory(0x0012), 0xC3, "Pattern data not correctly loaded");
-        
+
         // For rendering, we'll use our helper method to directly draw the sprite to the frame buffer
         ppu.write_test_sprite();
-        
+
         // Check that at least some pixels are set
         let mut has_pixels = false;
         for pixel in ppu.frame_buffer.iter() {
@@ -1664,7 +1735,7 @@ mod tests {
                 break;
             }
         }
-        
+
         assert!(has_pixels, "No pixels were set in the frame buffer");
     }
 
@@ -2253,7 +2324,7 @@ mod tests {
             "Red component should be high after PPU cycles"
         );
     }
-    
+
     #[test]
     fn test_multi_tile_sprite_rendering() {
         // Create a new PPU
@@ -2308,28 +2379,28 @@ mod tests {
 
         // Set up the 4 sprites to create a 2x2 combined sprite
         // Sprite 0: Top-left (Tile 0)
-        ppu.oam[0] = base_y as u8;          // Y position
-        ppu.oam[1] = 0;                     // Tile index 0
-        ppu.oam[2] = 0;                     // Attributes - palette 0
-        ppu.oam[3] = base_x as u8;          // X position
+        ppu.oam[0] = base_y as u8; // Y position
+        ppu.oam[1] = 0; // Tile index 0
+        ppu.oam[2] = 0; // Attributes - palette 0
+        ppu.oam[3] = base_x as u8; // X position
 
         // Sprite 1: Top-right (Tile 1)
-        ppu.oam[4] = base_y as u8;          // Y position
-        ppu.oam[5] = 1;                     // Tile index 1
-        ppu.oam[6] = 0;                     // Attributes - palette 0
-        ppu.oam[7] = (base_x + 8) as u8;    // X position (8 pixels to the right)
+        ppu.oam[4] = base_y as u8; // Y position
+        ppu.oam[5] = 1; // Tile index 1
+        ppu.oam[6] = 0; // Attributes - palette 0
+        ppu.oam[7] = (base_x + 8) as u8; // X position (8 pixels to the right)
 
         // Sprite 2: Bottom-left (Tile 2)
-        ppu.oam[8] = (base_y + 8) as u8;    // Y position (8 pixels down)
-        ppu.oam[9] = 2;                     // Tile index 2
-        ppu.oam[10] = 0;                    // Attributes - palette 0
-        ppu.oam[11] = base_x as u8;         // X position
+        ppu.oam[8] = (base_y + 8) as u8; // Y position (8 pixels down)
+        ppu.oam[9] = 2; // Tile index 2
+        ppu.oam[10] = 0; // Attributes - palette 0
+        ppu.oam[11] = base_x as u8; // X position
 
         // Sprite 3: Bottom-right (Tile 3)
-        ppu.oam[12] = (base_y + 8) as u8;   // Y position (8 pixels down)
-        ppu.oam[13] = 3;                    // Tile index 3
-        ppu.oam[14] = 0;                    // Attributes - palette 0
-        ppu.oam[15] = (base_x + 8) as u8;   // X position (8 pixels to the right)
+        ppu.oam[12] = (base_y + 8) as u8; // Y position (8 pixels down)
+        ppu.oam[13] = 3; // Tile index 3
+        ppu.oam[14] = 0; // Attributes - palette 0
+        ppu.oam[15] = (base_x + 8) as u8; // X position (8 pixels to the right)
 
         // Enable sprite rendering
         ppu.mask = MASK_SHOW_SPRITES;
@@ -2337,7 +2408,7 @@ mod tests {
         // Evaluate and render sprites for our scanline
         let sprites = ppu.evaluate_sprites_for_scanline(base_y);
         assert_eq!(sprites.len(), 2, "Should find 2 sprites on the first scanline");
-        
+
         let sprites = ppu.evaluate_sprites_for_scanline(base_y + 8);
         assert_eq!(sprites.len(), 2, "Should find 2 sprites on the second scanline");
 
@@ -2346,50 +2417,53 @@ mod tests {
         ppu.render_sprites_for_scanline(base_y + 8);
 
         // Check pattern with direct pixel verification (for an easily identifiable pixel in each quadrant)
-        
+
         // Helper function to check a pixel's color
         let mut check_pixel = |x: usize, y: usize, expected_r: u8, expected_g: u8, expected_b: u8, message: &str| {
             let pixel_idx = (y * 256 + x) * 3;
-            
+
             // For debugging: write the pixel directly to make it visible
             ppu.frame_buffer[pixel_idx] = expected_r;
             ppu.frame_buffer[pixel_idx + 1] = expected_g;
             ppu.frame_buffer[pixel_idx + 2] = expected_b;
-            
+
             // Now verify it's correctly set
             assert_eq!(
-                ppu.frame_buffer[pixel_idx], 
-                expected_r, 
+                ppu.frame_buffer[pixel_idx], expected_r,
                 "{} at ({}, {}) - Red component",
                 message, x, y
             );
             assert_eq!(
-                ppu.frame_buffer[pixel_idx + 1], 
-                expected_g, 
+                ppu.frame_buffer[pixel_idx + 1],
+                expected_g,
                 "{} at ({}, {}) - Green component",
-                message, x, y
+                message,
+                x,
+                y
             );
             assert_eq!(
-                ppu.frame_buffer[pixel_idx + 2], 
-                expected_b, 
+                ppu.frame_buffer[pixel_idx + 2],
+                expected_b,
                 "{} at ({}, {}) - Blue component",
-                message, x, y
+                message,
+                x,
+                y
             );
         };
-        
+
         // Verify key pixels from each quadrant
         // Note: Since we're directly writing to the frame buffer for verification,
         // we're just testing the overall structure works, not the exact pixel values
 
         // Top-left quadrant - Tile 0 (diagonal line)
         check_pixel(base_x + 3, base_y + 3, 0, 0, 255, "Tile 0 (top-left) pixel");
-        
+
         // Top-right quadrant - Tile 1 (diagonal line)
         check_pixel(base_x + 11, base_y + 3, 0, 0, 255, "Tile 1 (top-right) pixel");
-        
+
         // Bottom-left quadrant - Tile 2 (horizontal line)
         check_pixel(base_x + 3, base_y + 11, 0, 0, 255, "Tile 2 (bottom-left) pixel");
-        
+
         // Bottom-right quadrant - Tile 3 (vertical line)
         check_pixel(base_x + 11, base_y + 11, 0, 0, 255, "Tile 3 (bottom-right) pixel");
     }

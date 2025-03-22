@@ -99,7 +99,7 @@ impl Addressable for CpuWrapper {
     fn read_byte(&self, addr: u16) -> Result<u8, NesError> {
         self.cpu.borrow().read_byte(addr)
     }
-    
+
     fn write_byte(&mut self, addr: u16, value: u8) -> Result<(), NesError> {
         self.cpu.borrow_mut().write_byte(addr, value)
     }
@@ -293,10 +293,10 @@ impl Cpu {
 
         // Execute instruction and update cycle count
         let additional_cycles = self.execute(metadata)?;
-        
+
         // Calculate total cycles: base cycles from metadata + any additional cycles
         let total_cycles = metadata.cycles + additional_cycles;
-        
+
         // Update the CPU's cycle counter
         self.cycles += total_cycles as u64;
 

@@ -329,9 +329,11 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement input configuration
 
 ### [CPU] Input Handling Instructions [T5]
-- [ ] Implement additional branches (BCC, BCS, BMI) if not already implemented
-- [ ] Implement logical operations (AND) for button masks
-- [ ] Implement arithmetic needed for input handling
+- [x] Implement logical operations (AND) for button masks
+- [x] Implement bit shifting operations (ASL, LSR) for controller button reading
+- [ ] Implement logical OR operation (ORA) for combining button states
+- [ ] Implement register transfers (TAY, TYA) for controller state manipulation
+- [ ] Implement X register operations (INX, DEX, CPX) for controller polling loops
 - [ ] Write tests for input handling instructions
 
 ### [Memory] Controller Mapping [T5]
@@ -571,12 +573,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
-- Track 5 (Input Controllers): 58% complete (15/26 tasks) - Controller implementation, key mapping and input configuration complete
+- Track 5 (Input Controllers): 61% complete (17/28 tasks) - Controller implementation, key mapping and input configuration complete
 - Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
-- Track 7 (Full Desktop System): 0% complete (0/90 tasks)
+- Track 7 (Full Desktop System): 0% complete (0/90 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
 - Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 206/372 tasks complete (55.4%)** 🚀
+**Total Progress: 208/374 tasks complete (55.6%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 

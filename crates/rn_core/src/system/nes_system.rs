@@ -7,7 +7,7 @@ use crate::{
     cartridge::Cartridge,
     cpu::{Cpu, CpuWrapper},
     errors::NesError,
-    input::{ControllerState, ControllerHandlerWrapper},
+    input::{ControllerHandlerWrapper, ControllerState},
     memory::{Addressable, Ram},
     ppu::{Ppu, PpuWrapper},
     system::Bus,
@@ -33,7 +33,7 @@ pub struct NesSystem {
 
     /// The DMA controller
     dma: DmaControllerWrapper<CpuWrapper, PpuWrapper>,
-    
+
     /// Controllers (both port 1 and port 2)
     controller_handler: ControllerHandlerWrapper,
 
@@ -64,7 +64,7 @@ impl NesSystem {
 
         // Create a DMA controller
         let mut dma = DmaControllerWrapper::new(DmaController::new());
-        
+
         // Create a controller handler for both controllers
         let controller_handler = ControllerHandlerWrapper::new();
 
@@ -270,7 +270,7 @@ impl NesSystem {
                     return Err(e);
                 },
             }
-            
+
             // Force a frame render every 10,000 steps as a diagnostic measure
             // if total_steps % 10000 == 0 {
             //     info!("Periodic force frame render at step {}", total_steps);
@@ -339,12 +339,12 @@ impl NesSystem {
     pub fn controller_handler(&self) -> ControllerHandlerWrapper {
         self.controller_handler.clone()
     }
-    
+
     /// Set the state of controller 1
     pub fn set_controller1_state(&self, state: ControllerState) {
         self.controller_handler.set_controller1_state(state);
     }
-    
+
     /// Set the state of controller 2
     pub fn set_controller2_state(&self, state: ControllerState) {
         self.controller_handler.set_controller2_state(state);

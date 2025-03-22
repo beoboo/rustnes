@@ -304,25 +304,25 @@ mod tests {
         let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;
         assert_eq!(instruction, "CMP $10");
         assert_eq!(bytes, 2);
-        
+
         // Test CMP absolute (CD 00 10)
         let memory = [0xCD, 0x00, 0x10];
         let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;
         assert_eq!(instruction, "CMP $1000");
         assert_eq!(bytes, 3);
-        
+
         // Test CMP zero page,X (D5 10)
         let memory = [0xD5, 0x10];
         let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;
         assert_eq!(instruction, "CMP $10,X");
         assert_eq!(bytes, 2);
-        
+
         // Test CMP absolute,X (DD 00 10)
         let memory = [0xDD, 0x00, 0x10];
         let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;
         assert_eq!(instruction, "CMP $1000,X");
         assert_eq!(bytes, 3);
-        
+
         // Test CMP absolute,Y (D9 00 10)
         let memory = [0xD9, 0x00, 0x10];
         let (instruction, bytes) = disassembler.disassemble_instruction(&memory, 0)?;

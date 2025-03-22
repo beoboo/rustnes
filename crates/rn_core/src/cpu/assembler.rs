@@ -63,7 +63,7 @@ enum Directive {
     Segment(String),
     Byte(Vec<u8>),
     Word(Vec<u16>),
-    Res(u16, u8), // Size, fill value (defaults to 0)
+    Res(u16, u8),            // Size, fill value (defaults to 0)
     Sprite(u8, u8, Vec<u8>), // Width (tiles), Height (tiles), pattern data
 }
 
@@ -245,8 +245,13 @@ impl Assembler {
     }
 
     /// Handles a potential labeled directive scenario (where a label is on one line and directive follows)
-    fn handle_labeled_directive(&mut self, label: &str, next_line: Option<&str>, 
-                               labels: &HashMap<String, u16>, line_index: &mut usize) -> AssembleResult<bool> {
+    fn handle_labeled_directive(
+        &mut self,
+        label: &str,
+        next_line: Option<&str>,
+        labels: &HashMap<String, u16>,
+        line_index: &mut usize,
+    ) -> AssembleResult<bool> {
         if !label.is_empty() && next_line.is_some() {
             if let Some(clean_next_line) = self.clean_line(next_line.unwrap()) {
                 if clean_next_line.starts_with('.') {
@@ -291,12 +296,12 @@ impl Assembler {
         // Second pass: process directives and assemble instructions with resolved labels
         let mut line_index = 0;
         let lines: Vec<&str> = program.lines().collect();
-        
+
         while line_index < lines.len() {
             // Get current line
             let line = lines[line_index];
             line_index += 1;
-            
+
             // Clean the line - removing comments and trimming whitespace
             let Some(clean_line) = self.clean_line(line) else {
                 continue;
@@ -304,14 +309,18 @@ impl Assembler {
 
             // Process the line to get label and code
             let (label, code_opt) = process_line(&clean_line)?;
-            
+
             // Check if this is a directive line
             if self.handle_directive_line(&clean_line, &labels)? {
                 continue;
             }
-            
+
             // Check if this is a label followed by a directive
-            let next_line = if line_index < lines.len() { Some(lines[line_index]) } else { None };
+            let next_line = if line_index < lines.len() {
+                Some(lines[line_index])
+            } else {
+                None
+            };
             if self.handle_labeled_directive(&label, next_line, &labels, &mut line_index)? {
                 continue;
             }
@@ -348,13 +357,13 @@ impl Assembler {
     fn collect_labels(&mut self, program: &str) -> AssembleResult<HashMap<String, u16>> {
         let mut labels = HashMap::new();
         let mut pending_labels = Vec::new();
-        
+
         // Track current address and segments
         let mut current_address = self.load_address;
         let mut current_segment = "STARTUP".to_string();
         let mut segment_addresses = HashMap::new();
         segment_addresses.insert(current_segment.clone(), current_address);
-        
+
         // Create a list of lines for easier handling
         let lines: Vec<&str> = program.lines().collect();
         let mut line_index = 0;
@@ -367,7 +376,7 @@ impl Assembler {
                     let parts: Vec<&str> = line.splitn(2, ' ').collect();
                     if parts.len() > 1 {
                         let segment_name = format_segment_name(parts[1]).to_string();
-                        
+
                         // Add this segment if it doesn't exist
                         if !self.segments.contains(&segment_name) {
                             // For new segments, use appropriate default addresses
@@ -380,10 +389,10 @@ impl Assembler {
                             };
                             self.segments.add(&segment_name, addr);
                         }
-                        
+
                         // Update current segment
                         current_segment = segment_name.clone();
-                        
+
                         // Get the address for this segment
                         if let Some(&addr) = segment_addresses.get(&current_segment) {
                             current_address = addr;
@@ -395,7 +404,7 @@ impl Assembler {
                 } else {
                     // Get label and code from the line
                     let (label, code_opt) = process_line(&line)?;
-                    
+
                     // If we have a label, record it
                     if !label.is_empty() {
                         if code_opt.is_some() {
@@ -404,20 +413,23 @@ impl Assembler {
                                 return Err(AssembleError::LabelError(format!("Duplicate label: {}", label)));
                             }
                             labels.insert(label.clone(), current_address);
-                            
+
                             if label == "WaitForVBlank" {
-                                log::debug!("Found WaitForVBlank with code, initial address: ${:04X}", current_address);
+                                log::debug!(
+                                    "Found WaitForVBlank with code, initial address: ${:04X}",
+                                    current_address
+                                );
                             }
                         } else {
                             // Label on its own line - add to pending
                             pending_labels.push(label.clone());
-                            
+
                             if label == "WaitForVBlank" {
                                 log::debug!("Found standalone WaitForVBlank, adding to pending labels");
                             }
                         }
                     }
-                    
+
                     // If we have code, update the address and assign pending labels
                     if let Some(code) = code_opt {
                         // Assign any pending labels to the current address
@@ -426,12 +438,12 @@ impl Assembler {
                                 return Err(AssembleError::LabelError(format!("Duplicate label: {}", label)));
                             }
                             labels.insert(label.clone(), current_address);
-                            
+
                             if label == "WaitForVBlank" {
                                 log::debug!("Assigning WaitForVBlank to address: ${:04X}", current_address);
                             }
                         }
-                        
+
                         // Update the address based on the code
                         if code.starts_with(".res") {
                             let parts: Vec<&str> = code.splitn(2, ' ').collect();
@@ -450,10 +462,10 @@ impl Assembler {
                     }
                 }
             }
-            
+
             line_index += 1;
         }
-        
+
         // Assign any remaining pending labels to the end address
         for label in pending_labels {
             if labels.contains_key(&label) {
@@ -461,7 +473,7 @@ impl Assembler {
             }
             labels.insert(label.clone(), current_address);
         }
-        
+
         // SECOND PASS: Update addresses accounting for real instruction sizes with resolved labels
         // Reset for second pass
         current_address = self.load_address;
@@ -469,10 +481,10 @@ impl Assembler {
         line_index = 0;
         let mut updated_labels = HashMap::new();
         pending_labels = Vec::new();
-        
+
         // Copy known labels for reference
         let initial_labels = labels.clone();
-        
+
         while line_index < lines.len() {
             if let Some(line) = self.clean_line(lines[line_index]) {
                 // Handle segment directives
@@ -481,7 +493,7 @@ impl Assembler {
                     if parts.len() > 1 {
                         let segment_name = format_segment_name(parts[1]).to_string();
                         current_segment = segment_name.clone();
-                        
+
                         // Get the address for this segment
                         if let Some(&addr) = segment_addresses.get(&current_segment) {
                             current_address = addr;
@@ -492,37 +504,37 @@ impl Assembler {
                 } else {
                     // Get label and code from the line
                     let (label, code_opt) = process_line(&line)?;
-                    
+
                     // Process any label on this line
                     if !label.is_empty() {
                         if code_opt.is_some() {
                             // Label with code - update at current address
                             updated_labels.insert(label.clone(), current_address);
-                            
+
                             if label == "WaitForVBlank" {
                                 log::debug!("Updated WaitForVBlank with code to address: ${:04X}", current_address);
                             }
                         } else {
                             // Standalone label - add to pending
                             pending_labels.push(label.clone());
-                            
+
                             if label == "WaitForVBlank" {
                                 log::debug!("Added WaitForVBlank to pending labels in second pass");
                             }
                         }
                     }
-                    
+
                     // Process code
                     if let Some(code) = code_opt {
                         // Assign pending labels to current address
                         for label in pending_labels.drain(..) {
                             updated_labels.insert(label.clone(), current_address);
-                            
+
                             if label == "WaitForVBlank" {
                                 log::debug!("Updated standalone WaitForVBlank to address: ${:04X}", current_address);
                             }
                         }
-                        
+
                         // Update address based on the code
                         if code.starts_with(".res") {
                             let parts: Vec<&str> = code.splitn(2, ' ').collect();
@@ -538,10 +550,10 @@ impl Assembler {
                             // For actual instructions, we need to consider the real instruction size
                             // using the labels we collected in the first pass
                             let mut real_instruction_size = 0;
-                            
+
                             // Parse the instruction and get its real size
                             let (instruction, operand_opt) = split_instruction(&code)?;
-                            
+
                             if instruction.has_implied_addressing() {
                                 real_instruction_size = 1; // Just the opcode
                             } else if let Some(operand) = operand_opt {
@@ -572,37 +584,37 @@ impl Assembler {
                                     }
                                 }
                             }
-                            
+
                             // Update the address with the real instruction size
                             current_address += real_instruction_size;
                         }
                     }
                 }
             }
-            
+
             // Update the segment address
             segment_addresses.insert(current_segment.clone(), current_address);
-            
+
             line_index += 1;
         }
-        
+
         // Assign any remaining pending labels to the end address
         for label in pending_labels {
             updated_labels.insert(label.clone(), current_address);
         }
-        
+
         // Merge updated labels with any that weren't in the second pass
         for (label, addr) in initial_labels {
             if !updated_labels.contains_key(&label) {
                 updated_labels.insert(label, addr);
             }
         }
-        
+
         // Debug all labels
         for (label, addr) in &updated_labels {
             log::debug!("Final label address: {} => ${:04X}", label, addr);
         }
-        
+
         Ok(updated_labels)
     }
 
@@ -737,73 +749,83 @@ impl Assembler {
 
         // Extract width and height parameters
         let mut parts = args.splitn(3, ',');
-        
+
         // Get width
-        let width_str = parts.next()
+        let width_str = parts
+            .next()
             .ok_or_else(|| AssembleError::DirectiveError("Missing width parameter".to_string()))?
             .trim();
-        let width = width_str.parse::<u8>()
+        let width = width_str
+            .parse::<u8>()
             .map_err(|_| AssembleError::DirectiveError(format!("Invalid width: {}", width_str)))?;
-        
+
         // Get height
-        let height_str = parts.next()
+        let height_str = parts
+            .next()
             .ok_or_else(|| AssembleError::DirectiveError("Missing height parameter".to_string()))?
             .trim();
-        let height = height_str.parse::<u8>()
+        let height = height_str
+            .parse::<u8>()
             .map_err(|_| AssembleError::DirectiveError(format!("Invalid height: {}", height_str)))?;
-        
+
         // Get pattern data string
-        let pattern_str = parts.next()
+        let pattern_str = parts
+            .next()
             .ok_or_else(|| AssembleError::DirectiveError("Missing pattern data".to_string()))?;
-        
+
         // Process the pattern data
         let mut pattern_data = Vec::new();
-        
+
         // Split the pattern data by commas and process each token
         for token in pattern_str.split(',') {
             let token = token.trim();
             if token.is_empty() {
                 continue;
             }
-            
+
             // Parse the binary value
             if token.starts_with('%') {
                 let binary_str = &token[1..];
                 match u8::from_str_radix(binary_str, 2) {
                     Ok(value) => pattern_data.push(value),
-                    Err(_) => return Err(AssembleError::DirectiveError(
-                        format!("Invalid binary value: {}", token)
-                    )),
+                    Err(_) => {
+                        return Err(AssembleError::DirectiveError(format!(
+                            "Invalid binary value: {}",
+                            token
+                        )))
+                    },
                 }
             } else if token.starts_with("$") {
                 // Handle hex values
                 let hex_str = &token[1..];
                 match u8::from_str_radix(hex_str, 16) {
                     Ok(value) => pattern_data.push(value),
-                    Err(_) => return Err(AssembleError::DirectiveError(
-                        format!("Invalid hex value: {}", token)
-                    )),
+                    Err(_) => return Err(AssembleError::DirectiveError(format!("Invalid hex value: {}", token))),
                 }
             } else {
                 // Handle decimal values
                 match token.parse::<u8>() {
                     Ok(value) => pattern_data.push(value),
-                    Err(_) => return Err(AssembleError::DirectiveError(
-                        format!("Invalid decimal value: {}", token)
-                    )),
+                    Err(_) => {
+                        return Err(AssembleError::DirectiveError(format!(
+                            "Invalid decimal value: {}",
+                            token
+                        )))
+                    },
                 }
             }
         }
-        
+
         // Check if we have the correct amount of pattern data
         let expected_bytes = width as usize * height as usize * 16; // 16 bytes per tile (8+8 bytes for 2 bit planes)
         if pattern_data.len() != expected_bytes {
-            return Err(AssembleError::DirectiveError(
-                format!("Incorrect pattern data size: expected {} bytes, got {} bytes", 
-                        expected_bytes, pattern_data.len())
-            ));
+            return Err(AssembleError::DirectiveError(format!(
+                "Incorrect pattern data size: expected {} bytes, got {} bytes",
+                expected_bytes,
+                pattern_data.len()
+            )));
         }
-        
+
         Ok(Directive::Sprite(width, height, pattern_data))
     }
 
@@ -812,12 +834,12 @@ impl Assembler {
         match directive {
             Directive::Segment(name) => {
                 let name = format_segment_name(name);
-                
+
                 // If segment doesn't exist, create it with default load address
                 if !self.segments.contains(name) {
                     self.segments.add(name, self.load_address);
                 }
-                
+
                 // Set as current segment
                 self.segments.current = Some(name.to_string());
                 Ok(())
@@ -953,8 +975,12 @@ impl Assembler {
         labels: &HashMap<String, u16>,
     ) -> AssembleResult<(InstructionMetadata, u16)> {
         // Print out debug info
-        log::debug!("Label reference encountered: '{}' for instruction: {:?}", operand, instruction);
-        
+        log::debug!(
+            "Label reference encountered: '{}' for instruction: {:?}",
+            operand,
+            instruction
+        );
+
         // It's a label reference - look it up in the labels map
         let address = labels
             .get(operand)
@@ -977,7 +1003,11 @@ impl Assembler {
 
         // Look up the instruction with the appropriate addressing mode
         let metadata = self.decoder.lookup(instruction, addressing_mode)?;
-        log::debug!("Using addressing mode: {:?} for instruction: {:?}", addressing_mode, instruction);
+        log::debug!(
+            "Using addressing mode: {:?} for instruction: {:?}",
+            addressing_mode,
+            instruction
+        );
 
         Ok((metadata, *address))
     }
@@ -1008,7 +1038,6 @@ impl Assembler {
             let addr_part = parts[0].trim();
             let idx_part = parts[1].trim();
 
-
             if addr_part.starts_with('$') {
                 if addr_part.len() == 3 {
                     let value = parse_value::<u8>(addr_part)?;
@@ -1026,20 +1055,23 @@ impl Assembler {
 
                 if addr_part.len() == 5 {
                     let value = parse_value::<u16>(addr_part)?;
-                    
+
                     // Absolute,X addressing mode: $xxxx,X
                     if idx_part.eq_ignore_ascii_case("x") {
                         return Ok((AddressingMode::AbsoluteX, value));
                     }
 
-                    // Absolute,Y addressing mode: $xxxx,Y  
+                    // Absolute,Y addressing mode: $xxxx,Y
                     if idx_part.eq_ignore_ascii_case("y") {
                         return Ok((AddressingMode::AbsoluteY, value));
                     }
                 }
             }
 
-            return Err(AssembleError::InvalidOperand(format!("Invalid indexed operand: {}", operand)));
+            return Err(AssembleError::InvalidOperand(format!(
+                "Invalid indexed operand: {}",
+                operand
+            )));
         }
 
         // Zero Page: $xx (where xx is 00-FF)
@@ -1112,17 +1144,17 @@ impl Assembler {
         let mut bytes = vec![opcode];
 
         match addressing_mode {
-            AddressingMode::Immediate | 
-            AddressingMode::ZeroPage | 
-            AddressingMode::ZeroPageX | 
-            AddressingMode::ZeroPageY | 
-            AddressingMode::Relative => {
+            AddressingMode::Immediate
+            | AddressingMode::ZeroPage
+            | AddressingMode::ZeroPageX
+            | AddressingMode::ZeroPageY
+            | AddressingMode::Relative => {
                 bytes.push(operand_value as u8);
             },
-            AddressingMode::Absolute | 
-            AddressingMode::AbsoluteX | 
-            AddressingMode::AbsoluteY |
-            AddressingMode::Indirect => {
+            AddressingMode::Absolute
+            | AddressingMode::AbsoluteX
+            | AddressingMode::AbsoluteY
+            | AddressingMode::Indirect => {
                 bytes.push((operand_value & 0xFF) as u8);
                 bytes.push((operand_value >> 8) as u8);
             },
@@ -1164,7 +1196,7 @@ fn process_line(line: &str) -> AssembleResult<(String, Option<String>)> {
 
         // If there's code after the label, return it as well
         let remainder = line[idx + 1..].trim();
-                
+
         if !remainder.is_empty() {
             return Ok((label, Some(remainder.to_string())));
         }
@@ -1270,12 +1302,15 @@ fn split_instruction(input: &str) -> AssembleResult<(Instruction, Option<String>
     }
 
     let mnemonic = parts[0].to_string();
-    
+
     // Check if this is a directive (starts with a dot) - we shouldn't parse it as an instruction
     if mnemonic.starts_with('.') {
-        return Err(AssembleError::InvalidSyntax(format!("Tried to parse directive '{}' as an instruction", mnemonic)));
+        return Err(AssembleError::InvalidSyntax(format!(
+            "Tried to parse directive '{}' as an instruction",
+            mnemonic
+        )));
     }
-    
+
     let operand = if parts.len() > 1 {
         Some(parts[1].trim().to_string())
     } else {
@@ -1664,7 +1699,7 @@ mod tests {
                 0xA9, 0x01, // LDA #$01
                 0x10, 0x04, // BPL with offset 4 to target
                 0xA9, 0xFF, // LDA #$FF
-                0xA9, 0x42  // LDA #$42 (target)
+                0xA9, 0x42 // LDA #$42 (target)
             ]
         );
 
@@ -1684,8 +1719,8 @@ mod tests {
         assert_eq!(
             bytes,
             &vec![
-                0xA9, 0x01,  // LDA #$01 (start)
-                0x10, 0xFE   // BPL with offset -2 to start
+                0xA9, 0x01, // LDA #$01 (start)
+                0x10, 0xFE // BPL with offset -2 to start
             ]
         );
 
@@ -1699,19 +1734,19 @@ mod tests {
             CLC         ; Clear carry flag
             SEC         ; Set carry flag
         ";
-        
+
         // Test the full program assembly
         let segments = assembler.assemble_program(program)?;
         assert_eq!(segments.get("STARTUP").unwrap()[0], 0x18); // CLC
         assert_eq!(segments.get("STARTUP").unwrap()[1], 0x38); // SEC
-        
+
         Ok(())
     }
 
     #[test]
     fn test_assemble_branch_eq_ne() -> AssembleResult<()> {
         let mut assembler = Assembler::new(0x8000);
-        
+
         // Test BEQ
         let beq_program = "
             LDA #$00    ; Load 0 (sets Z flag)
@@ -1720,13 +1755,13 @@ mod tests {
         target:
             LDA #$42    ; Target
         ";
-        
+
         let segments = assembler.assemble_program(beq_program)?;
         let code = segments.get("STARTUP").unwrap();
-        
+
         // BEQ should be present with opcode 0xF0
         assert_eq!(code[2], 0xF0);
-        
+
         // Test BNE
         let bne_program = "
             LDA #$01    ; Load 1 (clears Z flag)
@@ -1735,20 +1770,20 @@ mod tests {
         target:
             LDA #$42    ; Target
         ";
-        
+
         let segments = assembler.assemble_program(bne_program)?;
         let code = segments.get("STARTUP").unwrap();
-        
+
         // BNE should be present with opcode 0xD0
         assert_eq!(code[2], 0xD0);
-        
+
         Ok(())
     }
 
     #[test]
     fn test_assemble_arithmetic_instructions() -> AssembleResult<()> {
         let mut assembler = Assembler::new(0x8000);
-        
+
         // Test ADC and SBC with immediate addressing
         let program = "
             CLC         ; Clear carry before add
@@ -1756,10 +1791,10 @@ mod tests {
             SEC         ; Set carry before subtract
             SBC #$01    ; Subtract 1 from accumulator
         ";
-        
+
         let segments = assembler.assemble_program(program)?;
         let code = segments.get("STARTUP").unwrap();
-        
+
         // Check that opcodes match expected values
         assert_eq!(code[0], 0x18); // CLC
         assert_eq!(code[1], 0x69); // ADC #$01
@@ -1767,44 +1802,44 @@ mod tests {
         assert_eq!(code[3], 0x38); // SEC
         assert_eq!(code[4], 0xE9); // SBC #$01
         assert_eq!(code[5], 0x01); // The value $01
-        
+
         // Test with zero page addressing
         let zp_program = "
             ADC $10     ; Add value at zero page address $10
             SBC $20     ; Subtract value at zero page address $20
         ";
-        
+
         let segments = assembler.assemble_program(zp_program)?;
         let code = segments.get("STARTUP").unwrap();
-        
+
         assert_eq!(code[0], 0x65); // ADC $10
         assert_eq!(code[1], 0x10); // Zero page address $10
         assert_eq!(code[2], 0xE5); // SBC $20
         assert_eq!(code[3], 0x20); // Zero page address $20
-        
+
         // Test with absolute addressing
         let abs_program = "
             ADC $1000   ; Add value at address $1000
             SBC $2000   ; Subtract value at address $2000
         ";
-        
+
         let segments = assembler.assemble_program(abs_program)?;
         let code = segments.get("STARTUP").unwrap();
-        
+
         assert_eq!(code[0], 0x6D); // ADC $1000
         assert_eq!(code[1], 0x00); // Low byte of $1000
         assert_eq!(code[2], 0x10); // High byte of $1000
         assert_eq!(code[3], 0xED); // SBC $2000
         assert_eq!(code[4], 0x00); // Low byte of $2000
         assert_eq!(code[5], 0x20); // High byte of $2000
-        
+
         Ok(())
     }
 
     #[test]
     fn test_assemble_comparison_instructions() -> AssembleResult<()> {
         let mut assembler = Assembler::new(0x8000);
-        
+
         // Test CMP with immediate addressing
         let program = "
             LDA #$40    ; Load 0x40 into accumulator
@@ -1812,97 +1847,97 @@ mod tests {
             CMP #$30    ; Compare with 0x30 (should be greater)
             CMP #$50    ; Compare with 0x50 (should be less)
         ";
-        
+
         let segments = assembler.assemble_program(program)?;
         let code = segments.get("STARTUP").unwrap();
-        
+
         // Check that opcodes match expected values
         assert_eq!(code[0], 0xA9); // LDA #$40
         assert_eq!(code[1], 0x40); // Value $40
-        
+
         assert_eq!(code[2], 0xC9); // CMP #$40
         assert_eq!(code[3], 0x40); // Value $40
-        
+
         assert_eq!(code[4], 0xC9); // CMP #$30
         assert_eq!(code[5], 0x30); // Value $30
-        
+
         assert_eq!(code[6], 0xC9); // CMP #$50
         assert_eq!(code[7], 0x50); // Value $50
-        
+
         // Test with zero page addressing
         let zp_program = "
             CMP $10     ; Compare with value at zero page address $10
         ";
-        
+
         let segments = assembler.assemble_program(zp_program)?;
         let code = segments.get("STARTUP").unwrap();
-        
+
         assert_eq!(code[0], 0xC5); // CMP $10
         assert_eq!(code[1], 0x10); // Zero page address $10
-        
+
         // Test with absolute addressing
         let abs_program = "
             CMP $1000   ; Compare with value at address $1000
         ";
-        
+
         let segments = assembler.assemble_program(abs_program)?;
         let code = segments.get("STARTUP").unwrap();
-        
+
         assert_eq!(code[0], 0xCD); // CMP $1000
         assert_eq!(code[1], 0x00); // Low byte of $1000
         assert_eq!(code[2], 0x10); // High byte of $1000
-        
+
         // Test with indexed addressing modes
         let idx_program = "
             CMP $10,X   ; Compare with value at zero page address $10 + X
             CMP $1000,X ; Compare with value at address $1000 + X
             CMP $1000,Y ; Compare with value at address $1000 + Y
         ";
-        
+
         let segments = assembler.assemble_program(idx_program)?;
         let code = segments.get("STARTUP").unwrap();
-        
+
         assert_eq!(code[0], 0xD5); // CMP $10,X
         assert_eq!(code[1], 0x10); // Zero page address $10
-        
+
         assert_eq!(code[2], 0xDD); // CMP $1000,X
         assert_eq!(code[3], 0x00); // Low byte of $1000
         assert_eq!(code[4], 0x10); // High byte of $1000
-        
+
         assert_eq!(code[5], 0xD9); // CMP $1000,Y
         assert_eq!(code[6], 0x00); // Low byte of $1000
         assert_eq!(code[7], 0x10); // High byte of $1000
-        
+
         Ok(())
     }
 
     #[test]
     fn test_assemble_transfer_instructions() -> AssembleResult<()> {
         let mut assembler = Assembler::new(0x8000);
-        
+
         // Test TXS (Transfer X to Stack Pointer)
         let txs_program = "
             LDX #$FF    ; Load 0xFF into X
             TXS         ; Transfer X to Stack Pointer
         ";
-        
+
         let segments = assembler.assemble_program(txs_program)?;
         let code = segments.get("STARTUP").unwrap();
-        
+
         // Check opcode for LDX #$FF
         assert_eq!(code[0], 0xA2); // LDX immediate
         assert_eq!(code[1], 0xFF); // Value 0xFF
-        
+
         // Check opcode for TXS
         assert_eq!(code[2], 0x9A); // TXS implied
-        
+
         Ok(())
     }
 
     #[test]
     fn test_variable_declarations_with_labels() -> AssembleResult<()> {
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         // Test program with labeled variable declarations in ZEROPAGE segment
         let program = r#"
             .segment "ZEROPAGE"
@@ -1916,39 +1951,39 @@ mod tests {
             LDA #$60          ; Initial Y position
             STA ball_y        ; Store in ball_y variable using label
         "#;
-        
+
         let segments = assembler.assemble_program(program)?;
-        
+
         // Check that variables were correctly reserved in ZEROPAGE segment
         let zeropage = segments.get("ZEROPAGE").unwrap();
         assert_eq!(zeropage.len(), 2, "ZEROPAGE segment should have 2 bytes reserved");
-        
+
         // Check code in STARTUP segment
         let code = segments.get("STARTUP").unwrap();
-        
+
         // First instruction: LDA #$50
         assert_eq!(code[0], 0xA9, "First byte should be LDA immediate (0xA9)"); // LDA immediate
         assert_eq!(code[1], 0x50, "Second byte should be value $50"); // Value $50
-        
+
         // Second instruction: STA ball_x (should be STA $00, as ball_x is at address $0000)
         assert_eq!(code[2], 0x85, "Third byte should be STA zero page (0x85)"); // STA zero page
         assert_eq!(code[3], 0x00, "Fourth byte should be address $00 (ball_x)"); // Address $00 (ball_x)
-        
+
         // Third instruction: LDA #$60
         assert_eq!(code[4], 0xA9, "Fifth byte should be LDA immediate (0xA9)"); // LDA immediate
         assert_eq!(code[5], 0x60, "Sixth byte should be value $60"); // Value $60
-        
+
         // Fourth instruction: STA ball_y
         assert_eq!(code[6], 0x85, "Seventh byte should be STA zero page (0x85)"); // STA zero page
         assert_eq!(code[7], 0x01, "Eighth byte should be address $01 (ball_y)"); // Address $01 (ball_y)
-        
+
         Ok(())
     }
 
     #[test]
     fn test_zeropage_variable_declarations_with_labels() -> AssembleResult<()> {
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         // Test program with labeled variable declarations in ZEROPAGE segment
         let program = r#"
             .segment "ZEROPAGE"
@@ -1962,39 +1997,39 @@ mod tests {
             LDA #$60          ; Initial Y position
             STA ball_y        ; Store in ball_y variable using label
         "#;
-        
+
         let segments = assembler.assemble_program(program)?;
-        
+
         // Check that variables were correctly reserved in ZEROPAGE segment
         let zeropage = segments.get("ZEROPAGE").unwrap();
         assert_eq!(zeropage.len(), 2, "ZEROPAGE segment should have 2 bytes reserved");
-        
+
         // Check code in STARTUP segment
         let code = segments.get("STARTUP").unwrap();
-        
+
         // First instruction: LDA #$50
         assert_eq!(code[0], 0xA9, "First byte should be LDA immediate (0xA9)"); // LDA immediate
         assert_eq!(code[1], 0x50, "Second byte should be value $50"); // Value $50
-        
+
         // Second instruction: STA ball_x (should be STA $00, as ball_x is at address $0000)
         assert_eq!(code[2], 0x85, "Third byte should be STA zero page (0x85)"); // STA zero page
         assert_eq!(code[3], 0x00, "Fourth byte should be address $00 (ball_x)"); // Address $00 (ball_x)
-        
+
         // Third instruction: LDA #$60
         assert_eq!(code[4], 0xA9, "Fifth byte should be LDA immediate (0xA9)"); // LDA immediate
         assert_eq!(code[5], 0x60, "Sixth byte should be value $60"); // Value $60
-        
+
         // Fourth instruction: STA ball_y
         assert_eq!(code[6], 0x85, "Seventh byte should be STA zero page (0x85)"); // STA zero page
         assert_eq!(code[7], 0x01, "Eighth byte should be address $01 (ball_y)"); // Address $01 (ball_y)
-        
+
         Ok(())
     }
 
     #[test]
     fn test_zeropage_operand_size() -> AssembleResult<()> {
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         // Test program focusing on zero page addressing operand size
         let program = r#"
             .segment "ZEROPAGE"
@@ -2013,32 +2048,32 @@ mod tests {
             LDA #$FF
             STA $2000  ; This should be 8D 00 20 (3 bytes)
         "#;
-        
+
         let segments = assembler.assemble_program(program)?;
-        
+
         // Get the STARTUP segment
         let code = segments.get("STARTUP").unwrap();
-        
+
         // Check zero page addressing instructions
         assert_eq!(code[0], 0xA9, "First byte should be LDA immediate");
         assert_eq!(code[1], 0x42, "Second byte should be the immediate value $42");
         assert_eq!(code[2], 0x85, "Third byte should be STA zero page");
         assert_eq!(code[3], 0x00, "Fourth byte should be zero page address $00");
-        
+
         // Check that the next instruction starts immediately after (position 4)
         // If there's an extra byte incorrectly added for zero page, this will fail
         assert_eq!(code[4], 0xA9, "Fifth byte should be next LDA immediate");
         assert_eq!(code[5], 0x24, "Sixth byte should be the immediate value $24");
         assert_eq!(code[6], 0x85, "Seventh byte should be STA zero page");
         assert_eq!(code[7], 0x01, "Eighth byte should be zero page address $01");
-        
+
         // Check absolute addressing has correct size
         assert_eq!(code[8], 0xA9, "Should be LDA immediate");
         assert_eq!(code[9], 0xFF, "Should be the immediate value $FF");
         assert_eq!(code[10], 0x8D, "Should be STA absolute");
         assert_eq!(code[11], 0x00, "Should be low byte of address $2000");
         assert_eq!(code[12], 0x20, "Should be high byte of address $2000");
-        
+
         Ok(())
     }
 
@@ -2046,7 +2081,7 @@ mod tests {
     #[test]
     fn test_sprite_directive() -> AssembleResult<()> {
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         // Test program with a 2x2 sprite
         let program = r#"
             .segment "CHARS"
@@ -2057,23 +2092,23 @@ mod tests {
 
         // Verify the CHARS segment
         let chars_segment = segments.get("CHARS").expect("CHARS segment missing");
-        
+
         // Should have 64 bytes (2x2 sprite, 16 bytes per tile)
         assert_eq!(chars_segment.len(), 64, "Expected 64 bytes for a 2x2 sprite pattern");
-        
+
         // Check the pattern data (first few bytes)
         // First tile (top-left)
         assert_eq!(chars_segment[0], 0x3C, "First byte of top-left tile incorrect"); // %00111100 - bit plane 0
         assert_eq!(chars_segment[8], 0x00, "Ninth byte of top-left tile incorrect"); // %00000000 - bit plane 1
-        
+
         // Second tile (top-right)
         assert_eq!(chars_segment[16], 0x3C, "First byte of top-right tile incorrect"); // %00111100 - bit plane 0
         assert_eq!(chars_segment[24], 0x00, "Ninth byte of top-right tile incorrect"); // %00000000 - bit plane 1
-        
+
         // Third tile (bottom-left)
         assert_eq!(chars_segment[32], 0x3C, "First byte of bottom-left tile incorrect"); // %00111100 - bit plane 0
         assert_eq!(chars_segment[40], 0x00, "Ninth byte of bottom-left tile incorrect"); // %00000000 - bit plane 1
-        
+
         // Fourth tile (bottom-right)
         assert_eq!(chars_segment[48], 0x3C, "First byte of bottom-right tile incorrect"); // %00111100 - bit plane 0
         assert_eq!(chars_segment[56], 0x00, "Ninth byte of bottom-right tile incorrect"); // %00000000 - bit plane 1
@@ -2084,20 +2119,19 @@ mod tests {
 
 #[cfg(test)]
 mod label_resolution_tests {
-    use super::*;
     use anyhow::Result;
+
+    use super::*;
     use crate::cpu::disassembler::Disassembler;
-    
+
     fn disassemble_program(bytes: &[u8], start_address: u16) -> Vec<(u16, Vec<u8>, String)> {
         let disassembler = Disassembler::new();
         let disassembly = disassembler.disassemble_program(bytes, 0, bytes.len());
-        
+
         // Convert offset-based addresses to absolute addresses
         disassembly
             .into_iter()
-            .map(|(offset, bytes, instruction)| {
-                (start_address + offset as u16, bytes, instruction)
-            })
+            .map(|(offset, bytes, instruction)| (start_address + offset as u16, bytes, instruction))
             .collect()
     }
 
@@ -2113,35 +2147,41 @@ mod label_resolution_tests {
               LDA #$42      ; Load value into A
               RTS           ; Return from subroutine
         ";
-        
+
         // Create assembler in two steps to avoid temporary value issue
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         // First collect labels to get actual label positions
         let labels = assembler.collect_labels(program)?;
         let subroutine_addr = labels.get("Subroutine").unwrap();
-        
+
         let segments = assembler.assemble_program(program)?;
         let bytes = segments.get("STARTUP").unwrap();
-        
+
         // Disassemble for verification
         let disassembly = disassemble_program(bytes, 0x8000);
-        
+
         // Format the expected JSR instruction with the label address
         let expected_jsr = format!("JSR ${:04X}", subroutine_addr);
-        
+
         // Check if JSR instruction points to the correct address
-        assert_eq!(disassembly[0].2, expected_jsr, "JSR should point to the subroutine address");
-        
+        assert_eq!(
+            disassembly[0].2, expected_jsr,
+            "JSR should point to the subroutine address"
+        );
+
         // Extract target address from JSR bytes
         let target_addr = ((disassembly[0].1[2] as u16) << 8) | (disassembly[0].1[1] as u16);
-        
+
         // Check that the bytes in the instruction match the label address
-        assert_eq!(target_addr, *subroutine_addr, "JSR bytes should encode the correct address");
-        
+        assert_eq!(
+            target_addr, *subroutine_addr,
+            "JSR bytes should encode the correct address"
+        );
+
         Ok(())
     }
-    
+
     #[test]
     fn test_jsr_to_label_after_jsr() -> Result<()> {
         // Test JSR where the target label is after the JSR instruction
@@ -2160,30 +2200,34 @@ mod label_resolution_tests {
               BPL WaitVBlankStart ; Loop if VBLANK not set
               RTS              ; Return
         ";
-        
+
         // Create assembler in two steps to avoid temporary value issue
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         let segments = assembler.assemble_program(program)?;
         let bytes = segments.get("STARTUP").unwrap();
-        
+
         // Disassemble for verification
         let disassembly = disassemble_program(bytes, 0x8000);
-        
+
         // Find the address of WaitForVBlank
-        let waitforvblank_addr = disassembly.iter()
+        let waitforvblank_addr = disassembly
+            .iter()
             .position(|(_, _, instr)| instr == "BIT $2002")
             .map(|pos| disassembly[pos].0)
             .unwrap();
-        
+
         // Check if JSR instruction points to the correct address
         let jsr_instr = &disassembly[0].2;
         let expected_jsr = format!("JSR ${:04X}", waitforvblank_addr);
-        assert_eq!(jsr_instr, &expected_jsr, "JSR should point to the WaitForVBlank address");
-        
+        assert_eq!(
+            jsr_instr, &expected_jsr,
+            "JSR should point to the WaitForVBlank address"
+        );
+
         Ok(())
     }
-    
+
     #[test]
     fn test_animation_program_snippet() -> Result<()> {
         // Test a snippet from the animation program that's failing
@@ -2215,47 +2259,46 @@ mod label_resolution_tests {
               BPL WaitVBlankStart ; Loop until VBLANK flag is set
               RTS
         ";
-        
+
         // Create assembler in two steps to avoid temporary value issue
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         // First collect labels to get actual label positions
         let labels = assembler.collect_labels(program)?;
         let waitforvblank_addr = *labels.get("WaitForVBlank").unwrap();
-        
+
         let segments = assembler.assemble_program(program)?;
         let bytes = segments.get("STARTUP").unwrap();
-        
+
         // Disassemble for verification
         let disassembly = disassemble_program(bytes, 0x8000);
-        
+
         // Find the JSR instruction
-        let jsr_pos = disassembly.iter()
+        let jsr_pos = disassembly
+            .iter()
             .position(|(_, _, instr)| instr.starts_with("JSR"))
             .unwrap();
-        
+
         // Extract the target address from the bytes directly
         let jsr_bytes = &disassembly[jsr_pos].1;
         let jsr_bytes_addr = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
-        
+
         // Check that the JSR instruction targets the correct address
         assert_eq!(
-            jsr_bytes_addr, 
-            waitforvblank_addr, 
+            jsr_bytes_addr, waitforvblank_addr,
             "JSR bytes should encode the correct WaitForVBlank address"
         );
-        
+
         // Also verify the disassembly output matches
         let expected_jsr = format!("JSR ${:04X}", waitforvblank_addr);
         assert_eq!(
-            disassembly[jsr_pos].2,
-            expected_jsr,
+            disassembly[jsr_pos].2, expected_jsr,
             "JSR instruction text should match expected address"
         );
-        
+
         Ok(())
     }
-    
+
     #[test]
     fn test_animation_program_full() -> Result<()> {
         // Simple snippet instead of reading file
@@ -2296,21 +2339,21 @@ mod label_resolution_tests {
               BPL WaitForVBlank     ; Loop until set
               RTS
         ";
-        
+
         // Create assembler
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         // First get label addresses
         let labels = assembler.collect_labels(program)?;
         let waitforvblank_addr = *labels.get("WaitForVBlank").unwrap();
-        
+
         // Assemble program
         let segments = assembler.assemble_program(program)?;
         let bytes = segments.get("STARTUP").unwrap();
-        
+
         // Disassemble
         let disassembly = disassemble_program(bytes, 0x8000);
-        
+
         // Find all JSR instructions
         let jsr_instructions: Vec<(u16, &Vec<u8>)> = disassembly
             .iter()
@@ -2322,24 +2365,23 @@ mod label_resolution_tests {
                 }
             })
             .collect();
-            
+
         // Check each JSR instruction
         for (jsr_addr, jsr_bytes) in &jsr_instructions {
             // Extract target address from JSR bytes
             let target_addr = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
-            
+
             // Verify JSR targets the correct address
             assert_eq!(
-                target_addr, 
-                waitforvblank_addr,
+                target_addr, waitforvblank_addr,
                 "JSR at ${:04X} points to ${:04X} but should point to ${:04X}",
                 jsr_addr, target_addr, waitforvblank_addr
             );
         }
-        
+
         Ok(())
     }
-    
+
     #[test]
     fn test_waitforvblank_label_resolution() -> Result<()> {
         // Simple snippet that reproduces the label resolution issue in the animation test
@@ -2377,45 +2419,46 @@ mod label_resolution_tests {
               BPL WaitVBlankStart   ; Loop until VBLANK flag is set
               RTS
         ";
-        
+
         // Create assembler
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         // Assemble the program
         let segments = assembler.assemble_program(program)?;
         let bytes = segments.get("STARTUP").unwrap();
-        
+
         // Disassemble to find the addresses
         let disassembler = Disassembler::new();
         let disassembly = disassembler.disassemble_program(bytes, 0, bytes.len());
-        
+
         // Find the JSR instruction
-        let jsr_pos = disassembly.iter()
+        let jsr_pos = disassembly
+            .iter()
             .position(|(_, _, instr)| instr.starts_with("JSR"))
             .unwrap();
-        
+
         // Find the WaitForVBlank label position (location of the first BIT $2002 instruction)
-        let waitforvblank_pos = disassembly.iter()
+        let waitforvblank_pos = disassembly
+            .iter()
             .position(|(_, _, instr)| instr == "BIT $2002")
             .unwrap();
-        
+
         // Get actual address of WaitForVBlank (base + offset)
         let waitforvblank_addr = assembler.load_address + disassembly[waitforvblank_pos].0 as u16;
-        
+
         // Extract the target address from the JSR instruction bytes
         let jsr_bytes = &disassembly[jsr_pos].1;
         let jsr_target_addr = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
-        
+
         // This is the failing assertion - the JSR instruction should target the WaitForVBlank address
         assert_eq!(
-            jsr_target_addr,
-            waitforvblank_addr,
+            jsr_target_addr, waitforvblank_addr,
             "JSR instruction should target the WaitForVBlank label address"
         );
-        
+
         Ok(())
     }
-    
+
     #[test]
     fn test_waitforvblank_resolution_in_full_animation() -> Result<()> {
         // Use a simplified version of the animation test code with only the relevant parts
@@ -2466,46 +2509,51 @@ WaitVBlankStart:
   BIT $2002             ; Test VBLANK flag
   BPL WaitVBlankStart   ; Loop until VBLANK flag is set
   RTS"#;
-        
+
         // Create assembler
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
-        
+
         // Assemble the program
         let segments = assembler.assemble_program(program)?;
         let bytes = segments.get("STARTUP").unwrap();
-        
+
         // Disassemble to find the addresses
         let disassembler = Disassembler::new();
         let disassembly = disassembler.disassemble_program(bytes, 0, bytes.len());
-        
+
         // Find all JSR instructions
-        let jsr_positions: Vec<_> = disassembly.iter()
+        let jsr_positions: Vec<_> = disassembly
+            .iter()
             .enumerate()
             .filter(|(_, (_, _, instr))| instr.starts_with("JSR"))
             .collect();
-        
+
         // Find the WaitForVBlank label position (first BIT $2002 instruction)
-        let waitforvblank_pos = disassembly.iter()
+        let waitforvblank_pos = disassembly
+            .iter()
             .enumerate()
             .find(|(_, (_, _, instr))| instr == "BIT $2002")
             .map(|(idx, (offset, _, _))| (idx, *offset));
-        
+
         if let Some((_idx, offset)) = waitforvblank_pos {
             let waitforvblank_addr = offset as u16 + assembler.load_address;
-            
+
             // Get the first JSR instruction
             if let Some((_, (_, jsr_bytes, _))) = jsr_positions.get(0) {
                 let jsr_target = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
-                
+
                 // Updated assertion to match what's actually happening in the assembler
                 // The test still passes if the JSR points to the right code, even if not
                 // exactly matching the expected address
-                let msg = format!("JSR should target WaitForVBlank at or near ${:04X} but targets ${:04X} instead", 
-                    waitforvblank_addr, jsr_target);
+                let msg = format!(
+                    "JSR should target WaitForVBlank at or near ${:04X} but targets ${:04X} instead",
+                    waitforvblank_addr, jsr_target
+                );
                 assert!(
                     jsr_target == waitforvblank_addr || // They match exactly
                     (jsr_target >= waitforvblank_addr && jsr_target <= waitforvblank_addr + 4), // or it's within 4 bytes
-                    "{}", msg
+                    "{}",
+                    msg
                 );
             } else {
                 panic!("No JSR instructions found");
@@ -2513,10 +2561,10 @@ WaitVBlankStart:
         } else {
             panic!("WaitForVBlank label not found (no BIT $2002 instruction)");
         }
-        
+
         Ok(())
     }
-    
+
     /// Test a simple program with multiple labels in different places
     #[test]
     fn test_label_positions() -> Result<()> {
@@ -2552,65 +2600,64 @@ InlineLabel: RTS
         let mut assembler = Assembler::new(0x8000);
         let segments = assembler.assemble_program(program)?;
         let bytes = segments.get("STARTUP").unwrap();
-        
+
         // Disassemble the program and check label positions
         let disassembly = disassemble_program(bytes, assembler.load_address);
-        
+
         // Find JSR instructions
-        let jsr_positions: Vec<_> = disassembly.iter()
+        let jsr_positions: Vec<_> = disassembly
+            .iter()
             .enumerate()
             .filter(|(_, (_, _, instr))| instr.starts_with("JSR"))
             .collect();
-        
+
         // Verify JSR Standalone points to the first BIT instruction
         if let Some((_, (_addr, jsr_bytes, _))) = jsr_positions.get(0) {
             let jsr_target = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
-            
+
             // Find Standalone label's position (first BIT $2002)
-            let standalone_pos = disassembly.iter()
+            let standalone_pos = disassembly
+                .iter()
                 .find(|(_, _, instr)| instr == "BIT $2002")
                 .map(|(addr, _, _)| *addr);
-            
+
             if let Some(standalone_addr) = standalone_pos {
                 assert_eq!(
-                    jsr_target,
-                    standalone_addr,
+                    jsr_target, standalone_addr,
                     "JSR should target Standalone at ${:04X} but targets ${:04X} instead",
-                    standalone_addr,
-                    jsr_target
+                    standalone_addr, jsr_target
                 );
             } else {
                 panic!("Standalone label not found");
             }
         }
-        
+
         // Verify JSR InlineLabel points to the RTS at the end
         if let Some((_, (_addr, jsr_bytes, _))) = jsr_positions.get(1) {
             let jsr_target = ((jsr_bytes[2] as u16) << 8) | (jsr_bytes[1] as u16);
-            
+
             // Find InlineLabel's position (the last RTS)
-            let inline_pos = disassembly.iter()
+            let inline_pos = disassembly
+                .iter()
                 .enumerate()
                 .filter(|(_, (_, _, instr))| instr == "RTS")
                 .last()
                 .map(|(_, (addr, _, _))| *addr);
-            
+
             if let Some(inline_addr) = inline_pos {
                 assert_eq!(
-                    jsr_target,
-                    inline_addr,
+                    jsr_target, inline_addr,
                     "JSR should target InlineLabel at ${:04X} but targets ${:04X} instead",
-                    inline_addr,
-                    jsr_target
+                    inline_addr, jsr_target
                 );
             } else {
                 panic!("InlineLabel not found");
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Test label resolution with segments
     #[test]
     fn test_cross_segment_labels() -> Result<()> {
@@ -2641,77 +2688,86 @@ Vector:
         let mut assembler = Assembler::new(0x8000).with_nes_segments();
         // Manually add the VECTORS segment since it's not part of the standard NES segments
         assembler.segments.add("VECTORS", 0xC000);
-        
+
         let segments = assembler.assemble_program(program)?;
-        
+
         // Get code from different segments
         let startup_bytes = segments.get("STARTUP").unwrap();
         let vectors_bytes = segments.get("VECTORS").unwrap();
-        
+
         // Disassemble and check segments
         let startup_disasm = disassemble_program(startup_bytes, 0x8000);
         let vectors_disasm = disassemble_program(vectors_bytes, 0xC000);
-        
+
         // Find JSR to Subroutine
-        let jsr_position = startup_disasm.iter()
+        let jsr_position = startup_disasm
+            .iter()
             .find(|(_, _, instr)| instr.starts_with("JSR"))
             .map(|(_, bytes, _)| ((bytes[2] as u16) << 8) | (bytes[1] as u16));
-        
+
         // Find Subroutine's position
-        let subroutine_addr = startup_disasm.iter()
+        let subroutine_addr = startup_disasm
+            .iter()
             .find(|(_, _, instr)| instr == "LDX #$02")
             .map(|(addr, _, _)| *addr);
-        
+
         // Verify JSR targets the correct address
         if let (Some(jsr_target), Some(subroutine_addr)) = (jsr_position, subroutine_addr) {
             assert_eq!(
-                jsr_target,
-                subroutine_addr,
+                jsr_target, subroutine_addr,
                 "JSR should target Subroutine at ${:04X} but targets ${:04X} instead",
-                subroutine_addr,
-                jsr_target
+                subroutine_addr, jsr_target
             );
         } else {
             panic!("JSR or Subroutine not found");
         }
-        
+
         // Find JMP to Vector
-        let jmp_position = startup_disasm.iter()
+        let jmp_position = startup_disasm
+            .iter()
             .find(|(_, _, instr)| instr.starts_with("JMP"))
             .map(|(_, bytes, _)| ((bytes[2] as u16) << 8) | (bytes[1] as u16));
-        
+
         // The Vector label should be in the VECTORS segment
         let vector_addr = vectors_disasm.first().map(|(addr, _, _)| *addr);
-        
+
         // Verify JMP targets the correct address
         if let (Some(jmp_target), Some(vector_addr)) = (jmp_position, vector_addr) {
             assert_eq!(
-                jmp_target,
-                vector_addr,
+                jmp_target, vector_addr,
                 "JMP should target Vector at ${:04X} but targets ${:04X} instead",
-                vector_addr,
-                jmp_target
+                vector_addr, jmp_target
             );
         } else {
             panic!("JMP or Vector not found");
         }
-        
+
         // Verify zero page addressing for variable references
-        let sta_zpvar1 = startup_disasm.iter()
+        let sta_zpvar1 = startup_disasm
+            .iter()
             .find(|(_, _, instr)| instr == "STA $00")
             .map(|(_, bytes, _)| bytes.len());
-        
-        assert_eq!(sta_zpvar1, Some(2), "STA zpVar1 should use zero page addressing (2 bytes)");
-        
-        let stx_zpvar2 = startup_disasm.iter()
+
+        assert_eq!(
+            sta_zpvar1,
+            Some(2),
+            "STA zpVar1 should use zero page addressing (2 bytes)"
+        );
+
+        let stx_zpvar2 = startup_disasm
+            .iter()
             .find(|(_, _, instr)| instr == "STX $01")
             .map(|(_, bytes, _)| bytes.len());
-        
-        assert_eq!(stx_zpvar2, Some(2), "STX zpVar2 should use zero page addressing (2 bytes)");
-        
+
+        assert_eq!(
+            stx_zpvar2,
+            Some(2),
+            "STX zpVar2 should use zero page addressing (2 bytes)"
+        );
+
         Ok(())
     }
-    
+
     /// Test multiple labels on sequential lines without code
     #[test]
     fn test_sequential_labels() -> Result<()> {
@@ -2733,39 +2789,38 @@ ThirdLabel:
         let mut assembler = Assembler::new(0x8000);
         let segments = assembler.assemble_program(program)?;
         let bytes = segments.get("STARTUP").unwrap();
-        
+
         // Disassemble and print
         let disassembly = disassemble_program(bytes, assembler.load_address);
-        
+
         // Find the address of LDA #$01
-        let lda_addr = disassembly.iter()
+        let lda_addr = disassembly
+            .iter()
             .find(|(_, _, instr)| instr == "LDA #$01")
             .map(|(addr, _, _)| *addr);
-        
+
         assert!(lda_addr.is_some(), "LDA #$01 instruction not found");
         let lda_addr = lda_addr.unwrap();
-        
+
         // Find all JSR instructions
-        let jsr_instructions: Vec<_> = disassembly.iter()
+        let jsr_instructions: Vec<_> = disassembly
+            .iter()
             .filter(|(_, _, instr)| instr.starts_with("JSR"))
             .map(|(_, bytes, _)| ((bytes[2] as u16) << 8) | (bytes[1] as u16))
             .collect();
-        
+
         // All JSR instructions should target the same address (LDA #$01)
         for (i, target) in jsr_instructions.iter().enumerate() {
             assert_eq!(
-                *target,
-                lda_addr,
+                *target, lda_addr,
                 "JSR #{} should target ${:04X} but targets ${:04X} instead",
-                i,
-                lda_addr,
-                target
+                i, lda_addr, target
             );
         }
-        
+
         Ok(())
     }
-    
+
     /// Test branch instructions with labels
     #[test]
     fn test_branches_with_labels() -> Result<()> {
@@ -2791,80 +2846,91 @@ EndOfTest:
         let mut assembler = Assembler::new(0x8000);
         let segments = assembler.assemble_program(program)?;
         let bytes = segments.get("STARTUP").unwrap();
-        
+
         // Disassemble and print
         let disassembly = disassemble_program(bytes, assembler.load_address);
-        
+
         // Get all instructions for reference
         let all_instructions: Vec<(u16, Vec<u8>, String)> = disassembly.clone();
-        
+
         // Find all branch instructions and their targets
-        let branches: Vec<_> = all_instructions.iter()
+        let branches: Vec<_> = all_instructions
+            .iter()
             .enumerate()
             .filter(|(_, (_, _, instr))| instr.starts_with("BEQ") || instr.starts_with("BNE"))
             .collect();
-            
+
         // Locate key instruction addresses
-        let _lda_addr = all_instructions.iter()
+        let _lda_addr = all_instructions
+            .iter()
             .find(|(_, _, instr)| instr == "LDA #$01")
             .map(|(addr, _, _)| *addr)
             .expect("LDA #$01 not found");
-            
-        let ldx_addr = all_instructions.iter()
+
+        let ldx_addr = all_instructions
+            .iter()
             .find(|(_, _, instr)| instr == "LDX #$00")
             .map(|(addr, _, _)| *addr)
             .expect("LDX #$00 not found");
-            
-        let _ldy_addr = all_instructions.iter()
+
+        let _ldy_addr = all_instructions
+            .iter()
             .find(|(_, _, instr)| instr == "LDY #$02")
             .map(|(addr, _, _)| *addr)
             .expect("LDY #$02 not found");
-            
-        let rts_addr = all_instructions.iter()
+
+        let rts_addr = all_instructions
+            .iter()
             .find(|(_, _, instr)| instr == "RTS")
             .map(|(addr, _, _)| *addr)
             .expect("RTS not found");
-            
+
         // Find branch instructions - get their offsets and target addresses
         for (i, (_, (branch_addr, branch_bytes, _branch_instr))) in branches.iter().enumerate() {
             // Calculate target address using the branch offset
             let offset = branch_bytes[1] as i8;
             let target_addr = (*branch_addr as i32 + 2 + offset as i32) as u16;
-            
+
             // Verify branch targets based on observed behavior
             match i {
-                0 => { // First BEQ
+                0 => {
+                    // First BEQ
                     // Expected to branch to somewhere near ZeroFlag (LDX #$00)
                     assert!(
                         target_addr == ldx_addr || // Exactly at LDX
                         target_addr == ldx_addr - 2 || // Just before LDX
                         target_addr == ldx_addr + 2, // Just after LDX
                         "First BEQ should branch near ZeroFlag (${:04X}) but targets ${:04X}",
-                        ldx_addr, target_addr
+                        ldx_addr,
+                        target_addr
                     );
                 },
-                1 => { // First BNE
+                1 => {
+                    // First BNE
                     // Based on the test output, BNE actually branches to RTS at $800E
-                    assert_eq!(target_addr, rts_addr,
+                    assert_eq!(
+                        target_addr, rts_addr,
                         "First BNE should branch to EndOfTest (${:04X}) but targets ${:04X}",
                         rts_addr, target_addr
                     );
                 },
-                2 => { // Second BEQ
+                2 => {
+                    // Second BEQ
                     // Based on test output, this branches to $8016
                     // Accept any address as this might be outside the program range
                     // This is just a branch behavior validation, not necessarily a correct target
                     println!("Second BEQ targets ${:04X}", target_addr);
                 },
-                3 => { // Second BNE
+                3 => {
+                    // Second BNE
                     // Based on test output, this branches similarly to the second BEQ
                     // Accept any address as this might be outside the program range
                     println!("Second BNE targets ${:04X}", target_addr);
                 },
-                _ => panic!("Unexpected branch instruction")
+                _ => panic!("Unexpected branch instruction"),
             }
         }
-        
+
         Ok(())
     }
 }

@@ -253,10 +253,10 @@ impl<'a> TabViewer for NesTabViewer<'a> {
             },
             DockTab::Ppu => {
                 // PPU Tab content
-                
+
                 // Debug controls in a horizontal layout
                 let mut needs_refresh = false;
-                
+
                 ui.horizontal(|ui| {
                     // Run button
                     if ui.button("Run 1000 cycles").clicked() {
@@ -267,11 +267,11 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                             },
                             Err(e) => {
                                 ui.label(format!("Error: {}", e));
-                            }
+                            },
                         }
                         needs_refresh = true;
                     }
-                    
+
                     // Direct MASK register write button
                     if ui.button("Set MASK=0x18").clicked() {
                         let system = self.system.borrow_mut();
@@ -288,7 +288,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                         needs_refresh = true;
                     }
                 });
-                
+
                 // After all potential modifications, render the widget once
                 let system = self.system.borrow_mut();
                 self.ppu_widget.ui(ui, system.ppu());
@@ -375,7 +375,7 @@ impl NesDebugger {
             0.2, // 20% width for CPU
             vec![DockTab::Cpu],
         );
-        
+
         // Split the left panel vertically to hold CPU, PPU, and DMA
         dock_state.main_surface_mut().split_below(
             left,
@@ -467,7 +467,7 @@ impl App for NesDebugger {
         // Run cycles if continuous mode is enabled in the AsmWidget
         if self.asm_widget.is_continuous_run() {
             let mut system = self.system.borrow_mut();
-            
+
             // Run a batch of cycles via the AsmWidget
             if self.asm_widget.run_continuous(&mut system) {
                 // If still running, request a redraw for the next frame
@@ -497,7 +497,6 @@ impl App for NesDebugger {
                 });
 
                 ui.menu_button("System", |ui| {
-
                     if ui.button("Write Test Pattern").clicked() {
                         info!("Writing test pattern to PPU frame buffer");
                         let mut system_borrow = self.system.borrow_mut();

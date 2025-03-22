@@ -58,13 +58,13 @@ impl AsmWidget {
             error_message: None,
             assembler,
             load_address_editor: HexEditText::new(),
-            max_cycles: 1_000_000, // Default to 1 million cycles
-            no_cycle_limit: true,  // Default to no cycle limit
-            continuous_run: false, // Not running continuously by default
-            cycles_per_frame: 29780, // Default to authentic NES cycles per frame
+            max_cycles: 1_000_000,      // Default to 1 million cycles
+            no_cycle_limit: true,       // Default to no cycle limit
+            continuous_run: false,      // Not running continuously by default
+            cycles_per_frame: 29780,    // Default to authentic NES cycles per frame
             use_authentic_timing: true, // Default to authentic timing
-            target_fps: 60.0,      // Default to 60 FPS
-            limit_fps: true,       // Limit FPS by default
+            target_fps: 60.0,           // Default to 60 FPS
+            limit_fps: true,            // Limit FPS by default
             last_frame_time: std::time::Instant::now(),
         }
     }
@@ -184,9 +184,12 @@ impl AsmWidget {
             self.continuous_run = false;
             return Ok(());
         }
-        
+
         // Only run if the system is in a valid state (Ready, Loaded, Running, or Finished)
-        if !matches!(system.state(), SystemState::Ready | SystemState::Loaded | SystemState::Running | SystemState::Finished) {
+        if !matches!(
+            system.state(),
+            SystemState::Ready | SystemState::Loaded | SystemState::Running | SystemState::Finished
+        ) {
             return Ok(());
         }
 
@@ -195,11 +198,11 @@ impl AsmWidget {
             // Reset the system
             log::info!("System in Finished state, resetting before run");
             system.reset()?;
-            
+
             // Reload the program if assembled
             if self.assembled {
                 system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
-                
+
                 // Also load CHR ROM data if available
                 if let Some(chr_data) = self.assembled_segments.get("CHARS") {
                     if !chr_data.is_empty() {
@@ -211,7 +214,7 @@ impl AsmWidget {
 
         // Start continuous running
         self.continuous_run = true;
-        
+
         // Make sure cycles_per_frame has a reasonable value
         if self.cycles_per_frame == 0 {
             self.cycles_per_frame = 29780;
@@ -305,7 +308,10 @@ impl AsmWidget {
             }
 
             // Run button - enabled when system is loaded, running, or finished
-            let can_run = matches!(system.state(), SystemState::Loaded | SystemState::Running | SystemState::Finished);
+            let can_run = matches!(
+                system.state(),
+                SystemState::Loaded | SystemState::Running | SystemState::Finished
+            );
             let run_text = if self.continuous_run { "Stop" } else { "Run" };
             if ui.add_enabled(can_run, egui::Button::new(run_text)).clicked() {
                 self.run_program(system)?;
@@ -328,17 +334,20 @@ impl AsmWidget {
             }
 
             // Run to Next Frame button - enabled when system is loaded, running, or finished
-            if ui.add_enabled(can_run, egui::Button::new("Run to Next Frame")).clicked() {
+            if ui
+                .add_enabled(can_run, egui::Button::new("Run to Next Frame"))
+                .clicked()
+            {
                 // If system is in Finished state, reset it first
                 if system.state() == SystemState::Finished {
                     // Reset the system
                     log::info!("System in Finished state, resetting before running to next frame");
                     system.reset()?;
-                    
+
                     // Reload the program if assembled
                     if self.assembled {
                         system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
-                        
+
                         // Also load CHR ROM data if available
                         if let Some(chr_data) = self.assembled_segments.get("CHARS") {
                             if !chr_data.is_empty() {
@@ -347,24 +356,24 @@ impl AsmWidget {
                         }
                     }
                 }
-                
+
                 // Run up to PPU frame completion
                 let current_frame = system.ppu().frame_count();
                 let target_frame = current_frame + 1;
-                
+
                 // Run until we reach the next frame - no safety limit
                 while system.ppu().frame_count() < target_frame {
                     if let Err(e) = system.step() {
                         self.error_message = Some(format!("Error stepping to next frame: {}", e));
                         break;
                     }
-                    
+
                     // Also check if we've hit the Finished state
                     if system.state() == SystemState::Finished {
                         break; // Stop running if we hit a BRK
                     }
                 }
-                
+
                 // Force a frame render
                 system.ppu().force_render_frame();
             }
@@ -392,48 +401,48 @@ impl AsmWidget {
             ui.checkbox(&mut self.no_cycle_limit, "No cycle limit")
                 .on_hover_text("When checked, program will run indefinitely.\nWhen unchecked, program will stop after reaching the specified number of cycles.");
         });
-        
+
         // Cycles per frame and authentic timing controls
         ui.horizontal(|ui| {
             // Authentic timing checkbox
-            if ui.checkbox(&mut self.use_authentic_timing, "Use authentic NES timing").clicked() {
+            if ui
+                .checkbox(&mut self.use_authentic_timing, "Use authentic NES timing")
+                .clicked()
+            {
                 // When checked, set to authentic NES timing (29,780 cycles per frame)
                 if self.use_authentic_timing {
                     self.cycles_per_frame = 29780;
                 }
             }
-            
+
             ui.separator();
-            
+
             // Cycles per frame input
             ui.label("Cycles/frame:");
-            
+
             // Update widget to show the cycles per frame
             // Use add_enabled to disable the widget when using authentic timing
             let response = ui.add_enabled(
                 !self.use_authentic_timing,
                 egui::DragValue::new(&mut self.cycles_per_frame)
                     .speed(100)
-                    .range(10..=100_000)
+                    .range(10..=100_000),
             );
-            
+
             // If user changed the cycles manually, turn off authentic timing
             if response.changed() {
                 self.use_authentic_timing = false;
             }
         });
-        
+
         // Add FPS control in a new row
         ui.horizontal(|ui| {
             // FPS limit checkbox
             ui.checkbox(&mut self.limit_fps, "Limit FPS");
-            
+
             if self.limit_fps {
                 ui.label("Target FPS:");
-                ui.add(
-                    egui::Slider::new(&mut self.target_fps, 1.0..=240.0)
-                        .step_by(1.0)
-                );
+                ui.add(egui::Slider::new(&mut self.target_fps, 1.0..=240.0).step_by(1.0));
             }
         });
 
@@ -453,21 +462,21 @@ impl AsmWidget {
         if !self.continuous_run {
             return false;
         }
-        
+
         let now = std::time::Instant::now();
-        
+
         // Apply FPS control - determines both timing and cycles per update
         if self.limit_fps {
             // Calculate the target frame duration based on the desired FPS
             let target_frame_duration = std::time::Duration::from_secs_f32(1.0 / self.target_fps);
             let elapsed = now.duration_since(self.last_frame_time);
-            
+
             // For slowing down (target FPS < natural speed):
             // If not enough time has passed, skip this frame to maintain lower FPS
             if elapsed < target_frame_duration && self.target_fps <= 60.0 {
                 return true; // Skip processing but keep running
             }
-            
+
             // For both speeding up and slowing down:
             // Only update the timestamp when we actually process a frame
             self.last_frame_time = now;
@@ -475,7 +484,7 @@ impl AsmWidget {
             // When FPS is not limited, still update last_frame_time for next calculation
             self.last_frame_time = now;
         }
-        
+
         // Check if system is in Finished state and reset if needed
         if system.state() == SystemState::Finished {
             // Reset the system
@@ -485,7 +494,7 @@ impl AsmWidget {
                 self.continuous_run = false;
                 return false;
             }
-            
+
             // Reload the program if assembled
             if self.assembled {
                 match system.load_program(&self.assembled_bytes, self.assembler.load_address) {
@@ -505,11 +514,11 @@ impl AsmWidget {
                         self.error_message = Some(format!("Error loading program: {}", e));
                         self.continuous_run = false;
                         return false;
-                    }
+                    },
                 }
             }
         }
-        
+
         // Determine how many cycles to run this frame
         // Scale cycles based on target FPS when FPS limiting is enabled
         let cycles_to_run = if self.limit_fps && self.target_fps != 60.0 {
@@ -524,7 +533,7 @@ impl AsmWidget {
             // Normal case - run exactly one frame's worth of cycles
             self.cycles_per_frame
         };
-        
+
         // Run the calculated number of cycles
         let mut cycles_run = 0;
         while cycles_run < cycles_to_run {
@@ -536,24 +545,24 @@ impl AsmWidget {
                     self.error_message = Some(format!("Error during continuous run: {}", e));
                     self.continuous_run = false; // Stop on error
                     return false;
-                }
+                },
             }
-            
+
             // Check if we've hit a terminal state
             if system.state() == SystemState::Finished {
                 // Don't stop the continuous run - we'll reset on next frame
                 break;
             }
         }
-        
+
         // Check if we've hit the cycle limit when no_cycle_limit is false
         if !self.no_cycle_limit {
             // Keep track of total cycles run in this continuous run
             static mut TOTAL_CYCLES: usize = 0;
-            
+
             unsafe {
                 TOTAL_CYCLES += cycles_run;
-                
+
                 // If we've reached the max cycles, stop running
                 if TOTAL_CYCLES >= self.max_cycles {
                     log::info!("Reached cycle limit of {} cycles", self.max_cycles);
@@ -563,11 +572,11 @@ impl AsmWidget {
                 }
             }
         }
-        
+
         // Continue running
         true
     }
-    
+
     /// Check if continuous run is enabled
     pub fn is_continuous_run(&self) -> bool {
         self.continuous_run

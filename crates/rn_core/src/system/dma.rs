@@ -178,7 +178,7 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
         } else {
             // Odd transfer cycles: WRITE to OAM
             let oam_index = byte_index as u8;
-            
+
             // If we have a PPU reference, write to it
             if let Some(ppu) = &mut self.ppu {
                 // Set OAM address register
@@ -217,31 +217,31 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
     pub fn perform_transfer(&mut self, source_high_byte: u8) -> Result<(), NesError> {
         // Set the source high byte (maintain original behavior)
         self.source_high_byte = source_high_byte;
-        
+
         // Validate we have CPU and PPU connections
         let cpu_ref = match &self.cpu {
             Some(cpu) => cpu,
             None => return Err(NesError::GenericError("CPU missing for DMA transfer".to_string())),
         };
-        
+
         let ppu_ref = match &mut self.ppu {
             Some(ppu) => ppu,
             None => return Err(NesError::GenericError("PPU missing for DMA transfer".to_string())),
         };
-        
+
         // For each byte in the 256-byte page (maintain original loop structure)
         for i in 0..256 {
             // Calculate the source address
             let source_addr = ((source_high_byte as u16) << 8) | (i as u16);
-            
+
             // Read from CPU memory
             let value = cpu_ref.read_byte(source_addr)?;
-            
+
             // Write directly to PPU OAM address and data registers
-            ppu_ref.write_byte(0x2003, i as u8)?;  // Set OAM address
-            ppu_ref.write_byte(0x2004, value)?;    // Write OAM data
+            ppu_ref.write_byte(0x2003, i as u8)?; // Set OAM address
+            ppu_ref.write_byte(0x2004, value)?; // Write OAM data
         }
-        
+
         Ok(())
     }
 }
@@ -277,9 +277,11 @@ impl<C: CpuInterface, P: PpuInterface> Default for DmaController<C, P> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
+
     use anyhow::Result;
-    use std::{collections::HashMap, fmt::Debug, rc::Rc, cell::RefCell};
+
+    use super::*;
 
     #[derive(Default, Debug, Clone)]
     struct MockCpu {
@@ -297,7 +299,7 @@ mod tests {
                 self.data.insert(0x2000 + i, i as u8);
                 self.data.insert(0x3000 + i, i as u8);
             }
-            
+
             // Debug print some values to verify
             println!("Value at 0x0001: {}", self.data.get(&0x0001).unwrap_or(&0));
             println!("Value at 0x0002: {}", self.data.get(&0x0002).unwrap_or(&0));
@@ -350,23 +352,26 @@ mod tests {
 
         fn read_byte(&self, address: u16) -> Result<u8, NesError> {
             match address {
-                0x2004 => { // OAM data register
+                0x2004 => {
+                    // OAM data register
                     let addr = *self.oam_addr.borrow();
                     let value = self.oam.borrow()[addr as usize];
                     Ok(value)
                 },
-                _ => Ok(0)
+                _ => Ok(0),
             }
         }
 
         fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
             match address {
-                0x2003 => { // OAM address register
+                0x2003 => {
+                    // OAM address register
                     *self.oam_addr.borrow_mut() = value;
                     println!("MockPpu: Set OAM address to {}", value);
                     Ok(())
                 },
-                0x2004 => { // OAM data register
+                0x2004 => {
+                    // OAM data register
                     let addr = *self.oam_addr.borrow();
                     println!("MockPpu: Writing value {} to OAM[{}]", value, addr);
                     self.oam.borrow_mut()[addr as usize] = value;
@@ -375,7 +380,7 @@ mod tests {
                     *self.oam_addr.borrow_mut() = addr.wrapping_add(1);
                     Ok(())
                 },
-                _ => Ok(())
+                _ => Ok(()),
             }
         }
     }
@@ -384,17 +389,23 @@ mod tests {
         let mut cpu = MockCpu::default();
         let ppu = MockPpu::default();
         let mut dma = DmaController::new();
-        
+
         // Setup test data
         cpu.setup_test_data();
-        
+
         // Debug: Check CPU data after setup
-        println!("After setup_test_data, value at 0x0001: {}", cpu.data.get(&0x0001).unwrap_or(&0));
-        println!("After setup_test_data, value at 0x0002: {}", cpu.data.get(&0x0002).unwrap_or(&0));
-        
+        println!(
+            "After setup_test_data, value at 0x0001: {}",
+            cpu.data.get(&0x0001).unwrap_or(&0)
+        );
+        println!(
+            "After setup_test_data, value at 0x0002: {}",
+            cpu.data.get(&0x0002).unwrap_or(&0)
+        );
+
         dma.connect_cpu(cpu.clone());
         dma.connect_ppu(ppu.clone());
-        
+
         (dma, cpu, ppu)
     }
 
@@ -454,7 +465,11 @@ mod tests {
         assert_eq!(dma.cycles_remaining, 0);
 
         // Verify we have the expected number of writes in our mock
-        assert_eq!(ppu.oam_writes.borrow().len(), 256, "Should have 256 OAM writes recorded");
+        assert_eq!(
+            ppu.oam_writes.borrow().len(),
+            256,
+            "Should have 256 OAM writes recorded"
+        );
 
         Ok(())
     }
@@ -466,12 +481,20 @@ mod tests {
         // Setup test data properly using the existing method
         cpu.setup_test_data();
 
-        println!("Before transfer, OAM[0] = {}, OAM[1] = {}", ppu.oam.borrow()[0], ppu.oam.borrow()[1]);
+        println!(
+            "Before transfer, OAM[0] = {}, OAM[1] = {}",
+            ppu.oam.borrow()[0],
+            ppu.oam.borrow()[1]
+        );
 
         // Perform the transfer
         dma.perform_transfer(0x00)?;
 
-        println!("After transfer, OAM[0] = {}, OAM[1] = {}", ppu.oam.borrow()[0], ppu.oam.borrow()[1]);
+        println!(
+            "After transfer, OAM[0] = {}, OAM[1] = {}",
+            ppu.oam.borrow()[0],
+            ppu.oam.borrow()[1]
+        );
         println!("OAM writes: {:?}", ppu.oam_writes.borrow());
 
         // Manually write to OAM to verify it works
@@ -534,20 +557,40 @@ mod tests {
             match cycle {
                 0 => {
                     // First cycle is setup, no data transfer
-                    assert_eq!(ppu.oam_writes.borrow().len(), 0, "No OAM writes should occur in cycle 0");
+                    assert_eq!(
+                        ppu.oam_writes.borrow().len(),
+                        0,
+                        "No OAM writes should occur in cycle 0"
+                    );
                 },
                 1 => {
                     // First read cycle - still no writes
-                    assert_eq!(ppu.oam_writes.borrow().len(), 0, "No OAM writes should occur in cycle 1");
+                    assert_eq!(
+                        ppu.oam_writes.borrow().len(),
+                        0,
+                        "No OAM writes should occur in cycle 1"
+                    );
                 },
                 2 => {
                     // First write cycle - first byte should be written to OAM[0]
-                    assert_eq!(ppu.oam_writes.borrow().len(), 1, "One OAM write should occur by cycle 2");
-                    assert_eq!(ppu.oam_writes.borrow()[0], (0, 0), "OAM[0] should be written with value 0");
+                    assert_eq!(
+                        ppu.oam_writes.borrow().len(),
+                        1,
+                        "One OAM write should occur by cycle 2"
+                    );
+                    assert_eq!(
+                        ppu.oam_writes.borrow()[0],
+                        (0, 0),
+                        "OAM[0] should be written with value 0"
+                    );
                 },
                 512 => {
                     // Last cycle - should have written all 256 bytes
-                    assert_eq!(ppu.oam_writes.borrow().len(), 256, "256 OAM writes should occur by cycle 512");
+                    assert_eq!(
+                        ppu.oam_writes.borrow().len(),
+                        256,
+                        "256 OAM writes should occur by cycle 512"
+                    );
                     assert!(!dma.is_active(), "DMA should be inactive after 513 cycles");
                 },
                 _ => {},
@@ -582,12 +625,12 @@ mod tests {
 
         for cycle in 0..513 {
             let writes_before = ppu.oam_writes.borrow().len();
-            
+
             // Tick the DMA
             dma.tick();
-            
+
             let writes_after = ppu.oam_writes.borrow().len();
-            
+
             if writes_after > writes_before {
                 write_cycles.push(cycle);
             }
@@ -623,7 +666,10 @@ mod tests {
         }
 
         // Filter out duplicates and 0 addresses
-        let unique_reads: Vec<u16> = cpu.reads.borrow().iter()
+        let unique_reads: Vec<u16> = cpu
+            .reads
+            .borrow()
+            .iter()
             .filter(|&addr| *addr != 0 && *addr >= 0x3000)
             .copied()
             .collect();
@@ -707,8 +753,8 @@ mod tests {
         // Verify no more bytes are written
         dma.tick();
         assert_eq!(
-            ppu.oam_writes.borrow().len(), 
-            writes_count, 
+            ppu.oam_writes.borrow().len(),
+            writes_count,
             "No more bytes should be written after reset"
         );
 
@@ -749,15 +795,27 @@ mod tests {
 
         // First cycle is setup
         dma.tick();
-        assert_eq!(ppu.oam_writes.borrow().len(), 0, "First cycle should be setup, no data transfer");
+        assert_eq!(
+            ppu.oam_writes.borrow().len(),
+            0,
+            "First cycle should be setup, no data transfer"
+        );
 
         // Second cycle is read
         dma.tick();
-        assert_eq!(ppu.oam_writes.borrow().len(), 0, "Second cycle should be read, no OAM write");
+        assert_eq!(
+            ppu.oam_writes.borrow().len(),
+            0,
+            "Second cycle should be read, no OAM write"
+        );
 
         // Third cycle is write
         dma.tick();
-        assert_eq!(ppu.oam_writes.borrow().len(), 1, "Third cycle should produce an OAM write");
+        assert_eq!(
+            ppu.oam_writes.borrow().len(),
+            1,
+            "Third cycle should produce an OAM write"
+        );
 
         // Complete the second transfer
         for _ in 3..513 {
@@ -766,7 +824,11 @@ mod tests {
 
         // Verify second transfer is complete
         assert!(!dma.is_active(), "Second DMA transfer should be complete");
-        assert_eq!(ppu.oam_writes.borrow().len(), 256, "Should have 256 OAM writes in second transfer");
+        assert_eq!(
+            ppu.oam_writes.borrow().len(),
+            256,
+            "Should have 256 OAM writes in second transfer"
+        );
 
         Ok(())
     }
