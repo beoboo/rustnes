@@ -34,6 +34,14 @@ pub struct AsmWidget {
     continuous_run: bool,
     /// Number of cycles to run per frame in continuous mode
     cycles_per_frame: usize,
+    /// Whether to use authentic NES timing (29,780 cycles/frame)
+    use_authentic_timing: bool,
+    /// Target frames per second (independent of cycle limit)
+    target_fps: f32,
+    /// Whether to limit FPS
+    limit_fps: bool,
+    /// Last timestamp for FPS limiting
+    last_frame_time: std::time::Instant,
 }
 
 impl AsmWidget {
@@ -51,9 +59,13 @@ impl AsmWidget {
             assembler,
             load_address_editor: HexEditText::new(),
             max_cycles: 1_000_000, // Default to 1 million cycles
-            no_cycle_limit: false, // Default to using a limit
+            no_cycle_limit: true,  // Default to no cycle limit
             continuous_run: false, // Not running continuously by default
-            cycles_per_frame: 100,  // Default to 100 cycles per frame
+            cycles_per_frame: 29780, // Default to authentic NES cycles per frame
+            use_authentic_timing: true, // Default to authentic timing
+            target_fps: 60.0,      // Default to 60 FPS
+            limit_fps: true,       // Limit FPS by default
+            last_frame_time: std::time::Instant::now(),
         }
     }
 
@@ -202,7 +214,7 @@ impl AsmWidget {
         
         // Make sure cycles_per_frame has a reasonable value
         if self.cycles_per_frame == 0 {
-            self.cycles_per_frame = 100;
+            self.cycles_per_frame = 29780;
         }
 
         // The actual continuous running happens in the run_continuous method
@@ -376,18 +388,53 @@ impl AsmWidget {
                 ui.label("cycles");
             }
 
-            // "No cycle limit" checkbox
-            ui.checkbox(&mut self.no_cycle_limit, "No limit");
+            // "No cycle limit" checkbox with proper description
+            ui.checkbox(&mut self.no_cycle_limit, "No cycle limit")
+                .on_hover_text("When checked, program will run indefinitely.\nWhen unchecked, program will stop after reaching the specified number of cycles.");
+        });
+        
+        // Cycles per frame and authentic timing controls
+        ui.horizontal(|ui| {
+            // Authentic timing checkbox
+            if ui.checkbox(&mut self.use_authentic_timing, "Use authentic NES timing").clicked() {
+                // When checked, set to authentic NES timing (29,780 cycles per frame)
+                if self.use_authentic_timing {
+                    self.cycles_per_frame = 29780;
+                }
+            }
             
             ui.separator();
             
             // Cycles per frame input
             ui.label("Cycles/frame:");
-            ui.add(
+            
+            // Update widget to show the cycles per frame
+            // Use add_enabled to disable the widget when using authentic timing
+            let response = ui.add_enabled(
+                !self.use_authentic_timing,
                 egui::DragValue::new(&mut self.cycles_per_frame)
-                    .speed(10)
-                    .range(10..=10000)
+                    .speed(100)
+                    .range(10..=100_000)
             );
+            
+            // If user changed the cycles manually, turn off authentic timing
+            if response.changed() {
+                self.use_authentic_timing = false;
+            }
+        });
+        
+        // Add FPS control in a new row
+        ui.horizontal(|ui| {
+            // FPS limit checkbox
+            ui.checkbox(&mut self.limit_fps, "Limit FPS");
+            
+            if self.limit_fps {
+                ui.label("Target FPS:");
+                ui.add(
+                    egui::Slider::new(&mut self.target_fps, 1.0..=240.0)
+                        .step_by(1.0)
+                );
+            }
         });
 
         // Display any error message
@@ -405,6 +452,28 @@ impl AsmWidget {
     pub fn run_continuous(&mut self, system: &mut NesSystem) -> bool {
         if !self.continuous_run {
             return false;
+        }
+        
+        let now = std::time::Instant::now();
+        
+        // Apply FPS control - determines both timing and cycles per update
+        if self.limit_fps {
+            // Calculate the target frame duration based on the desired FPS
+            let target_frame_duration = std::time::Duration::from_secs_f32(1.0 / self.target_fps);
+            let elapsed = now.duration_since(self.last_frame_time);
+            
+            // For slowing down (target FPS < natural speed):
+            // If not enough time has passed, skip this frame to maintain lower FPS
+            if elapsed < target_frame_duration && self.target_fps <= 60.0 {
+                return true; // Skip processing but keep running
+            }
+            
+            // For both speeding up and slowing down:
+            // Only update the timestamp when we actually process a frame
+            self.last_frame_time = now;
+        } else {
+            // When FPS is not limited, still update last_frame_time for next calculation
+            self.last_frame_time = now;
         }
         
         // Check if system is in Finished state and reset if needed
@@ -441,14 +510,22 @@ impl AsmWidget {
             }
         }
         
-        // If no cycle limit, run a much larger number of cycles
-        let cycles_to_run = if self.no_cycle_limit {
-            1_000_000 // Run a lot of cycles per frame when unlimited
+        // Determine how many cycles to run this frame
+        // Scale cycles based on target FPS when FPS limiting is enabled
+        let cycles_to_run = if self.limit_fps && self.target_fps != 60.0 {
+            // Calculate cycles based on target FPS
+            // At 60 FPS we run exactly one frame's worth of cycles (29780)
+            // At higher FPS we run fewer cycles per frame
+            // At lower FPS we run more cycles per frame
+            // This gives us proper speed control in both directions
+            let speed_ratio = 60.0 / self.target_fps;
+            (self.cycles_per_frame as f32 / speed_ratio) as usize
         } else {
+            // Normal case - run exactly one frame's worth of cycles
             self.cycles_per_frame
         };
         
-        // Run a fixed number of cycles
+        // Run the calculated number of cycles
         let mut cycles_run = 0;
         while cycles_run < cycles_to_run {
             match system.step() {
@@ -469,10 +546,21 @@ impl AsmWidget {
             }
         }
         
-        // Force a frame render periodically
-        if cycles_run > 0 {
-            if self.no_cycle_limit || cycles_run % 1000 == 0 {
-                system.ppu().force_render_frame();
+        // Check if we've hit the cycle limit when no_cycle_limit is false
+        if !self.no_cycle_limit {
+            // Keep track of total cycles run in this continuous run
+            static mut TOTAL_CYCLES: usize = 0;
+            
+            unsafe {
+                TOTAL_CYCLES += cycles_run;
+                
+                // If we've reached the max cycles, stop running
+                if TOTAL_CYCLES >= self.max_cycles {
+                    log::info!("Reached cycle limit of {} cycles", self.max_cycles);
+                    self.continuous_run = false;
+                    TOTAL_CYCLES = 0; // Reset for next run
+                    return false;
+                }
             }
         }
         
