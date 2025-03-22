@@ -325,8 +325,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement controller strobe
 - [x] Implement controller polling
 - [x] Test controller input
-- [ ] Implement key mapping
-- [ ] Implement input configuration
+- [x] Implement key mapping
+- [x] Implement input configuration
 
 ### [CPU] Input Handling Instructions [T5]
 - [ ] Implement additional branches (BCC, BCS, BMI) if not already implemented
@@ -571,12 +571,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
-- Track 5 (Input Controllers): 50% complete (13/26 tasks) - Controller implementation and testing complete, visualization and key mapping in progress
+- Track 5 (Input Controllers): 58% complete (15/26 tasks) - Controller implementation, key mapping and input configuration complete
 - Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 7 (Full Desktop System): 0% complete (0/90 tasks)
 - Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 204/372 tasks complete (54.8%)** 🚀
+**Total Progress: 206/372 tasks complete (55.4%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 
