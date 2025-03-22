@@ -25,4 +25,8 @@ pub enum NesError {
 
     #[error("Cartridge not connected")]
     CartridgeNotConnected,
+    
+    /// Error for input-related issues
+    #[error("Input error: {0}")]
+    InputError(String),
 }

@@ -1,0 +1,13 @@
+[package]
+name = "rn_input"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Input handling and configuration for RustNES"
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+rn_core = { path = "../rn_core" } 

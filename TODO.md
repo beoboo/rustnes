@@ -324,12 +324,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement standard controller (D-pad, A, B, Start, Select)
 - [x] Implement controller strobe
 - [x] Implement controller polling
-- [ ] Test controller input
+- [x] Test controller input
 - [ ] Implement key mapping
 - [ ] Implement input configuration
 
 ### [CPU] Input Handling Instructions [T5]
-- [ ] Implement additional branches (BEQ, BNE) if not already implemented
+- [ ] Implement additional branches (BCC, BCS, BMI) if not already implemented
 - [ ] Implement logical operations (AND) for button masks
 - [ ] Implement arithmetic needed for input handling
 - [ ] Write tests for input handling instructions
@@ -337,13 +337,29 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ### [Memory] Controller Mapping [T5]
 - [x] Implement controller register mapping in memory ($4016-$4017)
 - [x] Implement controller reading through the bus
-- [ ] Test controller memory mapping
+- [x] Test controller memory mapping
 
 ### [System] Controller Integration [T5]
-- [ ] Connect controller input to the main system
+- [x] Connect controller input to the main system
 - [ ] Create a simple controller test program
 - [ ] Create a simple game demo using controller input
 - [ ] Document controller API and usage
+
+### [UI] Controller Visualization [T5]
+- [ ] Create a controller state visualization widget for debugging
+- [ ] Display button states for both controllers
+- [ ] Implement real-time updates of controller state
+- [ ] Add controller state manipulation through the UI
+- [ ] Connect controller widget to controller handler
+- [ ] Test controller visualization with input changes
+- [ ] Add visual feedback when buttons are pressed
+- [ ] Document the controller visualization widget
+
+### [Testing] Controller Test ROM [T5]
+- [x] Create a test ROM for visualizing controller input on screen
+- [ ] Run the controller test ROM on the emulator
+- [ ] Verify all controller buttons work correctly
+- [ ] Use the test ROM to diagnose any input issues
 
 ## MILESTONE 6: Mappers & Cartridges [T6]
 - [ ] Implement support for different ROM formats
@@ -555,12 +571,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
-- Track 5 (Input Controllers): 35% complete (7/20 tasks) - Controller registers and polling implemented
+- Track 5 (Input Controllers): 50% complete (13/26 tasks) - Controller implementation and testing complete, visualization and key mapping in progress
 - Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 7 (Full Desktop System): 0% complete (0/90 tasks)
 - Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 198/366 tasks complete (54.1%)** 🚀
+**Total Progress: 204/372 tasks complete (54.8%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 
