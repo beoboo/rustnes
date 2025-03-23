@@ -377,10 +377,10 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### [APU] Basic Audio Framework [T6]
 - [x] Define a simple tone generator test ASM that uses APU registers
-- [ ] Design minimal APU component structure to support the test ASM
+- [x] Design minimal APU component structure to support the test ASM
 - [ ] Implement core APU registers ($4000-$4015, $4017)
-- [ ] Add APU component to the Bus architecture
-- [ ] Implement basic register reading/writing
+- [x] Add APU component to the Bus architecture
+- [x] Implement basic register reading/writing
 - [ ] Set up audio output device connection
 - [ ] Implement minimal audio buffer with proper timing
 - [ ] Create basic audio callback for device output
