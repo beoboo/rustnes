@@ -279,7 +279,7 @@ impl ControllerHandlerWrapper {
     pub fn set_controller2_state(&self, state: ControllerState) {
         self.handler.borrow_mut().set_controller2_state(state);
     }
-    
+
     /// Get a snapshot of controller 1's current state
     pub fn get_controller1_state(&self) -> ControllerState {
         // Since the controller handler doesn't directly store the state,
@@ -289,7 +289,7 @@ impl ControllerHandlerWrapper {
         let controller1 = &handler.controller1;
         controller1.controller_state.clone()
     }
-    
+
     /// Get a snapshot of controller 2's current state
     pub fn get_controller2_state(&self) -> ControllerState {
         let handler = self.handler.borrow();

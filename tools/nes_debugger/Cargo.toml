@@ -14,4 +14,5 @@ log.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 clap = { version = "4.4", features = ["derive"] }
 rn_core = { path = "../../crates/rn_core" }
-rn_ui = { path = "../../crates/rn_ui" } 
+rn_ui = { path = "../../crates/rn_ui" }
+rn_input = { path = "../../crates/rn_input" } 

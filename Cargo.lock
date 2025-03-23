@@ -1994,6 +1994,7 @@ dependencies = [
  "egui_dock",
  "log",
  "rn_core",
+ "rn_input",
  "rn_ui",
  "tracing-subscriber",
 ]
@@ -2686,6 +2687,7 @@ dependencies = [
  "egui",
  "log",
  "rn_core",
+ "rn_input",
  "shrev",
  "tracing-subscriber",
 ]

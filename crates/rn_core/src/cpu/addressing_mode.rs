@@ -367,7 +367,7 @@ impl AddressingMode {
         if operand.is_empty() {
             return Ok(Self::Implied);
         }
-        
+
         // 2a. Handle "A" operand for accumulator addressing
         if operand.eq_ignore_ascii_case("a") {
             // Check if the instruction supports accumulator addressing

@@ -218,12 +218,12 @@ impl InstructionDecoder {
         self.add_instruction(0x0D, Instruction::ORA, AddressingMode::Absolute, 3, 4);
         self.add_instruction(0x1D, Instruction::ORA, AddressingMode::AbsoluteX, 3, 4);
         self.add_instruction(0x19, Instruction::ORA, AddressingMode::AbsoluteY, 3, 4);
-        
+
         // Shift instructions
         self.add_instruction(0x0A, Instruction::ASL, AddressingMode::Accumulator, 1, 2);
         self.add_instruction(0x06, Instruction::ASL, AddressingMode::ZeroPage, 2, 5);
         self.add_instruction(0x0E, Instruction::ASL, AddressingMode::Absolute, 3, 6);
-        
+
         self.add_instruction(0x4A, Instruction::LSR, AddressingMode::Accumulator, 1, 2);
         self.add_instruction(0x46, Instruction::LSR, AddressingMode::ZeroPage, 2, 5);
         self.add_instruction(0x4E, Instruction::LSR, AddressingMode::Absolute, 3, 6);
@@ -786,18 +786,18 @@ impl Cpu {
     pub fn cpx(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
         // Get the operand address
         let addr = addressing_mode.get_operand_address(self)?;
-        
+
         // Get the value from the address without setting flags
         let value = self.read_byte(addr)?;
-        
+
         // Compare with X register
         let result = self.registers.x.wrapping_sub(value);
-        
+
         // Set flags based on comparison result
         self.set_flag(CpuFlag::Carry, self.registers.x >= value);
         self.set_flag(CpuFlag::Zero, self.registers.x == value);
         self.set_flag(CpuFlag::Negative, (result & 0x80) != 0);
-        
+
         Ok(())
     }
 }
@@ -2411,321 +2411,321 @@ mod tests {
     #[test]
     fn test_ora_instruction() -> Result<()> {
         let mut cpu = setup_cpu();
-        
+
         // Test case 1: ORA immediate mode
         cpu.registers.a = 0b00001010; // %00001010
         cpu.write_byte(0x0100, 0x09)?; // ORA #$55 (immediate)
         cpu.write_byte(0x0101, 0x55)?; // Value: %01010101
         cpu.registers.pc = 0x0100;
-        
+
         // Execute the ORA instruction
         cpu.step()?;
-        
+
         // A should be %00001010 | %01010101 = %01011111
         assert_eq!(cpu.registers.a, 0x5F);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 2: ORA with negative result
         cpu.registers.a = 0b00001010; // %00001010
         cpu.write_byte(0x0200, 0x09)?; // ORA #$AA (immediate)
         cpu.write_byte(0x0201, 0xAA)?; // Value: %10101010
         cpu.registers.pc = 0x0200;
-        
+
         // Execute the ORA instruction
         cpu.step()?;
-        
+
         // A should be %00001010 | %10101010 = %10101010
         assert_eq!(cpu.registers.a, 0xAA);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be set (bit 7 is 1)
         assert!(cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 3: ORA with zero page,X mode
         cpu.registers.a = 0b00000000; // Set A to %00000000
         cpu.registers.x = 0x01; // X = 1 (offset)
-        
+
         cpu.write_byte(0x0300, 0x15)?; // ORA $10,X (zero page,X)
         cpu.write_byte(0x0301, 0x10)?; // Base address: $10
         cpu.write_byte(0x0011, 0x0F)?; // Value at $10+X=$11: %00001111
         cpu.registers.pc = 0x0300;
-        
+
         // Execute the ORA instruction
         cpu.step()?;
-        
+
         // A should be %00000000 | %00001111 = %00001111
         assert_eq!(cpu.registers.a, 0x0F);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 4: ORA with zero result
         cpu.registers.a = 0x00;
         cpu.write_byte(0x0400, 0x09)?; // ORA #$00 (immediate)
         cpu.write_byte(0x0401, 0x00)?; // Value: %00000000
         cpu.registers.pc = 0x0400;
-        
+
         // Execute the ORA instruction
         cpu.step()?;
-        
+
         // A should remain 0
         assert_eq!(cpu.registers.a, 0x00);
         // Zero flag should be set
         assert!(cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         Ok(())
     }
 
     #[test]
     fn test_register_transfer_instructions() -> Result<()> {
         let mut cpu = setup_cpu();
-        
+
         // Test TAY instruction
         // Test case 1: Transfer non-zero, non-negative value
         cpu.registers.a = 0x42;
         cpu.write_byte(0x0100, 0xA8)?; // TAY (implied)
         cpu.registers.pc = 0x0100;
-        
+
         // Execute the TAY instruction
         cpu.step()?;
-        
+
         // Y should now equal A
         assert_eq!(cpu.registers.y, 0x42);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 2: Transfer zero value
         cpu.registers.a = 0x00;
         cpu.write_byte(0x0200, 0xA8)?; // TAY (implied)
         cpu.registers.pc = 0x0200;
-        
+
         // Execute the TAY instruction
         cpu.step()?;
-        
+
         // Y should now equal A (0)
         assert_eq!(cpu.registers.y, 0x00);
         // Zero flag should be set
         assert!(cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 3: Transfer negative value
         cpu.registers.a = 0x80;
         cpu.write_byte(0x0300, 0xA8)?; // TAY (implied)
         cpu.registers.pc = 0x0300;
-        
+
         // Execute the TAY instruction
         cpu.step()?;
-        
+
         // Y should now equal A
         assert_eq!(cpu.registers.y, 0x80);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be set
         assert!(cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test TYA instruction
         // Test case 1: Transfer non-zero, non-negative value
         cpu.registers.y = 0x42;
         cpu.write_byte(0x0400, 0x98)?; // TYA (implied)
         cpu.registers.pc = 0x0400;
-        
+
         // Execute the TYA instruction
         cpu.step()?;
-        
+
         // A should now equal Y
         assert_eq!(cpu.registers.a, 0x42);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 2: Transfer zero value
         cpu.registers.y = 0x00;
         cpu.write_byte(0x0500, 0x98)?; // TYA (implied)
         cpu.registers.pc = 0x0500;
-        
+
         // Execute the TYA instruction
         cpu.step()?;
-        
+
         // A should now equal Y (0)
         assert_eq!(cpu.registers.a, 0x00);
         // Zero flag should be set
         assert!(cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 3: Transfer negative value
         cpu.registers.y = 0x80;
         cpu.write_byte(0x0600, 0x98)?; // TYA (implied)
         cpu.registers.pc = 0x0600;
-        
+
         // Execute the TYA instruction
         cpu.step()?;
-        
+
         // A should now equal Y
         assert_eq!(cpu.registers.a, 0x80);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be set
         assert!(cpu.is_flag_set(CpuFlag::Negative));
-        
+
         Ok(())
     }
 
     #[test]
     fn test_x_register_operations() -> Result<()> {
         let mut cpu = setup_cpu();
-        
+
         // Test INX instruction
         // Test case 1: Increment from zero
         cpu.registers.x = 0x00;
         cpu.write_byte(0x0100, 0xE8)?; // INX (implied)
         cpu.registers.pc = 0x0100;
-        
+
         // Execute the INX instruction
         cpu.step()?;
-        
+
         // X should be incremented to 1
         assert_eq!(cpu.registers.x, 0x01);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 2: Increment from 0x7F to 0x80 (set negative flag)
         cpu.registers.x = 0x7F;
         cpu.write_byte(0x0200, 0xE8)?; // INX (implied)
         cpu.registers.pc = 0x0200;
-        
+
         // Execute the INX instruction
         cpu.step()?;
-        
+
         // X should be incremented to 0x80
         assert_eq!(cpu.registers.x, 0x80);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be set
         assert!(cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 3: Increment from 0xFF to 0x00 (wrap around)
         cpu.registers.x = 0xFF;
         cpu.write_byte(0x0300, 0xE8)?; // INX (implied)
         cpu.registers.pc = 0x0300;
-        
+
         // Execute the INX instruction
         cpu.step()?;
-        
+
         // X should wrap around to 0
         assert_eq!(cpu.registers.x, 0x00);
         // Zero flag should be set
         assert!(cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test DEX instruction
         // Test case 1: Decrement from 2 to 1
         cpu.registers.x = 0x02;
         cpu.write_byte(0x0400, 0xCA)?; // DEX (implied)
         cpu.registers.pc = 0x0400;
-        
+
         // Execute the DEX instruction
         cpu.step()?;
-        
+
         // X should be decremented to 1
         assert_eq!(cpu.registers.x, 0x01);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 2: Decrement from 0x81 to 0x80
         cpu.registers.x = 0x81;
         cpu.write_byte(0x0500, 0xCA)?; // DEX (implied)
         cpu.registers.pc = 0x0500;
-        
+
         // Execute the DEX instruction
         cpu.step()?;
-        
+
         // X should be decremented to 0x80
         assert_eq!(cpu.registers.x, 0x80);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be set
         assert!(cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 3: Decrement from 0x00 to 0xFF (wrap around)
         cpu.registers.x = 0x00;
         cpu.write_byte(0x0600, 0xCA)?; // DEX (implied)
         cpu.registers.pc = 0x0600;
-        
+
         // Execute the DEX instruction
         cpu.step()?;
-        
+
         // X should wrap around to 0xFF
         assert_eq!(cpu.registers.x, 0xFF);
         // Zero flag should be clear
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be set
         assert!(cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test CPX instruction
         // Test case 1: X > Memory (0xFF > 0x80)
         cpu.registers.x = 0xFF;
         cpu.write_byte(0x0700, 0xE0)?; // CPX #$80 (immediate)
         cpu.write_byte(0x0701, 0x80)?; // Value to compare
         cpu.registers.pc = 0x0700;
-        
+
         // Execute the CPX instruction
         cpu.step()?;
-        
+
         // Carry flag should be set (X >= Memory)
         assert!(cpu.is_flag_set(CpuFlag::Carry));
         // Zero flag should be clear (X != Memory)
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear (bit 7 of result is NOT set)
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 2: X = Memory (0x42 = 0x42)
         cpu.registers.x = 0x42;
         cpu.write_byte(0x0800, 0xE0)?; // CPX #$42 (immediate)
         cpu.write_byte(0x0801, 0x42)?; // Value to compare
         cpu.registers.pc = 0x0800;
-        
+
         // Execute the CPX instruction
         cpu.step()?;
-        
+
         // Carry flag should be set (X >= Memory)
         assert!(cpu.is_flag_set(CpuFlag::Carry));
         // Zero flag should be set (X == Memory)
         assert!(cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be clear (bit 7 of result is clear)
         assert!(!cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 3: X < Memory (0x40 < 0x80)
         cpu.registers.x = 0x40;
         cpu.write_byte(0x0900, 0xE0)?; // CPX #$80 (immediate)
         cpu.write_byte(0x0901, 0x80)?; // Value to compare
         cpu.registers.pc = 0x0900;
-        
+
         // Execute the CPX instruction
         cpu.step()?;
-        
+
         // Carry flag should be clear (X < Memory)
         assert!(!cpu.is_flag_set(CpuFlag::Carry));
         // Zero flag should be clear (X != Memory)
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be set (bit 7 of result is set)
         assert!(cpu.is_flag_set(CpuFlag::Negative));
-        
+
         // Test case 4: X < Memory with zero page addressing (0x40 < 0x80)
         cpu.registers.x = 0x40;
         cpu.write_byte(0x0A00, 0xE4)?; // CPX $20 (zero page)
@@ -2742,7 +2742,7 @@ mod tests {
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be set (bit 7 of result is set)
         assert!(cpu.is_flag_set(CpuFlag::Negative));
-        
+
         Ok(())
     }
 
@@ -2752,59 +2752,62 @@ mod tests {
 
         // Set up memory and registers
         cpu.write_byte(0x0042, 0x0F)?; // Value at zero page $42
-        cpu.registers.a = 0x30;        // Initial value in accumulator
-        
+        cpu.registers.a = 0x30; // Initial value in accumulator
+
         // Expected result: 0x30 | 0x0F = 0x3F
-        
+
         // Set up ORA instruction with zero page addressing mode
         cpu.write_byte(0x0100, 0x05)?; // ORA ZeroPage
         cpu.write_byte(0x0101, 0x42)?; // Zero page address $42
         cpu.registers.pc = 0x0100;
-        
+
         // Execute the ORA instruction
         let cycles = cpu.step()?;
-        
+
         // Verify results
         assert_eq!(cpu.registers.a, 0x3F, "A register should be updated to 0x3F");
         assert_eq!(cpu.registers.pc, 0x0102, "PC should advance by 2 bytes");
         assert_eq!(cycles, 3, "ORA ZeroPage should take 3 cycles");
         assert!(!cpu.is_flag_set(CpuFlag::Zero), "Zero flag should not be set");
         assert!(!cpu.is_flag_set(CpuFlag::Negative), "Negative flag should not be set");
-        
+
         // Test with a value that results in a negative result (bit 7 set)
         cpu.write_byte(0x0200, 0x05)?; // ORA ZeroPage
         cpu.write_byte(0x0201, 0x42)?; // Zero page address $42
-        
+
         // Change the values to produce a negative result
         cpu.write_byte(0x0042, 0x80)?; // Value with bit 7 set
-        cpu.registers.a = 0x01;        // Small value in accumulator
+        cpu.registers.a = 0x01; // Small value in accumulator
         cpu.registers.pc = 0x0200;
-        
+
         // Execute the instruction again
         cpu.step()?;
-        
+
         // Verify results for negative case
         assert_eq!(cpu.registers.a, 0x81, "A register should be updated to 0x81");
-        assert!(cpu.is_flag_set(CpuFlag::Negative), "Negative flag should be set (bit 7 is set)");
+        assert!(
+            cpu.is_flag_set(CpuFlag::Negative),
+            "Negative flag should be set (bit 7 is set)"
+        );
         assert!(!cpu.is_flag_set(CpuFlag::Zero), "Zero flag should not be set");
-        
+
         // Test with a value that results in zero
         cpu.write_byte(0x0300, 0x05)?; // ORA ZeroPage
         cpu.write_byte(0x0301, 0x42)?; // Zero page address $42
-        
+
         // Change the values to produce a zero result
         cpu.write_byte(0x0042, 0x00)?; // Zero value in memory
-        cpu.registers.a = 0x00;        // Zero in accumulator
+        cpu.registers.a = 0x00; // Zero in accumulator
         cpu.registers.pc = 0x0300;
-        
+
         // Execute the instruction again
         cpu.step()?;
-        
+
         // Verify results for zero case
         assert_eq!(cpu.registers.a, 0x00, "A register should still be 0x00");
         assert!(cpu.is_flag_set(CpuFlag::Zero), "Zero flag should be set");
         assert!(!cpu.is_flag_set(CpuFlag::Negative), "Negative flag should not be set");
-        
+
         Ok(())
     }
 
@@ -2813,27 +2816,27 @@ mod tests {
         // This test verifies that instructions with implied addressing mode
         // are properly implemented and recognized by the assembler
         let mut assembler = Assembler::new(0);
-        
+
         // Test TYA (Transfer Y to Accumulator) - Implied addressing
         let bytes = assembler.assemble_instruction("TYA", &HashMap::new())?;
         assert_eq!(bytes.len(), 1, "TYA should assemble to 1 byte (just the opcode)");
         assert_eq!(bytes[0], 0x98, "TYA opcode should be 0x98");
-        
+
         // Test TAY (Transfer Accumulator to Y) - Implied addressing
         let bytes = assembler.assemble_instruction("TAY", &HashMap::new())?;
         assert_eq!(bytes.len(), 1, "TAY should assemble to 1 byte (just the opcode)");
         assert_eq!(bytes[0], 0xA8, "TAY opcode should be 0xA8");
-        
+
         // Test INX (Increment X) - Implied addressing
         let bytes = assembler.assemble_instruction("INX", &HashMap::new())?;
         assert_eq!(bytes.len(), 1, "INX should assemble to 1 byte (just the opcode)");
         assert_eq!(bytes[0], 0xE8, "INX opcode should be 0xE8");
-        
+
         // Test DEX (Decrement X) - Implied addressing
         let bytes = assembler.assemble_instruction("DEX", &HashMap::new())?;
         assert_eq!(bytes.len(), 1, "DEX should assemble to 1 byte (just the opcode)");
         assert_eq!(bytes[0], 0xCA, "DEX opcode should be 0xCA");
-        
+
         Ok(())
     }
 }

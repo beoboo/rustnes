@@ -33,10 +33,7 @@ pub enum AssembleError {
     InvalidSyntax(String),
 
     #[error("Invalid syntax in line '{line}': {message}")]
-    InvalidSyntaxWithContext {
-        line: String,
-        message: String,
-    },
+    InvalidSyntaxWithContext { line: String, message: String },
 
     #[error("Label error: {0}")]
     LabelError(String),
@@ -566,7 +563,7 @@ impl Assembler {
                                 // Check for accumulator addressing mode
                                 if operand.trim().eq_ignore_ascii_case("a") {
                                     real_instruction_size = 1; // Just the opcode for accumulator mode
-                                    
+
                                     // Debug logging for accumulator addressing
                                     log::debug!(
                                         "Instruction '{}' with accumulator addressing, size: 1 byte",
@@ -579,13 +576,13 @@ impl Assembler {
                                     } else {
                                         &operand
                                     };
-                                    
+
                                     // Look up the label address from first pass
                                     if let Some(&label_addr) = initial_labels.get(base_label) {
                                         // For JSR and JMP, always use absolute addressing (3 bytes)
                                         if instruction.is_jump() {
                                             real_instruction_size = AddressingMode::Absolute.size();
-                                            
+
                                             // Debug logging for JSR instructions
                                             if instruction == Instruction::JSR {
                                                 log::debug!(
@@ -595,22 +592,30 @@ impl Assembler {
                                                 );
                                             }
                                         } else if instruction.is_branch() {
-                                            real_instruction_size = AddressingMode::Relative.size(); // 2 bytes total
+                                            real_instruction_size = AddressingMode::Relative.size();
+                                        // 2 bytes total
                                         } else if operand.contains(",X") || operand.contains(",Y") {
                                             real_instruction_size = if label_addr <= 0xFF {
-                                                AddressingMode::ZeroPageX.size() // 2 bytes
+                                                AddressingMode::ZeroPageX.size()
+                                            // 2 bytes
                                             } else {
-                                                AddressingMode::AbsoluteX.size() // 3 bytes
+                                                AddressingMode::AbsoluteX.size()
+                                                // 3 bytes
                                             };
                                         } else if label_addr <= 0xFF {
-                                            real_instruction_size = AddressingMode::ZeroPage.size(); // 2 bytes total
+                                            real_instruction_size = AddressingMode::ZeroPage.size();
+                                        // 2 bytes total
                                         } else {
-                                            real_instruction_size = AddressingMode::Absolute.size(); // 3 bytes total
+                                            real_instruction_size = AddressingMode::Absolute.size();
+                                            // 3 bytes total
                                         }
                                     } else {
                                         // Label not found - use default size (absolute addressing)
                                         real_instruction_size = 3;
-                                        log::warn!("Label '{}' not found in first pass, using default size 3", base_label);
+                                        log::warn!(
+                                            "Label '{}' not found in first pass, using default size 3",
+                                            base_label
+                                        );
                                     }
                                 } else {
                                     // Not a label reference - parse addressing mode and get size
@@ -947,10 +952,15 @@ impl Assembler {
                     let metadata = self.decoder.lookup(instruction, AddressingMode::Accumulator)?;
                     return Ok(vec![metadata.opcode]);
                 },
-                _ => return Err(AssembleError::InvalidSyntaxWithContext {
-                    line: input.to_string(),
-                    message: format!("Instruction '{}' does not support accumulator addressing mode", instruction),
-                }),
+                _ => {
+                    return Err(AssembleError::InvalidSyntaxWithContext {
+                        line: input.to_string(),
+                        message: format!(
+                            "Instruction '{}' does not support accumulator addressing mode",
+                            instruction
+                        ),
+                    })
+                },
             }
         }
 
@@ -1024,7 +1034,7 @@ impl Assembler {
         if operand.trim().eq_ignore_ascii_case("a") {
             return false;
         }
-        
+
         // Remove any index indicators (like ",X" or ",Y")
         let base_operand = if let Some(idx_pos) = operand.find(',') {
             &operand[..idx_pos]
@@ -1105,13 +1115,13 @@ impl Assembler {
         // Check for zero page X-indexed addressing ($00,X)
         if let Some(index_pos) = operand.find(",X") {
             let value_part = &operand[..index_pos];
-            
+
             // Check if it's a label reference like ButtonMasks,X
             if !value_part.starts_with('$') {
                 // This is a label reference with X-indexing
                 return Ok((AddressingMode::AbsoluteX, 0)); // Value will be resolved later
             }
-            
+
             // Handle normal $00,X or $1234,X
             let value = parse_value::<u16>(value_part)?;
             if value <= 0xFF {
@@ -1124,13 +1134,13 @@ impl Assembler {
         // Check for zero page Y-indexed addressing ($00,Y)
         if let Some(index_pos) = operand.find(",Y") {
             let value_part = &operand[..index_pos];
-            
+
             // Check if it's a label reference like ButtonMasks,Y
             if !value_part.starts_with('$') {
                 // This is a label reference with Y-indexing
                 return Ok((AddressingMode::AbsoluteY, 0)); // Value will be resolved later
             }
-            
+
             // Handle normal $00,Y or $1234,Y
             let value = parse_value::<u16>(value_part)?;
             if value <= 0xFF {
@@ -1213,7 +1223,7 @@ impl Assembler {
             line: line.to_string(),
             message: format!("Missing operand for instruction '{}'", instruction),
         })?;
-        
+
         // Check for accumulator addressing mode
         if operand.trim().eq_ignore_ascii_case("a") {
             return Ok(1); // Just the opcode for accumulator addressing
@@ -1312,7 +1322,7 @@ fn process_line(line: &str) -> AssembleResult<(String, Option<String>)> {
     // A label can be at the start of the line and followed by a colon
     if let Some(colon_pos) = trimmed.find(':') {
         label = trimmed[..colon_pos].trim().to_string();
-        
+
         // Get the code part after the colon, if any
         let code_part = trimmed[colon_pos + 1..].trim();
         if !code_part.is_empty() {
@@ -1325,7 +1335,11 @@ fn process_line(line: &str) -> AssembleResult<(String, Option<String>)> {
 
     // Debug logging for WaitForVBlank label or code
     if label == "WaitForVBlank" || code.as_ref().map_or(false, |c| c.contains("WaitForVBlank")) {
-        log::debug!("Processing line with WaitForVBlank - Label: '{}', Code: '{:?}'", label, code);
+        log::debug!(
+            "Processing line with WaitForVBlank - Label: '{}', Code: '{:?}'",
+            label,
+            code
+        );
     }
 
     Ok((label, code))
@@ -1456,10 +1470,12 @@ fn split_instruction(input: &str) -> AssembleResult<(Instruction, Option<String>
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use anyhow::Result;
+
     use super::*;
     use crate::cpu::AddressingMode;
-    use std::collections::HashMap;
 
     /// Tests for instruction parsing (mnemonic recognition)
     #[test]
@@ -2251,18 +2267,18 @@ mod tests {
     fn test_asl_addressing_modes() -> Result<()> {
         let mut assembler = Assembler::new(0x8000);
         let labels = HashMap::new();
-        
+
         // Test ASL with accumulator addressing
         let bytes = assembler.assemble_instruction("ASL A", &labels)?;
         assert_eq!(bytes.len(), 1);
         assert_eq!(bytes[0], 0x0A, "ASL A should assemble to opcode 0x0A");
-        
+
         // Test ASL with zero page addressing
         let bytes = assembler.assemble_instruction("ASL $10", &labels)?;
         assert_eq!(bytes.len(), 2);
         assert_eq!(bytes[0], 0x06, "ASL $10 should assemble to opcode 0x06");
         assert_eq!(bytes[1], 0x10);
-        
+
         // Test ASL with absolute addressing
         let bytes = assembler.assemble_instruction("ASL $1000", &labels)?;
         assert_eq!(bytes.len(), 3);
@@ -2277,18 +2293,18 @@ mod tests {
     fn test_lsr_addressing_modes() -> Result<()> {
         let mut assembler = Assembler::new(0x8000);
         let labels = HashMap::new();
-        
+
         // Test LSR with accumulator addressing
         let bytes = assembler.assemble_instruction("LSR A", &labels)?;
         assert_eq!(bytes.len(), 1);
         assert_eq!(bytes[0], 0x4A, "LSR A should assemble to opcode 0x4A");
-        
+
         // Test LSR with zero page addressing
         let bytes = assembler.assemble_instruction("LSR $10", &labels)?;
         assert_eq!(bytes.len(), 2);
         assert_eq!(bytes[0], 0x46, "LSR $10 should assemble to opcode 0x46");
         assert_eq!(bytes[1], 0x10);
-        
+
         // Test LSR with absolute addressing
         let bytes = assembler.assemble_instruction("LSR $1000", &labels)?;
         assert_eq!(bytes.len(), 3);
@@ -2303,17 +2319,17 @@ mod tests {
     fn test_accumulator_addressing_mode_parsing() -> Result<()> {
         // Test that from_instruction correctly identifies accumulator addressing
         let addressing_mode = AddressingMode::from_instruction(Instruction::ASL, "A")?;
-        
+
         // The implementation should now correctly return Accumulator for "A" with ASL instruction
-            assert_eq!(
-            addressing_mode, 
-            AddressingMode::Accumulator, 
+        assert_eq!(
+            addressing_mode,
+            AddressingMode::Accumulator,
             "from_instruction should return Accumulator for 'A' operand with ASL instruction"
         );
-        
+
         // Test with a non-shift instruction where "A" should still be treated as Implied
         let addressing_mode = AddressingMode::from_instruction(Instruction::LDA, "A")?;
-            assert_eq!(
+        assert_eq!(
             addressing_mode,
             AddressingMode::Implied,
             "from_instruction should return Implied for 'A' operand with non-shift instructions"
@@ -2326,43 +2342,43 @@ mod tests {
     fn test_indexed_label_references() -> AssembleResult<()> {
         // Create an assembler instance
         let mut assembler = Assembler::new(0x8000);
-        
+
         // Create a labels hashmap with test values
         let mut labels = HashMap::new();
         labels.insert("ButtonMasks".to_string(), 0x8500);
-        
+
         // Test X-indexed absolute addressing (ButtonMasks,X)
         let result = assembler.assemble_instruction("AND ButtonMasks,X", &labels)?;
-        
+
         // Expected output: AND instruction with AbsoluteX addressing mode for ButtonMasks
         // Opcode 0x3D (AND AbsoluteX) followed by the address bytes in little-endian
         assert_eq!(result.len(), 3, "AND ButtonMasks,X should be 3 bytes");
         assert_eq!(result[0], 0x3D, "First byte should be opcode 0x3D (AND AbsoluteX)");
         assert_eq!(result[1], 0x00, "Second byte should be low byte of address (0x8500)");
         assert_eq!(result[2], 0x85, "Third byte should be high byte of address (0x8500)");
-        
+
         // Test Y-indexed absolute addressing (ButtonMasks,Y)
         let result = assembler.assemble_instruction("AND ButtonMasks,Y", &labels)?;
-        
+
         // Expected output: AND instruction with AbsoluteY addressing mode for ButtonMasks
         // Opcode 0x39 (AND AbsoluteY) followed by the address bytes in little-endian
         assert_eq!(result.len(), 3, "AND ButtonMasks,Y should be 3 bytes");
         assert_eq!(result[0], 0x39, "First byte should be opcode 0x39 (AND AbsoluteY)");
         assert_eq!(result[1], 0x00, "Second byte should be low byte of address (0x8500)");
         assert_eq!(result[2], 0x85, "Third byte should be high byte of address (0x8500)");
-        
+
         // Test with a variable in zero page range
         // The handle_label_reference function now optimizes for zero page addressing
         labels.insert("ZeroVar".to_string(), 0x0042);
-        
+
         // Test X-indexed addressing with a zero page variable (ZeroVar,X)
         let result = assembler.assemble_instruction("AND ZeroVar,X", &labels)?;
-        
+
         // Now our assembler correctly uses ZeroPageX for zero page variables with X-indexing
         assert_eq!(result.len(), 2, "AND ZeroVar,X should be 2 bytes (uses ZeroPageX)");
         assert_eq!(result[0], 0x35, "First byte should be opcode 0x35 (AND ZeroPageX)");
         assert_eq!(result[1], 0x42, "Second byte should be the address (0x0042)");
-        
+
         Ok(())
     }
 }

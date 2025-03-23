@@ -11,12 +11,15 @@ use rn_core::{
     memory::Addressable,
     system::{NesSystem, SystemState},
 };
+use rn_input::{controller_profile::ControllerProfile, key_mapping::KeyMappingManager};
 use rn_ui::widgets::{
+    convert_egui_key,
     AsmWidget,
     ControllerWidget,
     CpuWidget,
     DisasmWidget,
     DmaControllerWidget,
+    KeyboardMappingsWidget,
     MemoryPixelAdapter,
     MemoryWidget,
     PatternTableWidget,
@@ -126,9 +129,13 @@ struct NesDebugger {
     disasm_widget: DisasmWidget,
     memory_widget: MemoryWidget,
     pattern_table_widget: PatternTableWidget,
+    keyboard_mappings_widget: KeyboardMappingsWidget,
 
     // Emulation state
     system: Rc<RefCell<NesSystem>>,
+
+    // Input handling
+    key_mapping_manager: KeyMappingManager,
 
     // Dock state
     dock_state: DockState<DockTab>,
@@ -376,6 +383,14 @@ impl NesDebugger {
         // Create the NES system
         let system = Rc::new(RefCell::new(NesSystem::new()));
 
+        // Create input manager with default and WASD profiles
+        let mut key_mapping_manager = KeyMappingManager::new();
+        key_mapping_manager.add_profile(ControllerProfile::create_default_profile("Default"));
+        key_mapping_manager.add_profile(ControllerProfile::create_wasd_profile());
+        key_mapping_manager
+            .set_controller1_profile("WASD Layout")
+            .expect("Failed to set WASD profile");
+
         // Create initial dock state with all our tabs
         let mut dock_state = DockState::new(vec![DockTab::Assembly, DockTab::Memory, DockTab::PatternTable]);
 
@@ -422,7 +437,9 @@ impl NesDebugger {
                 .with_bytes_per_row(16)
                 .with_editable(true),
             pattern_table_widget: PatternTableWidget::new(),
+            keyboard_mappings_widget: KeyboardMappingsWidget::new(),
             system,
+            key_mapping_manager,
             dock_state,
             context: AppContext {
                 display_mode: DisplayMode::Memory,
@@ -434,6 +451,46 @@ impl NesDebugger {
 
 impl App for NesDebugger {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        // Handle keyboard input for controller
+        if ctx.input(|i| i.focused) {
+            // Process key events
+            ctx.input_mut(|input| {
+                // Handle key presses
+                for event in &input.events {
+                    match event {
+                        egui::Event::Key {
+                            key,
+                            pressed,
+                            repeat: false, // Ignore key repeats
+                            ..
+                        } => {
+                            if let Some(our_key) = convert_egui_key(*key) {
+                                // Update key state in our mapping manager
+                                if *pressed {
+                                    if let Ok(state) = self.key_mapping_manager.process_controller1_key_press(our_key) {
+                                        // Set controller state in NES system
+                                        let system = self.system.borrow_mut();
+                                        system.controller_handler().set_controller1_state(state);
+                                    }
+                                } else {
+                                    if let Ok(state) = self.key_mapping_manager.process_controller1_key_release(our_key)
+                                    {
+                                        // Set controller state in NES system
+                                        let system = self.system.borrow_mut();
+                                        system.controller_handler().set_controller1_state(state);
+                                    }
+                                }
+                            }
+                        },
+                        _ => {},
+                    }
+                }
+
+                // Consume key events to avoid them being processed multiple times
+                input.events.clear();
+            });
+        }
+
         // Load the initial file if specified and not yet loaded
         if !self.initial_file_loaded {
             if let Some(file_path) = &self.args.asm_file {
@@ -525,6 +582,38 @@ impl App for NesDebugger {
                         self.context.display_mode = DisplayMode::Ppu;
                         ui.close_menu();
                     }
+
+                    ui.separator();
+
+                    // Controller profile submenu
+                    ui.menu_button("Controller Profile", |ui| {
+                        // Default profile
+                        if ui.button("Default").clicked() {
+                            if let Err(e) = self.key_mapping_manager.set_controller1_profile("Default") {
+                                error!("Failed to switch to Default profile: {}", e);
+                            } else {
+                                info!("Switched to Default controller profile");
+                            }
+                            ui.close_menu();
+                        }
+
+                        // WASD profile
+                        if ui.button("WASD Layout").clicked() {
+                            if let Err(e) = self.key_mapping_manager.set_controller1_profile("WASD Layout") {
+                                error!("Failed to switch to WASD Layout profile: {}", e);
+                            } else {
+                                info!("Switched to WASD Layout controller profile");
+                            }
+                            ui.close_menu();
+                        }
+                    });
+                });
+
+                ui.menu_button("View", |ui| {
+                    if ui.button("Keyboard Mappings").clicked() {
+                        self.keyboard_mappings_widget.toggle_visibility();
+                        ui.close_menu();
+                    }
                 });
 
                 // Add system state indicator
@@ -563,6 +652,9 @@ impl App for NesDebugger {
             DockArea::new(&mut self.dock_state)
                 .style(Style::from_egui(ui.style().as_ref()))
                 .show(ctx, &mut tab_viewer);
+
+            // Render keyboard mappings widget (if visible)
+            self.keyboard_mappings_widget.ui(ctx, &self.key_mapping_manager);
         });
     }
 }
