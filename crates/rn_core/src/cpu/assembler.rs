@@ -563,22 +563,54 @@ impl Assembler {
                             if instruction.has_implied_addressing() {
                                 real_instruction_size = 1; // Just the opcode
                             } else if let Some(operand) = operand_opt {
-                                if self.is_label_reference(&operand) {
+                                // Check for accumulator addressing mode
+                                if operand.trim().eq_ignore_ascii_case("a") {
+                                    real_instruction_size = 1; // Just the opcode for accumulator mode
+                                    
+                                    // Debug logging for accumulator addressing
+                                    log::debug!(
+                                        "Instruction '{}' with accumulator addressing, size: 1 byte",
+                                        instruction
+                                    );
+                                } else if self.is_label_reference(&operand) {
+                                    // Extract the base label without any index
+                                    let base_label = if let Some(idx_pos) = operand.find(',') {
+                                        &operand[..idx_pos]
+                                    } else {
+                                        &operand
+                                    };
+                                    
                                     // Look up the label address from first pass
-                                    if let Some(&label_addr) = initial_labels.get(&operand) {
-                                        let addressing_mode = if instruction.is_branch() {
-                                            AddressingMode::Relative // 2 bytes total
-                                        } else if instruction.is_jump() {
-                                            AddressingMode::Absolute // 3 bytes total
+                                    if let Some(&label_addr) = initial_labels.get(base_label) {
+                                        // For JSR and JMP, always use absolute addressing (3 bytes)
+                                        if instruction.is_jump() {
+                                            real_instruction_size = AddressingMode::Absolute.size();
+                                            
+                                            // Debug logging for JSR instructions
+                                            if instruction == Instruction::JSR {
+                                                log::debug!(
+                                                    "JSR to label '{}' at address: ${:04X}, using absolute addressing (3 bytes)",
+                                                    base_label,
+                                                    label_addr
+                                                );
+                                            }
+                                        } else if instruction.is_branch() {
+                                            real_instruction_size = AddressingMode::Relative.size(); // 2 bytes total
+                                        } else if operand.contains(",X") || operand.contains(",Y") {
+                                            real_instruction_size = if label_addr <= 0xFF {
+                                                AddressingMode::ZeroPageX.size() // 2 bytes
+                                            } else {
+                                                AddressingMode::AbsoluteX.size() // 3 bytes
+                                            };
                                         } else if label_addr <= 0xFF {
-                                            AddressingMode::ZeroPage // 2 bytes total
+                                            real_instruction_size = AddressingMode::ZeroPage.size(); // 2 bytes total
                                         } else {
-                                            AddressingMode::Absolute // 3 bytes total
-                                        };
-                                        real_instruction_size = addressing_mode.size();
+                                            real_instruction_size = AddressingMode::Absolute.size(); // 3 bytes total
+                                        }
                                     } else {
                                         // Label not found - use default size (absolute addressing)
                                         real_instruction_size = 3;
+                                        log::warn!("Label '{}' not found in first pass, using default size 3", base_label);
                                     }
                                 } else {
                                     // Not a label reference - parse addressing mode and get size
@@ -988,6 +1020,11 @@ impl Assembler {
 
     /// Checks if an operand is a label reference (not starting with $ or #)
     fn is_label_reference(&self, operand: &str) -> bool {
+        // Check for accumulator addressing mode (operand is just "A")
+        if operand.trim().eq_ignore_ascii_case("a") {
+            return false;
+        }
+        
         // Remove any index indicators (like ",X" or ",Y")
         let base_operand = if let Some(idx_pos) = operand.find(',') {
             &operand[..idx_pos]
@@ -1176,6 +1213,11 @@ impl Assembler {
             line: line.to_string(),
             message: format!("Missing operand for instruction '{}'", instruction),
         })?;
+        
+        // Check for accumulator addressing mode
+        if operand.trim().eq_ignore_ascii_case("a") {
+            return Ok(1); // Just the opcode for accumulator addressing
+        }
 
         // For potential label references, assume Absolute addressing (3 bytes)
         if self.is_label_reference(&operand) {
@@ -1262,21 +1304,31 @@ impl Assembler {
 
 /// Process a single line of assembly, extract labels and code, assuming directive check has already been done
 fn process_line(line: &str) -> AssembleResult<(String, Option<String>)> {
-    // Check if this line is a label declaration
-    if let Some(idx) = line.find(':') {
-        let label = line[0..idx].trim().to_string();
+    let trimmed = line.trim();
+    let mut label = String::new();
+    let mut code = None;
 
-        // If there's code after the label, return it as well
-        let remainder = line[idx + 1..].trim();
-
-        if !remainder.is_empty() {
-            return Ok((label, Some(remainder.to_string())));
+    // First, check if the line starts with a label
+    // A label can be at the start of the line and followed by a colon
+    if let Some(colon_pos) = trimmed.find(':') {
+        label = trimmed[..colon_pos].trim().to_string();
+        
+        // Get the code part after the colon, if any
+        let code_part = trimmed[colon_pos + 1..].trim();
+        if !code_part.is_empty() {
+            code = Some(code_part.to_string());
         }
-        return Ok((label, None));
+    } else {
+        // If no label with colon, treat it as just code
+        code = Some(trimmed.to_string());
     }
 
-    // No label, just a line of code
-    Ok((String::new(), Some(line.to_string())))
+    // Debug logging for WaitForVBlank label or code
+    if label == "WaitForVBlank" || code.as_ref().map_or(false, |c| c.contains("WaitForVBlank")) {
+        log::debug!("Processing line with WaitForVBlank - Label: '{}', Code: '{:?}'", label, code);
+    }
+
+    Ok((label, code))
 }
 
 /// Parse a comma-separated list of tokens that can be either string literals or numeric values

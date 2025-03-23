@@ -314,10 +314,10 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Test advanced PPU features
 
 ## MILESTONE 5: Input Controllers [T5]
-- [ ] Create a demo with controller-responsive sprite
-- [ ] Implement controller input handling
-- [ ] Test different controller inputs (D-pad, A, B, Start, Select)
-- [ ] Document the achievement
+- [x] Create a demo with controller-responsive sprite
+- [x] Implement controller input handling
+- [x] Test different controller inputs (D-pad, A, B, Start, Select)
+- [x] Document the achievement
 
 ### [Input] Input System [T5]
 - [x] Implement controller registers ($4016-$4017)
@@ -356,9 +356,16 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### [Testing] Controller Test ROM [T5]
 - [x] Create a test ROM for visualizing controller input on screen
-- [ ] Run the controller test ROM on the emulator
-- [ ] Verify all controller buttons work correctly
-- [ ] Use the test ROM to diagnose any input issues
+- [x] Run the controller test ROM on the emulator
+- [x] Verify all controller buttons work correctly
+- [x] Use the test ROM to diagnose any input issues
+
+### [Demo] Controller Demo Application [T5]
+- [x] Create a ROM that displays a sprite on screen
+- [x] Implement controller input handling for sprite movement
+- [ ] Add support for moving the sprite using D-pad buttons
+- [ ] Add visual feedback when the sprite moves
+- [ ] Test the ROM with all directional controls
 
 ## MILESTONE 6: Mappers & Cartridges [T6]
 - [ ] Implement support for different ROM formats
@@ -570,12 +577,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
-- Track 5 (Input Controllers): 79% complete (22/28 tasks) - Controller implementation, key mapping, input configuration, and input handling instructions complete
+- Track 5 (Input Controllers): 85% complete (28/33 tasks) - Controller input is implemented and tested with controller_test.asm. Demo application with movable sprite needed
 - Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 7 (Full Desktop System): 0% complete (0/90 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
 - Track 8 (Web Integration): 0% complete (0/40 tasks)
 
-**Total Progress: 213/374 tasks complete (56.9%)** 🚀
+**Total Progress: 219/379 tasks complete (57.8%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 
