@@ -37,7 +37,7 @@ enum Commands {
         disassemble: bool,
 
         /// Enable debug mode for debugging label resolution
-        #[clap(short, long)]
+        #[clap(short = 'D', long)]
         debug: bool,
     },
 

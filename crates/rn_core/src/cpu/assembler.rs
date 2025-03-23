@@ -988,44 +988,47 @@ impl Assembler {
 
     /// Checks if an operand is a label reference (not starting with $ or #)
     fn is_label_reference(&self, operand: &str) -> bool {
-        // Basic case: simple label reference
-        if !operand.starts_with('$') && !operand.starts_with('#') && !operand.eq_ignore_ascii_case("a") {
-            return true;
+        // Remove any index indicators (like ",X" or ",Y")
+        let base_operand = if let Some(idx_pos) = operand.find(',') {
+            &operand[..idx_pos]
+        } else {
+            operand
+        };
+
+        // Check if this is a numeric value with any common prefix
+        if base_operand.starts_with('#') || base_operand.starts_with('$') || base_operand.starts_with('%') {
+            return false;
         }
-        
-        // Check for indexed addressing with label
-        if let Some(idx_pos) = operand.find(',') {
-            let base = &operand[..idx_pos];
-            return !base.starts_with('$') && !base.starts_with('#');
-        }
-        
-        false
+
+        // If it doesn't start with any known prefix, it's probably a label
+        true
     }
 
-    /// Checks if a label exists in the labels map and handles the reference
+    /// Handle an operand that refers to a label
     fn handle_label_reference(
         &self,
         instruction: Instruction,
         operand: &str,
         labels: &HashMap<String, u16>,
     ) -> AssembleResult<(InstructionMetadata, u16)> {
-        // Print out debug info
-        log::debug!(
-            "Label reference encountered: '{}' for instruction: {:?}",
-            operand,
-            instruction
-        );
-
-        // Check if it's an indexed addressing mode
+        // Extract the label and determine addressing mode based on indexed reference
         let (label, addressing_mode) = if let Some(idx_pos) = operand.find(",X") {
             // X-indexed addressing
             let label = &operand[..idx_pos];
-            let addr_mode = AddressingMode::AbsoluteX;
+            let addr_mode = if labels.get(label).map_or(false, |&addr| addr <= 0xFF) {
+                AddressingMode::ZeroPageX
+            } else {
+                AddressingMode::AbsoluteX
+            };
             (label, addr_mode)
         } else if let Some(idx_pos) = operand.find(",Y") {
             // Y-indexed addressing
             let label = &operand[..idx_pos];
-            let addr_mode = AddressingMode::AbsoluteY;
+            let addr_mode = if labels.get(label).map_or(false, |&addr| addr <= 0xFF) {
+                AddressingMode::ZeroPageY
+            } else {
+                AddressingMode::AbsoluteY
+            };
             (label, addr_mode)
         } else {
             // It's a normal label reference - look it up in the labels map
@@ -2297,21 +2300,16 @@ mod tests {
         assert_eq!(result[2], 0x85, "Third byte should be high byte of address (0x8500)");
         
         // Test with a variable in zero page range
-        // Note: In our handle_label_reference function, we're using AbsoluteX even for zero page variables,
-        // so our test needs to match that behavior. In a more complete implementation, we'd detect
-        // the address range and select ZeroPageX if possible.
+        // The handle_label_reference function now optimizes for zero page addressing
         labels.insert("ZeroVar".to_string(), 0x0042);
         
         // Test X-indexed addressing with a zero page variable (ZeroVar,X)
         let result = assembler.assemble_instruction("AND ZeroVar,X", &labels)?;
         
-        // NOTE: The assembler currently uses AbsoluteX for label references with X-indexing,
-        // regardless of whether the address is in zero page or not. This matches our code but
-        // could be optimized in the future to use ZeroPageX when possible.
-        assert_eq!(result.len(), 3, "AND ZeroVar,X should be 3 bytes (uses AbsoluteX)");
-        assert_eq!(result[0], 0x3D, "First byte should be opcode 0x3D (AND AbsoluteX)");
-        assert_eq!(result[1], 0x42, "Second byte should be low byte of address (0x0042)");
-        assert_eq!(result[2], 0x00, "Third byte should be high byte of address (0x0042)");
+        // Now our assembler correctly uses ZeroPageX for zero page variables with X-indexing
+        assert_eq!(result.len(), 2, "AND ZeroVar,X should be 2 bytes (uses ZeroPageX)");
+        assert_eq!(result[0], 0x35, "First byte should be opcode 0x35 (AND ZeroPageX)");
+        assert_eq!(result[1], 0x42, "Second byte should be the address (0x0042)");
         
         Ok(())
     }

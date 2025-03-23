@@ -148,24 +148,31 @@ impl InstructionDecoder {
         // Store instructions
         self.add_instruction(0x85, Instruction::STA, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0x8D, Instruction::STA, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0x95, Instruction::STA, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0x9D, Instruction::STA, AddressingMode::AbsoluteX, 3, 5);
+        self.add_instruction(0x99, Instruction::STA, AddressingMode::AbsoluteY, 3, 5);
 
         self.add_instruction(0x86, Instruction::STX, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0x8E, Instruction::STX, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0x96, Instruction::STX, AddressingMode::ZeroPageY, 2, 4);
 
         self.add_instruction(0x84, Instruction::STY, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0x8C, Instruction::STY, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0x94, Instruction::STY, AddressingMode::ZeroPageX, 2, 4);
 
-        // Jump and call instructions
+        // Jump instructions
         self.add_instruction(0x4C, Instruction::JMP, AddressingMode::Absolute, 3, 3);
         self.add_instruction(0x6C, Instruction::JMP, AddressingMode::Indirect, 3, 5);
+
+        // Subroutine instructions
         self.add_instruction(0x20, Instruction::JSR, AddressingMode::Absolute, 3, 6);
         self.add_instruction(0x60, Instruction::RTS, AddressingMode::Implied, 1, 6);
 
-        // Break and No Operation
-        self.add_instruction(0x00, Instruction::BRK, AddressingMode::Implied, 1, 7);
-        self.add_instruction(0xEA, Instruction::NOP, AddressingMode::Implied, 1, 2);
+        // Flag instructions
+        self.add_instruction(0x18, Instruction::CLC, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x38, Instruction::SEC, AddressingMode::Implied, 1, 2);
 
-        // Bit test
+        // Bit test instruction
         self.add_instruction(0x24, Instruction::BIT, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0x2C, Instruction::BIT, AddressingMode::Absolute, 3, 4);
 
@@ -173,10 +180,6 @@ impl InstructionDecoder {
         self.add_instruction(0x10, Instruction::BPL, AddressingMode::Relative, 2, 2);
         self.add_instruction(0xF0, Instruction::BEQ, AddressingMode::Relative, 2, 2);
         self.add_instruction(0xD0, Instruction::BNE, AddressingMode::Relative, 2, 2);
-
-        // Status flag instructions
-        self.add_instruction(0x18, Instruction::CLC, AddressingMode::Implied, 1, 2);
-        self.add_instruction(0x38, Instruction::SEC, AddressingMode::Implied, 1, 2);
 
         // Arithmetic instructions
         self.add_instruction(0x69, Instruction::ADC, AddressingMode::Immediate, 2, 2);
@@ -234,6 +237,10 @@ impl InstructionDecoder {
         self.add_instruction(0xCA, Instruction::DEX, AddressingMode::Implied, 1, 2);
         self.add_instruction(0xE0, Instruction::CPX, AddressingMode::Immediate, 2, 2);
         self.add_instruction(0xE4, Instruction::CPX, AddressingMode::ZeroPage, 2, 3);
+
+        // Other instructions
+        self.add_instruction(0x00, Instruction::BRK, AddressingMode::Implied, 1, 7);
+        self.add_instruction(0xEA, Instruction::NOP, AddressingMode::Implied, 1, 2);
     }
 
     /// Add an instruction to the lookup tables
