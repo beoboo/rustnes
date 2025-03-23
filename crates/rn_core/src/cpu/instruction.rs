@@ -204,6 +204,9 @@ impl InstructionDecoder {
         self.add_instruction(0x29, Instruction::AND, AddressingMode::Immediate, 2, 2);
         self.add_instruction(0x25, Instruction::AND, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0x35, Instruction::AND, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0x2D, Instruction::AND, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0x3D, Instruction::AND, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0x39, Instruction::AND, AddressingMode::AbsoluteY, 3, 4);
 
         // Logical instructions - ORA
         self.add_instruction(0x09, Instruction::ORA, AddressingMode::Immediate, 2, 2);

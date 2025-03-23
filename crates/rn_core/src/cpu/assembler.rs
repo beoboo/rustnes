@@ -988,7 +988,18 @@ impl Assembler {
 
     /// Checks if an operand is a label reference (not starting with $ or #)
     fn is_label_reference(&self, operand: &str) -> bool {
-        !operand.starts_with('$') && !operand.starts_with('#') && !operand.eq_ignore_ascii_case("a")
+        // Basic case: simple label reference
+        if !operand.starts_with('$') && !operand.starts_with('#') && !operand.eq_ignore_ascii_case("a") {
+            return true;
+        }
+        
+        // Check for indexed addressing with label
+        if let Some(idx_pos) = operand.find(',') {
+            let base = &operand[..idx_pos];
+            return !base.starts_with('$') && !base.starts_with('#');
+        }
+        
+        false
     }
 
     /// Checks if a label exists in the labels map and handles the reference
@@ -1005,33 +1016,41 @@ impl Assembler {
             instruction
         );
 
-        // It's a label reference - look it up in the labels map
-        let address = labels
-            .get(operand)
-            .ok_or_else(|| AssembleError::LabelError(format!("Undefined label: {}", operand)))?;
-
-        log::debug!("Label '{}' resolved to address: ${:04X}", operand, address);
-
-        // Select the appropriate addressing mode based on the instruction and address
-        let addressing_mode = if instruction.is_branch() {
-            AddressingMode::Relative
-        } else if instruction.is_jump() {
-            AddressingMode::Absolute
-        } else if *address <= 0xFF {
-            // Zero page addressing for addresses $00-$FF, unless the instruction requires absolute
-            AddressingMode::ZeroPage
+        // Check if it's an indexed addressing mode
+        let (label, addressing_mode) = if let Some(idx_pos) = operand.find(",X") {
+            // X-indexed addressing
+            let label = &operand[..idx_pos];
+            let addr_mode = AddressingMode::AbsoluteX;
+            (label, addr_mode)
+        } else if let Some(idx_pos) = operand.find(",Y") {
+            // Y-indexed addressing
+            let label = &operand[..idx_pos];
+            let addr_mode = AddressingMode::AbsoluteY;
+            (label, addr_mode)
         } else {
-            // Absolute addressing for addresses $0100-$FFFF
-            AddressingMode::Absolute
+            // It's a normal label reference - look it up in the labels map
+            let addr_mode = if instruction.is_branch() {
+                AddressingMode::Relative
+            } else if instruction.is_jump() {
+                AddressingMode::Absolute
+            } else if labels.get(operand).map_or(false, |&addr| addr <= 0xFF) {
+                // Zero page addressing for addresses $00-$FF, unless the instruction requires absolute
+                AddressingMode::ZeroPage
+            } else {
+                AddressingMode::Absolute
+            };
+            (operand, addr_mode)
         };
 
-        // Look up the instruction with the appropriate addressing mode
+        // Look up the label in the labels map
+        let address = labels
+            .get(label)
+            .ok_or_else(|| AssembleError::LabelError(format!("Undefined label: {}", label)))?;
+
+        log::debug!("Label '{}' resolved to address: ${:04X}", label, address);
+
+        // Look up the instruction metadata for this instruction and addressing mode
         let metadata = self.decoder.lookup(instruction, addressing_mode)?;
-        log::debug!(
-            "Using addressing mode: {:?} for instruction: {:?}",
-            addressing_mode,
-            instruction
-        );
 
         Ok((metadata, *address))
     }
@@ -1043,72 +1062,95 @@ impl Assembler {
     /// - "$2000" -> Absolute mode with value 0x2000
     /// - "$42" -> Zero page mode with value 0x42
     fn parse_addressing_mode(&self, operand: &str) -> AssembleResult<(AddressingMode, u16)> {
-        // Immediate: #$xx
-        if operand.starts_with('#') {
-            let value = parse_value::<u8>(&operand)?;
-            return Ok((AddressingMode::Immediate, value as u16));
+        // Check for zero page X-indexed addressing ($00,X)
+        if let Some(index_pos) = operand.find(",X") {
+            let value_part = &operand[..index_pos];
+            
+            // Check if it's a label reference like ButtonMasks,X
+            if !value_part.starts_with('$') {
+                // This is a label reference with X-indexing
+                return Ok((AddressingMode::AbsoluteX, 0)); // Value will be resolved later
+            }
+            
+            // Handle normal $00,X or $1234,X
+            let value = parse_value::<u16>(value_part)?;
+            if value <= 0xFF {
+                return Ok((AddressingMode::ZeroPageX, value));
+            } else {
+                return Ok((AddressingMode::AbsoluteX, value));
+            }
         }
 
-        // Check for indexed addressing modes
-        if operand.contains(',') {
-            let parts: Vec<&str> = operand.split(',').collect();
-            if parts.len() != 2 {
-                return Err(AssembleError::InvalidOperand(format!(
-                    "Invalid indexed operand format: {}",
-                    operand
+        // Check for zero page Y-indexed addressing ($00,Y)
+        if let Some(index_pos) = operand.find(",Y") {
+            let value_part = &operand[..index_pos];
+            
+            // Check if it's a label reference like ButtonMasks,Y
+            if !value_part.starts_with('$') {
+                // This is a label reference with Y-indexing
+                return Ok((AddressingMode::AbsoluteY, 0)); // Value will be resolved later
+            }
+            
+            // Handle normal $00,Y or $1234,Y
+            let value = parse_value::<u16>(value_part)?;
+            if value <= 0xFF {
+                return Ok((AddressingMode::ZeroPageY, value));
+            } else {
+                return Ok((AddressingMode::AbsoluteY, value));
+            }
+        }
+
+        // Check for immediate addressing (#$00)
+        if operand.starts_with('#') {
+            let value_part = &operand[1..];
+            let value = parse_value::<u16>(value_part)?;
+            return Ok((AddressingMode::Immediate, value));
+        }
+
+        // Check for indexed indirect addressing (($00,X))
+        if operand.starts_with('(') && operand.ends_with(",X)") {
+            let value_part = &operand[1..operand.len() - 3];
+            let value = parse_value::<u16>(value_part)?;
+            if value <= 0xFF {
+                return Ok((AddressingMode::IndexedIndirect, value));
+            } else {
+                return Err(AssembleError::ValueOutOfRange(format!(
+                    "Value ${:X} too large for indexed indirect addressing",
+                    value
                 )));
             }
+        }
 
-            let addr_part = parts[0].trim();
-            let idx_part = parts[1].trim();
-
-            if addr_part.starts_with('$') {
-                if addr_part.len() == 3 {
-                    let value = parse_value::<u8>(addr_part)?;
-
-                    // Zero Page,X addressing mode: $xx,X
-                    if idx_part.eq_ignore_ascii_case("x") {
-                        return Ok((AddressingMode::ZeroPageX, value as u16));
-                    }
-
-                    // Zero Page,Y addressing mode: $xx,Y
-                    if idx_part.eq_ignore_ascii_case("y") {
-                        return Ok((AddressingMode::ZeroPageY, value as u16));
-                    }
-                }
-
-                if addr_part.len() == 5 {
-                    let value = parse_value::<u16>(addr_part)?;
-
-                    // Absolute,X addressing mode: $xxxx,X
-                    if idx_part.eq_ignore_ascii_case("x") {
-                        return Ok((AddressingMode::AbsoluteX, value));
-                    }
-
-                    // Absolute,Y addressing mode: $xxxx,Y
-                    if idx_part.eq_ignore_ascii_case("y") {
-                        return Ok((AddressingMode::AbsoluteY, value));
-                    }
-                }
+        // Check for indirect indexed addressing (($00),Y)
+        if operand.starts_with('(') && operand.ends_with("),Y") {
+            let value_part = &operand[1..operand.len() - 3];
+            let value = parse_value::<u16>(value_part)?;
+            if value <= 0xFF {
+                return Ok((AddressingMode::IndirectIndexed, value));
+            } else {
+                return Err(AssembleError::ValueOutOfRange(format!(
+                    "Value ${:X} too large for indirect indexed addressing",
+                    value
+                )));
             }
-
-            return Err(AssembleError::InvalidOperand(format!(
-                "Invalid indexed operand: {}",
-                operand
-            )));
         }
 
-        // Zero Page: $xx (where xx is 00-FF)
-        // Note: For branch instructions, this could also be a relative address
-        if operand.starts_with('$') && operand.len() == 3 {
-            let value = parse_value::<u8>(operand)?;
-
-            // For branch instructions, we'll use Zero Page mode
-            // The instruction decoder will determine if it should be Relative
-            return Ok((AddressingMode::ZeroPage, value as u16));
+        // Check for indirect addressing (($1234))
+        if operand.starts_with('(') && operand.ends_with(')') {
+            let value_part = &operand[1..operand.len() - 1];
+            let value = parse_value::<u16>(value_part)?;
+            return Ok((AddressingMode::Indirect, value));
         }
 
-        // Absolute: $xxxx (where xxxx is 0000-FFFF)
+        // Check for zero page addressing ($00)
+        if operand.starts_with('$') && operand.len() <= 3 {
+            let value = parse_value::<u16>(operand)?;
+            if value <= 0xFF {
+                return Ok((AddressingMode::ZeroPage, value));
+            }
+        }
+
+        // Check for absolute addressing ($1234)
         if operand.starts_with('$') && operand.len() == 5 {
             let value = parse_value::<u16>(operand)?;
             return Ok((AddressingMode::Absolute, value));
