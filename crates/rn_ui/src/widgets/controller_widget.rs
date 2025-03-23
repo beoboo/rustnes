@@ -2,6 +2,12 @@
 use egui::{Grid, RichText, Ui, Color32};
 use rn_core::input::{ControllerHandlerWrapper, ControllerButton, ControllerState};
 
+// Define the emoji characters for the controller buttons
+const ARROW_UP: &str = "⬆";    // UP ARROW
+const ARROW_DOWN: &str = "⬇";  // DOWN ARROW 
+const ARROW_LEFT: &str = "⬅";  // LEFT ARROW
+const ARROW_RIGHT: &str = "➡"; // RIGHT ARROW
+
 /// Widget for displaying controller state
 pub struct ControllerWidget {}
 
@@ -56,7 +62,7 @@ impl ControllerWidget {
                     ui.label("");
                     
                     // Up button
-                    if ui.add(interactive_button("▲", state.is_button_pressed(ControllerButton::Up))).clicked() {
+                    if ui.add(interactive_button(ARROW_UP, state.is_button_pressed(ControllerButton::Up))).clicked() {
                         toggle_button(controller, controller_num, ControllerButton::Up);
                     }
                     
@@ -65,7 +71,7 @@ impl ControllerWidget {
                     ui.end_row();
                     
                     // Left button
-                    if ui.add(interactive_button("◄", state.is_button_pressed(ControllerButton::Left))).clicked() {
+                    if ui.add(interactive_button(ARROW_LEFT, state.is_button_pressed(ControllerButton::Left))).clicked() {
                         toggle_button(controller, controller_num, ControllerButton::Left);
                     }
                     
@@ -73,7 +79,7 @@ impl ControllerWidget {
                     ui.label("");
                     
                     // Right button
-                    if ui.add(interactive_button("►", state.is_button_pressed(ControllerButton::Right))).clicked() {
+                    if ui.add(interactive_button(ARROW_RIGHT, state.is_button_pressed(ControllerButton::Right))).clicked() {
                         toggle_button(controller, controller_num, ControllerButton::Right);
                     }
                     ui.end_row();
@@ -82,7 +88,7 @@ impl ControllerWidget {
                     ui.label("");
                     
                     // Down button
-                    if ui.add(interactive_button("▼", state.is_button_pressed(ControllerButton::Down))).clicked() {
+                    if ui.add(interactive_button(ARROW_DOWN, state.is_button_pressed(ControllerButton::Down))).clicked() {
                         toggle_button(controller, controller_num, ControllerButton::Down);
                     }
                     
@@ -161,12 +167,18 @@ impl ControllerWidget {
 fn interactive_button(text: &str, is_pressed: bool) -> egui::Button {
     let mut button = egui::Button::new(
         RichText::new(text)
+            .size(18.0)
+            .strong()
             .color(if is_pressed { Color32::BLACK } else { Color32::WHITE })
     );
     
     if is_pressed {
         button = button.fill(Color32::from_rgb(100, 220, 100));
+    } else {
+        button = button.fill(Color32::from_rgb(70, 70, 70));
     }
+    
+    button = button.min_size(egui::vec2(30.0, 30.0));
     
     button
 }
