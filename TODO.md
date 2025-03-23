@@ -370,13 +370,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Test the ROM with all directional controls
 
 ## MILESTONE 6: Basic Sound Output [T6]
-- [ ] Create a test ASM file that plays simple tones using APU registers
+- [x] Create a test ASM file that plays simple tones using APU registers
 - [ ] Implement fundamental audio framework
 - [ ] Successfully output simple sounds
 - [ ] Document the basic APU implementation
 
 ### [APU] Basic Audio Framework [T6]
-- [ ] Define a simple tone generator test ASM that uses APU registers
+- [x] Define a simple tone generator test ASM that uses APU registers
 - [ ] Design minimal APU component structure to support the test ASM
 - [ ] Implement core APU registers ($4000-$4015, $4017)
 - [ ] Add APU component to the Bus architecture
@@ -402,8 +402,8 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Show basic audio status in UI
 
 ### [Testing] Sound Test ROM [T6]
-- [ ] Implement and test the simple tone generator ASM
-- [ ] Add ascending/descending tone patterns
+- [x] Implement and test the simple tone generator ASM
+- [x] Add ascending/descending tone patterns
 - [ ] Test volume modulation
 - [ ] Verify audio timing with CPU execution
 
