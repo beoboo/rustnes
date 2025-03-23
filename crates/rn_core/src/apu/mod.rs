@@ -164,7 +164,16 @@ impl Addressable for Apu {
     }
     
     fn reset(&mut self) {
-        // Call the APU's reset method
-        self.reset();
+        // Use our own implementation instead of calling self.reset() recursively
+        // This was causing stack overflow in tests
+        // Reset all registers to 0
+        self.pulse1_control = 0;
+        self.pulse1_sweep = 0;
+        self.pulse1_timer_lo = 0;
+        self.pulse1_timer_hi = 0;
+        self.status = 0;
+        
+        // Disable channel
+        self.pulse1_enabled = false;
     }
 } 

@@ -612,7 +612,7 @@ mod tests {
         let mut system = NesSystem::new();
 
         // Attempt to execute from unmapped memory
-        let pc = 0x4000; // Typically unmapped in our system
+        let pc = 0x5000; // This should be completely unmapped in our system
 
         // Manually set PC to unmapped region
         system.cpu.set_pc(pc);
@@ -662,10 +662,14 @@ mod tests {
         system.reset()?;
         assert_eq!(system.state(), SystemState::Ready);
 
-        // Create an error state
-        system.cpu.set_pc(0x4000); // Unmapped memory
+        // Create an error state - using a memory address clearly outside any component's range
+        system.cpu.set_pc(0x5000); // Definitely unmapped memory area
+        
+        // Try to step - this should fail because the memory isn't mapped
         let step_result = system.step();
-        assert!(step_result.is_err());
+        assert!(step_result.is_err(), "Step should fail with unmapped memory at 0x5000");
+        
+        // Check we're in error state
         assert!(matches!(system.state(), SystemState::Error(_)));
 
         // Attempting to step in Error state should do nothing
@@ -688,7 +692,7 @@ mod tests {
         let mut system = NesSystem::new();
 
         // Put system in Error state
-        system.cpu.set_pc(0x4000); // Unmapped memory
+        system.cpu.set_pc(0x5000); // Unmapped memory
         let _ = system.step();
         assert!(matches!(system.state(), SystemState::Error(_)));
         assert!(system.error_message().is_some());
