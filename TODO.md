@@ -8,9 +8,10 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [T3] Track 3: Basic Sprite Rendering - Basic sprite rendering
 - [T4] Track 4: Animated Sprites - Add animation capabilities with multi-tile sprites
 - [T5] Track 5: Input Controllers - Implement controller input for user interaction
-- [T6] Track 6: Mappers & Cartridges - Support for different ROM mappers
-- [T7] Track 7: Full Desktop System - Complete playable NES emulator application
-- [T8] Track 8: Web Integration - WebAssembly support for browser play
+- [T6] Track 6: Audio Implementation - Adding sound capabilities via the APU
+- [T7] Track 7: Mappers & Cartridges - Support for different ROM mappers
+- [T8] Track 8: Full Desktop System - Complete playable NES emulator application
+- [T9] Track 9: Web Integration - WebAssembly support for browser play
 
 ## MILESTONE 1: Memory Visualization [T1]
 - [x] Create a memory visualization component for egui
@@ -28,9 +29,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Set up GitHub repository
 - [x] Create initial documentation structure
 - [x] Set up book framework with mdBook
-- [ ] Configure CI/CD pipeline [T7]
-- [ ] Add benchmark infrastructure [T7]
-- [ ] Set up WebAssembly build infrastructure [T8]
+- [ ] Configure CI/CD pipeline [T8]
+- [ ] Add benchmark infrastructure [T8]
+- [ ] Set up WebAssembly build infrastructure [T9]
 
 ### [Meta] NES Architecture Overview [T1]
 - [x] Document NES hardware components
@@ -367,58 +368,112 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Add visual feedback when the sprite moves
 - [ ] Test the ROM with all directional controls
 
-## MILESTONE 6: Mappers & Cartridges [T6]
+## MILESTONE 6: Audio Implementation [T6]
+- [ ] Create a demo ROM that plays simple audio
+- [ ] Implement basic audio generation and output
+- [ ] Test different audio channels (pulse, triangle, noise, DMC)
+- [ ] Document the APU implementation
+
+### [APU] Audio Framework [T6]
+- [ ] Design APU component structure with clear interfaces
+- [ ] Implement APU registers at $4000-$4015 and $4017
+- [ ] Implement register reading with proper side effects
+- [ ] Implement register writing with proper side effects
+- [ ] Add APU to the Bus architecture
+- [ ] Implement APU memory mapping
+- [ ] Test APU register access through the bus
+
+### [APU] Audio Channels [T6]
+- [ ] Implement pulse channel 1 ($4000-$4003)
+- [ ] Implement pulse channel 2 ($4004-$4007)
+- [ ] Implement triangle channel ($4008-$400B)
+- [ ] Implement noise channel ($400C-$400F)
+- [ ] Implement DMC channel ($4010-$4013)
+- [ ] Test individual channel functionality
+
+### [APU] Audio Features [T6]
+- [ ] Implement length counters for sound duration
+- [ ] Implement envelope generators for volume control
+- [ ] Implement sweep units for frequency modulation
+- [ ] Implement audio mixer for channel combination
+- [ ] Create audio output buffer
+- [ ] Implement frame counter for timing
+
+### [APU] Audio Integration [T6]
+- [ ] Connect audio output to system's audio device
+- [ ] Implement sample rate conversion
+- [ ] Implement volume control
+- [ ] Add mute/unmute functionality
+- [ ] Test audio synchronization with game state
+- [ ] Implement proper APU timing
+
+### [UI] Audio Controls [T6]
+- [ ] Create audio visualization widget for debugging
+- [ ] Add channel enable/disable controls
+- [ ] Implement volume sliders
+- [ ] Add audio waveform visualization
+- [ ] Add audio frequency spectrum display
+- [ ] Test audio widget with various sound effects
+
+### [Testing] Audio Test ROMs [T6]
+- [ ] Create test ROMs for individual channels
+- [ ] Create test ROM for envelope and sweep effects
+- [ ] Create test ROM for audio patterns
+- [ ] Verify correct audio output using reference audio files
+- [ ] Use test ROMs to diagnose any audio issues
+
+## MILESTONE 7: Mappers & Cartridges [T7]
 - [ ] Implement support for different ROM formats
 - [ ] Test with various commercial ROMs
 - [ ] Support bank switching and expanded memory
 - [ ] Document the implementation
 
-### [Cartridge] Mapper Architecture [T6]
+### [Cartridge] Mapper Architecture [T7]
 - [ ] Design flexible mapper trait
 - [ ] Implement mapper detection from ROM header
 - [ ] Create configurable address translation system
 - [ ] Add memory bank switching utilities
 - [ ] Test mapper architecture
 
-### [Cartridge] NROM (Mapper 0) [T6]
+### [Cartridge] NROM (Mapper 0) [T7]
 - [ ] Implement NROM mapper (simplest mapper)
 - [ ] Support small (16KB) and large (32KB) ROMs
 - [ ] Test with NROM games (e.g., Super Mario Bros, Donkey Kong)
 - [ ] Document NROM implementation
 
-### [Cartridge] UxROM (Mapper 2) [T6]
+### [Cartridge] UxROM (Mapper 2) [T7]
 - [ ] Implement UxROM mapper
 - [ ] Support bank switching
 - [ ] Test with UxROM games (e.g., Mega Man, Duck Tales)
 - [ ] Document UxROM implementation
 
-### [Cartridge] MMC1 (Mapper 1) [T6]
+### [Cartridge] MMC1 (Mapper 1) [T7]
 - [ ] Implement MMC1 mapper
 - [ ] Support configurable mirroring
 - [ ] Support PRG-ROM and CHR-ROM bank switching
 - [ ] Test with MMC1 games (e.g., Legend of Zelda, Metroid)
 - [ ] Document MMC1 implementation
 
-### [Memory] ROM Banking [T6]
+### [Memory] ROM Banking [T7]
 - [ ] Implement ROM banking infrastructure
 - [ ] Support runtime bank switching
 - [ ] Optimize memory access for banked ROMs
 - [ ] Test bank switching performance
 
-### [System] ROM Loading [T6]
+### [System] ROM Loading [T7]
 - [ ] Enhance ROM loading to support different mappers
 - [ ] Add header validation and sanity checks
 - [ ] Implement battery-backed save support (if needed)
 - [ ] Test ROM loading with various games
 
-## MILESTONE 7: Full Desktop System [T7]
+## MILESTONE 8: Full Desktop System [T8]
 - [ ] Create a fully playable NES emulator application
 - [ ] Support loading and playing commercial ROMs
 - [ ] Implement save states and game management
 - [ ] Create a user-friendly interface
 - [ ] Test with variety of games
 
-### [CPU] Advanced Instructions [T7]
+### [CPU] Advanced Instructions [T8]
 - [ ] Implement remaining status flag changes (CLD, CLI, CLV, SED, SEI)
 - [ ] Implement remaining branches (BCC, BCS, BMI, BVC, BVS)
 - [ ] Implement register transfers (TAX, TAY, TXA, TYA)
@@ -429,32 +484,32 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement logical operations (EOR, ORA)
 - [ ] Write tests for all instructions
 
-### [PPU] Background Rendering [T7]
+### [PPU] Background Rendering [T8]
 - [ ] Implement name table handling
 - [ ] Implement tile rendering
 - [ ] Implement background priority
 - [ ] Test background rendering
 
-### [PPU] Scrolling [T7]
+### [PPU] Scrolling [T8]
 - [ ] Implement scroll registers
 - [ ] Implement fine scrolling
 - [ ] Implement name table switching
 - [ ] Test scrolling functionality
 
-### [PPU] Advanced Display Features [T7]
+### [PPU] Advanced Display Features [T8]
 - [ ] Implement sprite zero hit detection
 - [ ] Implement sprite overflow
 - [ ] Implement sprite-background interaction
 - [ ] Test advanced PPU features
 
-### [PPU] PPU Timing [T7]
+### [PPU] PPU Timing [T8]
 - [ ] Implement scanline/cycle tracking (261 scanlines, 341 cycles per scanline)
 - [ ] Implement VBLANK flag setting and NMI generation
 - [ ] Test frame timing with appropriate PPU cycles
 - [ ] Implement frame synchronization
 - [ ] Test animation capabilities
 
-### [APU] Audio Processing Unit [T7]
+### [APU] Audio Processing Unit [T8]
 - [ ] Implement APU framework
 - [ ] Implement APU registers
 - [ ] Implement APU timing
@@ -475,7 +530,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Connect to audio output device
 - [ ] Test audio output with games
 
-### [System] System Integration [T7]
+### [System] System Integration [T8]
 - [ ] Implement full synchronization between components
 - [ ] Optimize performance bottlenecks
 - [ ] Test system with full games
@@ -485,7 +540,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement rewind functionality
 - [ ] Implement speed control
 
-### [UI] Game Application [T7]
+### [UI] Game Application [T8]
 - [ ] Create a standalone game application
 - [ ] Implement ROM browser and loader
 - [ ] Create configuration UI for controls and settings
@@ -495,7 +550,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Create controller configuration UI
 - [ ] Add visual feedback for game state
 
-### [Parser] Complete Parser System [T7]
+### [Parser] Complete Parser System [T8]
 - [ ] Implement parsing for all official and unofficial instructions
 - [ ] Add advanced error messages with suggestions
 - [ ] Implement comprehensive validation and diagnostics
@@ -503,7 +558,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Support custom syntax variations and assembly dialects
 - [ ] Add comprehensive documentation with examples
 
-### [Debugger] Enhanced Debugging Tools [T7]
+### [Debugger] Enhanced Debugging Tools [T8]
 - [ ] Implement memory viewer/editor with advanced features
 - [ ] Create CPU state inspector with history
 - [ ] Implement PPU viewer with nametable and pattern display
@@ -515,49 +570,49 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Support runtime code modification
 - [ ] Add support for debugging symbols
 
-## MILESTONE 8: Web Integration [T8]
+## MILESTONE 9: Web Integration [T9]
 - [ ] Create a web-based version of the NES emulator
 - [ ] Implement WebAssembly (WASM) support
 - [ ] Create browser-based UI
 - [ ] Support game loading in browser
 - [ ] Test cross-browser compatibility
 
-### [Web] WebAssembly Setup [T8]
+### [Web] WebAssembly Setup [T9]
 - [ ] Set up wasm-bindgen
 - [ ] Create WebAssembly build target
 - [ ] Configure Rust for WASM compilation
 - [ ] Create basic web shell for testing
 - [ ] Test core functionality in browser
 
-### [Web] Graphics Adaptation [T8]
+### [Web] Graphics Adaptation [T9]
 - [ ] Adapt rendering pipeline for web canvas
 - [ ] Implement WebGL support (if needed)
 - [ ] Optimize frame rendering for browser
 - [ ] Support scaling and display options
 - [ ] Test rendering performance
 
-### [Web] Input Handling [T8]
+### [Web] Input Handling [T9]
 - [ ] Implement browser keyboard input
 - [ ] Add gamepad API support
 - [ ] Create touch controls for mobile
 - [ ] Implement input configuration in browser
 - [ ] Test input responsiveness
 
-### [Web] Audio Integration [T8]
+### [Web] Audio Integration [T9]
 - [ ] Adapt audio output for Web Audio API
 - [ ] Implement audio buffering for web
 - [ ] Add volume control
 - [ ] Test audio synchronization
 - [ ] Optimize audio performance
 
-### [Web] Storage & State [T8]
+### [Web] Storage & State [T9]
 - [ ] Implement save states using browser storage
 - [ ] Support ROM loading via browser
 - [ ] Add local storage for game progress
 - [ ] Implement preferences saving
 - [ ] Test data persistence
 
-### [Web] UI & Experience [T8]
+### [Web] UI & Experience [T9]
 - [ ] Create responsive web UI
 - [ ] Implement mobile-friendly controls
 - [ ] Add game library browser
@@ -565,7 +620,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Create shareable game links (if applicable)
 - [ ] Optimize for various device sizes
 
-### [Web] Performance Optimization [T8]
+### [Web] Performance Optimization [T9]
 - [ ] Profile and optimize WASM performance
 - [ ] Implement targeted performance improvements
 - [ ] Add performance settings for different devices
@@ -578,11 +633,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
 - Track 5 (Input Controllers): 100% complete (33/33 tasks) - Controller input is fully implemented with keyboard mapping support
-- Track 6 (Mappers & Cartridges): 0% complete (0/25 tasks) 
-- Track 7 (Full Desktop System): 0% complete (0/90 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
-- Track 8 (Web Integration): 0% complete (0/40 tasks)
+- Track 6 (Audio Implementation): 0% complete (0/35 tasks)
+- Track 7 (Mappers & Cartridges): 0% complete (0/25 tasks) 
+- Track 8 (Full Desktop System): 0% complete (0/90 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
+- Track 9 (Web Integration): 0% complete (0/40 tasks)
+- Additional Areas: 0% complete (0/108 tasks) - Including cycle-accurate timing, background rendering, testing, edge cases, distribution, extended features, legal considerations, documentation, performance optimization, and demo ROMs
 
-**Total Progress: 224/379 tasks complete (59.1%)** 🚀
+**Total Progress: 224/522 tasks complete (42.9%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 
@@ -591,39 +648,126 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Synchronize CPU/PPU/APU at exact cycle level
 - [ ] Add timing validation with test ROMs
 - [ ] Handle special timing edge cases for specific games
+- [ ] Implement accurate PPU scanline timing (341 cycles per scanline)
+- [ ] Implement accurate frame timing (261 scanlines per frame)
+- [ ] Support cycle-accurate interrupt timing
+- [ ] Implement cycle penalties for memory access across page boundaries
+- [ ] Support cycle-accurate DMA timing
+- [ ] Implement accurate timing for CPU addressing modes
+- [ ] Add cycle-accurate test ROMs to verify emulation accuracy
+
+### Background Rendering
+- [ ] Implement complete nametable handling (4 nametables)
+- [ ] Support mirroring modes (horizontal, vertical, single-screen, four-screen)
+- [ ] Implement tile rendering with proper pixel priority
+- [ ] Implement background scrolling with proper wrap-around
+- [ ] Add fine X and Y scrolling
+- [ ] Support split-screen scrolling (common for status bars in games)
+- [ ] Implement mid-frame updates to scroll registers
+- [ ] Support attribute table for background color selection
+- [ ] Handle glitchy rendering behavior at scroll boundaries
+- [ ] Support proper background palette selection
 
 ### Testing Infrastructure
 - [ ] Create automated test suite for all components
 - [ ] Implement integration tests with real-world ROMs
 - [ ] Add benchmark suite for performance comparisons
 - [ ] Set up continuous integration pipeline
+- [ ] Add regression testing framework
+- [ ] Implement test coverage reporting
+- [ ] Create visual verification tests for rendering accuracy
+- [ ] Add automated audio output verification tests
+- [ ] Support for standard NES test ROMs
+- [ ] Add performance testing for optimization verification
 
 ### Special Hardware Edge Cases
 - [ ] Identify and implement known NES hardware quirks
 - [ ] Support undocumented CPU instructions properly
 - [ ] Handle games that rely on hardware glitches
 - [ ] Test against diagnostic ROMs that verify edge cases
+- [ ] Implement open bus behavior
+- [ ] Support PPU race conditions and edge cases
+- [ ] Implement accurate sprite overflow handling
+- [ ] Support illegal opcodes with correct timing
+- [ ] Handle CPU/PPU interaction edge cases
+- [ ] Support PAL vs NTSC timing differences
+- [ ] Implement accurate behavior for uninitialized memory
 
 ### Distribution & Packaging
 - [ ] Create distributable packages for different platforms
 - [ ] Implement release management process
 - [ ] Develop update/installation mechanisms
 - [ ] Add platform-specific optimizations
+- [ ] Create macOS application bundle
+- [ ] Create Windows installer package
+- [ ] Create Linux distribution packages
+- [ ] Support automated build process for all platforms
+- [ ] Implement code signing for distribution
+- [ ] Create user-friendly installation guides
 
 ### Extended Features
 - [ ] Add support for game-specific configurations
 - [ ] Implement cheat system/Game Genie support
 - [ ] Add ROM patching capabilities
 - [ ] Support recording and playback of gameplay sessions
+- [ ] Implement frame advance for precision gameplay
+- [ ] Add screenshot and video recording
+- [ ] Support netplay for multiplayer games
+- [ ] Implement turbo button functionality
+- [ ] Add high score saving
+- [ ] Support for enhanced visualization modes
+- [ ] Implement debugging overlays for development
 
 ### Legal Considerations
 - [ ] Develop proper ROM copyright handling
 - [ ] Ensure attribution for any third-party components
 - [ ] Implement license compliance checks
 - [ ] Create appropriate disclaimers and notices
+- [ ] Develop privacy policy for any data collection
+- [ ] Ensure FOSS license compliance
+- [ ] Document any patent considerations
+- [ ] Create clear contributor guidelines
+- [ ] Ensure proper handling of game assets
+- [ ] Implement proper attribution system
 
 ### Documentation
 - [ ] Write comprehensive user documentation
 - [ ] Create developer documentation for extending the emulator
 - [ ] Generate API documentation for integrations
-- [ ] Document compatibility status of commercial games 
+- [ ] Document compatibility status of commercial games
+- [ ] Create tutorials for common use cases
+- [ ] Develop README with quickstart guide
+- [ ] Write architecture documentation
+- [ ] Create contribution guidelines
+- [ ] Document build process for all platforms
+- [ ] Add examples for API usage
+- [ ] Create diagrams for system architecture
+
+### Performance Optimization
+- [ ] Profile CPU-intensive operations
+- [ ] Implement display optimization for modern GPUs
+- [ ] Add configurable frameskip for slower systems
+- [ ] Optimize memory access patterns
+- [ ] Implement fast-forward functionality
+- [ ] Reduce allocation during emulation
+- [ ] Optimize bus communication
+- [ ] Add rendering pipeline optimization
+- [ ] Implement audio buffer optimization
+- [ ] Add JIT compilation for CPU emulation
+- [ ] Support threaded PPU/APU processing where beneficial
+
+### Demo ROMs and Example Code
+- [ ] Create beginner's guide to NES assembly programming
+- [ ] Develop "Hello World" example with detailed comments
+- [ ] Create sprite movement demo with controller input
+- [ ] Develop audio demonstration ROM with all channels
+- [ ] Create background scrolling demonstration ROM
+- [ ] Implement split-screen demo for status bars
+- [ ] Develop tile animation example ROM
+- [ ] Create palette cycling example
+- [ ] Implement collision detection example
+- [ ] Create game-like demo combining multiple techniques
+- [ ] Develop performance test ROM for benchmarking
+- [ ] Add comprehensive comments to all example code
+- [ ] Create tutorial videos explaining demo code
+- [ ] Document assembly techniques for efficient NES programming 
