@@ -71,6 +71,10 @@ impl Instruction {
                 | Instruction::CLC
                 | Instruction::SEC
                 | Instruction::TXS
+                | Instruction::TAY
+                | Instruction::TYA
+                | Instruction::INX
+                | Instruction::DEX
         )
     }
 
