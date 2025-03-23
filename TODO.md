@@ -371,28 +371,28 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## MILESTONE 6: Basic Sound Output [T6]
 - [x] Create a test ASM file that plays simple tones using APU registers
-- [ ] Implement fundamental audio framework
+- [x] Implement fundamental audio framework
 - [ ] Successfully output simple sounds
 - [ ] Document the basic APU implementation
 
 ### [APU] Basic Audio Framework [T6]
 - [x] Define a simple tone generator test ASM that uses APU registers
-- [ ] Design minimal APU component structure to support the test ASM
-- [ ] Implement core APU registers ($4000-$4015, $4017)
-- [ ] Add APU component to the Bus architecture
-- [ ] Implement basic register reading/writing
+- [x] Design minimal APU component structure to support the test ASM
+- [x] Implement core APU registers ($4000-$4015, $4017)
+- [x] Add APU component to the Bus architecture
+- [x] Implement basic register reading/writing
 - [ ] Set up audio output device connection
 - [ ] Implement minimal audio buffer with proper timing
 - [ ] Create basic audio callback for device output
 
 ### [APU] Pulse Channel Implementation [T6]
-- [ ] Implement pulse channel 1 with basic frequency control
+- [x] Implement pulse channel 1 with basic frequency control
 - [ ] Support frequency control via period timer
-- [ ] Implement basic volume control
-- [ ] Add simple duty cycle control
+- [x] Implement basic volume control
+- [x] Add simple duty cycle control
 - [ ] Test single tone output
 - [ ] Implement basic envelope for volume changes
-- [ ] Enable/disable channel functionality
+- [x] Enable/disable channel functionality
 
 ### [UI] Basic Sound Controls [T6]
 - [ ] Create minimal audio control widget
@@ -647,14 +647,14 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
 - Track 5 (Input Controllers): 100% complete (33/33 tasks) - Controller input is fully implemented with keyboard mapping support
-- Track 6 (Basic Sound Output): 0% complete (0/20 tasks)
+- Track 6 (Basic Sound Output): 46% complete (9/20 tasks) - Minimal APU framework with register implementation is now in place
 - Track 7 (Complete Audio System): 0% complete (0/30 tasks)
 - Track 8 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 9 (Full Desktop System): 0% complete (0/90 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
 - Track 10 (Web Integration): 0% complete (0/40 tasks)
 - Additional Areas: 0% complete (0/108 tasks) - Including cycle-accurate timing, background rendering, testing, edge cases, distribution, extended features, legal considerations, documentation, performance optimization, and demo ROMs
 
-**Total Progress: 224/537 tasks complete (41.7%)** 🚀
+**Total Progress: 233/537 tasks complete (43.4%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 
