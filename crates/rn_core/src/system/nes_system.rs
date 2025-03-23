@@ -4,6 +4,7 @@ use log::{debug, error, info, warn};
 
 use super::{dma::DmaControllerWrapper, DmaController};
 use crate::{
+    apu::{Apu, ApuWrapper},
     cartridge::Cartridge,
     cpu::{Cpu, CpuWrapper},
     errors::NesError,
@@ -30,6 +31,9 @@ pub struct NesSystem {
 
     /// The PPU component
     ppu: PpuWrapper,
+    
+    /// The APU component
+    apu: ApuWrapper,
 
     /// The DMA controller
     dma: DmaControllerWrapper<CpuWrapper, PpuWrapper>,
@@ -52,6 +56,9 @@ impl NesSystem {
 
         // Create and connect a cartridge to the PPU
         ppu.connect_cartridge(Cartridge::new());
+        
+        // Create an APU instance
+        let apu = ApuWrapper::new(Apu::new());
 
         // Add ROM mapping for program memory (0x8000-0xFFFF)
         let rom = Box::new(Ram::with_range(0x8000, 0xFFFF));
@@ -72,6 +79,7 @@ impl NesSystem {
         {
             let mut bus = bus.borrow_mut();
             bus.attach_component(Box::new(ppu.clone()));
+            bus.attach_component(Box::new(apu.clone()));
             bus.attach_component(rom);
             bus.attach_component(Box::new(dma.clone()));
             bus.attach_component(Box::new(controller_handler.clone()));
@@ -97,6 +105,7 @@ impl NesSystem {
         Self {
             cpu,
             ppu,
+            apu,
             dma,
             controller_handler,
             state: SystemState::Ready,
@@ -111,6 +120,10 @@ impl NesSystem {
     pub fn ppu(&self) -> PpuWrapper {
         self.ppu.clone()
     }
+    
+    pub fn apu(&self) -> ApuWrapper {
+        self.apu.clone()
+    }
 
     pub fn dma(&self) -> DmaControllerWrapper<CpuWrapper, PpuWrapper> {
         self.dma.clone()
@@ -120,6 +133,7 @@ impl NesSystem {
     pub fn reset(&mut self) -> Result<(), NesError> {
         self.cpu.reset()?;
         self.ppu.reset();
+        self.apu.reset();
 
         let old_state = self.state;
         self.state = SystemState::Ready;
@@ -216,6 +230,11 @@ impl NesSystem {
         for _ in 0..cpu_cycles * 3 {
             self.ppu.tick();
         }
+        
+        // Run the APU for each CPU cycle
+        for _ in 0..cpu_cycles {
+            self.apu.tick();
+        }
 
         // Only check for BRK if CPU is active (not during DMA)
         if !dma_active {
@@ -248,6 +267,7 @@ impl NesSystem {
             }
         }
 
+        // Return the number of cycles that the CPU executed
         Ok(cpu_cycles)
     }
 
