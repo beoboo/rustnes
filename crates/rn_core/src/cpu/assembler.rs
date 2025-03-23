@@ -2266,4 +2266,53 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_indexed_label_references() -> AssembleResult<()> {
+        // Create an assembler instance
+        let mut assembler = Assembler::new(0x8000);
+        
+        // Create a labels hashmap with test values
+        let mut labels = HashMap::new();
+        labels.insert("ButtonMasks".to_string(), 0x8500);
+        
+        // Test X-indexed absolute addressing (ButtonMasks,X)
+        let result = assembler.assemble_instruction("AND ButtonMasks,X", &labels)?;
+        
+        // Expected output: AND instruction with AbsoluteX addressing mode for ButtonMasks
+        // Opcode 0x3D (AND AbsoluteX) followed by the address bytes in little-endian
+        assert_eq!(result.len(), 3, "AND ButtonMasks,X should be 3 bytes");
+        assert_eq!(result[0], 0x3D, "First byte should be opcode 0x3D (AND AbsoluteX)");
+        assert_eq!(result[1], 0x00, "Second byte should be low byte of address (0x8500)");
+        assert_eq!(result[2], 0x85, "Third byte should be high byte of address (0x8500)");
+        
+        // Test Y-indexed absolute addressing (ButtonMasks,Y)
+        let result = assembler.assemble_instruction("AND ButtonMasks,Y", &labels)?;
+        
+        // Expected output: AND instruction with AbsoluteY addressing mode for ButtonMasks
+        // Opcode 0x39 (AND AbsoluteY) followed by the address bytes in little-endian
+        assert_eq!(result.len(), 3, "AND ButtonMasks,Y should be 3 bytes");
+        assert_eq!(result[0], 0x39, "First byte should be opcode 0x39 (AND AbsoluteY)");
+        assert_eq!(result[1], 0x00, "Second byte should be low byte of address (0x8500)");
+        assert_eq!(result[2], 0x85, "Third byte should be high byte of address (0x8500)");
+        
+        // Test with a variable in zero page range
+        // Note: In our handle_label_reference function, we're using AbsoluteX even for zero page variables,
+        // so our test needs to match that behavior. In a more complete implementation, we'd detect
+        // the address range and select ZeroPageX if possible.
+        labels.insert("ZeroVar".to_string(), 0x0042);
+        
+        // Test X-indexed addressing with a zero page variable (ZeroVar,X)
+        let result = assembler.assemble_instruction("AND ZeroVar,X", &labels)?;
+        
+        // NOTE: The assembler currently uses AbsoluteX for label references with X-indexing,
+        // regardless of whether the address is in zero page or not. This matches our code but
+        // could be optimized in the future to use ZeroPageX when possible.
+        assert_eq!(result.len(), 3, "AND ZeroVar,X should be 3 bytes (uses AbsoluteX)");
+        assert_eq!(result[0], 0x3D, "First byte should be opcode 0x3D (AND AbsoluteX)");
+        assert_eq!(result[1], 0x42, "Second byte should be low byte of address (0x0042)");
+        assert_eq!(result[2], 0x00, "Third byte should be high byte of address (0x0042)");
+        
+        Ok(())
+    }
 }

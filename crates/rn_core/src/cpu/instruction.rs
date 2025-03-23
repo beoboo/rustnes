@@ -212,6 +212,9 @@ impl InstructionDecoder {
         self.add_instruction(0x09, Instruction::ORA, AddressingMode::Immediate, 2, 2);
         self.add_instruction(0x05, Instruction::ORA, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0x15, Instruction::ORA, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0x0D, Instruction::ORA, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0x1D, Instruction::ORA, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0x19, Instruction::ORA, AddressingMode::AbsoluteY, 3, 4);
         
         // Shift instructions
         self.add_instruction(0x0A, Instruction::ASL, AddressingMode::Accumulator, 1, 2);
@@ -2732,6 +2735,97 @@ mod tests {
         assert!(!cpu.is_flag_set(CpuFlag::Zero));
         // Negative flag should be set (bit 7 of result is set)
         assert!(cpu.is_flag_set(CpuFlag::Negative));
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_ora_zero_page_addressing() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        // Set up memory and registers
+        cpu.write_byte(0x0042, 0x0F)?; // Value at zero page $42
+        cpu.registers.a = 0x30;        // Initial value in accumulator
+        
+        // Expected result: 0x30 | 0x0F = 0x3F
+        
+        // Set up ORA instruction with zero page addressing mode
+        cpu.write_byte(0x0100, 0x05)?; // ORA ZeroPage
+        cpu.write_byte(0x0101, 0x42)?; // Zero page address $42
+        cpu.registers.pc = 0x0100;
+        
+        // Execute the ORA instruction
+        let cycles = cpu.step()?;
+        
+        // Verify results
+        assert_eq!(cpu.registers.a, 0x3F, "A register should be updated to 0x3F");
+        assert_eq!(cpu.registers.pc, 0x0102, "PC should advance by 2 bytes");
+        assert_eq!(cycles, 3, "ORA ZeroPage should take 3 cycles");
+        assert!(!cpu.is_flag_set(CpuFlag::Zero), "Zero flag should not be set");
+        assert!(!cpu.is_flag_set(CpuFlag::Negative), "Negative flag should not be set");
+        
+        // Test with a value that results in a negative result (bit 7 set)
+        cpu.write_byte(0x0200, 0x05)?; // ORA ZeroPage
+        cpu.write_byte(0x0201, 0x42)?; // Zero page address $42
+        
+        // Change the values to produce a negative result
+        cpu.write_byte(0x0042, 0x80)?; // Value with bit 7 set
+        cpu.registers.a = 0x01;        // Small value in accumulator
+        cpu.registers.pc = 0x0200;
+        
+        // Execute the instruction again
+        cpu.step()?;
+        
+        // Verify results for negative case
+        assert_eq!(cpu.registers.a, 0x81, "A register should be updated to 0x81");
+        assert!(cpu.is_flag_set(CpuFlag::Negative), "Negative flag should be set (bit 7 is set)");
+        assert!(!cpu.is_flag_set(CpuFlag::Zero), "Zero flag should not be set");
+        
+        // Test with a value that results in zero
+        cpu.write_byte(0x0300, 0x05)?; // ORA ZeroPage
+        cpu.write_byte(0x0301, 0x42)?; // Zero page address $42
+        
+        // Change the values to produce a zero result
+        cpu.write_byte(0x0042, 0x00)?; // Zero value in memory
+        cpu.registers.a = 0x00;        // Zero in accumulator
+        cpu.registers.pc = 0x0300;
+        
+        // Execute the instruction again
+        cpu.step()?;
+        
+        // Verify results for zero case
+        assert_eq!(cpu.registers.a, 0x00, "A register should still be 0x00");
+        assert!(cpu.is_flag_set(CpuFlag::Zero), "Zero flag should be set");
+        assert!(!cpu.is_flag_set(CpuFlag::Negative), "Negative flag should not be set");
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_implied_addressing_instructions() -> Result<()> {
+        // This test verifies that instructions with implied addressing mode
+        // are properly implemented and recognized by the assembler
+        let mut assembler = Assembler::new(0);
+        
+        // Test TYA (Transfer Y to Accumulator) - Implied addressing
+        let bytes = assembler.assemble_instruction("TYA", &HashMap::new())?;
+        assert_eq!(bytes.len(), 1, "TYA should assemble to 1 byte (just the opcode)");
+        assert_eq!(bytes[0], 0x98, "TYA opcode should be 0x98");
+        
+        // Test TAY (Transfer Accumulator to Y) - Implied addressing
+        let bytes = assembler.assemble_instruction("TAY", &HashMap::new())?;
+        assert_eq!(bytes.len(), 1, "TAY should assemble to 1 byte (just the opcode)");
+        assert_eq!(bytes[0], 0xA8, "TAY opcode should be 0xA8");
+        
+        // Test INX (Increment X) - Implied addressing
+        let bytes = assembler.assemble_instruction("INX", &HashMap::new())?;
+        assert_eq!(bytes.len(), 1, "INX should assemble to 1 byte (just the opcode)");
+        assert_eq!(bytes[0], 0xE8, "INX opcode should be 0xE8");
+        
+        // Test DEX (Decrement X) - Implied addressing
+        let bytes = assembler.assemble_instruction("DEX", &HashMap::new())?;
+        assert_eq!(bytes.len(), 1, "DEX should assemble to 1 byte (just the opcode)");
+        assert_eq!(bytes[0], 0xCA, "DEX opcode should be 0xCA");
         
         Ok(())
     }
