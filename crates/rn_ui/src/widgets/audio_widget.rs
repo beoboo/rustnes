@@ -23,22 +23,23 @@ impl AudioWidget {
         ui.heading("Audio Controls");
 
         // Volume slider
-        ui.add(
-            Slider::new(&mut self.volume, 0.0..=1.0)
-                .text("Volume")
-                .clamping(SliderClamping::Always)
-                .show_value(true),
-        );
-
-        // Apply volume (even without mute toggle click)
-        apu.set_volume(self.volume);
+        if ui
+            .add(
+                Slider::new(&mut self.volume, 0.0..=1.0)
+                    .text("Volume")
+                    .clamping(SliderClamping::Always)
+                    .show_value(true),
+            )
+            .changed()
+        {
+            apu.set_volume(self.volume);
+        }
 
         // Mute toggle
         if ui.checkbox(&mut self.muted, "Mute Audio").clicked() {
             // Apply mute state immediately
             apu.set_muted(self.muted);
         }
-
 
         // Show audio status
         ui.horizontal(|ui| {
