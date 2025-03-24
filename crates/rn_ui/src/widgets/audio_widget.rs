@@ -30,18 +30,15 @@ impl AudioWidget {
                 .show_value(true),
         );
 
+        // Apply volume (even without mute toggle click)
+        apu.set_volume(self.volume);
+
         // Mute toggle
         if ui.checkbox(&mut self.muted, "Mute Audio").clicked() {
             // Apply mute state immediately
-
-            // Future implementation: self.apu.set_audio_muted(self.muted);
+            apu.set_muted(self.muted);
         }
 
-        // Apply volume (and mute if needed)
-        let effective_volume = if self.muted { 0.0 } else { self.volume };
-
-        // Future implementation: self.apu.set_audio_volume(effective_volume);
-        // For now this is just a UI demo without actual functionality
 
         // Show audio status
         ui.horizontal(|ui| {

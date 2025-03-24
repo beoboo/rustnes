@@ -5,7 +5,7 @@ use eframe::{egui, App, Frame};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[macro_use]
 extern crate log;
-use rn_audio::CpalAudioOutputWrapper;
+use rn_audio::CpalAudioOutput;
 use rn_core::{
     cpu::CpuWrapper,
     errors::NesError,
@@ -150,9 +150,6 @@ struct NesDebugger {
 
     // Startup file loading flag
     initial_file_loaded: bool,
-
-    // Audio output
-    audio_output: CpalAudioOutputWrapper,
 }
 
 /// Tab viewer for the dock area
@@ -395,9 +392,9 @@ impl NesDebugger {
     fn new(_cc: &eframe::CreationContext<'_>, args: Args) -> Self {
         // Create the NES system
         let system = Rc::new(RefCell::new(NesSystem::new()));
-        let audio_output = CpalAudioOutputWrapper::new();
+        let audio_output = CpalAudioOutput::new();
 
-        system.borrow_mut().connect_audio_output(Box::new(audio_output.clone()));
+        system.borrow_mut().connect_audio_output(Box::new(audio_output));
 
         // Create input manager with default and WASD profiles
         let mut key_mapping_manager = KeyMappingManager::new();
@@ -467,7 +464,6 @@ impl NesDebugger {
                 display_mode: DisplayMode::Memory,
             },
             initial_file_loaded: false,
-            audio_output,
         }
     }
 }

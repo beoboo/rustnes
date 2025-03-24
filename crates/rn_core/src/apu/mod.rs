@@ -44,6 +44,14 @@ impl ApuWrapper {
     pub fn connect_audio_output(&self, audio_output: Box<dyn AudioOutput>) {
         self.apu.borrow_mut().connect_audio_output(audio_output);
     }
+
+    pub fn set_volume(&self, volume: f32) {
+        self.apu.borrow_mut().set_volume(volume);
+    }
+
+    pub fn set_muted(&self, muted: bool) {
+        self.apu.borrow_mut().set_muted(muted);
+    }
 }
 
 impl Addressable for ApuWrapper {
@@ -159,6 +167,18 @@ impl Apu {
             }
         }
     }
+
+    pub fn set_volume(&mut self, volume: f32) {
+        if let Some(output) = &mut self.audio_output {
+            output.set_volume(volume);
+        }
+    }
+
+    pub fn set_muted(&mut self, muted: bool) {
+        if let Some(output) = &mut self.audio_output {
+            output.set_muted(muted);
+        }
+    }
 }
 
 impl Addressable for Apu {
@@ -249,6 +269,14 @@ mod tests {
     }
 
     impl AudioOutput for TestAudioOutput {
+        fn set_volume(&mut self, _volume: f32) {
+            // Do nothing for test
+        }
+
+        fn set_muted(&mut self, _muted: bool) {
+            // Do nothing for test
+        }
+
         fn set_sample_rate(&mut self, _rate: f32) {
             // Do nothing for test
         }

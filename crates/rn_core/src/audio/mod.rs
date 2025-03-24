@@ -1,6 +1,12 @@
 use std::fmt::Debug;
 /// Trait for audio output devices that can receive samples from the APU
 pub trait AudioOutput: Debug {
+    /// Set the volume for audio output
+    fn set_volume(&mut self, volume: f32);
+
+    /// Set the muted state for audio output
+    fn set_muted(&mut self, muted: bool);
+
     /// Set the sample rate for audio output
     fn set_sample_rate(&mut self, sample_rate: f32);
 
@@ -21,6 +27,14 @@ pub trait AudioOutput: Debug {
 pub struct NullAudioOutput;
 
 impl AudioOutput for NullAudioOutput {
+    fn set_volume(&mut self, _volume: f32) {
+        // Do nothing
+    }
+
+    fn set_muted(&mut self, _muted: bool) {
+        // Do nothing
+    }
+
     fn set_sample_rate(&mut self, _sample_rate: f32) {
         // Do nothing
     }

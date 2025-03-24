@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+use std::collections::VecDeque;
 
 use rn_core::audio::AudioOutput;
 
@@ -7,6 +7,8 @@ use rn_core::audio::AudioOutput;
 pub struct SimpleAudioOutput {
     sample_buffer: VecDeque<f32>,
     sample_rate: f32,
+    volume: f32,
+    muted: bool,
 }
 
 impl SimpleAudioOutput {
@@ -14,11 +16,21 @@ impl SimpleAudioOutput {
         Self {
             sample_buffer: VecDeque::with_capacity(8192),
             sample_rate: 44100.0, // Default sample rate
+            volume: 1.0,
+            muted: false,
         }
     }
 }
 
 impl AudioOutput for SimpleAudioOutput {
+    fn set_volume(&mut self, volume: f32) {
+        self.volume = volume;
+    }
+
+    fn set_muted(&mut self, muted: bool) {
+        self.muted = muted;
+    }
+
     fn set_sample_rate(&mut self, rate: f32) {
         self.sample_rate = rate;
     }
@@ -38,37 +50,5 @@ impl AudioOutput for SimpleAudioOutput {
 
     fn is_ready(&self) -> bool {
         true // Always ready to receive samples
-    }
-}
-
-/// Cloneable wrapper for SimpleAudioOutput
-#[derive(Clone, Debug)]
-pub struct SimpleAudioOutputWrapper {
-    inner: Rc<RefCell<SimpleAudioOutput>>,
-}
-
-impl SimpleAudioOutputWrapper {
-    pub fn new() -> Self {
-        Self {
-            inner: Rc::new(RefCell::new(SimpleAudioOutput::new())),
-        }
-    }
-}
-
-impl AudioOutput for SimpleAudioOutputWrapper {
-    fn set_sample_rate(&mut self, rate: f32) {
-        self.inner.borrow_mut().set_sample_rate(rate);
-    }
-
-    fn queue_sample(&mut self, sample: f32) {
-        self.inner.borrow_mut().queue_sample(sample);
-    }
-
-    fn clear(&mut self) {
-        self.inner.borrow_mut().clear();
-    }
-
-    fn is_ready(&self) -> bool {
-        self.inner.borrow().is_ready()
     }
 }

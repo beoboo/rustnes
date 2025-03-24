@@ -18,6 +18,7 @@ pub struct CpalAudioOutput {
     sample_buffer: Arc<Mutex<VecDeque<f32>>>,
     sample_rate: f32,
     volume: f32,
+    muted: bool,
     _stream: Option<Stream>,
     is_initialized: bool,
 }
@@ -27,6 +28,7 @@ impl fmt::Debug for CpalAudioOutput {
         f.debug_struct("CpalAudioOutput")
             .field("sample_rate", &self.sample_rate)
             .field("volume", &self.volume)
+            .field("muted", &self.muted)
             .field("is_initialized", &self.is_initialized)
             .field(
                 "buffer_size",
@@ -43,6 +45,7 @@ impl CpalAudioOutput {
             sample_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(8192))),
             sample_rate: 44100.0, // Default sample rate
             volume: 1.0,
+            muted: false,
             _stream: None,
             is_initialized: false,
         }
@@ -83,6 +86,7 @@ impl CpalAudioOutput {
         // Create buffer clone for stream closure
         let buffer = self.sample_buffer.clone();
         let volume = self.volume;
+        let muted = self.muted;
         let err_fn = |err| error!("An error occurred on the audio stream: {}", err);
 
         // Build the stream with the appropriate sample format
@@ -99,7 +103,8 @@ impl CpalAudioOutput {
 
                         for sample in output_buffer.iter_mut() {
                             // Get a sample from our buffer or use silence
-                            *sample = guard.pop_front().unwrap_or(0.0) * volume;
+                            let raw_sample = guard.pop_front().unwrap_or(0.0);
+                            *sample = if muted { 0.0 } else { raw_sample * volume };
                         }
                     },
                     err_fn.clone(),
@@ -119,7 +124,8 @@ impl CpalAudioOutput {
 
                         for sample in output_buffer.iter_mut() {
                             // Get a sample from our buffer, scale to i16 range
-                            let value = guard.pop_front().unwrap_or(0.0) * volume;
+                            let raw_sample = guard.pop_front().unwrap_or(0.0);
+                            let value = if muted { 0.0 } else { raw_sample * volume };
                             *sample = (value * 32767.0) as i16;
                         }
                     },
@@ -140,7 +146,8 @@ impl CpalAudioOutput {
 
                         for sample in output_buffer.iter_mut() {
                             // Get a sample, scale from [-1.0, 1.0] to [0, 65535]
-                            let value = guard.pop_front().unwrap_or(0.0) * volume;
+                            let raw_sample = guard.pop_front().unwrap_or(0.0);
+                            let value = if muted { 0.0 } else { raw_sample * volume };
                             // Convert from [-1.0, 1.0] to [0, 65535]
                             *sample = ((value * 0.5 + 0.5) * 65535.0) as u16;
                         }
@@ -165,16 +172,6 @@ impl CpalAudioOutput {
         info!("Audio output initialized successfully");
         Ok(())
     }
-
-    /// Set the output volume (0.0 to 1.0)
-    pub fn set_volume(&mut self, volume: f32) {
-        self.volume = volume.max(0.0).min(1.0);
-    }
-
-    /// Get the current volume
-    pub fn volume(&self) -> f32 {
-        self.volume
-    }
 }
 
 impl Default for CpalAudioOutput {
@@ -184,6 +181,14 @@ impl Default for CpalAudioOutput {
 }
 
 impl AudioOutput for CpalAudioOutput {
+    fn set_volume(&mut self, volume: f32) {
+        self.volume = volume.max(0.0).min(1.0);
+    }
+
+    fn set_muted(&mut self, muted: bool) {
+        self.muted = muted;
+    }
+
     fn set_sample_rate(&mut self, rate: f32) {
         // Only update if not initialized yet, since changing sample rate
         // would require recreating the stream
@@ -222,60 +227,5 @@ impl AudioOutput for CpalAudioOutput {
 
     fn is_ready(&self) -> bool {
         true // Always ready to receive samples, even if not initialized yet
-    }
-}
-
-/// Cloneable wrapper for CpalAudioOutput
-#[derive(Clone, Debug)]
-pub struct CpalAudioOutputWrapper {
-    inner: Arc<Mutex<CpalAudioOutput>>,
-}
-
-impl CpalAudioOutputWrapper {
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(CpalAudioOutput::new())),
-        }
-    }
-
-    pub fn set_volume(&self, volume: f32) -> Result<()> {
-        let mut output = self
-            .inner
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Failed to lock audio output"))?;
-        output.set_volume(volume);
-        Ok(())
-    }
-
-    pub fn volume(&self) -> Result<f32> {
-        let output = self
-            .inner
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Failed to lock audio output"))?;
-        Ok(output.volume())
-    }
-}
-
-impl AudioOutput for CpalAudioOutputWrapper {
-    fn set_sample_rate(&mut self, rate: f32) {
-        if let Ok(mut output) = self.inner.lock() {
-            output.set_sample_rate(rate);
-        }
-    }
-
-    fn queue_sample(&mut self, sample: f32) {
-        if let Ok(mut output) = self.inner.lock() {
-            output.queue_sample(sample);
-        }
-    }
-
-    fn clear(&mut self) {
-        if let Ok(mut output) = self.inner.lock() {
-            output.clear();
-        }
-    }
-
-    fn is_ready(&self) -> bool {
-        self.inner.lock().map(|output| output.is_ready()).unwrap_or(false)
     }
 }

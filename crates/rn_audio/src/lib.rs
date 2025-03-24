@@ -9,5 +9,5 @@ mod simple_audio;
 
 // Re-export common types
 pub use anyhow::Result;
-pub use cpal_audio::{CpalAudioOutput, CpalAudioOutputWrapper};
-pub use simple_audio::{SimpleAudioOutput, SimpleAudioOutputWrapper};
+pub use cpal_audio::CpalAudioOutput;
+pub use simple_audio::SimpleAudioOutput;
