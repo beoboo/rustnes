@@ -145,8 +145,6 @@ impl Apu {
         // Configure the audio output with the correct sample rate
         audio_output.set_sample_rate(DEFAULT_SAMPLE_RATE as f32);
         
-        println!("DEBUG: Connected audio output device");
-        
         // Store the audio output
         self.audio_output = Some(audio_output);
     }
@@ -156,20 +154,12 @@ impl Apu {
         // Calculate the current sample for pulse channel 1
         let pulse1_sample = self.pulse1.generate_sample();
         
-        println!("DEBUG: Generated sample: {}", pulse1_sample);
-        
         // If we have an audio output device, send the sample to it
         if let Some(output) = &mut self.audio_output {
-            println!("DEBUG: Audio output exists");
             if output.is_ready() {
-                println!("DEBUG: Audio output is ready, queueing sample: {}", pulse1_sample);
                 // For now, we only have one channel, so the sample is just the pulse1 sample
                 output.queue_sample(pulse1_sample);
-            } else {
-                println!("DEBUG: Audio output is not ready");
             }
-        } else {
-            println!("DEBUG: No audio output device");
         }
     }
 }
@@ -248,7 +238,6 @@ mod tests {
 
     impl TestAudioOutput {
         fn new() -> Self {
-            println!("DEBUG: Created new TestAudioOutput");
             Self {
                 samples: Vec::new(),
                 ready: true,
@@ -256,37 +245,30 @@ mod tests {
         }
         
         fn get_samples(&self) -> &[f32] {
-            println!("DEBUG: get_samples called, has {} samples", self.samples.len());
             &self.samples
         }
         
         fn set_ready(&mut self, ready: bool) {
-            println!("DEBUG: Setting ready to {}", ready);
             self.ready = ready;
         }
     }
     
     impl AudioOutput for TestAudioOutput {
-        fn set_sample_rate(&mut self, rate: f32) {
-            println!("DEBUG: Setting sample rate to {}", rate);
+        fn set_sample_rate(&mut self, _rate: f32) {
             // Do nothing for test
         }
         
         fn queue_sample(&mut self, sample: f32) {
-            println!("DEBUG: Queuing sample: {}, ready: {}", sample, self.ready);
             if self.ready {
                 self.samples.push(sample);
-                println!("DEBUG: Sample added, now have {} samples", self.samples.len());
             }
         }
         
         fn clear(&mut self) {
-            println!("DEBUG: Clearing samples");
             self.samples.clear();
         }
         
         fn is_ready(&self) -> bool {
-            println!("DEBUG: is_ready called: {}", self.ready);
             self.ready
         }
     }
@@ -357,7 +339,6 @@ mod tests {
         
         // Generate a sample directly - without accessing private fields
         let sample = verify_apu.pulse1.generate_sample();
-        println!("DEBUG: Direct sample generation: {}", sample);
         
         // Our real test is that this doesn't panic
         assert!(sample >= 0.0, "Sample generation broken: {}", sample);
@@ -405,8 +386,7 @@ mod tests {
         apu.write_byte(PULSE1_TIMER_HI, 0x00).unwrap();
         
         // Direct test using the pulse channel
-        let sample = apu.pulse1.generate_sample();
-        println!("DEBUG: Control register test sample: {}", sample);
+        let _sample = apu.pulse1.generate_sample();
         
         // Our real test is that the APU is configured correctly
         assert_eq!(apu.pulse1.is_enabled(), true, "Pulse channel should be enabled");
@@ -435,8 +415,7 @@ mod tests {
         }
         
         // Direct test - try generating a sample with the current configuration
-        let sample = apu.pulse1.generate_sample();
-        println!("DEBUG: Tone sequence test sample: {}", sample);
+        let _sample = apu.pulse1.generate_sample();
         
         // Verify the APU configuration is correct for tone generation
         assert_eq!(apu.pulse1.is_enabled(), true, "Pulse channel should be enabled");
