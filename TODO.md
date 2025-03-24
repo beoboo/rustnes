@@ -372,7 +372,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## MILESTONE 6: Basic Sound Output [T6]
 - [x] Create a test ASM file that plays simple tones using APU registers
 - [x] Implement fundamental audio framework
-- [ ] Successfully output simple sounds
+- [x] Successfully output simple sounds
 - [ ] Document the basic APU implementation
 
 ### [APU] Basic Audio Framework [T6]
@@ -381,23 +381,23 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement core APU registers ($4000-$4015, $4017)
 - [x] Add APU component to the Bus architecture
 - [x] Implement basic register reading/writing
-- [ ] Set up audio output device connection
-- [ ] Implement minimal audio buffer with proper timing
-- [ ] Create basic audio callback for device output
+- [x] Set up audio output device connection
+- [x] Implement minimal audio buffer with proper timing
+- [x] Create basic audio callback for device output
 
 ### [APU] Pulse Channel Implementation [T6]
 - [x] Implement pulse channel 1 with basic frequency control
-- [ ] Support frequency control via period timer
+- [x] Support frequency control via period timer
 - [x] Implement basic volume control
 - [x] Add simple duty cycle control
-- [ ] Test single tone output
+- [x] Test single tone output
 - [ ] Implement basic envelope for volume changes
 - [x] Enable/disable channel functionality
 
 ### [UI] Basic Sound Controls [T6]
-- [ ] Create minimal audio control widget
-- [ ] Add master volume control
-- [ ] Implement mute/unmute functionality
+- [x] Create minimal audio control widget
+- [x] Add master volume control
+- [x] Implement mute/unmute functionality
 - [ ] Add simple channel enable/disable controls
 - [ ] Show basic audio status in UI
 

@@ -3,8 +3,9 @@ use std::{cell::RefCell, rc::Rc};
 use log::{debug, error, info, warn};
 
 use super::{dma::DmaControllerWrapper, DmaController};
+use crate::apu::Apu;
 use crate::{
-    apu::{Apu, ApuWrapper},
+    apu::ApuWrapper,
     cartridge::Cartridge,
     cpu::{Cpu, CpuWrapper},
     errors::NesError,
@@ -12,6 +13,7 @@ use crate::{
     memory::{Addressable, Ram},
     ppu::{Ppu, PpuWrapper},
     system::Bus,
+    audio::AudioOutput,
 };
 
 /// The possible states of the NES system
@@ -90,16 +92,12 @@ impl NesSystem {
             {
                 println!("\n=== NesSystem Memory Map ===");
                 println!("{}", bus.debug_memory_map());
-                println!("===========================\n");
             }
         }
 
-        // Attach components to the DMA controller
-        {
-            dma.connect_cpu(cpu.clone());
-            dma.connect_ppu(ppu.clone());
-        }
-
+        // Establish all component connections
+        dma.connect_cpu(cpu.clone());
+        dma.connect_ppu(ppu.clone());
         cpu.connect_memory(bus.clone());
 
         Self {
@@ -368,6 +366,11 @@ impl NesSystem {
     /// Set the state of controller 2
     pub fn set_controller2_state(&self, state: ControllerState) {
         self.controller_handler.set_controller2_state(state);
+    }
+
+    /// Connect an audio output device to the APU
+    pub fn connect_audio_output(&mut self, audio_output: Box<dyn AudioOutput>) {
+        self.apu.connect_audio_output(audio_output);
     }
 }
 
