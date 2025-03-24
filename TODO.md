@@ -372,7 +372,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## MILESTONE 6: Basic Sound Output [T6]
 - [x] Create a test ASM file that plays simple tones using APU registers
 - [x] Implement fundamental audio framework
-- [x] Successfully output simple sounds
+- [ ] Successfully output simple sounds
 - [ ] Document the basic APU implementation
 
 ### [APU] Basic Audio Framework [T6]
@@ -390,22 +390,60 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Support frequency control via period timer
 - [x] Implement basic volume control
 - [x] Add simple duty cycle control
-- [x] Test single tone output
-- [ ] Implement basic envelope for volume changes
+- [ ] Test single tone output (samples generated but not heard)
 - [x] Enable/disable channel functionality
 
 ### [UI] Basic Sound Controls [T6]
-- [x] Create minimal audio control widget
-- [x] Add master volume control
-- [x] Implement mute/unmute functionality
+- [ ] Create minimal audio control widget
+- [ ] Add master volume control
+- [ ] Implement mute/unmute functionality
 - [ ] Add simple channel enable/disable controls
 - [ ] Show basic audio status in UI
+- [ ] Create audio buffer visualization to display recent sample data
+- [ ] Add audio spectrum analyzer for frequency visualization
+- [ ] Implement basic oscilloscope view for waveform visualization
+- [ ] Add controls for audio playback speed
+- [ ] Create visual indicators for active audio channels
+- [ ] Implement audio settings panel with sample rate controls
+- [ ] Add tooltip information to explain APU register meanings
+
+### [Audio] System Integration [T6]
+- [ ] Create a CpalAudioOutput implementation in the rn_audio crate
+- [ ] Set up audio device enumeration and initialization using cpal
+- [ ] Implement audio stream handling with proper error management
+- [ ] Create sample conversion pipeline for hardware compatibility
+- [ ] Add audio buffer management to prevent underruns
+- [ ] Implement proper audio device lifecycle management
+- [ ] Test system integration with the basic tone example
+- [ ] Add support for volume control at the audio output level
+- [ ] Create smooth audio stream startup/shutdown
 
 ### [Testing] Sound Test ROM [T6]
 - [x] Implement and test the simple tone generator ASM
 - [x] Add ascending/descending tone patterns
 - [ ] Test volume modulation
 - [ ] Verify audio timing with CPU execution
+
+### [Testing] APU Unit Tests [T6]
+- [ ] Create unit tests for the PulseChannel implementation
+  - [ ] Test duty cycle patterns and output waveforms
+  - [ ] Test volume control functionality
+  - [ ] Test enable/disable functionality
+  - [ ] Test frequency/timer calculations
+- [ ] Write tests for APU register write/read behavior
+  - [ ] Test pulse channel register mappings
+  - [ ] Test status register behavior
+  - [ ] Verify register reset behavior
+- [ ] Implement sample verification tests
+  - [ ] Verify sample generation for specific register configurations
+  - [ ] Test sample output at different frequencies
+  - [ ] Ensure correct audio buffer handling
+- [ ] Add end-to-end audio pipeline tests
+  - [ ] Test audio output device connection
+  - [ ] Verify correct sample delivery to output devices
+  - [ ] Test CPAL integration with mock audio devices
+- [ ] Add unit tests to verify the correct audio output behavior
+- [ ] Implement CPAL integration for real audio output on host system
 
 ## MILESTONE 7: Complete Audio System [T7]
 - [ ] Create demo ROMs that showcase music and sound effects
@@ -415,6 +453,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### [APU] Complete Channel Implementation [T7]
 - [ ] Finish pulse channel 1 with all features ($4000-$4003)
+  - [ ] Implement envelope generator for volume control
+  - [ ] Add sweep units for frequency modulation
+  - [ ] Implement length counter
 - [ ] Implement pulse channel 2 with all features ($4004-$4007)
 - [ ] Implement triangle channel ($4008-$400B)
 - [ ] Implement noise channel ($400C-$400F)
@@ -647,7 +688,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
 - Track 5 (Input Controllers): 100% complete (33/33 tasks) - Controller input is fully implemented with keyboard mapping support
-- Track 6 (Basic Sound Output): 46% complete (9/20 tasks) - Minimal APU framework with register implementation is now in place
+- Track 6 (Basic Sound Output): 26% complete (7/27 tasks) - Basic APU pulse channel implementation with constant volume and sample generation is in place, but no actual audio output or UI controls
 - Track 7 (Complete Audio System): 0% complete (0/30 tasks)
 - Track 8 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 9 (Full Desktop System): 0% complete (0/90 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
