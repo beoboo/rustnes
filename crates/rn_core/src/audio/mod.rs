@@ -36,6 +36,4 @@ impl AudioOutput for NullAudioOutput {
     fn is_ready(&self) -> bool {
         true // Always ready, since we're not doing anything
     }
-}
-
-// First, let's see what's in the audio module to understand the AudioOutput trait 
+} 

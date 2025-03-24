@@ -390,15 +390,15 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Support frequency control via period timer
 - [x] Implement basic volume control
 - [x] Add simple duty cycle control
-- [ ] Test single tone output (samples generated but not heard)
+- [x] Test single tone output (samples generated but not heard)
 - [x] Enable/disable channel functionality
 
 ### [UI] Basic Sound Controls [T6]
-- [ ] Create minimal audio control widget
-- [ ] Add master volume control
+- [x] Create minimal audio control widget
+- [x] Add master volume control
 - [ ] Implement mute/unmute functionality
-- [ ] Add simple channel enable/disable controls
-- [ ] Show basic audio status in UI
+- [x] Add simple channel enable/disable controls
+- [x] Show basic audio status in UI
 - [ ] Create audio buffer visualization to display recent sample data
 - [ ] Add audio spectrum analyzer for frequency visualization
 - [ ] Implement basic oscilloscope view for waveform visualization

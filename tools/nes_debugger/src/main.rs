@@ -15,6 +15,7 @@ use rn_input::{controller_profile::ControllerProfile, key_mapping::KeyMappingMan
 use rn_ui::widgets::{
     convert_egui_key,
     AsmWidget,
+    AudioWidget,
     ControllerWidget,
     CpuWidget,
     DisasmWidget,
@@ -90,6 +91,7 @@ enum DockTab {
     Controller,
     Display,
     AssembledCode,
+    Audio,
 }
 
 impl DockTab {
@@ -105,6 +107,7 @@ impl DockTab {
             DockTab::Controller => "Controller State",
             DockTab::Display => "Display",
             DockTab::AssembledCode => "Assembled Code",
+            DockTab::Audio => "Audio Controls",
         }
     }
 }
@@ -131,6 +134,7 @@ struct NesDebugger {
     memory_widget: MemoryWidget,
     pattern_table_widget: PatternTableWidget,
     keyboard_mappings_widget: KeyboardMappingsWidget,
+    audio_widget: AudioWidget,
 
     // Emulation state
     system: Rc<RefCell<NesSystem>>,
@@ -162,6 +166,7 @@ struct NesTabViewer<'a> {
     disasm_widget: &'a mut DisasmWidget,
     memory_widget: &'a mut MemoryWidget,
     pattern_table_widget: &'a mut PatternTableWidget,
+    audio_widget: &'a mut AudioWidget,
     system: Rc<RefCell<NesSystem>>,
     context: &'a mut AppContext,
 }
@@ -176,7 +181,6 @@ impl<'a> TabViewer for NesTabViewer<'a> {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         match tab {
             DockTab::Assembly => {
-                // Assembly Tab content - just show the editor
                 let mut system_borrow = self.system.borrow_mut();
                 self.asm_widget.ui(ui, &mut *system_borrow);
             },
@@ -226,8 +230,6 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                 let _ = self.disasm_widget.ui(ui, system_ref.cpu());
             },
             DockTab::Memory => {
-                // Memory Tab content
-
                 // Use a ScrollArea with both horizontal and vertical scrolling
                 egui::ScrollArea::both().id_salt("memory_editor_scroll").show(ui, |ui| {
                     // Use a fixed width for the content to ensure horizontal scrolling works
@@ -366,13 +368,20 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                             let frame_buffer = system.ppu().frame_buffer().to_vec();
                             frame_buffer
                         });
-
+                        
                         // Update zoom and show the PPU display
                         self.pixel_display.set_zoom(auto_zoom);
                         let _ = self.pixel_display.ui(ui, &ppu_adapter);
                     },
                 }
             },
+            DockTab::Audio => {
+                // Create a mutable system reference for the audio widget
+                let system = self.system.borrow_mut();
+                
+                // Use the audio widget
+                self.audio_widget.ui(ui, system.apu());
+            }
         }
     }
 
@@ -399,7 +408,12 @@ impl NesDebugger {
             .expect("Failed to set WASD profile");
 
         // Create initial dock state with all our tabs
-        let mut dock_state = DockState::new(vec![DockTab::Assembly, DockTab::Memory, DockTab::PatternTable]);
+        let mut dock_state = DockState::new(vec![
+            DockTab::Assembly,
+            DockTab::Memory, 
+            DockTab::PatternTable,
+            DockTab::Audio,
+        ]);
 
         // Create layout with Assembly/Memory/PatternTable in center, and CPU/PPU on the left
         let [center, left] = dock_state.main_surface_mut().split_left(
@@ -445,6 +459,7 @@ impl NesDebugger {
                 .with_editable(true),
             pattern_table_widget: PatternTableWidget::new(),
             keyboard_mappings_widget: KeyboardMappingsWidget::new(),
+            audio_widget: AudioWidget::new(),
             system,
             key_mapping_manager,
             dock_state,
@@ -652,6 +667,7 @@ impl App for NesDebugger {
                 disasm_widget: &mut self.disasm_widget,
                 memory_widget: &mut self.memory_widget,
                 pattern_table_widget: &mut self.pattern_table_widget,
+                audio_widget: &mut self.audio_widget,
                 system: self.system.clone(),
                 context: &mut self.context,
             };
