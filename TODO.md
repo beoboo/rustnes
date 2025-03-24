@@ -372,7 +372,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ## MILESTONE 6: Basic Sound Output [T6]
 - [x] Create a test ASM file that plays simple tones using APU registers
 - [x] Implement fundamental audio framework
-- [ ] Successfully output simple sounds
+- [x] Successfully output simple sounds
 - [ ] Document the basic APU implementation
 
 ### [APU] Basic Audio Framework [T6]
@@ -408,15 +408,15 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Add tooltip information to explain APU register meanings
 
 ### [Audio] System Integration [T6]
-- [ ] Create a CpalAudioOutput implementation in the rn_audio crate
-- [ ] Set up audio device enumeration and initialization using cpal
-- [ ] Implement audio stream handling with proper error management
-- [ ] Create sample conversion pipeline for hardware compatibility
-- [ ] Add audio buffer management to prevent underruns
-- [ ] Implement proper audio device lifecycle management
+- [x] Create a CpalAudioOutput implementation in the rn_audio crate
+- [x] Set up audio device enumeration and initialization using cpal
+- [x] Implement audio stream handling with proper error management
+- [x] Create sample conversion pipeline for hardware compatibility
+- [x] Add audio buffer management to prevent underruns
+- [x] Implement proper audio device lifecycle management
 - [ ] Test system integration with the basic tone example
-- [ ] Add support for volume control at the audio output level
-- [ ] Create smooth audio stream startup/shutdown
+- [x] Add support for volume control at the audio output level
+- [x] Create smooth audio stream startup/shutdown
 
 ### [Testing] Sound Test ROM [T6]
 - [x] Implement and test the simple tone generator ASM

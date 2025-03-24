@@ -5,6 +5,7 @@ use eframe::{egui, App, Frame};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[macro_use]
 extern crate log;
+use rn_audio::CpalAudioOutputWrapper;
 use rn_core::{
     cpu::CpuWrapper,
     errors::NesError,
@@ -28,7 +29,6 @@ use rn_ui::widgets::{
     PpuPixelAdapter,
     PpuWidget,
 };
-use rn_audio::SimpleAudioOutputWrapper;
 
 /// Command line arguments for the NesDebugger
 #[derive(Parser, Debug)]
@@ -152,7 +152,7 @@ struct NesDebugger {
     initial_file_loaded: bool,
 
     // Audio output
-    audio_output: SimpleAudioOutputWrapper,
+    audio_output: CpalAudioOutputWrapper,
 }
 
 /// Tab viewer for the dock area
@@ -368,7 +368,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                             let frame_buffer = system.ppu().frame_buffer().to_vec();
                             frame_buffer
                         });
-                        
+
                         // Update zoom and show the PPU display
                         self.pixel_display.set_zoom(auto_zoom);
                         let _ = self.pixel_display.ui(ui, &ppu_adapter);
@@ -378,10 +378,10 @@ impl<'a> TabViewer for NesTabViewer<'a> {
             DockTab::Audio => {
                 // Create a mutable system reference for the audio widget
                 let system = self.system.borrow_mut();
-                
+
                 // Use the audio widget
                 self.audio_widget.ui(ui, system.apu());
-            }
+            },
         }
     }
 
@@ -395,7 +395,7 @@ impl NesDebugger {
     fn new(_cc: &eframe::CreationContext<'_>, args: Args) -> Self {
         // Create the NES system
         let system = Rc::new(RefCell::new(NesSystem::new()));
-        let audio_output = SimpleAudioOutputWrapper::new();
+        let audio_output = CpalAudioOutputWrapper::new();
 
         system.borrow_mut().connect_audio_output(Box::new(audio_output.clone()));
 
@@ -410,7 +410,7 @@ impl NesDebugger {
         // Create initial dock state with all our tabs
         let mut dock_state = DockState::new(vec![
             DockTab::Assembly,
-            DockTab::Memory, 
+            DockTab::Memory,
             DockTab::PatternTable,
             DockTab::Audio,
         ]);

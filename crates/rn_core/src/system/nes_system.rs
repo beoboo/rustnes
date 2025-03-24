@@ -3,9 +3,9 @@ use std::{cell::RefCell, rc::Rc};
 use log::{debug, error, info, warn};
 
 use super::{dma::DmaControllerWrapper, DmaController};
-use crate::apu::Apu;
 use crate::{
-    apu::ApuWrapper,
+    apu::{Apu, ApuWrapper},
+    audio::AudioOutput,
     cartridge::Cartridge,
     cpu::{Cpu, CpuWrapper},
     errors::NesError,
@@ -13,7 +13,6 @@ use crate::{
     memory::{Addressable, Ram},
     ppu::{Ppu, PpuWrapper},
     system::Bus,
-    audio::AudioOutput,
 };
 
 /// The possible states of the NES system
@@ -33,7 +32,7 @@ pub struct NesSystem {
 
     /// The PPU component
     ppu: PpuWrapper,
-    
+
     /// The APU component
     apu: ApuWrapper,
 
@@ -58,7 +57,7 @@ impl NesSystem {
 
         // Create and connect a cartridge to the PPU
         ppu.connect_cartridge(Cartridge::new());
-        
+
         // Create an APU instance
         let apu = ApuWrapper::new(Apu::new());
 
@@ -118,7 +117,7 @@ impl NesSystem {
     pub fn ppu(&self) -> PpuWrapper {
         self.ppu.clone()
     }
-    
+
     pub fn apu(&self) -> ApuWrapper {
         self.apu.clone()
     }
@@ -228,7 +227,7 @@ impl NesSystem {
         for _ in 0..cpu_cycles * 3 {
             self.ppu.tick();
         }
-        
+
         // Run the APU for each CPU cycle
         for _ in 0..cpu_cycles {
             self.apu.tick();
@@ -667,11 +666,11 @@ mod tests {
 
         // Create an error state - using a memory address clearly outside any component's range
         system.cpu.set_pc(0x5000); // Definitely unmapped memory area
-        
+
         // Try to step - this should fail because the memory isn't mapped
         let step_result = system.step();
         assert!(step_result.is_err(), "Step should fail with unmapped memory at 0x5000");
-        
+
         // Check we're in error state
         assert!(matches!(system.state(), SystemState::Error(_)));
 

@@ -39,10 +39,10 @@ impl AudioWidget {
 
         // Apply volume (and mute if needed)
         let effective_volume = if self.muted { 0.0 } else { self.volume };
-        
+
         // Future implementation: self.apu.set_audio_volume(effective_volume);
         // For now this is just a UI demo without actual functionality
-        
+
         // Show audio status
         ui.horizontal(|ui| {
             ui.label("Status:");
@@ -52,22 +52,23 @@ impl AudioWidget {
                 ui.label(format!("Volume: {:.0}%", self.volume * 100.0));
             }
         });
-        
+
         // UI section for individual channel controls (placeholder for future expansion)
         ui.collapsing("Channel Controls", |ui| {
             ui.label("Pulse Channel 1");
-            ui.checkbox(&mut true, "Enabled").on_hover_text("Enable/disable pulse channel 1");
-            
+            ui.checkbox(&mut true, "Enabled")
+                .on_hover_text("Enable/disable pulse channel 1");
+
             ui.label("Pulse Channel 2");
             ui.checkbox(&mut false, "Enabled").on_hover_text("Not implemented yet");
-            
+
             ui.label("Triangle Channel");
             ui.checkbox(&mut false, "Enabled").on_hover_text("Not implemented yet");
-            
+
             ui.label("Noise Channel");
             ui.checkbox(&mut false, "Enabled").on_hover_text("Not implemented yet");
         });
-        
+
         // Information about APU
         ui.collapsing("APU Information", |ui| {
             ui.label("The NES Audio Processing Unit (APU) includes:");
@@ -75,9 +76,9 @@ impl AudioWidget {
             ui.label("• 1 Triangle channel for bass notes");
             ui.label("• 1 Noise channel for percussion");
             ui.label("• 1 DMC channel for digital samples");
-            
+
             ui.label("\nCurrently implemented:");
             ui.label("• Basic Pulse Channel 1 with constant volume");
         });
     }
-} 
+}
