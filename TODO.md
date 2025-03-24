@@ -399,13 +399,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement mute/unmute functionality
 - [x] Add simple channel enable/disable controls
 - [x] Show basic audio status in UI
-- [ ] Create audio buffer visualization to display recent sample data
-- [ ] Add audio spectrum analyzer for frequency visualization
-- [ ] Implement basic oscilloscope view for waveform visualization
 - [ ] Add controls for audio playback speed
 - [ ] Create visual indicators for active audio channels
 - [ ] Implement audio settings panel with sample rate controls
-- [ ] Add tooltip information to explain APU register meanings
 
 ### [Audio] System Integration [T6]
 - [x] Create a CpalAudioOutput implementation in the rn_audio crate
@@ -414,7 +410,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Create sample conversion pipeline for hardware compatibility
 - [x] Add audio buffer management to prevent underruns
 - [x] Implement proper audio device lifecycle management
-- [ ] Test system integration with the basic tone example
+- [x] Test system integration with the basic tone example
 - [x] Add support for volume control at the audio output level
 - [x] Create smooth audio stream startup/shutdown
 
@@ -811,6 +807,16 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement audio buffer optimization
 - [ ] Add JIT compilation for CPU emulation
 - [ ] Support threaded PPU/APU processing where beneficial
+
+### Audio Visualization
+- [ ] Create audio buffer visualization to display recent sample data
+- [ ] Add audio spectrum analyzer for frequency visualization
+- [ ] Implement basic oscilloscope view for waveform visualization
+- [ ] Implement real-time audio visualization with proper scaling
+- [ ] Create visual indicators for audio channel activity
+- [ ] Add audio response visualization for different frequency ranges
+- [ ] Implement audio export to WAV file for offline analysis
+- [ ] Add support for visualizing individual channels separately
 
 ### Demo ROMs and Example Code
 - [ ] Create beginner's guide to NES assembly programming
