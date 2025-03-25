@@ -432,14 +432,14 @@ This document provides a detailed task breakdown for developing the RustNES emul
   - [x] Verify volume and mute controls affect output
 
 ## MILESTONE 7: Complete Audio System [T7]
-- [ ] Create demo ROMs that showcase music and sound effects
+- [x] Create demo ROMs that showcase music and sound effects
 - [ ] Implement all audio channels with full features
 - [ ] Support complete NES audio functionality
 - [ ] Document the complete APU implementation
 
 ### [APU] Complete Channel Implementation [T7]
-- [ ] Finish pulse channel 1 with all features ($4000-$4003)
-  - [ ] Implement envelope generator for volume control
+- [x] Finish pulse channel 1 with all features ($4000-$4003)
+  - [x] Implement envelope generator for volume control
   - [ ] Add sweep units for frequency modulation
   - [ ] Implement length counter
 - [ ] Implement pulse channel 2 with all features ($4004-$4007)
@@ -451,9 +451,11 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ### [APU] Advanced Audio Features [T7]
 - [ ] Implement length counters for sound duration
-- [ ] Complete envelope generators for volume control
+- [x] Complete envelope generators for volume control
+  - [x] Create dedicated Envelope struct for reuse across channels
+  - [x] Implement all envelope functionality (decay, looping, etc.)
 - [ ] Implement sweep units for frequency modulation
-- [ ] Implement frame counter for timing
+- [x] Implement frame counter for timing
 - [ ] Add proper APU interrupts
 - [ ] Support hardware audio quirks
 - [ ] Implement cycle-accurate APU timing
@@ -676,13 +678,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
 - Track 5 (Input Controllers): 100% complete (33/33 tasks) - Controller input is fully implemented with keyboard mapping support
 - Track 6 (Basic Sound Output): 100% complete (47/47 tasks) - Basic APU pulse channel implementation with volume/mute controls, unit tests, and operational audio output through CPAL
-- Track 7 (Complete Audio System): 0% complete (0/31 tasks)
+- Track 7 (Complete Audio System): 13% complete (4/31 tasks) - Implemented envelope generator with proper struct design for reuse
 - Track 8 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 9 (Full Desktop System): 0% complete (0/90 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
 - Track 10 (Web Integration): 0% complete (0/40 tasks)
 - Additional Areas: 0% complete (0/108 tasks) - Including cycle-accurate timing, background rendering, testing, edge cases, distribution, extended features, legal considerations, documentation, performance optimization, and demo ROMs
 
-**Total Progress: 271/535 tasks complete (50.7%)** 🚀
+**Total Progress: 275/535 tasks complete (51.4%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 

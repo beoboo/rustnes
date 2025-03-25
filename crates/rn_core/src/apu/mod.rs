@@ -16,6 +16,9 @@ const APU_STATUS: u16 = 0x4015; // APU status/control
 const CPU_CLOCK_RATE: f64 = 1789773.0; // NES CPU clock rate (NTSC)
 const DEFAULT_SAMPLE_RATE: u32 = 44100; // Default audio sample rate
 
+// Frame counter constants
+const QUARTER_FRAME_PERIOD: u64 = 7457; // CPU cycles between quarter frame ticks (NTSC)
+
 /// Wrapper for APU to make it easier to use with Rc/RefCell
 #[derive(Clone, Debug)]
 pub struct ApuWrapper {
@@ -88,6 +91,10 @@ pub struct Apu {
     cycle_counter: u64,
     sample_counter: f64,
     samples_per_cycle: f64,
+
+    // Frame counter state
+    frame_counter: u64,
+    frame_mode: u8, // 0 = 4-step, 1 = 5-step (not fully implemented yet)
 }
 
 impl Apu {
@@ -107,6 +114,10 @@ impl Apu {
             cycle_counter: 0,
             sample_counter: 0.0,
             samples_per_cycle: DEFAULT_SAMPLE_RATE as f64 / CPU_CLOCK_RATE,
+
+            // Frame counter state
+            frame_counter: 0,
+            frame_mode: 0, // 4-step mode by default
         }
     }
 
@@ -122,6 +133,9 @@ impl Apu {
         self.cycle_counter = 0;
         self.sample_counter = 0.0;
 
+        // Reset frame counter
+        self.frame_counter = 0;
+
         // Clear any pending audio output
         if let Some(audio_output) = &mut self.audio_output {
             audio_output.clear();
@@ -133,6 +147,14 @@ impl Apu {
         // Track cycles for sample generation
         self.cycle_counter += 1;
 
+        // Process frame counter for envelopes and other clocked components
+        self.frame_counter += 1;
+
+        // Check if we need to process quarter frame events (envelope)
+        if self.frame_counter % QUARTER_FRAME_PERIOD == 0 {
+            self.tick_quarter_frame();
+        }
+
         // Process pulse channel
         self.pulse1.tick();
 
@@ -143,6 +165,14 @@ impl Apu {
             self.sample_counter -= 1.0;
             self.generate_sample();
         }
+    }
+
+    /// Process quarter frame events (envelope and triangle linear counter)
+    fn tick_quarter_frame(&mut self) {
+        // Update envelope
+        self.pulse1.tick_envelope();
+
+        // Update volume based on envelope (this happens automatically in the pulse channel)
     }
 
     /// Connect an audio output device
@@ -345,7 +375,11 @@ mod tests {
         }
 
         // Verify that no samples were queued since output was not ready
-        assert_eq!(test_output.borrow().samples.len(), 0, "Samples were queued when output was not ready");
+        assert_eq!(
+            test_output.borrow().samples.len(),
+            0,
+            "Samples were queued when output was not ready"
+        );
 
         Ok(())
     }
@@ -371,7 +405,7 @@ mod tests {
 
         // Verify that samples were generated
         assert!(test_output.borrow().samples.len() > 0, "No samples were generated");
-        
+
         // Verify that some samples are non-zero
         let has_non_zero = test_output.borrow().samples.iter().any(|&s| s.abs() > 0.001);
         assert!(has_non_zero, "All samples were zero");
@@ -401,7 +435,7 @@ mod tests {
 
         // Verify that samples were generated
         assert!(test_output.borrow().samples.len() > 0, "No samples were generated");
-        
+
         // Verify that some samples are non-zero
         let has_non_zero = test_output.borrow().samples.iter().any(|&s| s.abs() > 0.001);
         assert!(has_non_zero, "All samples were zero");

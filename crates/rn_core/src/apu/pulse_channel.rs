@@ -1,3 +1,108 @@
+/// Represents the envelope generator for sound channels
+#[derive(Debug, Clone)]
+pub struct Envelope {
+    // State fields
+    start: bool,
+    divider: u8,
+    counter: u8,
+    loop_flag: bool,
+    constant_volume: bool,
+    period: u8,
+    volume: u8,
+}
+
+impl Envelope {
+    /// Create a new envelope generator
+    pub fn new() -> Self {
+        Self {
+            start: false,
+            divider: 0,
+            counter: 0,
+            loop_flag: false,
+            constant_volume: false,
+            period: 0,
+            volume: 0,
+        }
+    }
+
+    /// Reset the envelope generator to initial state
+    pub fn reset(&mut self) {
+        self.start = false;
+        self.divider = 0;
+        self.counter = 0;
+        self.loop_flag = false;
+        self.constant_volume = false;
+        self.period = 0;
+        self.volume = 0;
+    }
+
+    /// Process a quarter frame tick (240Hz)
+    pub fn tick(&mut self) {
+        // If the start flag is set, clear it and reload the counter and divider
+        if self.start {
+            self.start = false;
+            self.counter = 15;
+            self.divider = self.period;
+            self.volume = 15; // Start at maximum volume
+        } else {
+            // If the divider is zero, clock the counter and reload the divider
+            if self.divider == 0 {
+                self.divider = self.period;
+
+                // If the counter is not zero, decrement it
+                if self.counter > 0 {
+                    self.counter -= 1;
+                } else if self.loop_flag {
+                    // If we're at zero and looping is enabled, wrap to 15
+                    self.counter = 15;
+                }
+
+                // Update envelope volume based on counter
+                self.volume = self.counter;
+            } else {
+                // Otherwise, decrement the divider
+                self.divider -= 1;
+            }
+        }
+    }
+
+    /// Update envelope parameters from a control register value
+    pub fn update_from_register(&mut self, value: u8) {
+        // Extract loop flag (bit 5)
+        self.loop_flag = (value & 0x20) != 0;
+
+        // Extract constant volume flag (bit 4)
+        self.constant_volume = (value & 0x10) != 0;
+
+        // Extract volume/envelope period (bits 0-3)
+        self.period = value & 0x0F;
+    }
+
+    /// Restart the envelope generator
+    pub fn restart(&mut self) {
+        self.start = true;
+    }
+
+    /// Get the current output volume
+    pub fn get_volume(&self) -> u8 {
+        if self.constant_volume {
+            self.period
+        } else {
+            self.volume
+        }
+    }
+
+    /// Check if constant volume mode is enabled
+    pub fn is_constant_volume(&self) -> bool {
+        self.constant_volume
+    }
+
+    /// Get the current envelope volume
+    pub fn get_envelope_volume(&self) -> u8 {
+        self.volume
+    }
+}
+
 /// Represents a single pulse channel in the APU
 #[derive(Debug)]
 pub struct PulseChannel {
@@ -16,6 +121,9 @@ pub struct PulseChannel {
     duty_cycle: u8,
     duty_pos: u8,
     volume: u8,
+
+    // Envelope generator
+    envelope: Envelope,
 }
 
 impl PulseChannel {
@@ -37,6 +145,9 @@ impl PulseChannel {
             duty_cycle: 0,
             duty_pos: 0,
             volume: 0,
+
+            // Initialize envelope generator
+            envelope: Envelope::new(),
         }
     }
 
@@ -57,6 +168,9 @@ impl PulseChannel {
         self.duty_cycle = 0;
         self.duty_pos = 0;
         self.volume = 0;
+
+        // Reset envelope generator
+        self.envelope.reset();
     }
 
     /// Process a single pulse channel cycle
@@ -75,6 +189,17 @@ impl PulseChannel {
         }
     }
 
+    /// Process a quarter frame for envelope (called at 240Hz rate)
+    pub fn tick_envelope(&mut self) {
+        // Let the envelope handle the tick
+        self.envelope.tick();
+
+        // Update the volume if in envelope mode
+        if !self.envelope.is_constant_volume() {
+            self.volume = self.envelope.get_envelope_volume();
+        }
+    }
+
     /// Update the pulse channel timer from register values
     pub fn update_timer(&mut self) {
         // Timer value is a combination of timer_lo and timer_hi
@@ -87,13 +212,20 @@ impl PulseChannel {
         // Extract duty cycle from control register (bits 6-7)
         self.duty_cycle = (self.control >> 6) & 0x03;
 
-        // Extract volume from control register (bits 0-3)
-        self.volume = self.control & 0x0F;
+        // Update envelope generator with control register
+        self.envelope.update_from_register(self.control);
+
+        self.volume = self.envelope.get_volume();
+    }
+
+    /// Restart the envelope generator
+    pub fn restart_envelope(&mut self) {
+        self.envelope.restart();
     }
 
     /// Generate a single audio sample
     pub fn generate_sample(&self) -> f32 {
-        if !self.enabled || self.volume == 0 {
+        if !self.enabled {
             return 0.0;
         }
 
@@ -117,8 +249,11 @@ impl PulseChannel {
 
         // Output sample if active
         if is_active {
+            // Get the current volume level
+            let vol = self.envelope.get_volume();
+
             // Convert volume (0-15) to sample (0.0 to 1.0)
-            (self.volume as f32) / 15.0
+            (vol as f32) / 15.0
         } else {
             0.0
         }
@@ -127,6 +262,12 @@ impl PulseChannel {
     /// Set the enabled state
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
+
+        // If disabling the channel, reset envelope state
+        if !enabled {
+            self.envelope = Envelope::new();
+            self.volume = 0;
+        }
     }
 
     /// Check if the channel is enabled
@@ -155,6 +296,9 @@ impl PulseChannel {
                 // Timer high register
                 self.timer_hi = value;
                 self.update_timer();
+
+                // Writing to the timer high register restarts the envelope generator
+                self.restart_envelope();
             },
             _ => panic!("Invalid pulse channel register offset: {}", register_offset),
         }
@@ -237,15 +381,18 @@ mod tests {
         let mut channel = PulseChannel::new();
 
         // Test volume 0
-        channel.write_register(0, 0b01000000);
+        channel.write_register(0, 0b01010000);
+        assert_eq!(channel.envelope.period, 0);
         assert_eq!(channel.volume, 0);
 
         // Test volume 7
-        channel.write_register(0, 0b01000111);
+        channel.write_register(0, 0b01010111);
+        assert_eq!(channel.envelope.period, 7);
         assert_eq!(channel.volume, 7);
 
         // Test volume 15 (maximum)
-        channel.write_register(0, 0b01001111);
+        channel.write_register(0, 0b01011111);
+        assert_eq!(channel.envelope.period, 15);
         assert_eq!(channel.volume, 15);
     }
 
@@ -361,8 +508,8 @@ mod tests {
     fn test_sample_generation_12_5_percent_duty() {
         let mut channel = PulseChannel::new();
 
-        // Set up a 12.5% duty cycle (duty_cycle = 0)
-        channel.write_register(0, 0b00001111); // Duty cycle = 0, volume = 15
+        // Set up a 12.5% duty cycle (duty_cycle = 0) with constant volume
+        channel.write_register(0, 0b00011111); // Duty cycle = 0, constant volume = true, volume = 15
         channel.set_enabled(true);
 
         // Duty pattern for 12.5% duty cycle: 00000001
@@ -398,26 +545,185 @@ mod tests {
         let mut channel = PulseChannel::new();
 
         // Set up a 25% duty cycle (duty_cycle = 1) with position where output is active
-        channel.write_register(0, 0b01000000); // Duty cycle = 1, volume = 0
+        channel.write_register(0, 0b01010000); // Duty cycle = 1, constant volume, volume = 0
         channel.set_enabled(true);
         channel.duty_pos = 0; // Position where output is active
 
         // Test different volumes
 
         // Volume 0 (silent)
-        channel.write_register(0, 0b01000000);
+        channel.write_register(0, 0b01010000);
         assert_eq!(channel.generate_sample(), 0.0);
 
         // Volume 1 (minimum)
-        channel.write_register(0, 0b01000001);
+        channel.write_register(0, 0b01010001);
         assert_eq!(channel.generate_sample(), 1.0 / 15.0);
 
         // Volume 8 (mid)
-        channel.write_register(0, 0b01001000);
+        channel.write_register(0, 0b01011000);
         assert_eq!(channel.generate_sample(), 8.0 / 15.0);
 
         // Volume 15 (maximum)
-        channel.write_register(0, 0b01001111);
+        channel.write_register(0, 0b01011111);
         assert_eq!(channel.generate_sample(), 1.0);
+    }
+
+    #[test]
+    fn test_envelope_initialization() {
+        let channel = PulseChannel::new();
+
+        // Initial values should all be zeroed
+        assert_eq!(channel.envelope.start, false);
+        assert_eq!(channel.envelope.divider, 0);
+        assert_eq!(channel.envelope.counter, 0);
+        assert_eq!(channel.envelope.loop_flag, false);
+        assert_eq!(channel.envelope.constant_volume, false);
+        assert_eq!(channel.envelope.period, 0);
+        assert_eq!(channel.envelope.volume, 0);
+    }
+
+    #[test]
+    fn test_envelope_control_register_decoding() {
+        let mut channel = PulseChannel::new();
+
+        // Test constant volume mode with volume level 7
+        channel.write_register(0, 0b00010111); // Volume 7, constant volume, no loop
+        assert_eq!(channel.envelope.constant_volume, true);
+        assert_eq!(channel.envelope.loop_flag, false);
+        assert_eq!(channel.envelope.period, 7);
+        assert_eq!(channel.volume, 7); // Volume should match period in constant volume mode
+
+        // Test envelope mode with decay rate 10
+        channel.write_register(0, 0b00001010); // Rate 10, envelope mode, no loop
+        assert_eq!(channel.envelope.constant_volume, false);
+        assert_eq!(channel.envelope.loop_flag, false);
+        assert_eq!(channel.envelope.period, 10);
+        // Volume should be from envelope counter, initially 0
+        assert_eq!(channel.volume, 0);
+
+        // Test loop mode
+        channel.write_register(0, 0b00101100); // Rate 12, loop mode
+        assert_eq!(channel.envelope.loop_flag, true);
+        assert_eq!(channel.envelope.period, 12);
+    }
+
+    #[test]
+    fn test_envelope_restart() {
+        let mut channel = PulseChannel::new();
+
+        // Configure channel with envelope mode and period 5
+        channel.write_register(0, 0b00000101); // Rate 5, envelope mode, no loop
+
+        // Initially the envelope counter and volume should be 0
+        assert_eq!(channel.envelope.counter, 0);
+        assert_eq!(channel.envelope.volume, 0);
+
+        // Restart envelope by writing to timer high
+        channel.write_register(3, 0x01);
+
+        // Envelope start flag should be set, but no change to counter yet
+        assert_eq!(channel.envelope.start, true);
+
+        // Tick envelope once - should initialize counter to 15 and divider to period
+        channel.tick_envelope();
+        assert_eq!(channel.envelope.start, false);
+        assert_eq!(channel.envelope.counter, 15);
+        assert_eq!(channel.envelope.divider, 5);
+        assert_eq!(channel.envelope.volume, 15);
+
+        // Volume should be envelope volume since we're in envelope mode
+        assert_eq!(channel.volume, 15);
+    }
+
+    #[test]
+    fn test_envelope_decay() {
+        let mut channel = PulseChannel::new();
+
+        // Configure envelope mode with period 1 (fast decay)
+        channel.write_register(0, 0b00000001);
+
+        // Restart envelope
+        channel.restart_envelope();
+        channel.tick_envelope();
+
+        // Should now have counter=15, divider=1
+        assert_eq!(channel.envelope.counter, 15);
+        assert_eq!(channel.envelope.divider, 1);
+
+        // First tick: divider becomes 0
+        channel.tick_envelope();
+        assert_eq!(channel.envelope.divider, 0);
+        assert_eq!(channel.envelope.counter, 15);
+
+        // Second tick: divider resets, counter decrements
+        channel.tick_envelope();
+        assert_eq!(channel.envelope.divider, 1);
+        assert_eq!(channel.envelope.counter, 14);
+
+        // Continue decay
+        for _ in 0..14 {
+            channel.tick_envelope();
+            channel.tick_envelope();
+        }
+
+        // After 14 more decrements, counter should be 0
+        assert_eq!(channel.envelope.counter, 0);
+        assert_eq!(channel.envelope.volume, 0);
+
+        // Once at 0, it should stay there without loop mode
+        channel.tick_envelope();
+        channel.tick_envelope();
+        assert_eq!(channel.envelope.counter, 0);
+    }
+
+    #[test]
+    fn test_envelope_loop() {
+        let mut channel = PulseChannel::new();
+
+        // Configure envelope mode with loop and period 1
+        channel.write_register(0, 0b00100001);
+
+        // Restart and initialize
+        channel.restart_envelope();
+        channel.tick_envelope();
+
+        // Verify initial state
+        assert_eq!(channel.envelope.counter, 15);
+        assert_eq!(channel.envelope.volume, 15);
+
+        // Tick enough times to wrap around with loop
+        for _ in 0..32 {
+            channel.tick_envelope();
+        }
+
+        // With loop mode, counter should wrap back to 15 rather than stay at 0
+        assert_eq!(channel.envelope.counter, 15);
+        assert_eq!(channel.envelope.volume, 15);
+    }
+
+    #[test]
+    fn test_constant_volume_vs_envelope() {
+        let mut channel = PulseChannel::new();
+
+        // Configure with constant volume 12
+        channel.write_register(0, 0b00011100);
+
+        // Envelope counter is 0, but volume should be 12 due to constant volume mode
+        assert_eq!(channel.envelope.counter, 0);
+        assert_eq!(channel.volume, 12);
+
+        // Switch to envelope mode, same value (12)
+        channel.write_register(0, 0b00001100);
+
+        // Now volume should match envelope counter (0) not the period value
+        assert_eq!(channel.envelope.period, 12);
+        assert_eq!(channel.volume, 0);
+
+        // Restart envelope and tick it
+        channel.restart_envelope();
+        channel.tick_envelope();
+
+        // Now volume should be 15 from envelope counter
+        assert_eq!(channel.volume, 15);
     }
 }
