@@ -2,14 +2,12 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{audio::AudioOutput, errors::NesError, memory::Addressable};
 
+mod envelope;
 mod pulse_channel;
+mod sweep;
 use pulse_channel::PulseChannel;
 
 // Required APU register constants for simple tone test
-const PULSE1_CONTROL: u16 = 0x4000; // Volume/Duty/Envelope control
-const PULSE1_SWEEP: u16 = 0x4001; // Sweep control
-const PULSE1_TIMER_LO: u16 = 0x4002; // Timer low byte
-const PULSE1_TIMER_HI: u16 = 0x4003; // Timer high byte
 const APU_STATUS: u16 = 0x4015; // APU status/control
 
 // Constants for audio generation
@@ -80,6 +78,7 @@ impl Addressable for ApuWrapper {
 pub struct Apu {
     // Pulse channels
     pulse1: PulseChannel,
+    pulse2: PulseChannel,
 
     // Status register ($4015)
     status: u8,
@@ -101,8 +100,9 @@ impl Apu {
     /// Create a new APU instance
     pub fn new() -> Self {
         Self {
-            // Initialize pulse channel
-            pulse1: PulseChannel::new(),
+            // Initialize pulse channels
+            pulse1: PulseChannel::new(true),  // Pulse 1
+            pulse2: PulseChannel::new(false), // Pulse 2
 
             // Initialize status register
             status: 0,
@@ -123,8 +123,9 @@ impl Apu {
 
     /// Reset the APU to initial state
     pub fn reset(&mut self) {
-        // Reset pulse channel
+        // Reset pulse channels
         self.pulse1.reset();
+        self.pulse2.reset();
 
         // Reset status register
         self.status = 0;
@@ -155,8 +156,14 @@ impl Apu {
             self.tick_quarter_frame();
         }
 
-        // Process pulse channel
+        // Check if we need to process half frame events (sweep and length counter)
+        if self.frame_counter % (QUARTER_FRAME_PERIOD * 2) == 0 {
+            self.tick_half_frame();
+        }
+
+        // Process pulse channels
         self.pulse1.tick();
+        self.pulse2.tick();
 
         // Generate audio samples when needed
         // NES APU generates samples at a rate determined by the CPU clock rate and sample rate
@@ -167,12 +174,37 @@ impl Apu {
         }
     }
 
-    /// Process quarter frame events (envelope and triangle linear counter)
+    /// Process quarter frame events (240Hz) - envelope and triangle linear counter
     fn tick_quarter_frame(&mut self) {
-        // Update envelope
+        // Process envelope
         self.pulse1.tick_envelope();
+        self.pulse2.tick_envelope();
+    }
 
-        // Update volume based on envelope (this happens automatically in the pulse channel)
+    /// Process half frame events (120Hz) - sweep and length counter
+    fn tick_half_frame(&mut self) {
+        // Process sweep
+        self.pulse1.tick_sweep();
+        self.pulse2.tick_sweep();
+
+        // Process length counter (not implemented yet)
+        // TODO: Implement length counter
+    }
+
+    /// Generate and output a single audio sample
+    fn generate_sample(&mut self) {
+        // Only generate samples if we have an audio output device
+        if let Some(audio_output) = &mut self.audio_output {
+            // Mix pulse channels
+            let pulse1_sample = self.pulse1.generate_sample();
+            let pulse2_sample = self.pulse2.generate_sample();
+
+            // Simple mixer formula - will be improved with proper channel mixing later
+            let sample = (pulse1_sample + pulse2_sample) * 0.5;
+
+            // Send the sample to the audio output device
+            audio_output.queue_sample(sample);
+        }
     }
 
     /// Connect an audio output device
@@ -184,38 +216,26 @@ impl Apu {
         self.audio_output = Some(audio_output);
     }
 
-    /// Generate a single audio sample and send it to the audio output
-    fn generate_sample(&mut self) {
-        // Calculate the current sample for pulse channel 1
-        let pulse1_sample = self.pulse1.generate_sample();
-
-        // If we have an audio output device, send the sample to it
-        if let Some(output) = &mut self.audio_output {
-            if output.is_ready() {
-                // For now, we only have one channel, so the sample is just the pulse1 sample
-                output.queue_sample(pulse1_sample);
-            }
-        }
-    }
-
+    /// Set the volume (0.0 to 1.0)
     pub fn set_volume(&mut self, volume: f32) {
-        if let Some(output) = &mut self.audio_output {
-            output.set_volume(volume);
+        if let Some(audio_output) = &mut self.audio_output {
+            audio_output.set_volume(volume);
         }
     }
 
+    /// Set muted state
     pub fn set_muted(&mut self, muted: bool) {
-        if let Some(output) = &mut self.audio_output {
-            output.set_muted(muted);
+        if let Some(audio_output) = &mut self.audio_output {
+            audio_output.set_muted(muted);
         }
     }
 }
 
 impl Addressable for Apu {
     fn handles_address(&self, address: u16) -> bool {
-        // Only handle the registers needed for the simple tone test
+        // Handle APU registers
         match address {
-            0x4000..=0x4003 | 0x4015 => true,
+            0x4000..=0x4007 | 0x4015 | 0x4017 => true,
             _ => false,
         }
     }
@@ -224,8 +244,14 @@ impl Addressable for Apu {
         match address {
             // APU status register ($4015)
             APU_STATUS => {
-                // Only bit 0 is needed for pulse channel 1
-                let value = if self.pulse1.is_enabled() { 0x01 } else { 0x00 };
+                // Bits 0-1 are the pulse channels
+                let mut value = 0;
+                if self.pulse1.is_enabled() {
+                    value |= 0x01;
+                }
+                if self.pulse2.is_enabled() {
+                    value |= 0x02;
+                }
                 Ok(value)
             },
             // Other registers are write-only in the actual NES
@@ -236,28 +262,35 @@ impl Addressable for Apu {
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
         match address {
             // Pulse channel 1 registers
-            PULSE1_CONTROL => {
-                self.pulse1.write_register(0, value);
+            0x4000..=0x4003 => {
+                let reg_offset = address - 0x4000;
+                self.pulse1.write_register(reg_offset, value);
                 Ok(())
             },
-            PULSE1_SWEEP => {
-                self.pulse1.write_register(1, value);
-                Ok(())
-            },
-            PULSE1_TIMER_LO => {
-                self.pulse1.write_register(2, value);
-                Ok(())
-            },
-            PULSE1_TIMER_HI => {
-                self.pulse1.write_register(3, value);
+            // Pulse channel 2 registers
+            0x4004..=0x4007 => {
+                let reg_offset = address - 0x4004;
+                self.pulse2.write_register(reg_offset, value);
                 Ok(())
             },
 
             // APU status register ($4015)
             APU_STATUS => {
-                // Update channel enable flag (only bit 0 for pulse channel 1)
+                // Update channel enable flags
                 self.pulse1.set_enabled((value & 0x01) != 0);
+                self.pulse2.set_enabled((value & 0x02) != 0);
                 self.status = value;
+                Ok(())
+            },
+
+            // Frame counter register ($4017)
+            0x4017 => {
+                // Set frame counter mode
+                self.frame_mode = value & 0x80;
+                // Reset frame counter if bit 7 is set
+                if (value & 0x80) != 0 {
+                    self.frame_counter = 0;
+                }
                 Ok(())
             },
 
@@ -277,6 +310,10 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
+    const PULSE1_CONTROL: u16 = 0x4000; // Volume/Duty/Envelope control
+    const PULSE1_SWEEP: u16 = 0x4001; // Sweep control
+    const PULSE1_TIMER_LO: u16 = 0x4002; // Timer low byte
+    const PULSE1_TIMER_HI: u16 = 0x4003; // Timer high byte
 
     // A very simple audio output implementation for testing
     #[derive(Debug)]
@@ -393,6 +430,10 @@ mod tests {
         apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
         apu.write_byte(PULSE1_TIMER_LO, 0x01)?; // Very short timer to cycle through positions quickly
         apu.write_byte(PULSE1_TIMER_HI, 0x00)?; // Set high timer byte
+
+        // Disable sweep to prevent muting (for test)
+        apu.write_byte(PULSE1_SWEEP, 0x08)?; // Negate flag set to prevent muting
+
         apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
 
         // Connect the test output
@@ -420,9 +461,9 @@ mod tests {
 
         // Program the APU to play a tone - similar to the basic_tone_test.asm
         apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
-        apu.write_byte(PULSE1_SWEEP, 0x00)?; // No sweep
-        apu.write_byte(PULSE1_TIMER_LO, 0x08)?; // Short timer for faster testing
-        apu.write_byte(PULSE1_TIMER_HI, 0x00)?; // High byte
+        apu.write_byte(PULSE1_SWEEP, 0x08)?; // No sweep, negate bit set to prevent muting
+        apu.write_byte(PULSE1_TIMER_LO, 0x8)?; // Short timer for faster testing
+        apu.write_byte(PULSE1_TIMER_HI, 0x01)?; // High byte (period over 8 to avoid muting)
         apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
 
         // Connect the test output
