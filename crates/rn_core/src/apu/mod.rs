@@ -325,9 +325,35 @@ mod tests {
     }
 
     #[test]
+    fn test_apu_tick_no_sample_when_not_ready() -> Result<()> {
+        let mut apu = Apu::new();
+        let test_output = Rc::new(RefCell::new(TestAudioOutput::new()));
+
+        // Set output to not ready
+        test_output.borrow_mut().set_ready(false);
+
+        // Enable the pulse channel first
+        apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
+        apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
+
+        // Connect the test output
+        apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
+
+        // Tick several times
+        for _ in 0..100 {
+            apu.tick();
+        }
+
+        // Verify that no samples were queued since output was not ready
+        assert_eq!(test_output.borrow().samples.len(), 0, "Samples were queued when output was not ready");
+
+        Ok(())
+    }
+
+    #[test]
     fn test_apu_tick_sample_generation() -> Result<()> {
         let mut apu = Apu::new();
-        let _test_output = TestAudioOutput::new();
+        let test_output = Rc::new(RefCell::new(TestAudioOutput::new()));
 
         // Configure pulse channel with a very short timer to cycle through duty positions quickly
         apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
@@ -335,88 +361,20 @@ mod tests {
         apu.write_byte(PULSE1_TIMER_HI, 0x00)?; // Set high timer byte
         apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
 
-        // Create a box around test_output directly rather than cloning
-        let boxed_output = Box::new(TestAudioOutput::new());
-
-        // Connect the test output after configuration
-        apu.connect_audio_output(boxed_output);
+        // Connect the test output
+        apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
 
         // Tick many times to cycle through all duty positions and generate many samples
         for _ in 0..1000 {
             apu.tick();
         }
 
-        // Since we can't get the output back from the APU, we'll check indirectly
-        // with another test that verifies the APU's generate_sample function works
-
-        // Create a separate output and APU to verify sample generation works
-        let mut verify_apu = Apu::new();
-        let verify_output = TestAudioOutput::new();
-        let _boxed_verify = Box::new(verify_output);
-
-        // Set up the same configuration
-        verify_apu.write_byte(PULSE1_CONTROL, 0b01011111)?;
-        verify_apu.write_byte(PULSE1_TIMER_LO, 0x01)?;
-        verify_apu.write_byte(PULSE1_TIMER_HI, 0x00)?;
-        verify_apu.write_byte(APU_STATUS, 0x01)?;
-
-        // Generate a sample directly - without accessing private fields
-        let sample = verify_apu.pulse1.generate_sample();
-
-        // Our real test is that this doesn't panic
-        assert!(sample >= 0.0, "Sample generation broken: {}", sample);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_apu_tick_no_sample_when_not_ready() -> Result<()> {
-        let mut apu = Apu::new();
-        let mut test_output = TestAudioOutput::new();
-
-        // Set output to not ready
-        test_output.set_ready(false);
-
-        // Create a box directly
-        let boxed_output = Box::new(TestAudioOutput::new());
-
-        // Enable the pulse channel first
-        apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
-        apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
-
-        // Connect the test output
-        apu.connect_audio_output(boxed_output);
-
-        // Tick several times
-        for _ in 0..100 {
-            apu.tick();
-        }
-
-        // This test passes because we're just checking that output happens correctly
-        assert!(true, "Test didn't panic, which is good");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_apu_write_byte_pulse1_control() -> Result<()> {
-        let mut apu = Apu::new();
-
-        // Write to pulse 1 control register
-        apu.write_byte(PULSE1_CONTROL, 0b10101010)?; // 50% duty with volume 10
-
-        // Enable the channel to see if control register affected output
-        apu.write_byte(APU_STATUS, 0x01)?;
-
-        // Set a very short timer to cycle through duty positions quickly
-        apu.write_byte(PULSE1_TIMER_LO, 0x01)?;
-        apu.write_byte(PULSE1_TIMER_HI, 0x00)?;
-
-        // Direct test using the pulse channel
-        let _sample = apu.pulse1.generate_sample();
-
-        // Our real test is that the APU is configured correctly
-        assert_eq!(apu.pulse1.is_enabled(), true, "Pulse channel should be enabled");
+        // Verify that samples were generated
+        assert!(test_output.borrow().samples.len() > 0, "No samples were generated");
+        
+        // Verify that some samples are non-zero
+        let has_non_zero = test_output.borrow().samples.iter().any(|&s| s.abs() > 0.001);
+        assert!(has_non_zero, "All samples were zero");
 
         Ok(())
     }
@@ -424,6 +382,7 @@ mod tests {
     #[test]
     fn test_simple_tone_sequence() -> Result<()> {
         let mut apu = Apu::new();
+        let test_output = Rc::new(RefCell::new(TestAudioOutput::new()));
 
         // Program the APU to play a tone - similar to the basic_tone_test.asm
         apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
@@ -432,23 +391,56 @@ mod tests {
         apu.write_byte(PULSE1_TIMER_HI, 0x00)?; // High byte
         apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
 
-        // Create a box directly
-        let boxed_output = Box::new(TestAudioOutput::new());
-
         // Connect the test output
-        apu.connect_audio_output(boxed_output);
+        apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
 
         // Run for a significant amount of time to generate many samples
         for _ in 0..2000 {
             apu.tick();
         }
 
-        // Direct test - try generating a sample with the current configuration
-        let _sample = apu.pulse1.generate_sample();
+        // Verify that samples were generated
+        assert!(test_output.borrow().samples.len() > 0, "No samples were generated");
+        
+        // Verify that some samples are non-zero
+        let has_non_zero = test_output.borrow().samples.iter().any(|&s| s.abs() > 0.001);
+        assert!(has_non_zero, "All samples were zero");
 
         // Verify the APU configuration is correct for tone generation
         assert_eq!(apu.pulse1.is_enabled(), true, "Pulse channel should be enabled");
 
         Ok(())
+    }
+
+    // Wrapper to allow sharing TestAudioOutput through Rc<RefCell>
+    #[derive(Debug)]
+    struct TestOutputWrapper(Rc<RefCell<TestAudioOutput>>);
+
+    impl AudioOutput for TestOutputWrapper {
+        fn set_volume(&mut self, _volume: f32) {
+            // Do nothing for test
+        }
+
+        fn set_muted(&mut self, _muted: bool) {
+            // Do nothing for test
+        }
+
+        fn set_sample_rate(&mut self, _rate: f32) {
+            // Do nothing for test
+        }
+
+        fn queue_sample(&mut self, sample: f32) {
+            if self.0.borrow().ready {
+                self.0.borrow_mut().samples.push(sample);
+            }
+        }
+
+        fn clear(&mut self) {
+            self.0.borrow_mut().samples.clear();
+        }
+
+        fn is_ready(&self) -> bool {
+            self.0.borrow().ready
+        }
     }
 }
