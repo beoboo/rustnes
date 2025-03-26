@@ -4,9 +4,11 @@ use crate::{audio::AudioOutput, errors::NesError, memory::Addressable};
 
 mod envelope;
 mod length_counter;
+mod noise_channel;
 mod pulse_channel;
 mod sweep;
 mod triangle_channel;
+use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
 use triangle_channel::TriangleChannel;
 
@@ -65,6 +67,7 @@ impl Addressable for ApuWrapper {
             0x4000..=0x4003 | // Pulse 1 registers
             0x4004..=0x4007 | // Pulse 2 registers
             0x4008..=0x400B | // Triangle channel registers
+            0x400C..=0x400F | // Noise channel registers
             0x4015 => true,   // APU status/control
             _ => false,
         }
@@ -88,6 +91,9 @@ pub struct Apu {
 
     // Triangle channel
     triangle: TriangleChannel,
+
+    // Noise channel
+    noise: NoiseChannel,
 
     // Status register ($4015)
     status: u8,
@@ -116,6 +122,9 @@ impl Apu {
             // Initialize triangle channel
             triangle: TriangleChannel::new(),
 
+            // Initialize noise channel
+            noise: NoiseChannel::new(),
+
             // Initialize status register
             status: 0,
 
@@ -141,6 +150,9 @@ impl Apu {
 
         // Reset triangle channel
         self.triangle.reset();
+
+        // Reset noise channel
+        self.noise.reset();
 
         // Reset status register
         self.status = 0;
@@ -183,6 +195,9 @@ impl Apu {
         // Process triangle channel
         self.triangle.tick();
 
+        // Process noise channel
+        self.noise.tick();
+
         // Generate audio samples when needed
         // NES APU generates samples at a rate determined by the CPU clock rate and sample rate
         self.sample_counter += self.samples_per_cycle;
@@ -197,6 +212,7 @@ impl Apu {
         // Process envelope
         self.pulse1.tick_envelope();
         self.pulse2.tick_envelope();
+        self.noise.tick_envelope();
 
         // Process triangle linear counter
         self.triangle.tick_linear_counter();
@@ -212,19 +228,21 @@ impl Apu {
         self.pulse1.tick_length_counter();
         self.pulse2.tick_length_counter();
         self.triangle.tick_length_counter();
+        self.noise.tick_length_counter();
     }
 
     /// Generate and output a single audio sample
     fn generate_sample(&mut self) {
         // Only generate samples if we have an audio output device
         if let Some(audio_output) = &mut self.audio_output {
-            // Mix pulse channels and triangle channel
+            // Mix pulse channels, triangle channel, and noise channel
             let pulse1_sample = self.pulse1.generate_sample();
             let pulse2_sample = self.pulse2.generate_sample();
             let triangle_sample = self.triangle.generate_sample();
+            let noise_sample = self.noise.generate_sample();
 
             // Mix the samples (simple average for now)
-            let mixed_sample = (pulse1_sample + pulse2_sample + triangle_sample) / 3.0;
+            let mixed_sample = (pulse1_sample + pulse2_sample + triangle_sample + noise_sample) / 4.0;
 
             // Output the sample
             audio_output.queue_sample(mixed_sample);
@@ -259,7 +277,7 @@ impl Addressable for Apu {
     fn handles_address(&self, address: u16) -> bool {
         // Handle APU registers
         match address {
-            0x4000..=0x4007 | 0x4015 | 0x4017 => true,
+            0x4000..=0x400F | 0x4015 | 0x4017 => true,
             _ => false,
         }
     }
@@ -278,6 +296,9 @@ impl Addressable for Apu {
                 }
                 if self.triangle.is_length_counter_active() {
                     status |= 0x04;
+                }
+                if self.noise.is_length_counter_active() {
+                    status |= 0x08;
                 }
                 Ok(status)
             },
@@ -306,12 +327,19 @@ impl Addressable for Apu {
                 self.triangle.write_register(reg_offset, value);
                 Ok(())
             },
+            // Noise channel registers
+            0x400C..=0x400F => {
+                let reg_offset = address - 0x400C;
+                self.noise.write_register(reg_offset, value);
+                Ok(())
+            },
             // APU status register ($4015)
             APU_STATUS => {
                 // Update channel enable states
                 self.pulse1.set_enabled((value & 0x01) != 0);
                 self.pulse2.set_enabled((value & 0x02) != 0);
                 self.triangle.set_enabled((value & 0x04) != 0);
+                self.noise.set_enabled((value & 0x08) != 0);
                 self.status = value;
                 Ok(())
             },
