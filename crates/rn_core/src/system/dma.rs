@@ -291,7 +291,6 @@ mod tests {
 
     impl MockCpu {
         fn setup_test_data(&mut self) {
-            println!("Setting up test data in MockCpu");
             // Set up test data where each memory address contains its low byte as data
             for i in 0..256 {
                 self.data.insert(0x0000 + i, i as u8);
@@ -299,10 +298,6 @@ mod tests {
                 self.data.insert(0x2000 + i, i as u8);
                 self.data.insert(0x3000 + i, i as u8);
             }
-
-            // Debug print some values to verify
-            println!("Value at 0x0001: {}", self.data.get(&0x0001).unwrap_or(&0));
-            println!("Value at 0x0002: {}", self.data.get(&0x0002).unwrap_or(&0));
         }
     }
 
@@ -316,7 +311,6 @@ mod tests {
         fn read_byte(&self, address: u16) -> Result<u8, NesError> {
             self.reads.borrow_mut().push(address);
             let value = *self.data.get(&address).unwrap_or(&0);
-            println!("MockCpu: Reading address 0x{:04X}, value: {}", address, value);
             Ok(value)
         }
 
@@ -367,13 +361,11 @@ mod tests {
                 0x2003 => {
                     // OAM address register
                     *self.oam_addr.borrow_mut() = value;
-                    println!("MockPpu: Set OAM address to {}", value);
                     Ok(())
                 },
                 0x2004 => {
                     // OAM data register
                     let addr = *self.oam_addr.borrow();
-                    println!("MockPpu: Writing value {} to OAM[{}]", value, addr);
                     self.oam.borrow_mut()[addr as usize] = value;
                     self.oam_writes.borrow_mut().push((addr, value));
                     // Auto-increment OAM address after write
@@ -392,16 +384,6 @@ mod tests {
 
         // Setup test data
         cpu.setup_test_data();
-
-        // Debug: Check CPU data after setup
-        println!(
-            "After setup_test_data, value at 0x0001: {}",
-            cpu.data.get(&0x0001).unwrap_or(&0)
-        );
-        println!(
-            "After setup_test_data, value at 0x0002: {}",
-            cpu.data.get(&0x0002).unwrap_or(&0)
-        );
 
         dma.connect_cpu(cpu.clone());
         dma.connect_ppu(ppu.clone());
@@ -481,26 +463,11 @@ mod tests {
         // Setup test data properly using the existing method
         cpu.setup_test_data();
 
-        println!(
-            "Before transfer, OAM[0] = {}, OAM[1] = {}",
-            ppu.oam.borrow()[0],
-            ppu.oam.borrow()[1]
-        );
-
         // Perform the transfer
         dma.perform_transfer(0x00)?;
 
-        println!(
-            "After transfer, OAM[0] = {}, OAM[1] = {}",
-            ppu.oam.borrow()[0],
-            ppu.oam.borrow()[1]
-        );
-        println!("OAM writes: {:?}", ppu.oam_writes.borrow());
-
         // Manually write to OAM to verify it works
         ppu.oam.borrow_mut()[1] = 1;
-
-        println!("After manual write, OAM[1] = {}", ppu.oam.borrow()[1]);
 
         // Verify all bytes were transferred correctly
         let oam = ppu.oam.borrow();

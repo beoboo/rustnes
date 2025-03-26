@@ -99,7 +99,6 @@ mod tests {
         // Skip this test if the ROM file is not available
         let rom_path = Path::new("../assembly/simple_sprite_test.nes");
         if !rom_path.exists() {
-            println!("Skipping test: ROM file not found at {:?}", rom_path);
             return Ok(());
         }
 
@@ -117,15 +116,9 @@ mod tests {
         let mut ppu = Ppu::new();
         ppu.connect_cartridge(cartridge);
 
-        // Test reading from the pattern table
-        // This is just a basic test to ensure we can read data from the pattern table
-        let pattern_byte = ppu.read_ppu_memory(0x0000);
-        println!("First byte of pattern table: 0x{:02X}", pattern_byte);
-
         // Verify we can read several addresses in the pattern table range
         for addr in [0x0000u16, 0x0100u16, 0x0800u16, 0x1000u16, 0x1F00u16] {
             let byte = ppu.read_ppu_memory(addr);
-            println!("Pattern table at 0x{:04X}: 0x{:02X}", addr, byte);
             assert!(byte != 0xFF, "Unexpected 0xFF value at 0x{:04X}", addr);
         }
 

@@ -861,7 +861,7 @@ impl Ppu {
     /// Helper to dump a region of the frame buffer for debugging
     pub fn debug_frame_buffer(&self) {
         // Print a small region around where we expect the pixel to be
-        println!("Frame buffer dump around (108, 59):");
+        log::trace!("Frame buffer dump around (108, 59):");
 
         // Expected pixel region based on our debug output
         let start_x = 100;
@@ -886,7 +886,7 @@ impl Ppu {
                     }
                 }
             }
-            println!("{}", line);
+            log::trace!("{}", line);
         }
     }
 
@@ -1888,21 +1888,6 @@ mod tests {
         let frame_buffer = ppu.frame_buffer();
         let pixel_index = (100 * 256 + 100) * 3; // RGB format
 
-        // Debug: Print pixel values around the expected position
-        println!("\nPixel values at (100, 100):");
-        for y in 99..=101 {
-            for x in 99..=101 {
-                let idx = (y * 256 + x) * 3;
-                print!(
-                    "({},{},{}) ",
-                    frame_buffer[idx],
-                    frame_buffer[idx + 1],
-                    frame_buffer[idx + 2]
-                );
-            }
-            println!();
-        }
-
         // Verify that the sprite is rendered at the expected position (100, 100)
         // Since we have a white sprite (palette value 0x30 = white),
         // all RGB values should be 255
@@ -2133,12 +2118,6 @@ mod tests {
         ppu.write_palette(0x3F12, 0x16); // Sprite palette 0 color 2 (red)
         ppu.write_palette(0x3F13, 0x16); // Sprite palette 0 color 3 (red)
 
-        // Print palette values for debugging
-        println!("DEBUG: Sprite palette values:");
-        for i in 0..4 {
-            println!("  $3F1{}: 0x{:02X}", i, ppu.read_palette(0x3F10 + i));
-        }
-
         // STEP 1: Test sprite in front of background (priority bit = 0)
 
         // Set up a background tile at position (100, 100)
@@ -2269,55 +2248,20 @@ mod tests {
         // Enable sprite rendering
         ppu.mask = MASK_SHOW_SPRITES;
 
-        // Add debug info
-        println!("Starting tick loop with PPUMASK: {:02X}", ppu.mask);
-        println!(
-            "OAM setup: Y={}, tile={}, attr={}, X={}",
-            ppu.oam[0], ppu.oam[1], ppu.oam[2], ppu.oam[3]
-        );
-
         // Run enough PPU cycles to complete a frame
         // This simulates normal operation where render_frame is called during vblank
-        for i in 0..262 * 341 {
-            if i == 262 * 340 {
-                println!(
-                    "About to complete the frame. Current scanline: {}, cycle: {}",
-                    ppu.scanline, ppu.cycle
-                );
-            }
+        for _ in 0..262 * 341 {
             ppu.tick();
         }
 
-        // Add debug info after ticks
-        println!(
-            "After ticks - Scanline: {}, Cycle: {}, Frame Count: {}",
-            ppu.scanline, ppu.cycle, ppu.frame_count
-        );
-
         // Check if we can directly render the frame
-        let rendered_directly = true;
-        if rendered_directly {
-            ppu.render_frame();
-            println!("Forced render_frame call");
-        }
+        ppu.render_frame();
 
         // Should be white
         let pixel_idx = (100 * 256 + 100) * 3;
-        println!(
-            "Final pixel at (100,100): ({}, {}, {})",
-            ppu.frame_buffer[pixel_idx],
-            ppu.frame_buffer[pixel_idx + 1],
-            ppu.frame_buffer[pixel_idx + 2]
-        );
 
         // Try a more direct call to the sprite rendering to verify it works
         ppu.render_sprites_for_scanline(100);
-        println!(
-            "After direct render_sprites_for_scanline call: ({}, {}, {})",
-            ppu.frame_buffer[pixel_idx],
-            ppu.frame_buffer[pixel_idx + 1],
-            ppu.frame_buffer[pixel_idx + 2]
-        );
 
         assert!(
             ppu.frame_buffer[pixel_idx] > 200,

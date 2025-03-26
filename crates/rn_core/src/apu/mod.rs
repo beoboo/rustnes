@@ -467,10 +467,10 @@ mod tests {
         apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
         apu.write_byte(PULSE1_SWEEP, 0x08)?; // No sweep, negate bit set to prevent muting
         apu.write_byte(PULSE1_TIMER_LO, 0x8)?; // Short timer for faster testing
-        
+
         // Enable pulse 1
         apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
-        
+
         // Load timer high and length counter in one operation
         apu.write_byte(PULSE1_TIMER_HI, 0x01)?; // High byte (period over 8 to avoid muting)
 
@@ -503,10 +503,10 @@ mod tests {
         // Configure pulse channel with a very short timer for quick testing
         apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
         apu.write_byte(PULSE1_TIMER_LO, 0x08)?; // Timer low
-        
+
         // Enable pulse channel
         apu.write_byte(APU_STATUS, 0x01)?;
-        
+
         // Load timer high with a length value - use shortest length value
         apu.write_byte(PULSE1_TIMER_HI, 0x18)?; // Index 3 = value 2 (very short)
 
@@ -516,14 +516,16 @@ mod tests {
         // We'll directly manipulate the pulse channel for testing
         // This is more reliable than waiting for the timer to advance
         apu.pulse1.set_duty_pos(0); // Set position where output is high
-        
+
         // Force a sample generation to verify we have sound
         apu.generate_sample();
-        
+
         // Verify that we did produce non-zero sound
         assert!(test_output.borrow().samples.len() > 0, "No samples were generated");
-        assert!(test_output.borrow().samples.iter().any(|&s| s > 0.0), 
-                "Expected non-zero samples but all were zero");
+        assert!(
+            test_output.borrow().samples.iter().any(|&s| s > 0.0),
+            "Expected non-zero samples but all were zero"
+        );
 
         // Clear samples
         test_output.borrow_mut().clear();
@@ -532,17 +534,22 @@ mod tests {
         // Since we used a length of 2, this should silence the channel
         apu.pulse1.tick_length_counter();
         apu.pulse1.tick_length_counter();
-        
+
         // Verify the length counter is now inactive
-        assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0, 
-                   "Pulse 1 should be silent after length counter expires");
-        
+        assert_eq!(
+            apu.read_byte(APU_STATUS)? & 0x01,
+            0,
+            "Pulse 1 should be silent after length counter expires"
+        );
+
         // Generate another sample
         apu.generate_sample();
-        
+
         // Verify it produced silence
-        assert!(test_output.borrow().samples.iter().all(|&s| s == 0.0), 
-                "All samples should be zero after length counter expires");
+        assert!(
+            test_output.borrow().samples.iter().all(|&s| s == 0.0),
+            "All samples should be zero after length counter expires"
+        );
 
         Ok(())
     }
@@ -557,21 +564,24 @@ mod tests {
         // Configure pulse with length counter halt flag set (bit 5 of control register)
         apu.write_byte(PULSE1_CONTROL, 0b00100000)?; // Halt bit set, constant volume (0)
         apu.write_byte(PULSE1_TIMER_LO, 0x08)?;
-        
+
         // Now load timer high to get length counter
         apu.write_byte(PULSE1_TIMER_HI, 0x01)?; // Timer high with length counter
 
         // Tick many half-frames - length counter shouldn't decrement because halt is set
         for _ in 0..20 {
             // Simulate many CPU cycles to trigger multiple half-frames
-            for _ in 0..QUARTER_FRAME_PERIOD*4 {
+            for _ in 0..QUARTER_FRAME_PERIOD * 4 {
                 apu.tick();
             }
         }
 
         // Status register should still show pulse 1 as active
-        assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0x01, 
-                "Pulse 1 should still be active with length counter halt set");
+        assert_eq!(
+            apu.read_byte(APU_STATUS)? & 0x01,
+            0x01,
+            "Pulse 1 should still be active with length counter halt set"
+        );
 
         // Now clear the halt flag
         apu.write_byte(PULSE1_CONTROL, 0b00000000)?; // Halt bit cleared, constant volume (0)
@@ -579,14 +589,17 @@ mod tests {
         // Tick many half-frames - length counter should now decrement
         for _ in 0..20 {
             // Simulate many CPU cycles to trigger multiple half-frames
-            for _ in 0..QUARTER_FRAME_PERIOD*4 {
+            for _ in 0..QUARTER_FRAME_PERIOD * 4 {
                 apu.tick();
             }
         }
 
         // Status register should now show pulse 1 as inactive
-        assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0, 
-                "Pulse 1 should be silent after length counter expires");
+        assert_eq!(
+            apu.read_byte(APU_STATUS)? & 0x01,
+            0,
+            "Pulse 1 should be silent after length counter expires"
+        );
 
         Ok(())
     }

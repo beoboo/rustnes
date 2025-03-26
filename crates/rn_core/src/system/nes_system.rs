@@ -334,7 +334,6 @@ impl NesSystem {
         // Create a cartridge if one doesn't exist
         if !self.ppu.has_cartridge() {
             self.ppu.connect_cartridge(Cartridge::new());
-            println!("Created and connected new cartridge");
         }
 
         self.ppu.load_chr_rom(chr_data)

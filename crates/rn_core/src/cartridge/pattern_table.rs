@@ -74,9 +74,6 @@ impl PatternTable {
             // Get the byte from the high bit plane for this row
             let high_byte = self.data[tile_addr + row + 8];
 
-            #[cfg(test)]
-            println!("Row {}: low_byte={:08b}, high_byte={:08b}", row, low_byte, high_byte);
-
             // Process each bit in the row (8 bits, from MSB to LSB)
             for bit in 0..8 {
                 // Calculate pixel value by combining bits from both planes
@@ -86,14 +83,6 @@ impl PatternTable {
 
                 // Combine the bits (high bit in bit position 1, low bit in bit position 0)
                 let pixel_value = (high_bit << 1) | low_bit;
-
-                #[cfg(test)]
-                if row == 0 && (bit == 0 || bit == 7) {
-                    println!(
-                        "Row {}, Bit {}: low_bit={}, high_bit={}, pixel_value={}",
-                        row, bit, low_bit, high_bit, pixel_value
-                    );
-                }
 
                 // Store the pixel value in the array
                 pixels[row * 8 + bit] = pixel_value;
@@ -184,8 +173,6 @@ mod tests {
     fn test_get_tile_pixels() {
         let mut pt = PatternTable::new();
 
-        println!("\nSetting up test pattern...");
-
         // Create a simple test pattern for a single tile
         // This pattern will be a simple square outline:
         // ■ ■ ■ ■ ■ ■ ■ ■
@@ -218,44 +205,21 @@ mod tests {
         pt.write_byte(14, 0x81); // Row 7: 10000001 (corners only)
         pt.write_byte(15, 0x81); // Row 8: 10000001 (corners only)
 
-        // Verify the data was written correctly
-        println!("\nVerifying data was written correctly...");
-        println!("Low plane row 1: {:08b}", pt.read_byte(0));
-        println!("High plane row 1: {:08b}", pt.read_byte(8));
-
         // Get the full tile's pixel data
-        println!("\nGetting tile pixels...");
         let pixels = pt.get_tile_pixels(0);
 
-        // Display the first row of pixels
-        print!("First row of pixels: ");
-        for i in 0..8 {
-            print!("{} ", pixels[i]);
-        }
-        println!();
-
-        // Check the pattern matches what we expect
-        println!("\nChecking expected values...");
-
         // Row 1: corners should be 3, rest should be 1
-        println!(
-            "Checking first row corners: pixels[0]={}, pixels[7]={}",
-            pixels[0], pixels[7]
-        );
         assert_eq!(pixels[0], 3, "Top-left corner should be 3"); // top-left: low=1, high=1 -> 3
         assert_eq!(pixels[1], 1); // top row: low=1, high=0 -> 1
         assert_eq!(pixels[6], 1); // top row: low=1, high=0 -> 1
         assert_eq!(pixels[7], 3, "Top-right corner should be 3"); // top-right: low=1, high=1 -> 3
 
         // Middle rows: edges should be 1, inside should be 0
-        println!("\nChecking middle rows...");
         assert_eq!(pixels[8], 3, "Row 1 left edge should be 3"); // left edge: low=1, high=1 -> 3
         assert_eq!(pixels[9], 0, "Inside should be 0"); // inside: low=0, high=0 -> 0
         assert_eq!(pixels[15], 3, "Row 1 right edge should be 3"); // right edge: low=1, high=1 -> 3
 
         // Last row: corners should be 3, rest should be 1
-        println!("\nChecking last row...");
-        println!("Bottom corners: pixels[56]={}, pixels[63]={}", pixels[56], pixels[63]);
         assert_eq!(pixels[56], 3, "Bottom-left corner should be 3"); // bottom-left: low=1, high=1 -> 3
         assert_eq!(pixels[57], 1, "Bottom row should be 1"); // bottom row: low=1, high=0 -> 1
         assert_eq!(pixels[62], 1, "Bottom row should be 1"); // bottom row: low=1, high=0 -> 1
