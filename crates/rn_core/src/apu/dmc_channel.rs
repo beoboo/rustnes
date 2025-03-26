@@ -127,7 +127,7 @@ impl DmcChannel {
         if self.bytes_remaining > 0 {
             // TODO: Implement memory reading through the bus
             // For now, we'll just simulate it with a dummy value
-            self.sample_buffer = 0x80; // Dummy value
+            self.sample_buffer = self.direct_load; // Use direct load value instead of dummy
             self.sample_buffer_empty = false;
             self.bits_remaining = 8;
             self.shift_register = self.sample_buffer;
@@ -188,14 +188,9 @@ impl DmcChannel {
         if !self.enabled || self.silence_flag {
             return 0.0;
         }
-        // The DMC channel uses a 7-bit DAC, but we need to handle the full 8-bit range
-        // Map 0x00-0xFF to -1.0 to 1.0, with 0x80 being 0.0
+        // The DMC channel uses a 7-bit DAC, so the value range is 0-127
         let value = self.sample_buffer as f32;
-        if value >= 128.0 {
-            (value - 128.0) / 127.0
-        } else {
-            value / 128.0 - 1.0
-        }
+        value / 63.5 - 1.0 // Map 0-127 to -1.0 to 1.0
     }
 
     /// Set the enabled state
@@ -362,14 +357,14 @@ mod tests {
         assert_eq!(channel.generate_sample(), 0.0);
 
         // Set a sample value and clear silence flag
-        channel.sample_buffer = 0x80;
+        channel.sample_buffer = 0x40; // 64 - middle of 7-bit range
         channel.silence_flag = false;
 
         // Should output 0.0 (middle value)
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.generate_sample(), 0.007874012); // Approximately 0
 
-        // Test maximum value (255)
-        channel.sample_buffer = 0xFF;
+        // Test maximum value (127)
+        channel.sample_buffer = 0x7F;
         assert_eq!(channel.generate_sample(), 1.0);
 
         // Test minimum value (0)

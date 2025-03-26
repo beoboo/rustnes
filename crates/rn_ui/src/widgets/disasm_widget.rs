@@ -127,14 +127,14 @@ impl DisasmWidget {
 
                 // Display with monospace font
                 ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
-                
+
                 // Keep track of found PC line for auto-scrolling
                 let mut current_line_idx = 0;
                 let mut found_current_line = false;
-                
+
                 // Split the disassembly into lines
                 let lines: Vec<&str> = formatted_disassembly.lines().collect();
-                
+
                 // First pass to find current line index (if auto-scroll enabled)
                 if self.auto_scroll {
                     for (idx, line) in lines.iter().enumerate() {
@@ -148,7 +148,7 @@ impl DisasmWidget {
                         }
                     }
                 }
-                
+
                 // Calculate index of the line to scroll to (one line above current if possible)
                 let scroll_to_idx = if found_current_line && current_line_idx > 0 {
                     current_line_idx - 1  // One line above current instruction
@@ -157,7 +157,7 @@ impl DisasmWidget {
                 } else {
                     0  // Default to top if not found
                 };
-                
+
                 // Second pass to actually render the lines
                 for (idx, line) in lines.iter().enumerate() {
                     // Parse the address from the start of the line
@@ -170,14 +170,14 @@ impl DisasmWidget {
 
                     // Highlight the current instruction
                     let color = if is_current_line { highlight_color } else { text_color };
-                    
+
                     // Create a label that takes up the full width available
                     ui.horizontal(|ui| {
                         // Force the horizontal layout to take the full width
                         ui.set_width(ui.available_width());
                         let response = ui.colored_label(color, *line);
                         ui.add_space(ui.available_width()); // Fill remaining space
-                        
+
                         // Auto-scroll to the target line (one above current instruction)
                         if self.auto_scroll && found_current_line && idx == scroll_to_idx {
                             ui.scroll_to_rect(response.rect, Some(egui::Align::Center));

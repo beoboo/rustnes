@@ -24,6 +24,11 @@ pub struct NoiseChannel {
     length_counter: LengthCounter,
 }
 
+/// Timer period lookup table for noise channel
+const TIMER_PERIOD: [u16; 16] = [
+    4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
+];
+
 impl NoiseChannel {
     /// Create a new noise channel
     pub fn new() -> Self {
@@ -116,9 +121,9 @@ impl NoiseChannel {
 
     /// Update the noise channel timer from register values
     pub fn update_timer(&mut self) {
-        // Timer value is a combination of timer_lo and timer_hi
-        let timer_value = ((self.timer_hi as u16 & 0x0F) << 8) | (self.timer_lo as u16);
-        self.timer = timer_value;
+        // Timer period is looked up from a table based on the low 4 bits of timer_lo
+        let period_index = self.timer_lo & 0x0F;
+        self.timer = TIMER_PERIOD[period_index as usize];
     }
 
     /// Update noise channel properties from control register
@@ -196,11 +201,11 @@ impl NoiseChannel {
                 self.timer_hi = value;
                 self.update_timer();
 
+                // Writing to the timer high register loads the length counter
+                self.load_length_counter(value);
+
                 // Writing to the timer high register restarts the envelope generator
                 self.envelope.restart();
-
-                // Writing to the timer high register also loads the length counter
-                self.load_length_counter(value);
             },
             _ => panic!("Invalid noise channel register offset: {}", register_offset),
         }

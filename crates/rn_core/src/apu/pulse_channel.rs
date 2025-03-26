@@ -207,7 +207,7 @@ impl PulseChannel {
 
         // Output sample if active
         if is_active {
-            // Get the current volume level
+            // Get the current volume level (handles both constant volume and envelope modes)
             let vol = self.envelope.get_volume();
 
             // Convert volume (0-15) to sample (0.0 to 1.0)
@@ -239,6 +239,16 @@ impl PulseChannel {
     /// Check if the length counter is active (non-zero)
     pub fn is_length_counter_active(&self) -> bool {
         self.length_counter.is_active()
+    }
+
+    /// Get the current timer value (for debugging)
+    pub fn get_timer(&self) -> u16 {
+        self.timer
+    }
+
+    /// Get the current duty position (for debugging)
+    pub fn get_duty_pos(&self) -> u8 {
+        self.duty_pos
     }
 
     /// Write to a channel register

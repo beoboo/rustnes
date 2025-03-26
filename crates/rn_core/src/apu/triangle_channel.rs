@@ -4,23 +4,24 @@ use super::length_counter::LengthCounter;
 #[derive(Debug)]
 pub struct TriangleChannel {
     // Registers
-    control: u8,
-    timer_lo: u8,
-    timer_hi: u8,
+    control: u8,  // Register 0 ($4008) - Control register
+    timer_lo: u8, // Register 2 ($400A) - Timer low byte
+    timer_hi: u8, // Register 3 ($400B) - Timer high byte and length counter
 
     // Internal state
     enabled: bool,
 
     // Audio generation state
-    timer: u16,
-    timer_value: u16,
-    sequence_pos: u8,
-    volume: u8,
+    timer: u16,       // Timer value
+    timer_value: u16, // Current timer countdown
+    sequence_pos: u8, // Position in the triangle wave sequence
+    volume: u8,       // Output volume (always max for triangle)
 
     // Linear counter
-    linear_counter: u8,
-    linear_counter_reload: u8,
-    linear_counter_halt: bool,
+    linear_counter: u8,               // Linear counter value
+    linear_counter_reload: u8,        // Linear counter reload value
+    linear_counter_halt: bool,        // Linear counter halt flag
+    linear_counter_reload_flag: bool, // Flag indicating if linear counter should be reloaded
 
     // Length counter
     length_counter: LengthCounter,
@@ -35,7 +36,7 @@ impl TriangleChannel {
             timer_lo: 0,
             timer_hi: 0,
 
-            // Channel initially disabled
+            // Disabled initially
             enabled: false,
 
             // Initialize audio generation state
@@ -48,6 +49,7 @@ impl TriangleChannel {
             linear_counter: 0,
             linear_counter_reload: 0,
             linear_counter_halt: false,
+            linear_counter_reload_flag: false,
 
             // Initialize length counter
             length_counter: LengthCounter::new(),
@@ -74,6 +76,7 @@ impl TriangleChannel {
         self.linear_counter = 0;
         self.linear_counter_reload = 0;
         self.linear_counter_halt = false;
+        self.linear_counter_reload_flag = false;
 
         // Reset length counter
         self.length_counter.reset();
@@ -96,10 +99,14 @@ impl TriangleChannel {
 
     /// Process a quarter frame for linear counter (called at 240Hz rate)
     pub fn tick_linear_counter(&mut self) {
-        if !self.linear_counter_halt {
-            if self.linear_counter > 0 {
-                self.linear_counter -= 1;
-            }
+        if self.linear_counter_reload_flag {
+            // Reload counter with reload value
+            self.linear_counter = self.linear_counter_reload;
+            // Clear the reload flag
+            self.linear_counter_reload_flag = false;
+        } else if self.linear_counter > 0 {
+            // Only decrement if greater than 0
+            self.linear_counter -= 1;
         }
     }
 
@@ -124,6 +131,9 @@ impl TriangleChannel {
         // Update length counter halt flag (bit 7)
         self.linear_counter_halt = (self.control & 0x80) != 0;
         self.length_counter.set_halt(self.linear_counter_halt);
+
+        // Always reload linear counter when writing to control register
+        self.linear_counter = self.linear_counter_reload;
     }
 
     /// Load length counter from timer high register (called when writing to register 3)
@@ -195,10 +205,8 @@ impl TriangleChannel {
                 // Writing to the timer high register loads the length counter
                 self.load_length_counter(value);
 
-                // Writing to the timer high register also reloads the linear counter
-                if !self.linear_counter_halt {
-                    self.linear_counter = self.linear_counter_reload;
-                }
+                // Set flag to reload linear counter
+                self.linear_counter_reload_flag = true;
             },
             _ => panic!("Invalid triangle channel register offset: {}", register_offset),
         }
@@ -321,14 +329,18 @@ mod tests {
         // Linear counter should be loaded with reload value
         assert_eq!(channel.linear_counter, 7);
 
-        // Tick linear counter - should decrement
+        // Tick linear counter - should reload from reload flag and remain at 7
+        channel.tick_linear_counter();
+        assert_eq!(channel.linear_counter, 7);
+
+        // Tick again - now it should decrement
         channel.tick_linear_counter();
         assert_eq!(channel.linear_counter, 6);
 
         // Set halt flag
         channel.write_register(0, 0x87); // Linear counter reload = 7, halt = true
 
-        // Tick linear counter - should not change due to halt
+        // Tick linear counter - should still decrement
         channel.tick_linear_counter();
         assert_eq!(channel.linear_counter, 6);
 
@@ -340,6 +352,9 @@ mod tests {
         assert_eq!(channel.linear_counter, 7);
 
         // Continue ticking until it reaches 0
+        // First tick with reload flag
+        channel.tick_linear_counter();
+
         for _ in 0..7 {
             channel.tick_linear_counter();
         }
