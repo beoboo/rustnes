@@ -2,17 +2,17 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{audio::AudioOutput, errors::NesError, memory::Addressable};
 
+mod dmc_channel;
 mod envelope;
 mod length_counter;
 mod noise_channel;
 mod pulse_channel;
 mod sweep;
 mod triangle_channel;
-mod dmc_channel;
+use dmc_channel::DmcChannel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
 use triangle_channel::TriangleChannel;
-use dmc_channel::DmcChannel;
 
 // Required APU register constants for simple tone test
 const APU_STATUS: u16 = 0x4015; // APU status/control
