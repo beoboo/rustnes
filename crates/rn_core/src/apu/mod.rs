@@ -859,7 +859,6 @@ mod tests {
         // Verify combined output
         let mixed_samples: Vec<f32> = test_output.borrow().samples.iter().map(|&s| s * 400.0f32).collect();
         let mixed_max = mixed_samples.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
-        let mixed_min = mixed_samples.iter().fold(0.0f32, |a, &b| a.min(b));
 
         // We're using the empirically measured maximum value for assertion
         // This is based on all channels at their peak levels

@@ -241,16 +241,6 @@ impl PulseChannel {
         self.length_counter.is_active()
     }
 
-    /// Get the current timer value (for debugging)
-    pub fn get_timer(&self) -> u16 {
-        self.timer
-    }
-
-    /// Get the current duty position (for debugging)
-    pub fn get_duty_pos(&self) -> u8 {
-        self.duty_pos
-    }
-
     /// Write to a channel register
     pub fn write_register(&mut self, register_offset: u16, value: u8) {
         match register_offset {
