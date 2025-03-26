@@ -452,8 +452,19 @@ This document provides a detailed task breakdown for developing the RustNES emul
   - [x] Implement triangle wave generation
   - [x] Add proper register handling
   - [x] Test all triangle channel functionality
-- [ ] Implement noise channel ($400C-$400F)
-- [ ] Implement DMC channel ($4010-$4013)
+- [x] Implement noise channel ($400C-$400F)
+  - [x] Implement noise generator with mode 0 and mode 1
+  - [x] Implement envelope generator
+  - [x] Implement length counter
+  - [x] Add proper register handling
+  - [x] Test all noise channel functionality
+- [x] Implement DMC channel ($4010-$4013)
+  - [x] Implement delta modulation sample playback
+  - [x] Implement IRQ generation
+  - [x] Implement loop flag
+  - [x] Implement frequency control
+  - [x] Add proper register handling
+  - [x] Test all DMC channel functionality
 - [ ] Test all channel functionality
 - [ ] Add proper channel mixing
 
@@ -689,13 +700,13 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
 - Track 5 (Input Controllers): 100% complete (33/33 tasks) - Controller input is fully implemented with keyboard mapping support
 - Track 6 (Basic Sound Output): 100% complete (47/47 tasks) - Basic APU pulse channel implementation with volume/mute controls, unit tests, and operational audio output through CPAL
-- Track 7 (Complete Audio System): 45% complete (14/31 tasks) - Implemented envelope generator, sweep unit, and length counter with proper struct design for reuse, plus pulse channel 2
+- Track 7 (Complete Audio System): 65% complete (20/31 tasks) - Implemented envelope generator, sweep unit, and length counter with proper struct design for reuse, plus pulse channel 2, noise channel, and DMC channel
 - Track 8 (Mappers & Cartridges): 0% complete (0/25 tasks) 
 - Track 9 (Full Desktop System): 0% complete (0/90 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
 - Track 10 (Web Integration): 0% complete (0/40 tasks)
 - Additional Areas: 0% complete (0/108 tasks) - Including cycle-accurate timing, background rendering, testing, edge cases, distribution, extended features, legal considerations, documentation, performance optimization, and demo ROMs
 
-**Total Progress: 285/535 tasks complete (53.3%)** 🚀
+**Total Progress: 291/535 tasks complete (54.4%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 

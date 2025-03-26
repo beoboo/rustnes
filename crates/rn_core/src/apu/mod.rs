@@ -8,9 +8,11 @@ mod noise_channel;
 mod pulse_channel;
 mod sweep;
 mod triangle_channel;
+mod dmc_channel;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
 use triangle_channel::TriangleChannel;
+use dmc_channel::DmcChannel;
 
 // Required APU register constants for simple tone test
 const APU_STATUS: u16 = 0x4015; // APU status/control
@@ -68,6 +70,7 @@ impl Addressable for ApuWrapper {
             0x4004..=0x4007 | // Pulse 2 registers
             0x4008..=0x400B | // Triangle channel registers
             0x400C..=0x400F | // Noise channel registers
+            0x4010..=0x4013 | // DMC channel registers
             0x4015 => true,   // APU status/control
             _ => false,
         }
@@ -94,6 +97,9 @@ pub struct Apu {
 
     // Noise channel
     noise: NoiseChannel,
+
+    // DMC channel
+    dmc: DmcChannel,
 
     // Status register ($4015)
     status: u8,
@@ -125,6 +131,9 @@ impl Apu {
             // Initialize noise channel
             noise: NoiseChannel::new(),
 
+            // Initialize DMC channel
+            dmc: DmcChannel::new(),
+
             // Initialize status register
             status: 0,
 
@@ -154,6 +163,9 @@ impl Apu {
         // Reset noise channel
         self.noise.reset();
 
+        // Reset DMC channel
+        self.dmc.reset();
+
         // Reset status register
         self.status = 0;
 
@@ -172,77 +184,51 @@ impl Apu {
 
     /// Process a single APU cycle
     pub fn tick(&mut self) {
-        // Track cycles for sample generation
+        // Increment cycle counter
         self.cycle_counter += 1;
 
-        // Process frame counter for envelopes and other clocked components
-        self.frame_counter += 1;
-
-        // Check if we need to process quarter frame events (envelope)
-        if self.frame_counter % QUARTER_FRAME_PERIOD == 0 {
-            self.tick_quarter_frame();
+        // Process frame counter
+        if self.cycle_counter % QUARTER_FRAME_PERIOD == 0 {
+            // Process quarter frame
+            self.pulse1.tick_envelope();
+            self.pulse2.tick_envelope();
+            self.triangle.tick_linear_counter();
+            self.noise.tick_envelope();
         }
 
-        // Check if we need to process half frame events (sweep and length counter)
-        if self.frame_counter % (QUARTER_FRAME_PERIOD * 2) == 0 {
-            self.tick_half_frame();
+        if self.cycle_counter % (QUARTER_FRAME_PERIOD * 2) == 0 {
+            // Process half frame
+            self.pulse1.tick_sweep();
+            self.pulse2.tick_sweep();
+            self.pulse1.tick_length_counter();
+            self.pulse2.tick_length_counter();
+            self.triangle.tick_length_counter();
+            self.noise.tick_length_counter();
         }
 
-        // Process pulse channels
+        // Process channel cycles
         self.pulse1.tick();
         self.pulse2.tick();
-
-        // Process triangle channel
         self.triangle.tick();
-
-        // Process noise channel
         self.noise.tick();
+        self.dmc.tick();
 
-        // Generate audio samples when needed
-        // NES APU generates samples at a rate determined by the CPU clock rate and sample rate
-        self.sample_counter += self.samples_per_cycle;
-        while self.sample_counter >= 1.0 {
-            self.sample_counter -= 1.0;
-            self.generate_sample();
-        }
+        // Generate samples
+        self.generate_sample();
     }
 
-    /// Process quarter frame events (240Hz) - envelope and triangle linear counter
-    fn tick_quarter_frame(&mut self) {
-        // Process envelope
-        self.pulse1.tick_envelope();
-        self.pulse2.tick_envelope();
-        self.noise.tick_envelope();
-
-        // Process triangle linear counter
-        self.triangle.tick_linear_counter();
-    }
-
-    /// Process half frame events (120Hz) - sweep and length counter
-    fn tick_half_frame(&mut self) {
-        // Process sweep
-        self.pulse1.tick_sweep();
-        self.pulse2.tick_sweep();
-
-        // Process length counter
-        self.pulse1.tick_length_counter();
-        self.pulse2.tick_length_counter();
-        self.triangle.tick_length_counter();
-        self.noise.tick_length_counter();
-    }
-
-    /// Generate and output a single audio sample
     fn generate_sample(&mut self) {
         // Only generate samples if we have an audio output device
         if let Some(audio_output) = &mut self.audio_output {
-            // Mix pulse channels, triangle channel, and noise channel
+            // Mix pulse channels, triangle channel, noise channel, and DMC channel
             let pulse1_sample = self.pulse1.generate_sample();
             let pulse2_sample = self.pulse2.generate_sample();
             let triangle_sample = self.triangle.generate_sample();
             let noise_sample = self.noise.generate_sample();
+            let dmc_sample = self.dmc.generate_sample();
 
             // Mix the samples (simple average for now)
-            let mixed_sample = (pulse1_sample + pulse2_sample + triangle_sample + noise_sample) / 4.0;
+            let mixed_sample = (pulse1_sample + pulse2_sample + triangle_sample + noise_sample + dmc_sample) / 5.0;
 
             // Output the sample
             audio_output.queue_sample(mixed_sample);
@@ -300,6 +286,9 @@ impl Addressable for Apu {
                 if self.noise.is_length_counter_active() {
                     status |= 0x08;
                 }
+                if self.dmc.is_length_counter_active() {
+                    status |= 0x10;
+                }
                 Ok(status)
             },
             // Other registers are write-only in the actual NES
@@ -333,6 +322,12 @@ impl Addressable for Apu {
                 self.noise.write_register(reg_offset, value);
                 Ok(())
             },
+            // DMC channel registers
+            0x4010..=0x4013 => {
+                let reg_offset = address - 0x4010;
+                self.dmc.write_register(reg_offset, value);
+                Ok(())
+            },
             // APU status register ($4015)
             APU_STATUS => {
                 // Update channel enable states
@@ -340,6 +335,7 @@ impl Addressable for Apu {
                 self.pulse2.set_enabled((value & 0x02) != 0);
                 self.triangle.set_enabled((value & 0x04) != 0);
                 self.noise.set_enabled((value & 0x08) != 0);
+                self.dmc.set_enabled((value & 0x10) != 0);
                 self.status = value;
                 Ok(())
             },
@@ -356,11 +352,6 @@ impl Addressable for Apu {
             // Ignore other registers for minimal implementation
             _ => Ok(()),
         }
-    }
-
-    fn reset(&mut self) {
-        // Call our main reset method
-        Apu::reset(self);
     }
 }
 
