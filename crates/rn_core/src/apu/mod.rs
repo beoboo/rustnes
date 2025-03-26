@@ -6,7 +6,9 @@ mod envelope;
 mod length_counter;
 mod pulse_channel;
 mod sweep;
+mod triangle_channel;
 use pulse_channel::PulseChannel;
+use triangle_channel::TriangleChannel;
 
 // Required APU register constants for simple tone test
 const APU_STATUS: u16 = 0x4015; // APU status/control
@@ -58,9 +60,12 @@ impl ApuWrapper {
 
 impl Addressable for ApuWrapper {
     fn handles_address(&self, address: u16) -> bool {
-        // Only handle the registers needed for the simple tone test
+        // Handle all APU registers
         match address {
-            0x4000..=0x4003 | 0x4015 => true,
+            0x4000..=0x4003 | // Pulse 1 registers
+            0x4004..=0x4007 | // Pulse 2 registers
+            0x4008..=0x400B | // Triangle channel registers
+            0x4015 => true,   // APU status/control
             _ => false,
         }
     }
@@ -80,6 +85,9 @@ pub struct Apu {
     // Pulse channels
     pulse1: PulseChannel,
     pulse2: PulseChannel,
+
+    // Triangle channel
+    triangle: TriangleChannel,
 
     // Status register ($4015)
     status: u8,
@@ -105,6 +113,9 @@ impl Apu {
             pulse1: PulseChannel::new(true),  // Pulse 1
             pulse2: PulseChannel::new(false), // Pulse 2
 
+            // Initialize triangle channel
+            triangle: TriangleChannel::new(),
+
             // Initialize status register
             status: 0,
 
@@ -127,6 +138,9 @@ impl Apu {
         // Reset pulse channels
         self.pulse1.reset();
         self.pulse2.reset();
+
+        // Reset triangle channel
+        self.triangle.reset();
 
         // Reset status register
         self.status = 0;
@@ -166,6 +180,9 @@ impl Apu {
         self.pulse1.tick();
         self.pulse2.tick();
 
+        // Process triangle channel
+        self.triangle.tick();
+
         // Generate audio samples when needed
         // NES APU generates samples at a rate determined by the CPU clock rate and sample rate
         self.sample_counter += self.samples_per_cycle;
@@ -180,6 +197,9 @@ impl Apu {
         // Process envelope
         self.pulse1.tick_envelope();
         self.pulse2.tick_envelope();
+
+        // Process triangle linear counter
+        self.triangle.tick_linear_counter();
     }
 
     /// Process half frame events (120Hz) - sweep and length counter
@@ -191,21 +211,23 @@ impl Apu {
         // Process length counter
         self.pulse1.tick_length_counter();
         self.pulse2.tick_length_counter();
+        self.triangle.tick_length_counter();
     }
 
     /// Generate and output a single audio sample
     fn generate_sample(&mut self) {
         // Only generate samples if we have an audio output device
         if let Some(audio_output) = &mut self.audio_output {
-            // Mix pulse channels
+            // Mix pulse channels and triangle channel
             let pulse1_sample = self.pulse1.generate_sample();
             let pulse2_sample = self.pulse2.generate_sample();
+            let triangle_sample = self.triangle.generate_sample();
 
-            // Simple mixer formula - will be improved with proper channel mixing later
-            let sample = (pulse1_sample + pulse2_sample) * 0.5;
+            // Mix the samples (simple average for now)
+            let mixed_sample = (pulse1_sample + pulse2_sample + triangle_sample) / 3.0;
 
-            // Send the sample to the audio output device
-            audio_output.queue_sample(sample);
+            // Output the sample
+            audio_output.queue_sample(mixed_sample);
         }
     }
 
@@ -246,15 +268,18 @@ impl Addressable for Apu {
         match address {
             // APU status register ($4015)
             APU_STATUS => {
-                // Bits 0-1 are the pulse channels (length counter status)
-                let mut value = 0;
+                // Build status register from channel states
+                let mut status = 0;
                 if self.pulse1.is_length_counter_active() {
-                    value |= 0x01;
+                    status |= 0x01;
                 }
                 if self.pulse2.is_length_counter_active() {
-                    value |= 0x02;
+                    status |= 0x02;
                 }
-                Ok(value)
+                if self.triangle.is_length_counter_active() {
+                    status |= 0x04;
+                }
+                Ok(status)
             },
             // Other registers are write-only in the actual NES
             _ => Ok(0),
@@ -275,16 +300,21 @@ impl Addressable for Apu {
                 self.pulse2.write_register(reg_offset, value);
                 Ok(())
             },
-
+            // Triangle channel registers
+            0x4008..=0x400B => {
+                let reg_offset = address - 0x4008;
+                self.triangle.write_register(reg_offset, value);
+                Ok(())
+            },
             // APU status register ($4015)
             APU_STATUS => {
-                // Update channel enable flags
+                // Update channel enable states
                 self.pulse1.set_enabled((value & 0x01) != 0);
                 self.pulse2.set_enabled((value & 0x02) != 0);
+                self.triangle.set_enabled((value & 0x04) != 0);
                 self.status = value;
                 Ok(())
             },
-
             // Frame counter register ($4017)
             0x4017 => {
                 // Set frame counter mode
@@ -295,7 +325,6 @@ impl Addressable for Apu {
                 }
                 Ok(())
             },
-
             // Ignore other registers for minimal implementation
             _ => Ok(()),
         }

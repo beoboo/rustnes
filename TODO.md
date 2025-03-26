@@ -446,7 +446,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
   - [x] Implement envelope generator for volume control
   - [x] Add sweep units for frequency modulation
   - [x] Implement length counter
-- [ ] Implement triangle channel ($4008-$400B)
+- [x] Implement triangle channel ($4008-$400B)
+  - [x] Implement linear counter
+  - [x] Implement length counter
+  - [x] Implement triangle wave generation
+  - [x] Add proper register handling
+  - [x] Test all triangle channel functionality
 - [ ] Implement noise channel ($400C-$400F)
 - [ ] Implement DMC channel ($4010-$4013)
 - [ ] Test all channel functionality
