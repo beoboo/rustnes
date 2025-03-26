@@ -28,6 +28,31 @@ impl Sweep {
         }
     }
 
+    /// Get the sweep period
+    pub fn get_period(&self) -> u8 {
+        self.period
+    }
+
+    /// Get the negate flag
+    pub fn get_negate(&self) -> bool {
+        self.negate
+    }
+
+    /// Get the shift count
+    pub fn get_shift(&self) -> u8 {
+        self.shift
+    }
+
+    /// Get whether the sweep unit is enabled
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Get whether this is pulse channel 1
+    pub fn is_pulse1(&self) -> bool {
+        self.is_pulse1
+    }
+
     /// Reset the sweep unit to initial state
     pub fn reset(&mut self) {
         self.enabled = false;
@@ -43,13 +68,13 @@ impl Sweep {
         // Extract the enabled flag (bit 7)
         self.enabled = (value & 0x80) != 0;
 
-        // Extract the period (bits 6-4)
+        // Extract the period (bits 4-6)
         self.period = (value >> 4) & 0x07;
 
         // Extract the negate flag (bit 3)
         self.negate = (value & 0x08) != 0;
 
-        // Extract the shift count (bits 2-0)
+        // Extract the shift count (bits 0-2)
         self.shift = value & 0x07;
 
         // Set the reload flag

@@ -3,6 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{audio::AudioOutput, errors::NesError, memory::Addressable};
 
 mod envelope;
+mod length_counter;
 mod pulse_channel;
 mod sweep;
 use pulse_channel::PulseChannel;
@@ -187,8 +188,9 @@ impl Apu {
         self.pulse1.tick_sweep();
         self.pulse2.tick_sweep();
 
-        // Process length counter (not implemented yet)
-        // TODO: Implement length counter
+        // Process length counter
+        self.pulse1.tick_length_counter();
+        self.pulse2.tick_length_counter();
     }
 
     /// Generate and output a single audio sample
@@ -244,12 +246,12 @@ impl Addressable for Apu {
         match address {
             // APU status register ($4015)
             APU_STATUS => {
-                // Bits 0-1 are the pulse channels
+                // Bits 0-1 are the pulse channels (length counter status)
                 let mut value = 0;
-                if self.pulse1.is_enabled() {
+                if self.pulse1.is_length_counter_active() {
                     value |= 0x01;
                 }
-                if self.pulse2.is_enabled() {
+                if self.pulse2.is_length_counter_active() {
                     value |= 0x02;
                 }
                 Ok(value)
@@ -434,7 +436,9 @@ mod tests {
         // Disable sweep to prevent muting (for test)
         apu.write_byte(PULSE1_SWEEP, 0x08)?; // Negate flag set to prevent muting
 
+        // Enable pulse 1 and load initial length counter value
         apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
+        apu.write_byte(PULSE1_TIMER_HI, 0x08)?; // Reload length counter
 
         // Connect the test output
         apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
@@ -463,8 +467,12 @@ mod tests {
         apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
         apu.write_byte(PULSE1_SWEEP, 0x08)?; // No sweep, negate bit set to prevent muting
         apu.write_byte(PULSE1_TIMER_LO, 0x8)?; // Short timer for faster testing
-        apu.write_byte(PULSE1_TIMER_HI, 0x01)?; // High byte (period over 8 to avoid muting)
+        
+        // Enable pulse 1
         apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
+        
+        // Load timer high and length counter in one operation
+        apu.write_byte(PULSE1_TIMER_HI, 0x01)?; // High byte (period over 8 to avoid muting)
 
         // Connect the test output
         apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
@@ -483,6 +491,135 @@ mod tests {
 
         // Verify the APU configuration is correct for tone generation
         assert_eq!(apu.pulse1.is_enabled(), true, "Pulse channel should be enabled");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_length_counter_in_apu() -> Result<()> {
+        let mut apu = Apu::new();
+        let test_output = Rc::new(RefCell::new(TestAudioOutput::new()));
+
+        // Configure pulse channel with a very short timer for quick testing
+        apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
+        apu.write_byte(PULSE1_TIMER_LO, 0x08)?; // Timer low
+        
+        // Enable pulse channel
+        apu.write_byte(APU_STATUS, 0x01)?;
+        
+        // Load timer high with a length value - use shortest length value
+        apu.write_byte(PULSE1_TIMER_HI, 0x18)?; // Index 3 = value 2 (very short)
+
+        // Connect test output
+        apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
+
+        // We'll directly manipulate the pulse channel for testing
+        // This is more reliable than waiting for the timer to advance
+        apu.pulse1.set_duty_pos(0); // Set position where output is high
+        
+        // Force a sample generation to verify we have sound
+        apu.generate_sample();
+        
+        // Verify that we did produce non-zero sound
+        assert!(test_output.borrow().samples.len() > 0, "No samples were generated");
+        assert!(test_output.borrow().samples.iter().any(|&s| s > 0.0), 
+                "Expected non-zero samples but all were zero");
+
+        // Clear samples
+        test_output.borrow_mut().clear();
+
+        // Manually tick the length counter twice to exhaust it
+        // Since we used a length of 2, this should silence the channel
+        apu.pulse1.tick_length_counter();
+        apu.pulse1.tick_length_counter();
+        
+        // Verify the length counter is now inactive
+        assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0, 
+                   "Pulse 1 should be silent after length counter expires");
+        
+        // Generate another sample
+        apu.generate_sample();
+        
+        // Verify it produced silence
+        assert!(test_output.borrow().samples.iter().all(|&s| s == 0.0), 
+                "All samples should be zero after length counter expires");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_length_counter_halt() -> Result<()> {
+        let mut apu = Apu::new();
+
+        // Enable pulse channel first
+        apu.write_byte(APU_STATUS, 0x01)?;
+
+        // Configure pulse with length counter halt flag set (bit 5 of control register)
+        apu.write_byte(PULSE1_CONTROL, 0b00100000)?; // Halt bit set, constant volume (0)
+        apu.write_byte(PULSE1_TIMER_LO, 0x08)?;
+        
+        // Now load timer high to get length counter
+        apu.write_byte(PULSE1_TIMER_HI, 0x01)?; // Timer high with length counter
+
+        // Tick many half-frames - length counter shouldn't decrement because halt is set
+        for _ in 0..20 {
+            // Simulate many CPU cycles to trigger multiple half-frames
+            for _ in 0..QUARTER_FRAME_PERIOD*4 {
+                apu.tick();
+            }
+        }
+
+        // Status register should still show pulse 1 as active
+        assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0x01, 
+                "Pulse 1 should still be active with length counter halt set");
+
+        // Now clear the halt flag
+        apu.write_byte(PULSE1_CONTROL, 0b00000000)?; // Halt bit cleared, constant volume (0)
+
+        // Tick many half-frames - length counter should now decrement
+        for _ in 0..20 {
+            // Simulate many CPU cycles to trigger multiple half-frames
+            for _ in 0..QUARTER_FRAME_PERIOD*4 {
+                apu.tick();
+            }
+        }
+
+        // Status register should now show pulse 1 as inactive
+        assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0, 
+                "Pulse 1 should be silent after length counter expires");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_reload_length_counter() -> Result<()> {
+        let mut apu = Apu::new();
+
+        // Enable pulse channel but without loading a length counter
+        apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
+        apu.write_byte(APU_STATUS, 0x01)?;
+
+        // Check that it's not active yet (no length value loaded)
+        assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0x00);
+
+        // Now load a length counter
+        apu.write_byte(PULSE1_TIMER_HI, 0x01)?; // Any value will load a length
+
+        // Check that it's active now
+        assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0x01);
+
+        // Disable the channel
+        apu.write_byte(APU_STATUS, 0x00)?;
+
+        // Should be inactive
+        assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0x00);
+
+        // Re-enable and load a length value
+        apu.write_byte(APU_STATUS, 0x01)?;
+        apu.write_byte(PULSE1_TIMER_HI, 0x01)?;
+
+        // Should be active again
+        assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0x01);
 
         Ok(())
     }

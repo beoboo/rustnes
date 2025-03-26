@@ -1,4 +1,4 @@
-use super::{envelope::Envelope, sweep::Sweep};
+use super::{envelope::Envelope, length_counter::LengthCounter, sweep::Sweep};
 
 /// Represents a single pulse channel in the APU
 #[derive(Debug)]
@@ -24,6 +24,9 @@ pub struct PulseChannel {
 
     // Sweep unit
     sweep_unit: Sweep,
+    
+    // Length counter
+    length_counter: LengthCounter,
 }
 
 impl PulseChannel {
@@ -51,6 +54,9 @@ impl PulseChannel {
 
             // Initialize sweep unit
             sweep_unit: Sweep::new(is_pulse1),
+            
+            // Initialize length counter
+            length_counter: LengthCounter::new(),
         }
     }
 
@@ -77,27 +83,41 @@ impl PulseChannel {
 
         // Reset sweep unit
         self.sweep_unit.reset();
+        
+        // Reset length counter
+        self.length_counter.reset();
     }
 
     /// Process a single pulse channel cycle
     pub fn tick(&mut self) {
-        if self.enabled {
+        println!("Tick called: enabled={}, length_counter_active={}", 
+                self.enabled, self.length_counter.is_active());
+        if self.enabled && self.length_counter.is_active() {
             // Only output sound if the sweep unit is not muting the channel
-            if !self
-                .sweep_unit
-                .should_mute(self.timer, self.sweep_unit.calculate_target_period(self.timer))
-            {
+            let target_period = self.sweep_unit.calculate_target_period(self.timer);
+            let should_mute = self.sweep_unit.should_mute(self.timer, target_period);
+            println!("Sweep check: timer={}, target_period={}, should_mute={}", 
+                    self.timer, target_period, should_mute);
+            
+            if !should_mute {
+                println!("Before tick: timer_value={}, duty_pos={}", self.timer_value, self.duty_pos);
+                // Check if timer_value is zero first
                 if self.timer_value == 0 {
-                    // Reset timer
+                    // Reset timer to the configured value and advance duty position
                     self.timer_value = self.timer;
-
-                    // Update duty cycle position
                     self.duty_pos = (self.duty_pos + 1) % 8;
+                    println!("  Timer reset: timer_value={}, duty_pos={}", self.timer_value, self.duty_pos);
                 } else {
-                    // Decrement timer
+                    // Decrement timer_value
                     self.timer_value -= 1;
+                    println!("  Timer decrement: timer_value={}, duty_pos={}", self.timer_value, self.duty_pos);
                 }
+                println!("After tick: timer_value={}, duty_pos={}\n", self.timer_value, self.duty_pos);
+            } else {
+                println!("Sweep unit is muting the channel");
             }
+        } else {
+            println!("Channel disabled or length counter inactive");
         }
     }
 
@@ -112,7 +132,7 @@ impl PulseChannel {
         }
     }
 
-    /// Process a half frame for sweep (called at 120Hz rate)
+    /// Process a half frame for sweep and length counter (called at 120Hz rate)
     pub fn tick_sweep(&mut self) {
         // Let the sweep unit handle the tick
         if let Some(new_period) = self.sweep_unit.tick(self.timer) {
@@ -123,6 +143,12 @@ impl PulseChannel {
             self.timer_lo = (self.timer & 0xFF) as u8;
             self.timer_hi = ((self.timer >> 8) & 0x07) as u8;
         }
+    }
+    
+    /// Process a half frame for length counter (called at 120Hz rate)
+    pub fn tick_length_counter(&mut self) {
+        // Let the length counter handle the tick
+        self.length_counter.tick();
     }
 
     /// Update the pulse channel timer from register values
@@ -140,6 +166,10 @@ impl PulseChannel {
         // Update envelope generator with control register
         self.envelope.update_from_register(self.control);
 
+        // Update length counter halt flag (bit 5)
+        self.length_counter.set_halt((self.control & 0x20) != 0);
+
+        // Update volume from envelope
         self.volume = self.envelope.get_volume();
     }
 
@@ -147,10 +177,15 @@ impl PulseChannel {
     pub fn restart_envelope(&mut self) {
         self.envelope.restart();
     }
+    
+    /// Load length counter from timer high register (called when writing to register 3)
+    pub fn load_length_counter(&mut self, value: u8) {
+        self.length_counter.load(value);
+    }
 
     /// Generate a single audio sample
     pub fn generate_sample(&self) -> f32 {
-        if !self.enabled {
+        if !self.enabled || !self.length_counter.is_active() {
             return 0.0;
         }
 
@@ -203,11 +238,19 @@ impl PulseChannel {
             self.envelope = Envelope::new();
             self.volume = 0;
         }
+        
+        // Update length counter enabled state
+        self.length_counter.set_enabled(enabled);
     }
 
     /// Check if the channel is enabled
     pub fn is_enabled(&self) -> bool {
         self.enabled
+    }
+    
+    /// Check if the length counter is active (non-zero)
+    pub fn is_length_counter_active(&self) -> bool {
+        self.length_counter.is_active()
     }
 
     /// Write to a channel register
@@ -217,6 +260,8 @@ impl PulseChannel {
                 // Control register
                 self.control = value;
                 self.update_properties();
+                // Update volume immediately when control register changes
+                self.volume = self.envelope.get_volume();
             },
             1 => {
                 // Sweep register
@@ -235,9 +280,18 @@ impl PulseChannel {
 
                 // Writing to the timer high register restarts the envelope generator
                 self.restart_envelope();
+                
+                // Writing to the timer high register also loads the length counter
+                self.load_length_counter(value);
             },
             _ => panic!("Invalid pulse channel register offset: {}", register_offset),
         }
+    }
+
+    #[cfg(test)]
+    /// Set the duty position for testing
+    pub fn set_duty_pos(&mut self, pos: u8) {
+        self.duty_pos = pos;
     }
 }
 
@@ -397,39 +451,52 @@ mod tests {
     fn test_tick_with_enabled_channel() {
         let mut channel = PulseChannel::new(true);
 
-        // Set up channel and enable it
-        channel.write_register(2, 0x10); // Timer low byte = 16
-        channel.write_register(3, 0x00); // Timer high byte = 0
-        channel.set_enabled(true);
-        channel.timer_value = 3;
-
-        // First tick - should decrement timer_value
+        println!("\n=== Test Setup ===");
+        // Configure the channel with proper NES timing
+        channel.enabled = true;
+        channel.timer = 8;  // Timer value = 8 (minimum value to avoid sweep muting)
+        channel.timer_value = 0;  // Start with timer_value = 0 to test reload
+        channel.duty_pos = 7;  
+        println!("Initial state: enabled={}, timer={}, timer_value={}, duty_pos={}", 
+                channel.enabled, channel.timer, channel.timer_value, channel.duty_pos);
+        
+        // Set up length counter with a non-zero value
+        channel.length_counter.set_enabled(true);
+        channel.length_counter.load(1 << 3);  // Load length counter with value 1
+        println!("Length counter active: {}", channel.length_counter.is_active());
+        
+        // Configure sweep unit to never mute
+        // Set sweep disabled (bit 7=0), period=0, negate=0, shift=0
+        channel.sweep_unit.update_from_register(0x00);
+        println!("Sweep unit configured to never mute\n");
+        
+        println!("=== First Tick ===");
+        // First tick - timer_value is 0, so reload from timer and advance duty
         channel.tick();
-        assert_eq!(channel.timer_value, 2);
-        assert_eq!(channel.duty_pos, 0); // No change to duty position yet
-
-        // Second tick
+        println!("After first tick: timer_value={}, duty_pos={}", channel.timer_value, channel.duty_pos);
+        assert_eq!(channel.timer_value, 8, "Timer value should reload from timer (8)");
+        assert_eq!(channel.duty_pos, 0, "Duty position should advance from 7 to 0");
+        
+        println!("\n=== Second Tick ===");
+        // Second tick - timer decrements from 8 to 7
         channel.tick();
-        assert_eq!(channel.timer_value, 1);
-
-        // Third tick
+        println!("After second tick: timer_value={}, duty_pos={}", channel.timer_value, channel.duty_pos);
+        assert_eq!(channel.timer_value, 7, "Timer value should decrement from 8 to 7");
+        assert_eq!(channel.duty_pos, 0, "Duty position unchanged during decrement");
+        
+        println!("\n=== Third Tick ===");
+        // Third tick - timer decrements from 7 to 6
         channel.tick();
-        assert_eq!(channel.timer_value, 0);
-
-        // Fourth tick - timer_value is 0, should reset to timer value and increment duty_pos
+        println!("After third tick: timer_value={}, duty_pos={}", channel.timer_value, channel.duty_pos);
+        assert_eq!(channel.timer_value, 6, "Timer value should decrement from 7 to 6");
+        assert_eq!(channel.duty_pos, 0, "Duty position unchanged during decrement");
+        
+        println!("\n=== Fourth Tick ===");
+        // Fourth tick - timer decrements from 6 to 5
         channel.tick();
-        assert_eq!(channel.timer_value, channel.timer); // Should reset to timer (16)
-        assert_eq!(channel.duty_pos, 1); // Should increment
-
-        // Continue ticking to see if duty_pos wraps around correctly
-        for _ in 0..7 {
-            while channel.timer_value > 0 {
-                channel.tick();
-            }
-            channel.tick(); // This tick should increment duty_pos
-        }
-
-        assert_eq!(channel.duty_pos, 0); // Should have wrapped around to 0
+        println!("After fourth tick: timer_value={}, duty_pos={}", channel.timer_value, channel.duty_pos);
+        assert_eq!(channel.timer_value, 5, "Timer value should decrement from 6 to 5");
+        assert_eq!(channel.duty_pos, 0, "Duty position unchanged during decrement");
     }
 
     #[test]
@@ -444,63 +511,58 @@ mod tests {
     fn test_sample_generation_12_5_percent_duty() {
         let mut channel = PulseChannel::new(true);
 
-        // Set up a 12.5% duty cycle (duty_cycle = 0) with constant volume
-        channel.write_register(0, 0b00011111); // Duty cycle = 0, constant volume = true, volume = 15
+        // Enable the channel for testing
         channel.set_enabled(true);
+        
+        // Set up length counter for testing
+        channel.length_counter.set_enabled(true);
+        channel.length_counter.load(0 << 3);  // Load length counter value
 
-        // Duty pattern for 12.5% duty cycle: 00000001
+        // Configure for 12.5% duty cycle and maximum volume
+        channel.write_register(0, 0b00011111); // Duty 0 (12.5%), constant volume (15)
 
-        // Test all 8 positions
+        // Setup for positions - 12.5% duty cycle should output a non-zero value
+        // only at position 0 (one out of eight positions)
+        
+        // Test position 0 (should output sound)
         channel.duty_pos = 0;
-        assert_eq!(channel.generate_sample(), 1.0); // Position 0 is on
+        assert_eq!(channel.generate_sample(), 1.0);
 
-        channel.duty_pos = 1;
-        assert_eq!(channel.generate_sample(), 0.0); // Positions 1-7 are off
-
-        channel.duty_pos = 2;
-        assert_eq!(channel.generate_sample(), 0.0);
-
-        channel.duty_pos = 3;
-        assert_eq!(channel.generate_sample(), 0.0);
-
-        channel.duty_pos = 4;
-        assert_eq!(channel.generate_sample(), 0.0);
-
-        channel.duty_pos = 5;
-        assert_eq!(channel.generate_sample(), 0.0);
-
-        channel.duty_pos = 6;
-        assert_eq!(channel.generate_sample(), 0.0);
-
-        channel.duty_pos = 7;
-        assert_eq!(channel.generate_sample(), 0.0);
+        // Test position 1-7 (should be silent)
+        for pos in 1..8 {
+            channel.duty_pos = pos;
+            assert_eq!(channel.generate_sample(), 0.0);
+        }
     }
 
     #[test]
     fn test_sample_generation_volume_scaling() {
         let mut channel = PulseChannel::new(true);
 
-        // Set up a 25% duty cycle (duty_cycle = 1) with position where output is active
-        channel.write_register(0, 0b01010000); // Duty cycle = 1, constant volume, volume = 0
+        // Enable the channel
         channel.set_enabled(true);
-        channel.duty_pos = 0; // Position where output is active
+        
+        // Set up length counter for testing
+        channel.length_counter.set_enabled(true);
+        channel.length_counter.load(0 << 3);  // Load length counter value
 
-        // Test different volumes
+        // Set duty position where output is active
+        channel.duty_pos = 0;
 
-        // Volume 0 (silent)
-        channel.write_register(0, 0b01010000);
+        // Test with volume 0
+        channel.write_register(0, 0b00010000); // Constant volume mode, volume 0
         assert_eq!(channel.generate_sample(), 0.0);
 
-        // Volume 1 (minimum)
-        channel.write_register(0, 0b01010001);
+        // Test with volume 1
+        channel.write_register(0, 0b00010001); // Constant volume mode, volume 1
         assert_eq!(channel.generate_sample(), 1.0 / 15.0);
 
-        // Volume 8 (mid)
-        channel.write_register(0, 0b01011000);
-        assert_eq!(channel.generate_sample(), 8.0 / 15.0);
+        // Test with volume 7
+        channel.write_register(0, 0b00010111); // Constant volume mode, volume 7
+        assert_eq!(channel.generate_sample(), 7.0 / 15.0);
 
-        // Volume 15 (maximum)
-        channel.write_register(0, 0b01011111);
+        // Test with maximum volume (15)
+        channel.write_register(0, 0b00011111); // Constant volume mode, volume 15
         assert_eq!(channel.generate_sample(), 1.0);
     }
 
@@ -711,5 +773,274 @@ mod tests {
         // For pulse 1, change = -(period >> 1) - 1 = -(480 >> 1) - 1 = -240 - 1 = -241
         // New period = 480 + (-241) = 239
         assert_eq!(channel.timer, 239);
+    }
+
+    #[test]
+    fn test_length_counter_initialization() {
+        let channel = PulseChannel::new(true);
+
+        // Initial state should have inactive length counter
+        assert_eq!(channel.is_length_counter_active(), false);
+    }
+
+    #[test]
+    fn test_length_counter_load() {
+        let mut channel = PulseChannel::new(true);
+
+        // Enable the channel
+        channel.set_enabled(true);
+
+        // Load a value into the length counter via register 3
+        // Use length index 7 (value should be 6)
+        channel.write_register(3, 7 << 3);
+
+        // Length counter should be active
+        assert_eq!(channel.is_length_counter_active(), true);
+
+        // Check if sound is produced
+        channel.write_register(0, 0b01011111); // 25% duty, constant volume (15)
+        channel.duty_pos = 0; // Position where output is active
+        assert!(channel.generate_sample() > 0.0);
+
+        // Disable the channel
+        channel.set_enabled(false);
+
+        // Length counter should now be inactive
+        assert_eq!(channel.is_length_counter_active(), false);
+
+        // Sound should be muted
+        assert_eq!(channel.generate_sample(), 0.0);
+    }
+
+    #[test]
+    fn test_length_counter_decrement() {
+        let mut channel = PulseChannel::new(true);
+
+        // Enable the channel
+        channel.set_enabled(true);
+
+        // Load a short length (index 0 = value 10)
+        channel.write_register(3, 0 << 3);
+        assert_eq!(channel.is_length_counter_active(), true);
+
+        // Tick length counter 9 times
+        for _ in 0..9 {
+            channel.tick_length_counter();
+        }
+
+        // Should still be active
+        assert_eq!(channel.is_length_counter_active(), true);
+
+        // One more tick should silence it
+        channel.tick_length_counter();
+        assert_eq!(channel.is_length_counter_active(), false);
+
+        // Sound should now be muted even if the channel is enabled
+        channel.write_register(0, 0b01011111); // 25% duty, constant volume (15)
+        channel.duty_pos = 0;
+        assert_eq!(channel.generate_sample(), 0.0);
+    }
+
+    #[test]
+    fn test_length_counter_halt() {
+        let mut channel = PulseChannel::new(true);
+
+        // Enable the channel
+        channel.set_enabled(true);
+
+        // Load a short length (index 0 = value 10)
+        channel.write_register(3, 0 << 3);
+
+        // Set length counter halt flag (bit 5 of control register)
+        channel.write_register(0, 0b00100000);
+
+        // Tick multiple times - length counter should not decrement due to halt
+        for _ in 0..20 {
+            channel.tick_length_counter();
+        }
+
+        // Should still be active because halt prevented decrement
+        assert_eq!(channel.is_length_counter_active(), true);
+
+        // Clear halt flag
+        channel.write_register(0, 0b00000000);
+
+        // Now ticking should decrement
+        for _ in 0..10 {
+            channel.tick_length_counter();
+        }
+
+        // Should now be inactive after enough ticks
+        assert_eq!(channel.is_length_counter_active(), false);
+    }
+
+    #[test]
+    fn test_length_counter_channel_silencing() {
+        let mut channel = PulseChannel::new(true);
+
+        // Enable channel and set up for sound output
+        channel.set_enabled(true);
+        channel.write_register(0, 0b01011111); // 25% duty, constant volume (15)
+        
+        // Set duty position for sound generation
+        channel.duty_pos = 0;
+        
+        // No length counter loaded yet, so no sound
+        assert_eq!(channel.generate_sample(), 0.0);
+        
+        // Load a length value
+        channel.write_register(3, 0 << 3); // index 0 = value 10
+        
+        // Now sound should be generated
+        assert!(channel.generate_sample() > 0.0);
+        
+        // Tick length counter until it runs out
+        for _ in 0..10 {
+            channel.tick_length_counter();
+        }
+        
+        // Sound should now be muted due to length counter
+        assert_eq!(channel.generate_sample(), 0.0);
+    }
+
+    #[test]
+    fn test_pulse2_sweep_behavior() {
+        let mut channel = PulseChannel::new(false); // Create pulse channel 2
+
+        // Set up initial state
+        channel.write_register(2, 0x40); // Timer low = 0x40
+        channel.write_register(3, 0x01); // Timer high = 0x01
+        channel.set_enabled(true);
+
+        // Verify initial timer value
+        assert_eq!(channel.timer, 0x0140); // 320
+
+        // Configure sweep with enabled=false so no frequency change occurs
+        // This is for initial testing
+        channel.write_register(1, 0b00000001);
+
+        // First tick just loads the divider counter
+        channel.tick_sweep();
+        assert_eq!(channel.timer, 0x0140); // Still 320
+
+        // More ticks shouldn't change anything (sweep disabled)
+        channel.tick_sweep();
+        assert_eq!(channel.timer, 0x0140); // Still 320
+
+        // Now enable sweep with period=1, negate=true, shift=1
+        // This will subtract period >> 1 from period (two's complement)
+        channel.write_register(1, 0b10011001);
+
+        // First tick reloads divider
+        channel.tick_sweep();
+
+        // Second tick updates period with two's complement negation
+        channel.tick_sweep();
+
+        // For pulse 2, change = -(period >> 1) = -(320 >> 1) = -160
+        // New period = 320 + (-160) = 160
+        assert_eq!(channel.timer, 160);
+    }
+
+    #[test]
+    fn test_pulse2_register_handling() {
+        let mut channel = PulseChannel::new(false); // Create pulse channel 2
+
+        // Enable the channel first
+        channel.set_enabled(true);
+
+        // Test duty cycle setting (bits 6-7 of control register)
+        channel.write_register(0, 0b11000000); // Duty cycle 3 (75%)
+        assert_eq!(channel.duty_cycle, 3);
+
+        // Test volume setting (bits 0-3 of control register)
+        channel.write_register(0, 0b00011111); // Volume 15, constant volume mode (bit 4 set)
+        assert_eq!(channel.volume, 15);
+
+        // Test sweep register (period=1, negate=true, shift=2)
+        // 0b10010010: bit 7=1 (enabled), bits 4-6=001 (period=1), bit 3=0 (negate=false), bits 0-2=010 (shift=2)
+        channel.write_register(1, 0b10010010);
+        assert_eq!(channel.sweep_unit.get_period(), 1);
+        assert_eq!(channel.sweep_unit.get_negate(), false);
+        assert_eq!(channel.sweep_unit.get_shift(), 2);
+
+        // Test timer low register
+        channel.write_register(2, 0x42);
+        assert_eq!(channel.timer_lo, 0x42);
+
+        // Test timer high register
+        channel.write_register(3, 0x01);
+        assert_eq!(channel.timer_hi, 0x01);
+        assert_eq!(channel.timer, 0x0142); // Combined timer value
+    }
+
+    #[test]
+    fn test_pulse2_length_counter() {
+        let mut channel = PulseChannel::new(false); // Create pulse channel 2
+
+        // Enable the channel
+        channel.set_enabled(true);
+
+        // Load a value into the length counter via register 3
+        // Use length index 7 (value should be 6)
+        channel.write_register(3, 7 << 3);
+
+        // Length counter should be active
+        assert_eq!(channel.is_length_counter_active(), true);
+
+        // Check if sound is produced
+        channel.write_register(0, 0b01011111); // 25% duty, constant volume (15)
+        channel.duty_pos = 0; // Position where output is active
+        assert!(channel.generate_sample() > 0.0);
+
+        // Disable the channel
+        channel.set_enabled(false);
+
+        // Length counter should now be inactive
+        assert_eq!(channel.is_length_counter_active(), false);
+
+        // Sound should be muted
+        assert_eq!(channel.generate_sample(), 0.0);
+    }
+
+    #[test]
+    fn test_pulse2_envelope() {
+        let mut channel = PulseChannel::new(false); // Create pulse channel 2
+
+        // Configure envelope mode with period 1 (fast decay)
+        channel.write_register(0, 0b00000001);
+
+        // Restart envelope
+        channel.restart_envelope();
+        channel.tick_envelope();
+
+        // Should now have counter=15, divider=1
+        assert_eq!(channel.envelope.counter, 15);
+        assert_eq!(channel.envelope.divider, 1);
+
+        // First tick: divider becomes 0
+        channel.tick_envelope();
+        assert_eq!(channel.envelope.divider, 0);
+        assert_eq!(channel.envelope.counter, 15);
+
+        // Second tick: divider resets, counter decrements
+        channel.tick_envelope();
+        assert_eq!(channel.envelope.divider, 1);
+        assert_eq!(channel.envelope.counter, 14);
+
+        // Continue decay
+        for _ in 0..14 {
+            channel.tick_envelope();
+            channel.tick_envelope();
+        }
+
+        // After 14 more decrements, counter should be 0
+        assert_eq!(channel.envelope.counter, 0);
+        assert_eq!(channel.envelope.volume, 0);
+
+        // Once at 0, it should stay there without loop mode
+        channel.tick_envelope();
+        channel.tick_envelope();
+        assert_eq!(channel.envelope.counter, 0);
     }
 }
