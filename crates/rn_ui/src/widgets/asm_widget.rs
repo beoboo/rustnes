@@ -232,6 +232,87 @@ impl AsmWidget {
         self.assembler.load_address = address;
     }
 
+    /// Reset and reload the program
+    pub fn reset_program(&mut self, system: &mut NesSystem) -> Result<()> {
+        // Always reset the system first
+        system.reset()?;
+
+        // If we have assembled code, reload it
+        if self.assembled && !self.assembled_segments.is_empty() {
+            // Load the program into the system
+            system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
+
+            // Load CHR ROM data if available
+            if let Some(chr_data) = self.assembled_segments.get("CHARS") {
+                if !chr_data.is_empty() {
+                    // Get the cartridge and load the CHR ROM data
+                    if let Err(err) = system.load_chr_rom(&chr_data) {
+                        self.error_message = Some(format!("Error loading CHR ROM: {}", err));
+                        log::error!("Error loading CHR ROM: {}", err);
+                    } else {
+                        log::info!("Loaded CHR ROM data: {} bytes", chr_data.len());
+                    }
+                }
+            }
+        } else {
+            // Clear any error message when fully resetting with no code
+            self.error_message = None;
+            log::info!("System reset to Ready state");
+        }
+
+        // When user explicitly resets, set assembled flag to false to allow new code
+        // This ensures the system truly goes back to Ready state
+        self.assembled = false;
+        self.assembled_bytes.clear();
+        self.assembled_segments.clear();
+
+        Ok(())
+    }
+
+    /// Run until the next frame is rendered
+    pub fn run_to_next_frame(&mut self, system: &mut NesSystem) -> Result<()> {
+        // If system is in Finished state, reset it first
+        if system.state() == SystemState::Finished {
+            // Reset the system
+            log::info!("System in Finished state, resetting before running to next frame");
+            system.reset()?;
+
+            // Reload the program if assembled
+            if self.assembled {
+                system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
+
+                // Also load CHR ROM data if available
+                if let Some(chr_data) = self.assembled_segments.get("CHARS") {
+                    if !chr_data.is_empty() {
+                        system.load_chr_rom(&chr_data)?;
+                    }
+                }
+            }
+        }
+
+        // Run up to PPU frame completion
+        let current_frame = system.ppu().frame_count();
+        let target_frame = current_frame + 1;
+
+        // Run until we reach the next frame - no safety limit
+        while system.ppu().frame_count() < target_frame {
+            if let Err(e) = system.step() {
+                self.error_message = Some(format!("Error stepping to next frame: {}", e));
+                break;
+            }
+
+            // Also check if we've hit the Finished state
+            if system.state() == SystemState::Finished {
+                break; // Stop running if we hit a BRK
+            }
+        }
+
+        // Force a frame render
+        system.ppu().force_render_frame();
+
+        Ok(())
+    }
+
     /// Show the widget in the given UI
     pub fn ui(&mut self, ui: &mut Ui, system: &mut NesSystem) {
         // Code editor
@@ -280,108 +361,17 @@ impl AsmWidget {
         ui.add_space(5.0);
 
         // Status indicator
-        ui.horizontal(|ui| {
-            ui.label("Status: ");
+        if let Some(error) = &self.error_message {
+            ui.colored_label(Color32::RED, error);
+        } else {
             match system.state() {
-                SystemState::Ready => ui.colored_label(Color32::WHITE, "Ready"),
-                SystemState::Loaded => ui.colored_label(Color32::CYAN, "Program loaded"),
-                SystemState::Running => {
-                    if self.continuous_run {
-                        ui.colored_label(Color32::GOLD, "Running continuously")
-                    } else {
-                        ui.colored_label(Color32::YELLOW, "Running")
-                    }
-                },
-                SystemState::Finished => ui.colored_label(Color32::GREEN, "Finished"),
+                SystemState::Ready => ui.label("Ready to assemble"),
+                SystemState::Loaded => ui.label("Program loaded and ready to run"),
+                SystemState::Running => ui.label("Program is running"),
+                SystemState::Finished => ui.label("Program execution finished (hit BRK)"),
                 SystemState::Error(pc) => ui.colored_label(Color32::RED, format!("Error at ${:04X}", pc)),
             };
-        });
-
-        ui.add_space(5.0);
-
-        // Buttons
-        ui.horizontal(|ui| -> Result<()> {
-            // Assemble button - only enabled when system is ready
-            if ui
-                .add_enabled(system.state() == SystemState::Ready, egui::Button::new("Assemble"))
-                .clicked()
-            {
-                self.assemble_code(system)?;
-            }
-
-            // Run button - enabled when system is loaded, running, or finished
-            let can_run = matches!(
-                system.state(),
-                SystemState::Loaded | SystemState::Running | SystemState::Finished
-            );
-            let run_text = if self.continuous_run { "Stop" } else { "Run" };
-            if ui.add_enabled(can_run, egui::Button::new(run_text)).clicked() {
-                self.run_program(system)?;
-            }
-
-            // Step button - enabled when system is loaded or running
-            let can_step = matches!(system.state(), SystemState::Loaded | SystemState::Running);
-            if ui.add_enabled(can_step, egui::Button::new("Step")).clicked() {
-                self.step(system)?;
-            }
-
-            // Reset button - enabled when not in ready state
-            if ui
-                .add_enabled(system.state() != SystemState::Ready, egui::Button::new("Reset"))
-                .clicked()
-            {
-                system.reset()?;
-                // Make sure continuous run is stopped on reset
-                self.continuous_run = false;
-            }
-
-            // Run to Next Frame button - enabled when system is loaded, running, or finished
-            if ui
-                .add_enabled(can_run, egui::Button::new("Run to Next Frame"))
-                .clicked()
-            {
-                // If system is in Finished state, reset it first
-                if system.state() == SystemState::Finished {
-                    // Reset the system
-                    log::info!("System in Finished state, resetting before running to next frame");
-                    system.reset()?;
-
-                    // Reload the program if assembled
-                    if self.assembled {
-                        system.load_program(&self.assembled_bytes, self.assembler.load_address)?;
-
-                        // Also load CHR ROM data if available
-                        if let Some(chr_data) = self.assembled_segments.get("CHARS") {
-                            if !chr_data.is_empty() {
-                                system.load_chr_rom(&chr_data)?;
-                            }
-                        }
-                    }
-                }
-
-                // Run up to PPU frame completion
-                let current_frame = system.ppu().frame_count();
-                let target_frame = current_frame + 1;
-
-                // Run until we reach the next frame - no safety limit
-                while system.ppu().frame_count() < target_frame {
-                    if let Err(e) = system.step() {
-                        self.error_message = Some(format!("Error stepping to next frame: {}", e));
-                        break;
-                    }
-
-                    // Also check if we've hit the Finished state
-                    if system.state() == SystemState::Finished {
-                        break; // Stop running if we hit a BRK
-                    }
-                }
-
-                // Force a frame render
-                system.ppu().force_render_frame();
-            }
-
-            Ok(())
-        });
+        }
 
         ui.add_space(5.0);
 
@@ -447,24 +437,6 @@ impl AsmWidget {
                 ui.add(egui::Slider::new(&mut self.target_fps, 1.0..=240.0).step_by(1.0));
             }
         });
-
-        // Display any error message
-        if let Some(err_msg) = system.error_message() {
-            ui.add_space(5.0);
-            ui.horizontal(|ui| {
-                ui.colored_label(Color32::RED, "🛑 System Error:");
-                ui.colored_label(Color32::RED, err_msg);
-            });
-        } else if let Some(err_msg) = &self.error_message {
-            ui.add_space(5.0);
-            ui.horizontal(|ui| {
-                ui.colored_label(Color32::RED, "🛑 Assembly Error:");
-                ui.colored_label(Color32::RED, err_msg);
-            });
-            // Add hint to help the user
-            ui.add_space(2.0);
-            ui.label("Hint: For instructions like ASL and LSR with register A, the format should be 'ASL A'");
-        }
     }
 
     /// Run a fixed number of cycles in continuous mode

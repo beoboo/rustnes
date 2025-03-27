@@ -16,6 +16,7 @@ use rn_input::{controller_profile::ControllerProfile, key_mapping::KeyMappingMan
 use rn_ui::widgets::{
     convert_egui_key,
     AsmWidget,
+    AudioCaptureOutput,
     AudioWidget,
     ControllerWidget,
     CpuWidget,
@@ -392,9 +393,18 @@ impl NesDebugger {
     fn new(_cc: &eframe::CreationContext<'_>, args: Args) -> Self {
         // Create the NES system
         let system = Rc::new(RefCell::new(NesSystem::new()));
-        let audio_output = CpalAudioOutput::new();
 
-        system.borrow_mut().connect_audio_output(Box::new(audio_output));
+        // Create audio output with visualizer
+        let audio_output = CpalAudioOutput::new();
+        let audio_capture_output = AudioCaptureOutput::new(Box::new(audio_output));
+
+        // Get a reference to the visualizer for the audio widget
+        let audio_widget = AudioWidget::new();
+
+        // Connect the audio output to the system
+        system
+            .borrow_mut()
+            .connect_audio_output(Box::new(audio_capture_output.clone()));
 
         // Create input manager with default and WASD profiles
         let mut key_mapping_manager = KeyMappingManager::new();
@@ -440,7 +450,8 @@ impl NesDebugger {
             vec![DockTab::Disassembly, DockTab::AssembledCode],
         );
 
-        Self {
+        // Create an instance with all components
+        let mut debugger = Self {
             args,
             pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
             asm_widget: AsmWidget::new(),
@@ -456,7 +467,7 @@ impl NesDebugger {
                 .with_editable(true),
             pattern_table_widget: PatternTableWidget::new(),
             keyboard_mappings_widget: KeyboardMappingsWidget::new(),
-            audio_widget: AudioWidget::new(),
+            audio_widget,
             system,
             key_mapping_manager,
             dock_state,
@@ -464,7 +475,12 @@ impl NesDebugger {
                 display_mode: DisplayMode::Memory,
             },
             initial_file_loaded: false,
-        }
+        };
+
+        // Connect the audio widget to the visualizer
+        debugger.audio_widget.connect_visualizer(audio_capture_output);
+
+        debugger
     }
 }
 
@@ -634,6 +650,112 @@ impl App for NesDebugger {
                         ui.close_menu();
                     }
                 });
+            });
+        });
+
+        // Add a toolbar for emulation controls
+        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+
+                // System state for enabling/disabling buttons
+                let system_state = self.system.borrow().state();
+
+                // Double-check if we can assemble - enabled if system is Ready OR
+                // if we've specifically cleared the assembly but system state hasn't updated yet
+                let can_assemble = system_state == SystemState::Ready || !self.asm_widget.is_loaded();
+
+                // Assemble button
+                if ui.add_enabled(can_assemble, egui::Button::new("🔨 Assemble")).clicked() {
+                    let mut system = self.system.borrow_mut();
+                    if let Err(e) = self.asm_widget.assemble_code(&mut system) {
+                        error!("Error assembling code: {}", e);
+                    } else {
+                        info!("Code assembled successfully");
+                    }
+                }
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // Run/Stop button
+                if self.asm_widget.is_continuous_run() {
+                    if ui.button("⏹ Stop").clicked() {
+                        // Toggle continuous run mode off
+                        let mut system = self.system.borrow_mut();
+                        let _ = self.asm_widget.run_program(&mut system);
+                    }
+                } else {
+                    // Only enable Run when loaded, running, or finished
+                    let can_run = matches!(
+                        system_state,
+                        SystemState::Loaded | SystemState::Running | SystemState::Finished
+                    );
+                    if ui.add_enabled(can_run, egui::Button::new("▶ Run")).clicked() {
+                        // Start continuous execution
+                        let mut system = self.system.borrow_mut();
+                        let _ = self.asm_widget.run_program(&mut system);
+                    }
+                }
+
+                // Step button - only enabled when loaded or running
+                let can_step = matches!(system_state, SystemState::Loaded | SystemState::Running);
+                if ui.add_enabled(can_step, egui::Button::new("⏯ Step")).clicked() {
+                    let mut system = self.system.borrow_mut();
+                    let _ = self.asm_widget.step(&mut system);
+                }
+
+                // Run to next frame - only enabled when loaded, running, or finished
+                let can_run_frame = matches!(
+                    system_state,
+                    SystemState::Loaded | SystemState::Running | SystemState::Finished
+                );
+                if ui
+                    .add_enabled(can_run_frame, egui::Button::new("⏭ Next Frame"))
+                    .clicked()
+                {
+                    let mut system = self.system.borrow_mut();
+                    let _ = self.asm_widget.run_to_next_frame(&mut system);
+                }
+
+                // Reset/Clear button - only enabled when not in ready state
+                if ui
+                    .add_enabled(system_state != SystemState::Ready, egui::Button::new("🗑️ Clear"))
+                    .clicked()
+                {
+                    let mut system = self.system.borrow_mut();
+                    info!("Clearing program and resetting system to Ready state");
+                    if let Err(e) = self.asm_widget.reset_program(&mut system) {
+                        error!("Error resetting system: {}", e);
+                    }
+
+                    // Request a repaint to immediately update the UI state
+                    ctx.request_repaint();
+
+                    // Log the system state after reset for debugging
+                    info!("System state after reset: {:?}", system.state());
+                }
+
+                // Current address/instruction display
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                let system = self.system.borrow();
+                let pc = system.cpu().pc();
+
+                // Display current position
+                ui.label(format!("PC: ${:04X}", pc));
+
+                // Display the current instruction if we can read it
+                if let Ok(opcode) = system.cpu().read_byte(pc) {
+                    ui.label(format!("Current: ${:02X}", opcode));
+                }
+
+                // System state
+                ui.add_space(8.0);
 
                 // Add system state indicator
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -648,6 +770,8 @@ impl App for NesDebugger {
                     ui.label("System: ");
                 });
             });
+
+            ui.add_space(4.0);
         });
 
         // Main central panel with dock area
