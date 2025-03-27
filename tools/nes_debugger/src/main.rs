@@ -29,6 +29,7 @@ use rn_ui::widgets::{
     PixelDisplay,
     PpuPixelAdapter,
     PpuWidget,
+    WaveformVisualizerWidget,
 };
 
 /// Command line arguments for the NesDebugger
@@ -93,6 +94,7 @@ enum DockTab {
     Display,
     AssembledCode,
     Audio,
+    WaveformVisualizer,
 }
 
 impl DockTab {
@@ -109,6 +111,7 @@ impl DockTab {
             DockTab::Display => "Display",
             DockTab::AssembledCode => "Assembled Code",
             DockTab::Audio => "Audio Controls",
+            DockTab::WaveformVisualizer => "Audio Waveform",
         }
     }
 }
@@ -136,6 +139,7 @@ struct NesDebugger {
     pattern_table_widget: PatternTableWidget,
     keyboard_mappings_widget: KeyboardMappingsWidget,
     audio_widget: AudioWidget,
+    waveform_visualizer: WaveformVisualizerWidget,
 
     // Emulation state
     system: Rc<RefCell<NesSystem>>,
@@ -165,6 +169,7 @@ struct NesTabViewer<'a> {
     memory_widget: &'a mut MemoryWidget,
     pattern_table_widget: &'a mut PatternTableWidget,
     audio_widget: &'a mut AudioWidget,
+    waveform_visualizer: &'a mut WaveformVisualizerWidget,
     system: Rc<RefCell<NesSystem>>,
     context: &'a mut AppContext,
 }
@@ -380,6 +385,10 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                 // Use the audio widget
                 self.audio_widget.ui(ui, system.apu());
             },
+            DockTab::WaveformVisualizer => {
+                // Waveform Visualizer Tab content
+                self.waveform_visualizer.ui(ui);
+            },
         }
     }
 
@@ -398,8 +407,12 @@ impl NesDebugger {
         let audio_output = CpalAudioOutput::new();
         let audio_capture_output = AudioCaptureOutput::new(Box::new(audio_output));
 
-        // Get a reference to the visualizer for the audio widget
+        // Create audio widget
         let audio_widget = AudioWidget::new();
+
+        // Create and connect waveform visualizer widget
+        let mut waveform_visualizer = WaveformVisualizerWidget::new();
+        waveform_visualizer.connect_capture(&audio_capture_output);
 
         // Connect the audio output to the system
         system
@@ -437,10 +450,17 @@ impl NesDebugger {
         );
 
         // Add Display on the right side of the center area
-        let [center_main, _right] = dock_state.main_surface_mut().split_right(
+        let [center_main, right] = dock_state.main_surface_mut().split_right(
             center, // Split the center node, not the root
             0.7,    // Central area takes 70% of remaining width
             vec![DockTab::Display],
+        );
+
+        // Split right area to add WaveformVisualizer below Display
+        dock_state.main_surface_mut().split_below(
+            right,
+            0.6, // Display takes 60% of height
+            vec![DockTab::WaveformVisualizer],
         );
 
         // Create a bottom area for Disassembly and Assembled Code
@@ -451,7 +471,7 @@ impl NesDebugger {
         );
 
         // Create an instance with all components
-        let mut debugger = Self {
+        Self {
             args,
             pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
             asm_widget: AsmWidget::new(),
@@ -468,6 +488,7 @@ impl NesDebugger {
             pattern_table_widget: PatternTableWidget::new(),
             keyboard_mappings_widget: KeyboardMappingsWidget::new(),
             audio_widget,
+            waveform_visualizer,
             system,
             key_mapping_manager,
             dock_state,
@@ -475,12 +496,7 @@ impl NesDebugger {
                 display_mode: DisplayMode::Memory,
             },
             initial_file_loaded: false,
-        };
-
-        // Connect the audio widget to the visualizer
-        debugger.audio_widget.connect_visualizer(audio_capture_output);
-
-        debugger
+        }
     }
 }
 
@@ -788,6 +804,7 @@ impl App for NesDebugger {
                 memory_widget: &mut self.memory_widget,
                 pattern_table_widget: &mut self.pattern_table_widget,
                 audio_widget: &mut self.audio_widget,
+                waveform_visualizer: &mut self.waveform_visualizer,
                 system: self.system.clone(),
                 context: &mut self.context,
             };

@@ -14,11 +14,6 @@ pub struct AudioWidget {
     triangle_enabled: bool,
     noise_enabled: bool,
     dmc_enabled: bool,
-
-    // Waveform visualizer
-    waveform_widget: WaveformVisualizerWidget,
-    show_waveform: bool,
-    visualizer: Option<AudioCaptureOutput>,
 }
 
 impl AudioWidget {
@@ -32,18 +27,7 @@ impl AudioWidget {
             triangle_enabled: true,
             noise_enabled: true,
             dmc_enabled: true,
-
-            // Initialize visualizer
-            waveform_widget: WaveformVisualizerWidget::new(),
-            show_waveform: true,
-            visualizer: None,
         }
-    }
-
-    /// Connect an audio visualizer for real-time waveform display
-    pub fn connect_visualizer(&mut self, visualizer: AudioCaptureOutput) {
-        self.waveform_widget.connect_capture(&visualizer);
-        self.visualizer = Some(visualizer);
     }
 
     /// Render the audio widget using the given UI
@@ -81,92 +65,32 @@ impl AudioWidget {
 
         // UI section for individual channel controls
         ui.collapsing("Channel Controls", |ui| {
+            let mut changed = false;
             // Pulse Channel 1
             if ui.checkbox(&mut self.pulse1_enabled, "Pulse Channel 1").changed() {
-                let mut status = 0;
-                if self.pulse1_enabled {
-                    status |= 0x01;
-                }
-                if self.pulse2_enabled {
-                    status |= 0x02;
-                }
-                if self.triangle_enabled {
-                    status |= 0x04;
-                }
-                if self.noise_enabled {
-                    status |= 0x08;
-                }
-                if self.dmc_enabled {
-                    status |= 0x10;
-                }
-                apu.write_byte(0x4015, status).unwrap();
+                changed = true;
             }
 
             // Pulse Channel 2
             if ui.checkbox(&mut self.pulse2_enabled, "Pulse Channel 2").changed() {
-                let mut status = 0;
-                if self.pulse1_enabled {
-                    status |= 0x01;
-                }
-                if self.pulse2_enabled {
-                    status |= 0x02;
-                }
-                if self.triangle_enabled {
-                    status |= 0x04;
-                }
-                if self.noise_enabled {
-                    status |= 0x08;
-                }
-                if self.dmc_enabled {
-                    status |= 0x10;
-                }
-                apu.write_byte(0x4015, status).unwrap();
+                changed = true;
             }
 
             // Triangle Channel
             if ui.checkbox(&mut self.triangle_enabled, "Triangle Channel").changed() {
-                let mut status = 0;
-                if self.pulse1_enabled {
-                    status |= 0x01;
-                }
-                if self.pulse2_enabled {
-                    status |= 0x02;
-                }
-                if self.triangle_enabled {
-                    status |= 0x04;
-                }
-                if self.noise_enabled {
-                    status |= 0x08;
-                }
-                if self.dmc_enabled {
-                    status |= 0x10;
-                }
-                apu.write_byte(0x4015, status).unwrap();
+                changed = true;
             }
 
             // Noise Channel
             if ui.checkbox(&mut self.noise_enabled, "Noise Channel").changed() {
-                let mut status = 0;
-                if self.pulse1_enabled {
-                    status |= 0x01;
-                }
-                if self.pulse2_enabled {
-                    status |= 0x02;
-                }
-                if self.triangle_enabled {
-                    status |= 0x04;
-                }
-                if self.noise_enabled {
-                    status |= 0x08;
-                }
-                if self.dmc_enabled {
-                    status |= 0x10;
-                }
-                apu.write_byte(0x4015, status).unwrap();
             }
 
             // DMC Channel
             if ui.checkbox(&mut self.dmc_enabled, "DMC Channel").changed() {
+                changed = true;
+            }
+
+            if changed {
                 let mut status = 0;
                 if self.pulse1_enabled {
                     status |= 0x01;
@@ -185,30 +109,6 @@ impl AudioWidget {
                 }
                 apu.write_byte(0x4015, status).unwrap();
             }
-        });
-
-        // Toggle for waveform visualizer
-        ui.checkbox(&mut self.show_waveform, "Show Audio Waveform");
-
-        // Display waveform visualizer if enabled
-        if self.show_waveform {
-            ui.group(|ui| {
-                ui.set_min_width(500.0);
-                self.waveform_widget.ui(ui);
-            });
-        }
-
-        // Information about APU
-        ui.collapsing("APU Information", |ui| {
-            ui.label("The NES Audio Processing Unit (APU) includes:");
-            ui.label("• 2 Pulse channels for melody and effects");
-            ui.label("• 1 Triangle channel for bass notes");
-            ui.label("• 1 Noise channel for percussion");
-            ui.label("• 1 DMC channel for digital samples");
-
-            ui.label("\nCurrently implemented:");
-            ui.label("• All channels with proper enable/disable control");
-            ui.label("• Real-time waveform visualization");
         });
     }
 }
