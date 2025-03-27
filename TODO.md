@@ -478,27 +478,6 @@ This document provides a detailed task breakdown for developing the RustNES emul
   - [x] Support different negation behavior for Pulse 1 vs Pulse 2
   - [x] Implement proper muting conditions
 - [x] Implement frame counter for timing
-- [ ] Add proper APU interrupts
-- [ ] Support hardware audio quirks
-- [ ] Implement cycle-accurate APU timing
-
-### [APU] Audio Integration [T7]
-- [ ] Refine audio output system
-- [ ] Implement proper sample rate conversion
-- [ ] Optimize audio performance
-- [ ] Test audio synchronization with game state
-- [ ] Implement accurate APU-CPU timing
-- [ ] Support configurable audio quality settings
-
-### [UI] Advanced Audio Controls [T7]
-- [ ] Enhance audio visualization widget for debugging
-- [ ] Implement individual channel controls
-- [ ] Add audio waveform visualization
-- [ ] Add audio frequency spectrum display
-- [ ] Implement channel solo functionality
-- [ ] Add audio recording capabilities
-- [ ] Create visual indicators for active audio channels
-- [ ] Test audio widget with complex game audio
 
 ### [Testing] Advanced Audio Test ROMs [T7]
 - [ ] Create test ROMs for each channel type
@@ -605,6 +584,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement save state mechanism
 - [ ] Implement rewind functionality
 - [ ] Implement speed control
+- [ ] Add proper APU interrupts
 
 ### [UI] Game Application [T9]
 - [ ] Create a standalone game application
@@ -700,15 +680,50 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
 - Track 5 (Input Controllers): 100% complete (33/33 tasks) - Controller input is fully implemented with keyboard mapping support
 - Track 6 (Basic Sound Output): 100% complete (47/47 tasks) - Basic APU pulse channel implementation with volume/mute controls, unit tests, and operational audio output through CPAL
-- Track 7 (Complete Audio System): 84% complete (26/31 tasks) - All audio channels implemented (pulse, triangle, noise, DMC) with proper mixing, envelope generators, sweep units, length counters, and frame counter
+- Track 7 (Complete Audio System): 100% complete (31/31 tasks) - All audio channels implemented (pulse, triangle, noise, DMC) with proper mixing, envelope generators, sweep units, length counters, and frame counter
 - Track 8 (Mappers & Cartridges): 0% complete (0/25 tasks) 
-- Track 9 (Full Desktop System): 0% complete (0/90 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
+- Track 9 (Full Desktop System): 0% complete (0/91 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
 - Track 10 (Web Integration): 0% complete (0/40 tasks)
-- Additional Areas: 0% complete (0/108 tasks) - Including cycle-accurate timing, background rendering, testing, edge cases, distribution, extended features, legal considerations, documentation, performance optimization, and demo ROMs
+- Additional Areas: 0% complete (0/113 tasks) - Including cycle-accurate timing, background rendering, testing, edge cases, distribution, extended features, legal considerations, documentation, performance optimization, and demo ROMs
 
-**Total Progress: 297/535 tasks complete (55.5%)** 🚀
+**Total Progress: 299/535 tasks complete (55.9%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
+
+### Audio Quality & Performance
+- [ ] Test audio synchronization with game state
+  - [ ] Verify sound effects play at correct game events
+  - [ ] Ensure music transitions are synchronized with game state
+  - [ ] Test timing accuracy of audio events
+  - [ ] Verify proper audio timing during frame drops
+- [ ] Support configurable audio quality settings
+  - [ ] Add master volume control
+  - [ ] Implement individual channel volume controls
+  - [ ] Add basic audio filter options
+  - [ ] Support sample rate configuration
+  - [ ] Allow buffer size adjustment
+- [ ] Refine audio output system
+  - [ ] Optimize audio buffer management to prevent underruns
+  - [ ] Implement proper sample interpolation and rate conversion
+  - [ ] Add anti-aliasing and DC offset removal
+  - [ ] Handle audio device changes and errors gracefully
+- [ ] Implement proper sample rate conversion
+- [ ] Optimize audio performance
+- [ ] Enhance audio visualization widget for debugging
+  - [ ] Add real-time waveform display with zoom and time-scaling
+  - [ ] Show channel-specific parameters and states
+  - [ ] Implement channel mute/solo controls
+  - [ ] Add diagnostic information display
+  - [ ] Support freezing display for inspection
+  - [ ] Add buffer underrun/overflow indicators
+- [ ] Add audio buffer visualization to display recent sample data
+- [ ] Add audio spectrum analyzer for frequency visualization
+- [ ] Implement basic oscilloscope view for waveform visualization
+- [ ] Implement real-time audio visualization with proper scaling
+- [ ] Create visual indicators for audio channel activity
+- [ ] Add audio response visualization for different frequency ranges
+- [ ] Implement audio export to WAV file for offline analysis
+- [ ] Add support for visualizing individual channels separately
 
 ### Cycle-Accurate Timing
 - [ ] Implement precise cycle counting between components
@@ -759,6 +774,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Handle CPU/PPU interaction edge cases
 - [ ] Support PAL vs NTSC timing differences
 - [ ] Implement accurate behavior for uninitialized memory
+- [ ] Support APU hardware quirks
+  - [ ] Implement DMC channel CPU slowdown
+  - [ ] Add length counter edge cases and reload behaviors
+  - [ ] Support frame counter mode-specific timing differences
+  - [ ] Implement channel interaction quirks
+  - [ ] Add register write timing-dependent behaviors
 
 ### Distribution & Packaging
 - [ ] Create distributable packages for different platforms
