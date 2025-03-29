@@ -53,12 +53,6 @@ impl AudioOutput for AudioCaptureOutput {
         }
     }
 
-    fn set_sample_rate(&mut self, rate: f32) {
-        if let Ok(mut inner) = self.inner.lock() {
-            inner.set_sample_rate(rate);
-        }
-    }
-
     fn queue_sample(&mut self, sample: f32) {
         // Store the sample for visualization
         if let Ok(mut samples) = self.samples.lock() {

@@ -31,10 +31,6 @@ impl AudioOutput for SimpleAudioOutput {
         self.muted = muted;
     }
 
-    fn set_sample_rate(&mut self, rate: f32) {
-        self.sample_rate = rate;
-    }
-
     fn queue_sample(&mut self, sample: f32) {
         self.sample_buffer.push_back(sample);
 

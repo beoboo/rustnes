@@ -216,16 +216,6 @@ impl AudioOutput for CpalAudioOutput {
         self.muted.store(muted, Ordering::Relaxed);
     }
 
-    fn set_sample_rate(&mut self, rate: f32) {
-        // Only update if not initialized yet, since changing sample rate
-        // would require recreating the stream
-        if !self.is_initialized {
-            self.sample_rate = rate;
-        } else {
-            warn!("Cannot change sample rate after initialization");
-        }
-    }
-
     fn queue_sample(&mut self, sample: f32) {
         // Initialize on first sample if not already done
         if !self.is_initialized {

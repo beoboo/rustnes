@@ -8,62 +8,55 @@
     .byte $00, $00, $00, $00   ; Padding bytes
 
 .segment "STARTUP"
-    ; Initialize stack pointer
+    ; Initialize the stack pointer
     LDX #$FF
     TXS
 
-    ; Enable pulse channel 1
-    LDA #$01
+    ; Enable both pulse channels
+    LDA #$03    ; Enable pulse 1 and pulse 2
     STA $4015
 
     ; Set up pulse channel 1 with 50% duty cycle and maximum volume
-    LDA #$BF    ; Volume = 15, constant volume, 50% duty cycle (bits 6-7 = 10)
+    ; Bits 6-7 = 10 (50% duty cycle)
+    ; Bit 5 = 1 (halt length counter)
+    ; Bit 4 = 1 (constant volume)
+    ; Bits 0-3 = F (max volume)
+    LDA #$BF    ; 10111111 - 50% duty, constant volume=15, halt length counter
     STA $4000
 
-    ; Disable sweep unit
-    LDA #$08    ; Set negate flag to prevent sweep muting
+    ; Disable sweep unit entirely (bit 7 = 0)
+    LDA #$00
     STA $4001
 
-    ; Main loop
+    ; Set very low timer value (high frequency) for clear audible tone
+    LDA #$50    ; Low byte of timer period
+    STA $4002
+    
+    ; High byte of timer + length counter
+    ; Set to a long length counter value
+    LDA #$F8    ; 11111000 - Set timer high to 7, length = 0
+    STA $4003
+
+    ; Set up pulse channel 2 with 25% duty cycle and 3/4 volume
+    ; Bits 6-7 = 01 (25% duty cycle)
+    ; Bit 5 = 1 (halt length counter)
+    ; Bit 4 = 1 (constant volume)
+    ; Bits 0-3 = B (medium-high volume)
+    LDA #$7B    ; 01111011 - 25% duty, constant volume=11, halt length counter
+    STA $4004
+
+    ; Since we're not using loop below to update registers,
+    ; set them again to be sure (sometimes first write is ignored)
+    LDA #$BF    ; 10111111 - 50% duty, constant volume=15, halt length counter
+    STA $4000
+    
+    ; Refresh the $4003 register to be sure length counter is started
+    LDA #$F8    ; 11111000 - Set timer high to 7, length = 0
+    STA $4003
+
 main_loop:
-    ; Play ascending tones
-    LDX #$00
-ascending:
-    ; Set frequency (period = 0x40 - X)
-    LDA #$00
-    STA $4002
-    LDA #$01    ; High byte of period (0x40)
-    STA $4003   ; This also loads length counter with value 1
-
-    ; Wait a bit
-    LDX #$20
-wait_loop:
-    DEX
-    BNE wait_loop
-
-    INX
-    CPX #$40
-    BNE ascending
-
-    ; Play descending tones
-    LDX #$40
-descending:
-    DEX
-    BEQ main_loop
-
-    ; Set frequency (period = 0x40 - X)
-    LDA #$00
-    STA $4002
-    LDA #$01    ; High byte of period (0x40)
-    STA $4003   ; This also loads length counter with value 1
-
-    ; Wait a bit
-    LDX #$20
-wait_loop2:
-    DEX
-    BNE wait_loop2
-
-    JMP descending
+    ; Just loop forever
+    JMP main_loop
 
 .segment "VECTORS"
     .word $0000, $0000, $0000  ; NMI, Reset, IRQ vectors (not used in this test) 

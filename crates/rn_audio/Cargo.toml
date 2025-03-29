@@ -12,3 +12,20 @@ rn_core = { path = "../rn_core" }
 cpal.workspace = true
 anyhow.workspace = true
 log.workspace = true
+ringbuf.workspace = true
+
+[[bin]]
+name = "waveform_test"
+path = "src/bin/waveform_test.rs"
+
+[[bin]]
+name = "nes_waveform_test"
+path = "src/bin/nes_waveform_test.rs"
+
+[[bin]]
+name = "cpal_test"
+path = "src/bin/cpal_test.rs"
+
+[[bin]]
+name = "cpal_audio_test"
+path = "src/bin/cpal_audio_test.rs"

@@ -243,9 +243,6 @@ impl Apu {
 
     /// Connect an audio output device
     pub fn connect_audio_output(&mut self, mut audio_output: Box<dyn AudioOutput>) {
-        // Configure the audio output with the correct sample rate
-        audio_output.set_sample_rate(DEFAULT_SAMPLE_RATE as f32);
-
         // Store the audio output
         self.audio_output = Some(audio_output);
     }
@@ -397,10 +394,6 @@ mod tests {
         }
 
         fn set_muted(&mut self, _muted: bool) {
-            // Do nothing for test
-        }
-
-        fn set_sample_rate(&mut self, _rate: f32) {
             // Do nothing for test
         }
 
@@ -884,10 +877,6 @@ mod tests {
         }
 
         fn set_muted(&mut self, _muted: bool) {
-            // Do nothing for test
-        }
-
-        fn set_sample_rate(&mut self, _rate: f32) {
             // Do nothing for test
         }
 

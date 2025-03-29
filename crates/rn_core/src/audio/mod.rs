@@ -7,9 +7,6 @@ pub trait AudioOutput: Debug {
     /// Set the muted state for audio output
     fn set_muted(&mut self, muted: bool);
 
-    /// Set the sample rate for audio output
-    fn set_sample_rate(&mut self, sample_rate: f32);
-
     /// Queue a sample for playback
     ///
     /// The sample should be normalized to the range [-1.0, 1.0]
@@ -32,10 +29,6 @@ impl AudioOutput for NullAudioOutput {
     }
 
     fn set_muted(&mut self, _muted: bool) {
-        // Do nothing
-    }
-
-    fn set_sample_rate(&mut self, _sample_rate: f32) {
         // Do nothing
     }
 
