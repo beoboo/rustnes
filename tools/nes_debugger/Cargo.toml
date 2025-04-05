@@ -12,9 +12,9 @@ rn_input = { path = "../../crates/rn_input" }
 rn_audio = { path = "../../crates/rn_audio" }
 
 anyhow.workspace = true
-egui.workspace = true
+clap.workspace = true
 eframe.workspace = true
+egui.workspace = true
 egui_dock.workspace = true
 log.workspace = true
 tracing-subscriber.workspace = true
-clap.workspace = true

@@ -7,7 +7,7 @@ use std::{
 use eframe::{egui, CreationContext, Frame, NativeOptions};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use ringbuf::{traits::{Consumer, Producer, Split}, CachingCons, HeapRb};
-use rn_audio::{CpalAudioBuilder, CpalAudioOutput, CpalAudioQueue, Oscillator, Waveform};
+use rn_audio::{CpalAudioBuilder, CpalAudioOutput, Oscillator, Waveform};
 use rn_core::audio::AudioOutput;
 use rn_ui::widgets::WaveformVisualizerWidget;
 
@@ -71,8 +71,7 @@ struct WaveformPlayer {
 
     // Audio state
     sample_consumer: CachingCons<Arc<HeapRb<f32>>>, // Lock-free ringbuffer consumer for visualization
-    audio_queue: Option<CpalAudioQueue>, // Direct access for the audio thread
-    audio_output: Option<CpalAudioOutput>, // Keep the audio output alive
+    audio_output: Option<CpalAudioOutput>,
     audio_thread: Option<thread::JoinHandle<()>>,
     audio_command_sender: Option<mpsc::Sender<AudioCommand>>,
 
@@ -137,42 +136,37 @@ impl<'a> TabViewer for WaveformTabViewer<'a> {
                 // Waveform selection
                 ui.horizontal(|ui| {
                     ui.label("Waveform: ");
-                    let mut changed = false;
                     let mut new_waveform = None;
 
                     if ui
                         .radio_value(&mut self.context.selected_waveform, WaveformType::Sine, "Sine")
                         .clicked()
                     {
-                        changed = true;
                         new_waveform = Some(Waveform::Sine);
                     }
                     if ui
                         .radio_value(&mut self.context.selected_waveform, WaveformType::Square, "Square")
                         .clicked()
                     {
-                        changed = true;
                         new_waveform = Some(Waveform::Square(self.context.duty_cycle));
                     }
                     if ui
                         .radio_value(&mut self.context.selected_waveform, WaveformType::Triangle, "Triangle")
                         .clicked()
                     {
-                        changed = true;
                         new_waveform = Some(Waveform::Triangle);
                     }
                     if ui
                         .radio_value(&mut self.context.selected_waveform, WaveformType::Sawtooth, "Sawtooth")
                         .clicked()
                     {
-                        changed = true;
                         new_waveform = Some(Waveform::Saw);
                     }
 
                     // Send command to audio thread if changed
-                    if changed && new_waveform.is_some() {
+                    if let Some(new_waveform) = new_waveform {
                         if let Some(sender) = &self.audio_command_sender {
-                            sender.send(AudioCommand::SetWaveform(new_waveform.unwrap())).ok();
+                            sender.send(AudioCommand::SetWaveform(new_waveform)).ok();
                         }
                     }
                 });
@@ -269,8 +263,8 @@ impl WaveformPlayer {
 
         // Create audio output using CpalAudioBuilder
         match CpalAudioBuilder::build_default() {
-            Ok((queue, output)) => {
-                let sample_rate = output.sample_rate();
+            Ok((mut audio_queue, audio_output)) => {
+                let sample_rate = audio_output.sample_rate();
                 // Create a command channel
                 let (tx, rx) = mpsc::channel();
 
@@ -284,7 +278,6 @@ impl WaveformPlayer {
                     let mut oscillator = Oscillator::new(sample_rate, Waveform::Sine, 440.0);
 
                     // Set initial volume and unmute
-                    let mut audio_queue = queue;
                     audio_queue.set_volume(0.8);
                     audio_queue.set_muted(false);
 
@@ -379,8 +372,7 @@ impl WaveformPlayer {
                 Self {
                     waveform_visualizer: WaveformVisualizerWidget::new(),
                     sample_consumer: vis_consumer,
-                    audio_queue: None,
-                    audio_output: Some(output), // Keep the audio output alive
+                    audio_output: Some(audio_output), 
                     audio_thread: Some(audio_thread),
                     audio_command_sender: Some(tx),
                     dock_state,
@@ -396,7 +388,6 @@ impl WaveformPlayer {
                 Self {
                     waveform_visualizer: WaveformVisualizerWidget::new(),
                     sample_consumer: vis_consumer,
-                    audio_queue: None,
                     audio_output: None,
                     audio_thread: None,
                     audio_command_sender: None,

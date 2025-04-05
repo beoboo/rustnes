@@ -82,34 +82,34 @@ impl Default for DisplayMode {
 /// Available tabs for the dock
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DockTab {
+    AssembledCode,
     Assembly,
+    Audio,
+    Controller,
+    Cpu,
     Disassembly,
+    Display,
+    Dma,
     Memory,
     PatternTable,
-    Cpu,
     Ppu,
-    Dma,
-    Controller,
-    Display,
-    AssembledCode,
-    Audio,
     WaveformVisualizer,
 }
 
 impl DockTab {
     fn title(&self) -> &'static str {
         match self {
+            DockTab::AssembledCode => "Assembled Code",
             DockTab::Assembly => "Assembly",
+            DockTab::Audio => "Audio Controls",
+            DockTab::Controller => "Controller State",
+            DockTab::Cpu => "CPU State",
             DockTab::Disassembly => "Disassembly",
+            DockTab::Display => "Display",
+            DockTab::Dma => "DMA State",
             DockTab::Memory => "Memory",
             DockTab::PatternTable => "Pattern Tables",
-            DockTab::Cpu => "CPU State",
             DockTab::Ppu => "PPU State",
-            DockTab::Dma => "DMA State",
-            DockTab::Controller => "Controller State",
-            DockTab::Display => "Display",
-            DockTab::AssembledCode => "Assembled Code",
-            DockTab::Audio => "Audio Controls",
             DockTab::WaveformVisualizer => "Audio Waveform",
         }
     }
@@ -127,18 +127,19 @@ struct NesDebugger {
     args: Args,
 
     // Components
-    pixel_display: PixelDisplay,
     asm_widget: AsmWidget,
     cpu_widget: CpuWidget,
-    ppu_widget: PpuWidget,
+    disasm_widget: DisasmWidget,
     dma_widget: DmaControllerWidget,
     controller_widget: ControllerWidget,
-    disasm_widget: DisasmWidget,
+    keyboard_mappings_widget: KeyboardMappingsWidget,
     memory_widget: MemoryWidget,
     pattern_table_widget: PatternTableWidget,
-    keyboard_mappings_widget: KeyboardMappingsWidget,
+    pixel_display: PixelDisplay,
+    ppu_widget: PpuWidget,
     audio_widget: AudioWidget,
     waveform_visualizer: WaveformVisualizerWidget,
+    audio_output: CpalAudioOutput,
 
     // Emulation state
     system: Rc<RefCell<NesSystem>>,
@@ -471,21 +472,22 @@ impl NesDebugger {
         // Create an instance with all components
         Self {
             args,
-            pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
             asm_widget: AsmWidget::new(),
+            audio_widget,
             cpu_widget: CpuWidget::new(),
             ppu_widget: PpuWidget::new(),
             dma_widget: DmaControllerWidget::new(),
             controller_widget: ControllerWidget::new(),
             disasm_widget: DisasmWidget::new(),
+            keyboard_mappings_widget: KeyboardMappingsWidget::new(),
             memory_widget: MemoryWidget::new()
                 .with_start_address(0x0000)
                 .with_rows(16)
                 .with_bytes_per_row(16)
                 .with_editable(true),
             pattern_table_widget: PatternTableWidget::new(),
-            keyboard_mappings_widget: KeyboardMappingsWidget::new(),
-            audio_widget,
+            pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
+            audio_output,
             waveform_visualizer,
             system,
             key_mapping_manager,
@@ -700,6 +702,7 @@ impl App for NesDebugger {
                         // Toggle continuous run mode off
                         let mut system = self.system.borrow_mut();
                         let _ = self.asm_widget.run_program(&mut system);
+                        let _ = self.audio_output.pause();
                     }
                 } else {
                     // Only enable Run when loaded, running, or finished
@@ -711,6 +714,7 @@ impl App for NesDebugger {
                         // Start continuous execution
                         let mut system = self.system.borrow_mut();
                         let _ = self.asm_widget.run_program(&mut system);
+                        let _ = self.audio_output.play();
                     }
                 }
 

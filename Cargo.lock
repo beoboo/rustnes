@@ -3615,7 +3615,6 @@ name = "waveform_player"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cpal",
  "eframe",
  "egui",
  "egui_dock",

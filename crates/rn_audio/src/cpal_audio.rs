@@ -1,7 +1,6 @@
 use anyhow::Result;
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, SizedSample, Stream, StreamConfig, SupportedStreamConfig,
+    traits::{DeviceTrait, HostTrait, StreamTrait}, SizedSample, Stream,
 };
 use cpal::{FromSample, Sample};
 use ringbuf::{
@@ -241,19 +240,4 @@ impl CpalAudioOutput {
             }
         }
     }
-}
-
-fn host_device_setup() -> Result<(cpal::Host, cpal::Device, cpal::SupportedStreamConfig)> {
-    let host = cpal::default_host();
-
-    let device = host
-        .default_output_device()
-        .ok_or_else(|| anyhow::Error::msg("Default output device is not available"))?;
-    println!("Output device : {}", device.name()?);
-
-    let config = device.default_output_config()?;
-
-    println!("Default output config : {:?}", config);
-
-    Ok((host, device, config))
 }

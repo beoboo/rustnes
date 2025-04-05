@@ -242,7 +242,7 @@ impl Apu {
     }
 
     /// Connect an audio output device
-    pub fn connect_audio_output(&mut self, mut audio_output: Box<dyn AudioOutput>) {
+    pub fn connect_audio_output(&mut self, audio_output: Box<dyn AudioOutput>) {
         // Store the audio output
         self.audio_output = Some(audio_output);
     }

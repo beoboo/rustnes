@@ -6,8 +6,6 @@ use std::{
 
 use egui::{epaint, pos2, Color32, CornerRadius, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
-use super::AudioCaptureOutput;
-
 /// Widget for visualizing audio waveforms in real-time
 #[derive(Debug, Default)]
 pub struct WaveformVisualizerWidget {
@@ -18,7 +16,7 @@ pub struct WaveformVisualizerWidget {
     zoom: f32,       // Zoom level
 
     // Sample buffer to store waveform data
-    samples: Arc<Mutex<VecDeque<f32>>>,
+    samples: VecDeque<f32>,
     max_samples: usize,
 
     // Last mixed sample for display
@@ -34,7 +32,7 @@ impl WaveformVisualizerWidget {
             height: 100,
             pixel_size: 2.0,
             zoom: 1.0,
-            samples: Arc::new(Mutex::new(VecDeque::with_capacity(max_samples))),
+            samples: VecDeque::with_capacity(max_samples),
             max_samples,
             last_mixed_sample: 0.0,
         }
@@ -42,17 +40,15 @@ impl WaveformVisualizerWidget {
 
     /// Add new samples to the visualizer directly
     pub fn add_samples(&mut self, new_samples: &[f32]) {
-        if let Ok(mut samples) = self.samples.lock() {
-            for &sample in new_samples {
-                samples.push_back(sample);
-                if samples.len() > self.max_samples {
-                    samples.pop_front();
-                }
+        for &sample in new_samples {
+            self.samples.push_back(sample);
+            if self.samples.len() > self.max_samples {
+                self.samples.pop_front();
             }
-            // Update last mixed sample for display
-            if let Some(&last) = new_samples.last() {
-                self.last_mixed_sample = last;
-            }
+        }
+        // Update last mixed sample for display
+        if let Some(&last) = new_samples.last() {
+            self.last_mixed_sample = last;
         }
     }
 
@@ -83,11 +79,7 @@ impl WaveformVisualizerWidget {
             );
 
             // Get samples from the buffer
-            let samples = if let Ok(samples) = self.samples.lock() {
-                samples.iter().cloned().collect::<Vec<_>>()
-            } else {
-                vec![]
-            };
+            let samples = self.samples.iter().cloned().collect::<Vec<_>>();
 
             // Draw samples as a connected line using epaint::Shape
             if samples.len() >= 2 {
