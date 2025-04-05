@@ -1,13 +1,12 @@
 use std::{
-    sync::mpsc,
+    sync::{mpsc, Arc},
     thread,
     time::{Duration, Instant},
 };
 
-use cpal::traits::{DeviceTrait, HostTrait};
 use eframe::{egui, CreationContext, Frame, NativeOptions};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
-use ringbuf::{HeapConsumer, HeapRb};
+use ringbuf::{traits::{Consumer, Producer, Split}, CachingCons, HeapRb};
 use rn_audio::{CpalAudioBuilder, CpalAudioOutput, CpalAudioQueue, Oscillator, Waveform};
 use rn_core::audio::AudioOutput;
 use rn_ui::widgets::WaveformVisualizerWidget;
@@ -71,7 +70,7 @@ struct WaveformPlayer {
     waveform_visualizer: WaveformVisualizerWidget,
 
     // Audio state
-    sample_consumer: HeapConsumer<f32>, // Lock-free ringbuffer consumer for visualization
+    sample_consumer: CachingCons<Arc<HeapRb<f32>>>, // Lock-free ringbuffer consumer for visualization
     audio_queue: Option<CpalAudioQueue>, // Direct access for the audio thread
     audio_output: Option<CpalAudioOutput>, // Keep the audio output alive
     audio_thread: Option<thread::JoinHandle<()>>,
@@ -87,7 +86,7 @@ struct WaveformPlayer {
 /// Tab viewer for the dock area
 struct WaveformTabViewer<'a> {
     waveform_visualizer: &'a mut WaveformVisualizerWidget,
-    sample_consumer: &'a mut HeapConsumer<f32>,
+    sample_consumer: &'a mut CachingCons<Arc<HeapRb<f32>>>,
     audio_command_sender: &'a Option<mpsc::Sender<AudioCommand>>,
     audio_output: &'a mut Option<CpalAudioOutput>,
     context: &'a mut AppContext,
@@ -224,7 +223,7 @@ impl<'a> TabViewer for WaveformTabViewer<'a> {
                 // Read a batch of samples from our lock-free consumer
                 let mut samples = Vec::with_capacity(64);
                 for _ in 0..64 {
-                    if let Some(sample) = self.sample_consumer.pop() {
+                    if let Some(sample) = self.sample_consumer.try_pop() {
                         samples.push(sample);
                     } else {
                         break;
@@ -269,7 +268,7 @@ impl WaveformPlayer {
         };
 
         // Create audio output using CpalAudioBuilder
-        match setup_audio() {
+        match CpalAudioBuilder::build_default() {
             Ok((queue, output)) => {
                 let sample_rate = output.sample_rate();
                 // Create a command channel
@@ -348,7 +347,7 @@ impl WaveformPlayer {
                             vis_sample_counter += 1;
                             if vis_sample_counter >= 4 {
                                 // Add to visualization ring buffer (non-blocking)
-                                let _ = vis_prod.push(sample);
+                                let _ = vis_prod.try_push(sample);
                                 vis_sample_counter = 0;
                             }
 
@@ -407,28 +406,6 @@ impl WaveformPlayer {
             },
         }
     }
-}
-
-// Helper function to set up audio with cpal
-fn setup_audio() -> anyhow::Result<(CpalAudioQueue, CpalAudioOutput)> {
-    // Get default host
-    let host = cpal::default_host();
-
-    // Get default output device
-    let device = host
-        .default_output_device()
-        .ok_or_else(|| anyhow::anyhow!("No output device available"))?;
-
-    println!("Using audio device: {}", device.name()?);
-
-    // Get supported config
-    let config = device.default_output_config()?;
-    println!("Default output config: {:?}", config);
-
-    // Build audio output but DON'T start playback yet
-    let (audio_queue, audio_output) = CpalAudioBuilder::build(device, config)?;
-
-    Ok((audio_queue, audio_output))
 }
 
 impl eframe::App for WaveformPlayer {

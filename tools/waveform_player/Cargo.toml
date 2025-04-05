@@ -1,16 +1,16 @@
 [package]
 name = "waveform_player"
-version = "0.1.0"
-edition = "2021"
-authors = ["Your Name"]
-description = "Interactive audio waveform player and visualizer with real-time audio output"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
 
 [dependencies]
 rn_core = { path = "../../crates/rn_core" }
 rn_ui = { path = "../../crates/rn_ui" }
 rn_audio = { path = "../../crates/rn_audio" }
-cpal = "0.15.2"
-ringbuf = "0.3.3"
+cpal.workspace = true
+ringbuf.workspace = true
 
 anyhow.workspace = true
 egui.workspace = true

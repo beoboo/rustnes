@@ -40,11 +40,6 @@ impl WaveformVisualizerWidget {
         }
     }
 
-    /// Connect the widget to an audio capture output
-    pub fn connect_capture(&mut self, capture: &AudioCaptureOutput) {
-        self.samples = capture.get_samples();
-    }
-
     /// Add new samples to the visualizer directly
     pub fn add_samples(&mut self, new_samples: &[f32]) {
         if let Ok(mut samples) = self.samples.lock() {

@@ -2837,15 +2837,6 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "ringbuf"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79abed428d1fd2a128201cec72c5f6938e2da607c6f3745f769fabea399d950a"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
-name = "ringbuf"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe47b720588c8702e34b5979cb3271a8b1842c7cb6f57408efa70c779363488c"
@@ -2862,7 +2853,7 @@ dependencies = [
  "anyhow",
  "cpal",
  "log",
- "ringbuf 0.4.8",
+ "ringbuf",
  "rn_core",
 ]
 
@@ -3629,7 +3620,7 @@ dependencies = [
  "egui",
  "egui_dock",
  "log",
- "ringbuf 0.3.3",
+ "ringbuf",
  "rn_audio",
  "rn_core",
  "rn_ui",

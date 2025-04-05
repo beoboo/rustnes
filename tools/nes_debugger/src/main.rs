@@ -5,7 +5,7 @@ use eframe::{egui, App, Frame};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[macro_use]
 extern crate log;
-use rn_audio::CpalAudioOutput;
+use rn_audio::{CpalAudioBuilder, CpalAudioOutput};
 use rn_core::{
     cpu::CpuWrapper,
     errors::NesError,
@@ -403,21 +403,20 @@ impl NesDebugger {
         // Create the NES system
         let system = Rc::new(RefCell::new(NesSystem::new()));
 
-        // Create audio output with visualizer
-        let audio_output = CpalAudioOutput::new();
-        let audio_capture_output = AudioCaptureOutput::new(Box::new(audio_output));
+        let Ok((audio_queue, audio_output)) = CpalAudioBuilder::build_default() else {
+            panic!("Failed to build audio output");
+        };
 
         // Create audio widget
         let audio_widget = AudioWidget::new();
 
         // Create and connect waveform visualizer widget
         let mut waveform_visualizer = WaveformVisualizerWidget::new();
-        waveform_visualizer.connect_capture(&audio_capture_output);
 
         // Connect the audio output to the system
         system
             .borrow_mut()
-            .connect_audio_output(Box::new(audio_capture_output.clone()));
+            .connect_audio_output(Box::new(audio_queue));
 
         // Create input manager with default and WASD profiles
         let mut key_mapping_manager = KeyMappingManager::new();
@@ -820,15 +819,12 @@ impl App for NesDebugger {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    // Initialize logging with tracing-subscriber
-    // Set default log level to info, but allow override via RUST_LOG environment variable
-    use tracing_subscriber::{fmt, EnvFilter};
-    fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .init();
 
+fn main() -> anyhow::Result<()> {
     info!("Starting RustNES Debugger");
+
+    // Initialize logging
+    tracing_subscriber::fmt::init();
 
     // Parse command line arguments
     let args = Args::parse();

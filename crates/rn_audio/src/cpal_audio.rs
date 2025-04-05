@@ -18,7 +18,28 @@ type AudioConsumer = CachingCons<Arc<SharedRb<Heap<f32>>>>;
 pub struct CpalAudioBuilder;
 
 impl CpalAudioBuilder {
-    pub fn build(device: cpal::Device, config: cpal::SupportedStreamConfig) -> Result<(CpalAudioQueue, CpalAudioOutput)> {
+    pub fn build_default() -> Result<(CpalAudioQueue, CpalAudioOutput)> {
+        // Get default host
+        let host = cpal::default_host();
+
+        // Get default output device
+        let device = host
+            .default_output_device()
+            .ok_or_else(|| anyhow::anyhow!("No output device available"))?;
+
+        println!("Using audio device: {}", device.name()?);
+
+        // Get supported config
+        let config = device.default_output_config()?;
+        println!("Default output config: {:?}", config);
+
+        Self::build(device, config)
+    }
+
+    pub fn build(
+        device: cpal::Device,
+        config: cpal::SupportedStreamConfig,
+    ) -> Result<(CpalAudioQueue, CpalAudioOutput)> {
         let latency_ms = 250.0; // Reduced from 1000ms to 250ms for better responsiveness
         let sample_rate = config.sample_rate().0 as f32;
         let num_channels = config.channels() as usize;
@@ -210,7 +231,7 @@ impl CpalAudioOutput {
         for frame in output.chunks_mut(num_channels) {
             // Get sample from buffer or use silence (0.0) if buffer is empty
             let sample_value = consumer.try_pop().unwrap_or(0.0);
-            
+
             let muted = muted.load(std::sync::atomic::Ordering::Relaxed);
             let volume = f32::from_bits(volume.load(std::sync::atomic::Ordering::Relaxed));
 
