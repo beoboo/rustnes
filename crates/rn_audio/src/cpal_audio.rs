@@ -169,6 +169,7 @@ impl CpalAudioOutput {
 
     pub fn play(&mut self) -> Result<()> {
         if let Some(stream) = &self.stream {
+            println!("Playing stream");
             stream.play()?;
         }
         Ok(())
@@ -176,6 +177,7 @@ impl CpalAudioOutput {
 
     pub fn pause(&mut self) -> Result<()> {
         if let Some(stream) = &self.stream {
+            println!("Pausing stream");
             stream.pause()?;
         }
         Ok(())

@@ -250,7 +250,7 @@ impl WaveformPlayer {
         );
         // Create ringbuffer for visualization
         let vis_buffer = HeapRb::<f32>::new(VIS_BUFFER_SIZE);
-        let (vis_producer, vis_consumer) = vis_buffer.split();
+        let (mut vis_producer, vis_consumer) = vis_buffer.split();
 
         // Set up initial context
         let context = AppContext {
@@ -269,8 +269,6 @@ impl WaveformPlayer {
                 let (tx, rx) = mpsc::channel();
 
                 // Create oscillator in the audio thread to avoid mutex locking
-                // Start audio processing thread
-                let mut vis_prod = vis_producer;
 
                 // Start with the audio queue directly owned by the audio thread
                 let audio_thread = thread::spawn(move || {
@@ -340,7 +338,7 @@ impl WaveformPlayer {
                             vis_sample_counter += 1;
                             if vis_sample_counter >= 4 {
                                 // Add to visualization ring buffer (non-blocking)
-                                let _ = vis_prod.try_push(sample);
+                                let _ = vis_producer.try_push(sample);
                                 vis_sample_counter = 0;
                             }
 
