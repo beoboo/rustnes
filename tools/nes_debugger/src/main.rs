@@ -16,7 +16,6 @@ use rn_input::{controller_profile::ControllerProfile, key_mapping::KeyMappingMan
 use rn_ui::widgets::{
     convert_egui_key,
     AsmWidget,
-    AudioCaptureOutput,
     AudioWidget,
     ControllerWidget,
     CpuWidget,
