@@ -6,14 +6,15 @@ authors = ["Your Name"]
 description = "NES debugger for RustNES - visualize and debug NES hardware components"
 
 [dependencies]
-anyhow.workspace = true
-egui.workspace = true
-eframe.workspace = true
-egui_dock = "0.16"
-log.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
-clap = { version = "4.4", features = ["derive"] }
 rn_core = { path = "../../crates/rn_core" }
 rn_ui = { path = "../../crates/rn_ui" }
 rn_input = { path = "../../crates/rn_input" }
 rn_audio = { path = "../../crates/rn_audio" }
+
+anyhow.workspace = true
+egui.workspace = true
+eframe.workspace = true
+egui_dock.workspace = true
+log.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true

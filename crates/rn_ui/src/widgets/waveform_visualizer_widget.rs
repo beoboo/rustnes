@@ -45,6 +45,22 @@ impl WaveformVisualizerWidget {
         self.samples = capture.get_samples();
     }
 
+    /// Add new samples to the visualizer directly
+    pub fn add_samples(&mut self, new_samples: &[f32]) {
+        if let Ok(mut samples) = self.samples.lock() {
+            for &sample in new_samples {
+                samples.push_back(sample);
+                if samples.len() > self.max_samples {
+                    samples.pop_front();
+                }
+            }
+            // Update last mixed sample for display
+            if let Some(&last) = new_samples.last() {
+                self.last_mixed_sample = last;
+            }
+        }
+    }
+
     /// Show the waveform visualization in the given UI
     pub fn ui(&mut self, ui: &mut Ui) -> egui::Response {
         ui.heading("Audio Output Waveform");

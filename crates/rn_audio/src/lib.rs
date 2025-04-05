@@ -5,9 +5,11 @@
 //! - CpalAudioOutput: An audio output that uses cpal to play samples on the system's audio device
 
 mod cpal_audio;
+mod oscillator;
 mod simple_audio;
 
 // Re-export common types
 pub use anyhow::Result;
-pub use cpal_audio::CpalAudioOutput;
+pub use cpal_audio::{CpalAudioBuilder, CpalAudioOutput, CpalAudioQueue};
+pub use oscillator::{Oscillator, Waveform};
 pub use simple_audio::SimpleAudioOutput;

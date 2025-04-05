@@ -1,248 +1,238 @@
-use std::{
-    collections::VecDeque,
-    fmt,
-    sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
-        Arc,
-        Mutex,
-    },
-};
-
 use anyhow::Result;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    SampleFormat,
-    Stream,
+    Device, SizedSample, Stream, StreamConfig, SupportedStreamConfig,
 };
-use log::{debug, error, info, warn};
+use cpal::{FromSample, Sample};
+use ringbuf::{
+    storage::Heap,
+    traits::{Consumer, Producer, Split},
+    CachingCons, CachingProd, HeapRb, SharedRb,
+};
 use rn_core::audio::AudioOutput;
+use std::sync::atomic::{AtomicBool, AtomicU32};
+use std::{fmt, sync::Arc};
+type AudioProducer = CachingProd<Arc<SharedRb<Heap<f32>>>>;
+type AudioConsumer = CachingCons<Arc<SharedRb<Heap<f32>>>>;
 
-/// Audio output implementation that uses cpal to play audio on the system's audio device
-pub struct CpalAudioOutput {
-    sample_buffer: Arc<Mutex<VecDeque<f32>>>,
-    volume: Arc<AtomicU32>, // Stores f32 volume as bits
-    muted: Arc<AtomicBool>,
-    sample_rate: f32,
-    _stream: Option<Stream>,
-    is_initialized: bool,
+pub struct CpalAudioBuilder;
+
+impl CpalAudioBuilder {
+    pub fn build(device: cpal::Device, config: cpal::SupportedStreamConfig) -> Result<(CpalAudioQueue, CpalAudioOutput)> {
+        let latency_ms = 250.0; // Reduced from 1000ms to 250ms for better responsiveness
+        let sample_rate = config.sample_rate().0 as f32;
+        let num_channels = config.channels() as usize;
+
+        let latency_frames = (latency_ms / 1_000.0) * sample_rate;
+        let latency_samples = latency_frames as usize * num_channels;
+
+        // Create a larger buffer to prevent underruns
+        let ring = HeapRb::<f32>::new(latency_samples * 4); // 4x buffer size
+        let (producer, consumer) = ring.split();
+
+        let volume = Arc::new(AtomicU32::new(f32::to_bits(1.0)));
+        let muted = Arc::new(AtomicBool::new(false));
+        let clear = Arc::new(AtomicBool::new(false));
+        let audio_queue = CpalAudioQueue::new(producer, volume.clone(), muted.clone(), clear.clone());
+        let mut audio_output = CpalAudioOutput::new(device, volume, muted, clear)?;
+        audio_output.initialize(consumer, config)?;
+
+        Ok((audio_queue, audio_output))
+    }
 }
 
-impl fmt::Debug for CpalAudioOutput {
+pub struct CpalAudioQueue {
+    producer: AudioProducer,
+    volume: Arc<AtomicU32>,
+    muted: Arc<AtomicBool>,
+    clear: Arc<AtomicBool>,
+}
+
+impl fmt::Debug for CpalAudioQueue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CpalAudioOutput")
-            .field("sample_rate", &self.sample_rate)
-            .field("volume", &self.volume())
-            .field("muted", &self.is_muted())
-            .field("is_initialized", &self.is_initialized)
-            .field(
-                "buffer_size",
-                &self.sample_buffer.lock().map(|buf| buf.len()).unwrap_or(0),
-            )
-            .finish()
+        write!(
+            f,
+            "CpalAudioQueue {{ volume: {:?}, muted: {:?} }}",
+            self.volume, self.muted
+        )
+    }
+}
+
+impl CpalAudioQueue {
+    fn new(producer: AudioProducer, volume: Arc<AtomicU32>, muted: Arc<AtomicBool>, clear: Arc<AtomicBool>) -> Self {
+        Self {
+            producer,
+            volume,
+            muted,
+            clear,
+        }
+    }
+}
+
+pub struct CpalAudioOutput {
+    device: cpal::Device,
+    volume: Arc<AtomicU32>,
+    muted: Arc<AtomicBool>,
+    clear: Arc<AtomicBool>,
+    stream: Option<Stream>,
+    sample_rate: f32,
+}
+
+impl AudioOutput for CpalAudioQueue {
+    fn set_volume(&mut self, volume: f32) {
+        self.volume
+            .store(f32::to_bits(volume), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn set_muted(&mut self, muted: bool) {
+        self.muted.store(muted, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn queue_sample(&mut self, sample: f32) {
+        let _ = self.producer.try_push(sample);
+    }
+
+    fn clear(&mut self) {
+        self.clear.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn is_ready(&self) -> bool {
+        true
     }
 }
 
 impl CpalAudioOutput {
-    /// Create a new CpalAudioOutput instance
-    pub fn new() -> Self {
-        Self {
-            sample_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(8192))),
-            volume: Arc::new(AtomicU32::new(1.0f32.to_bits())), // Default volume 1.0
-            muted: Arc::new(AtomicBool::new(false)),
-            sample_rate: 44100.0, // Default sample rate
-            _stream: None,
-            is_initialized: false,
-        }
+    fn new(
+        device: cpal::Device,
+        volume: Arc<AtomicU32>,
+        muted: Arc<AtomicBool>,
+        clear: Arc<AtomicBool>,
+    ) -> Result<Self> {
+        Ok(Self {
+            device,
+            volume,
+            muted,
+            clear,
+            stream: None,
+            sample_rate: 0.0,
+        })
     }
 
-    /// Initialize the audio device and start playback
-    pub fn initialize(&mut self) -> Result<()> {
-        if self.is_initialized {
-            // Already initialized
-            return Ok(());
-        }
+    pub fn sample_rate(&self) -> f32 {
+        self.sample_rate
+    }
 
-        // Get the default host
-        let host = cpal::default_host();
+    fn initialize(&mut self, consumer: AudioConsumer, config: cpal::SupportedStreamConfig) -> Result<()> {
+        self.sample_rate = config.sample_rate().0 as f32;
 
-        // Get the default output device
-        let device = match host.default_output_device() {
-            Some(device) => device,
-            None => {
-                error!("No output device available");
-                return Err(anyhow::anyhow!("No output device available"));
-            },
-        };
+        let stream = match config.sample_format() {
+            cpal::SampleFormat::I8 => self.make_stream::<i8>(consumer, &config.into()),
+            cpal::SampleFormat::I16 => self.make_stream::<i16>(consumer, &config.into()),
+            // cpal::SampleFormat::I24 => make_stream::<I24>(&device, &config.into()),
+            cpal::SampleFormat::I32 => self.make_stream::<i32>(consumer, &config.into()),
+            cpal::SampleFormat::I64 => self.make_stream::<i64>(consumer, &config.into()),
+            cpal::SampleFormat::U8 => self.make_stream::<u8>(consumer, &config.into()),
+            cpal::SampleFormat::U16 => self.make_stream::<u16>(consumer, &config.into()),
+            cpal::SampleFormat::U32 => self.make_stream::<u32>(consumer, &config.into()),
+            cpal::SampleFormat::U64 => self.make_stream::<u64>(consumer, &config.into()),
+            cpal::SampleFormat::F32 => self.make_stream::<f32>(consumer, &config.into()),
+            cpal::SampleFormat::F64 => self.make_stream::<f64>(consumer, &config.into()),
+            sample_format => Err(anyhow::Error::msg(format!(
+                "Unsupported sample format '{sample_format}'"
+            ))),
+        }?;
 
-        info!("Using audio device: {}", device.name()?);
+        self.stream = Some(stream);
 
-        // Get the default output config
-        let default_config = device.default_output_config()?;
-        info!("Default audio config: {:?}", default_config);
-
-        // Create output config with our desired sample rate
-        let config = cpal::StreamConfig {
-            channels: 1, // Mono output
-            sample_rate: cpal::SampleRate(self.sample_rate as u32),
-            buffer_size: cpal::BufferSize::Default,
-        };
-
-        // Create buffer clone for stream closure
-        let buffer = self.sample_buffer.clone();
-        let volume = self.volume.clone();
-        let muted = self.muted.clone();
-        let err_fn = |err| error!("An error occurred on the audio stream: {}", err);
-
-        // Build the stream with the appropriate sample format
-        let stream = match default_config.sample_format() {
-            SampleFormat::F32 => {
-                let stream = device.build_output_stream(
-                    &config,
-                    move |output_buffer: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                        // Fill the output buffer with samples from our buffer
-                        let mut buffer_guard = match buffer.lock() {
-                            Ok(guard) => guard,
-                            Err(_) => return, // Skip this callback if we can't lock the buffer
-                        };
-
-                        // Get current audio parameters using atomics (no locking needed)
-                        let is_muted = muted.load(Ordering::Relaxed);
-                        let vol = f32::from_bits(volume.load(Ordering::Relaxed));
-
-                        for sample in output_buffer.iter_mut() {
-                            // Get a sample from our buffer or use silence
-                            let raw_sample = buffer_guard.pop_front().unwrap_or(0.0);
-                            *sample = if is_muted { 0.0 } else { raw_sample * vol };
-                        }
-                    },
-                    err_fn.clone(),
-                    None,
-                )?;
-                stream
-            },
-            SampleFormat::I16 => {
-                let stream = device.build_output_stream(
-                    &config,
-                    move |output_buffer: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                        // Fill the output buffer with samples from our buffer
-                        let mut buffer_guard = match buffer.lock() {
-                            Ok(guard) => guard,
-                            Err(_) => return, // Skip this callback if we can't lock the buffer
-                        };
-
-                        // Get current audio parameters using atomics (no locking needed)
-                        let is_muted = muted.load(Ordering::Relaxed);
-                        let vol = f32::from_bits(volume.load(Ordering::Relaxed));
-
-                        for sample in output_buffer.iter_mut() {
-                            // Get a sample from our buffer, scale to i16 range
-                            let raw_sample = buffer_guard.pop_front().unwrap_or(0.0);
-                            let value = if is_muted { 0.0 } else { raw_sample * vol };
-                            *sample = (value * 32767.0) as i16;
-                        }
-                    },
-                    err_fn.clone(),
-                    None,
-                )?;
-                stream
-            },
-            SampleFormat::U16 => {
-                let stream = device.build_output_stream(
-                    &config,
-                    move |output_buffer: &mut [u16], _: &cpal::OutputCallbackInfo| {
-                        // Fill the output buffer with samples from our buffer
-                        let mut buffer_guard = match buffer.lock() {
-                            Ok(guard) => guard,
-                            Err(_) => return, // Skip this callback if we can't lock the buffer
-                        };
-
-                        // Get current audio parameters using atomics (no locking needed)
-                        let is_muted = muted.load(Ordering::Relaxed);
-                        let vol = f32::from_bits(volume.load(Ordering::Relaxed));
-
-                        for sample in output_buffer.iter_mut() {
-                            // Get a sample, scale from [-1.0, 1.0] to [0, 65535]
-                            let raw_sample = buffer_guard.pop_front().unwrap_or(0.0);
-                            let value = if is_muted { 0.0 } else { raw_sample * vol };
-                            // Convert from [-1.0, 1.0] to [0, 65535]
-                            *sample = ((value * 0.5 + 0.5) * 65535.0) as u16;
-                        }
-                    },
-                    err_fn,
-                    None,
-                )?;
-                stream
-            },
-            format => {
-                return Err(anyhow::anyhow!("Unsupported sample format: {:?}", format));
-            },
-        };
-
-        // Start the stream
-        stream.play()?;
-
-        // Store the stream to keep it alive
-        self._stream = Some(stream);
-        self.is_initialized = true;
-
-        info!("Audio output initialized successfully");
         Ok(())
     }
 
-    /// Get the current volume
-    pub fn volume(&self) -> f32 {
-        f32::from_bits(self.volume.load(Ordering::Relaxed))
+    pub fn play(&mut self) -> Result<()> {
+        if let Some(stream) = &self.stream {
+            stream.play()?;
+        }
+        Ok(())
     }
 
-    /// Get muted state
-    pub fn is_muted(&self) -> bool {
-        self.muted.load(Ordering::Relaxed)
+    pub fn pause(&mut self) -> Result<()> {
+        if let Some(stream) = &self.stream {
+            stream.pause()?;
+        }
+        Ok(())
+    }
+
+    fn make_stream<S>(&mut self, mut consumer: AudioConsumer, config: &cpal::StreamConfig) -> Result<cpal::Stream>
+    where
+        S: SizedSample + FromSample<f32>,
+    {
+        let num_channels = config.channels as usize;
+        let err_fn = |err| eprintln!("Error building output sound stream: {}", err);
+        let volume = self.volume.clone();
+        let muted = self.muted.clone();
+        let clear = self.clear.clone();
+
+        let stream = self.device.build_output_stream(
+            &config,
+            move |output: &mut [S], _: &cpal::OutputCallbackInfo| {
+                Self::process_frame(
+                    output,
+                    &mut consumer,
+                    num_channels,
+                    volume.clone(),
+                    muted.clone(),
+                    clear.clone(),
+                )
+            },
+            err_fn,
+            None,
+        )?;
+
+        Ok(stream)
+    }
+
+    fn process_frame<S, C>(
+        output: &mut [S],
+        consumer: &mut C,
+        num_channels: usize,
+        volume: Arc<AtomicU32>,
+        muted: Arc<AtomicBool>,
+        clear: Arc<AtomicBool>,
+    ) where
+        S: Sample + FromSample<f32>,
+        C: Consumer<Item = f32> + Send + 'static,
+    {
+        if clear.load(std::sync::atomic::Ordering::Relaxed) {
+            consumer.clear();
+            clear.store(false, std::sync::atomic::Ordering::Relaxed);
+            return;
+        }
+
+        for frame in output.chunks_mut(num_channels) {
+            // Get sample from buffer or use silence (0.0) if buffer is empty
+            let sample_value = consumer.try_pop().unwrap_or(0.0);
+            
+            let muted = muted.load(std::sync::atomic::Ordering::Relaxed);
+            let volume = f32::from_bits(volume.load(std::sync::atomic::Ordering::Relaxed));
+
+            // Copy the same value to all channels
+            for sample in frame.iter_mut() {
+                *sample = S::from_sample(if muted { 0.0 } else { sample_value * volume });
+            }
+        }
     }
 }
 
-impl Default for CpalAudioOutput {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+fn host_device_setup() -> Result<(cpal::Host, cpal::Device, cpal::SupportedStreamConfig)> {
+    let host = cpal::default_host();
 
-impl AudioOutput for CpalAudioOutput {
-    fn set_volume(&mut self, volume: f32) {
-        let clamped = volume.max(0.0).min(1.0);
-        self.volume.store(clamped.to_bits(), Ordering::Relaxed);
-    }
+    let device = host
+        .default_output_device()
+        .ok_or_else(|| anyhow::Error::msg("Default output device is not available"))?;
+    println!("Output device : {}", device.name()?);
 
-    fn set_muted(&mut self, muted: bool) {
-        self.muted.store(muted, Ordering::Relaxed);
-    }
+    let config = device.default_output_config()?;
 
-    fn queue_sample(&mut self, sample: f32) {
-        // Initialize on first sample if not already done
-        if !self.is_initialized {
-            match self.initialize() {
-                Ok(_) => debug!("Audio initialized on first sample"),
-                Err(e) => error!("Failed to initialize audio: {}", e),
-            }
-        }
+    println!("Default output config : {:?}", config);
 
-        // Add sample to buffer
-        if let Ok(mut buffer) = self.sample_buffer.lock() {
-            buffer.push_back(sample);
-
-            // Keep buffer at a reasonable size to avoid excessive latency
-            if buffer.len() > 8192 {
-                buffer.pop_front();
-            }
-        }
-    }
-
-    fn clear(&mut self) {
-        if let Ok(mut buffer) = self.sample_buffer.lock() {
-            buffer.clear();
-        }
-    }
-
-    fn is_ready(&self) -> bool {
-        true // Always ready to receive samples, even if not initialized yet
-    }
+    Ok((host, device, config))
 }

@@ -4,7 +4,7 @@ members = [
     "crates/rn_input",
     "crates/rn_ui", 
     "tools/nes_asm",
-    "tools/nes_debugger",
+    "tools/nes_debugger", "tools/waveform_player",
 ]
 resolver = "2"
 
@@ -21,8 +21,10 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 anyhow = "1.0"
 cpal = "0.15"
+clap = "4.5"
 
 egui = "0.31"
+egui_dock = "0.16"
 eframe = "0.31"
 lazy_static = "1.4.0"
 log = "0.4"
