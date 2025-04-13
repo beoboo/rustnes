@@ -2,7 +2,6 @@
 
 // Export all widget modules from here
 mod asm_widget;
-mod audio_capture_output;
 mod audio_widget;
 mod controller_widget;
 mod cpu_widget;
@@ -20,9 +19,7 @@ mod ppu_widget;
 mod waveform_widget;
 
 // Re-export types
-// For backward compatibility with existing code
 pub use asm_widget::AsmWidget;
-pub use audio_capture_output::AudioCaptureOutput;
 pub use audio_widget::AudioWidget;
 pub use controller_widget::ControllerWidget;
 pub use cpu_widget::CpuWidget;
