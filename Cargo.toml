@@ -12,9 +12,9 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name"]
+authors = ["Pietro Atzeni"]
 description = "NES emulator written in Rust"
-repository = "https://github.com/yourusername/rustnes3"
+repository = "https://github.com/beoboo/rustnes3"
 license = "MIT OR Apache-2.0"
 
 # Common dependencies for workspace members
@@ -23,6 +23,7 @@ anyhow = "1.0"
 cpal = "0.15"
 clap = { version = "4.5", features = ["derive"] }
 crossbeam-channel = "0.5"
+derive_more = { version = "2.0", features = ["debug"] }
 egui = "0.31"
 egui_dock = "0.16"
 eframe = "0.31"

@@ -222,7 +222,6 @@ impl WaveformPlayer {
         let sample_rate = audio_player.sample_rate();
 
         let mut multiplexer = Multiplexer::new(multiplexer_consumer);
-        
         multiplexer.add_producer(Box::new(audio_queue));
         multiplexer.add_producer(Box::new(waveform_producer));
 

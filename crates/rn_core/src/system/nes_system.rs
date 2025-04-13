@@ -5,7 +5,7 @@ use log::{debug, error, info, warn};
 use super::{dma::DmaControllerWrapper, DmaController};
 use crate::{
     apu::{Apu, ApuWrapper},
-    audio::AudioOutput,
+    audio::{AudioOutput, SampleProducer},
     cartridge::Cartridge,
     cpu::{Cpu, CpuWrapper},
     errors::NesError,
@@ -369,6 +369,11 @@ impl NesSystem {
     /// Connect an audio output device to the APU
     pub fn connect_audio_output(&mut self, audio_output: Box<dyn AudioOutput>) {
         self.apu.connect_audio_output(audio_output);
+    }
+
+    /// Connect an audio output device to the APU
+    pub fn connect_audio_output2(&mut self, audio_output: Box<dyn SampleProducer<f32>>) {
+        self.apu.connect_audio_output2(audio_output);
     }
 }
 

@@ -1,9 +1,9 @@
 [package]
 name = "rn_input"
+description = "Input handling and configuration for RustNES"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "Input handling and configuration for RustNES"
 license.workspace = true
 
 [dependencies]

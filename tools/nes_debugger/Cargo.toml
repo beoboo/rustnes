@@ -1,9 +1,9 @@
 [package]
 name = "nes_debugger"
-version = "0.1.0"
-edition = "2021"
-authors = ["Your Name"]
 description = "NES debugger for RustNES - visualize and debug NES hardware components"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 
 [dependencies]
 rn_core = { path = "../../crates/rn_core" }

@@ -7,7 +7,7 @@ use rn_core::audio::{AudioOutput, SampleProducer, SampleConsumer};
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::{fmt, sync::Arc};
 
-use crate::{RingBufferBuilder, RingBufferProducer};
+use crate::ring_buffer::{RingBufferBuilder, RingBufferProducer};
 
 pub struct CpalAudioBuilder;
 
@@ -85,8 +85,16 @@ impl CpalAudioQueue {
 }
 
 impl SampleProducer<f32> for CpalAudioQueue {
+    fn set_volume(&mut self, volume: f32) {
+        self.volume.store(f32::to_bits(volume), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn set_muted(&mut self, muted: bool) {
+        self.muted.store(muted, std::sync::atomic::Ordering::Relaxed);
+    }
+
     fn produce(&mut self, sample: f32) {
-        self.queue_sample(sample);
+        let _ = self.producer.produce(sample);
     }
 }
 

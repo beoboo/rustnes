@@ -1,9 +1,9 @@
 [package]
 name = "rn_ui"
+description = "UI components for the RustNES emulator"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "UI components for the RustNES emulator"
 license.workspace = true
 
 [[bin]]

@@ -3,7 +3,7 @@ name = "waveform_player"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "Waveform player for RustNES"
 
 [dependencies]
 rn_core = { path = "../../crates/rn_core" }

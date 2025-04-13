@@ -1,13 +1,14 @@
 [package]
 name = "rn_core"
+description = "Core NES emulation engine"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "Core NES emulation engine"
 license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+derive_more.workspace = true
 lazy_static.workspace = true
 log.workspace = true
 parse-display.workspace = true

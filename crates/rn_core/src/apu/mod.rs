@@ -1,6 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{audio::AudioOutput, errors::NesError, memory::Addressable};
+use crate::{audio::{AudioOutput, SampleProducer}, errors::NesError, memory::Addressable};
+use derive_more::Debug;
 
 mod dmc_channel;
 mod envelope;
@@ -51,6 +52,11 @@ impl ApuWrapper {
     /// Connect an audio output device
     pub fn connect_audio_output(&self, audio_output: Box<dyn AudioOutput>) {
         self.apu.borrow_mut().connect_audio_output(audio_output);
+    }
+
+    /// Connect an audio output device
+    pub fn connect_audio_output2(&self, audio_output: Box<dyn SampleProducer<f32>>) {
+        self.apu.borrow_mut().connect_audio_output2(audio_output);
     }
 
     pub fn set_volume(&self, volume: f32) {
@@ -105,8 +111,8 @@ pub struct Apu {
     status: u8,
 
     // Audio output device
-    audio_output: Option<Box<dyn AudioOutput>>,
-
+    #[debug(skip)]
+    audio_output2: Option<Box<dyn SampleProducer<f32>>>,
     // Sample generation state
     cycle_counter: u64,
     sample_counter: f64,
@@ -138,8 +144,7 @@ impl Apu {
             status: 0,
 
             // No audio output initially
-            audio_output: None,
-
+            audio_output2: None,
             // Sample generation state
             cycle_counter: 0,
             sample_counter: 0.0,
@@ -177,8 +182,8 @@ impl Apu {
         self.frame_counter = 0;
 
         // Clear any pending audio output
-        if let Some(audio_output) = &mut self.audio_output {
-            audio_output.clear();
+        if let Some(audio_output) = &mut self.audio_output2 {
+            // audio_output.clear();
         }
     }
 
@@ -219,7 +224,7 @@ impl Apu {
 
     fn generate_sample(&mut self) {
         // Only generate samples if we have an audio output device
-        if let Some(audio_output) = &mut self.audio_output {
+        if let Some(audio_output) = &mut self.audio_output2 {
             // Get samples from each channel
             let pulse1_sample = self.pulse1.generate_sample();
             let pulse2_sample = self.pulse2.generate_sample();
@@ -237,26 +242,30 @@ impl Apu {
             let mixed_sample = (pulse_out + tnd_out) / 400.0f32;
 
             // Output the sample
-            audio_output.queue_sample(mixed_sample);
+            audio_output.produce(mixed_sample);
         }
     }
 
     /// Connect an audio output device
     pub fn connect_audio_output(&mut self, audio_output: Box<dyn AudioOutput>) {
+    }
+
+    /// Connect an audio output device
+    pub fn connect_audio_output2(&mut self, audio_output: Box<dyn SampleProducer<f32>>) {
         // Store the audio output
-        self.audio_output = Some(audio_output);
+        self.audio_output2 = Some(audio_output);
     }
 
     /// Set the volume (0.0 to 1.0)
     pub fn set_volume(&mut self, volume: f32) {
-        if let Some(audio_output) = &mut self.audio_output {
+        if let Some(audio_output) = &mut self.audio_output2 {
             audio_output.set_volume(volume);
         }
     }
 
     /// Set muted state
     pub fn set_muted(&mut self, muted: bool) {
-        if let Some(audio_output) = &mut self.audio_output {
+        if let Some(audio_output) = &mut self.audio_output2 {
             audio_output.set_muted(muted);
         }
     }
@@ -361,6 +370,7 @@ impl Addressable for Apu {
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
+    use derive_more::Debug;
 
     use super::*;
     const PULSE1_CONTROL: u16 = 0x4000; // Volume/Duty/Envelope control
@@ -420,7 +430,7 @@ mod tests {
         assert_eq!(apu.status, 0);
         assert_eq!(apu.cycle_counter, 0);
         assert_eq!(apu.sample_counter, 0.0);
-        assert!(apu.audio_output.is_none());
+        assert!(apu.audio_output2.is_none());
     }
 
     #[test]

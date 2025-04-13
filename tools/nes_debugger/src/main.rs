@@ -5,7 +5,7 @@ use eframe::{egui, App, Frame};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[macro_use]
 extern crate log;
-use rn_audio::{CpalAudioBuilder, CpalAudioPlayer};
+use rn_audio::{ChannelBuilder, CpalAudioBuilder, CpalAudioPlayer, Multiplexer};
 use rn_core::{
     cpu::CpuWrapper,
     errors::NesError,
@@ -30,6 +30,7 @@ use rn_ui::widgets::{
     PpuWidget,
     WaveformWidget,
 };
+use anyhow::Result;
 
 /// Command line arguments for the NesDebugger
 #[derive(Parser, Debug)]
@@ -399,24 +400,28 @@ impl<'a> TabViewer for NesTabViewer<'a> {
 }
 
 impl NesDebugger {
-    fn new(_cc: &eframe::CreationContext<'_>, args: Args) -> Self {
+    fn new(_cc: &eframe::CreationContext<'_>, args: Args) -> Result<Self> {
         // Create the NES system
         let system = Rc::new(RefCell::new(NesSystem::new()));
 
-        let Ok((audio_queue, audio_output)) = CpalAudioBuilder::build_default() else {
-            panic!("Failed to build audio output");
-        };
+        let (audio_queue, audio_output) = CpalAudioBuilder::build_default()?;
+        let (multiplexer_producer, multiplexer_consumer) = ChannelBuilder::build(1024);
+        let (waveform_producer, waveform_consumer) = ChannelBuilder::build(1024);
+
+        let mut multiplexer = Multiplexer::new(multiplexer_consumer);
+        multiplexer.add_producer(Box::new(audio_queue));
+        multiplexer.add_producer(Box::new(waveform_producer));
 
         // Create audio widget
         let audio_widget = AudioWidget::new();
 
         // Create and connect waveform visualizer widget
-        let mut waveform_visualizer = WaveformWidget::new();
+        let waveform = WaveformWidget::new(Box::new(waveform_consumer));
 
         // Connect the audio output to the system
         system
             .borrow_mut()
-            .connect_audio_output(Box::new(audio_queue));
+            .connect_audio_output2(Box::new(multiplexer_producer));
 
         // Create input manager with default and WASD profiles
         let mut key_mapping_manager = KeyMappingManager::new();
@@ -470,7 +475,7 @@ impl NesDebugger {
         );
 
         // Create an instance with all components
-        Self {
+        Ok(Self {
             args,
             asm_widget: AsmWidget::new(),
             audio_widget,
@@ -488,7 +493,7 @@ impl NesDebugger {
             pattern_table_widget: PatternTableWidget::new(),
             pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
             audio_output,
-            waveform_visualizer,
+            waveform_visualizer: waveform,
             system,
             key_mapping_manager,
             dock_state,
@@ -496,7 +501,7 @@ impl NesDebugger {
                 display_mode: DisplayMode::Memory,
             },
             initial_file_loaded: false,
-        }
+        })
     }
 }
 
@@ -852,7 +857,7 @@ fn main() -> anyhow::Result<()> {
         options,
         Box::new(|cc| {
             info!("Initializing application");
-            Ok(Box::new(NesDebugger::new(cc, args)))
+            Ok(Box::new(NesDebugger::new(cc, args)?))
         }),
     )
     .map_err(|e| {
