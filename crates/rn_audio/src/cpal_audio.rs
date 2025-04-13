@@ -7,7 +7,7 @@ use rn_core::audio::{SampleProducer, SampleConsumer};
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::{fmt, sync::Arc};
 
-use crate::ring_buffer::{RingBufferBuilder, RingBufferProducer};
+use crate::ring_buffer::RingBufferBuilder;
 
 pub struct CpalAudioBuilder;
 

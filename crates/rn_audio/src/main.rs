@@ -7,7 +7,7 @@ fn main() -> Result<()> {
     let (_host, device, config) = host_device_setup()?;
     let sample_rate = config.sample_rate().0 as f32;
 
-    let (mut audio_queue, mut audio_output) = CpalAudioBuilder::build(device, config)?;
+    let (audio_queue, mut audio_output) = CpalAudioBuilder::build(device, config)?;
 
     let mut oscillator = Oscillator::new(Box::new(audio_queue), sample_rate, Waveform::Sine, 440.0);
 

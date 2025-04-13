@@ -6,7 +6,6 @@ use rn_core::audio::SampleProducer;
 #[derive(Debug)]
 pub struct SimpleAudioOutput {
     sample_buffer: VecDeque<f32>,
-    sample_rate: f32,
     volume: f32,
     muted: bool,
 }
@@ -15,7 +14,6 @@ impl SimpleAudioOutput {
     pub fn new() -> Self {
         Self {
             sample_buffer: VecDeque::with_capacity(8192),
-            sample_rate: 44100.0, // Default sample rate
             volume: 1.0,
             muted: false,
         }
