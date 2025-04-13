@@ -1,18 +1,14 @@
 use std::{
-    sync::{mpsc, Arc},
+    sync::mpsc,
     thread,
     time::{Duration, Instant},
 };
 
 use eframe::{egui, CreationContext, Frame, NativeOptions};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
-use ringbuf::{traits::{Consumer, Producer, Split}, CachingCons, HeapRb};
-use rn_audio::{CpalAudioBuilder, CpalAudioOutput, Oscillator, Waveform};
-use rn_core::audio::AudioOutput;
-use rn_ui::widgets::WaveformVisualizerWidget;
-
-// Size for the visualization ring buffer
-const VIS_BUFFER_SIZE: usize = 512;
+use rn_audio::{ChannelBuilder, CpalAudioBuilder, CpalAudioPlayer, Multiplexer, Oscillator, Waveform};
+use rn_ui::widgets::WaveformWidget;
+use anyhow::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DockTab {
@@ -58,7 +54,6 @@ impl Default for WaveformType {
 enum AudioCommand {
     SetWaveform(Waveform),
     SetFrequency(f32),
-    SetVolume(f32),
     Stop,
     Play,
     Pause,
@@ -67,13 +62,12 @@ enum AudioCommand {
 /// Main waveform player application
 struct WaveformPlayer {
     // Components
-    waveform_visualizer: WaveformVisualizerWidget,
+    waveform: WaveformWidget,
 
     // Audio state
-    sample_consumer: CachingCons<Arc<HeapRb<f32>>>, // Lock-free ringbuffer consumer for visualization
-    audio_output: Option<CpalAudioOutput>,
+    audio_player: CpalAudioPlayer,
     audio_thread: Option<thread::JoinHandle<()>>,
-    audio_command_sender: Option<mpsc::Sender<AudioCommand>>,
+    audio_command_sender: mpsc::Sender<AudioCommand>,
 
     // Dock state
     dock_state: DockState<DockTab>,
@@ -84,10 +78,9 @@ struct WaveformPlayer {
 
 /// Tab viewer for the dock area
 struct WaveformTabViewer<'a> {
-    waveform_visualizer: &'a mut WaveformVisualizerWidget,
-    sample_consumer: &'a mut CachingCons<Arc<HeapRb<f32>>>,
-    audio_command_sender: &'a Option<mpsc::Sender<AudioCommand>>,
-    audio_output: &'a mut Option<CpalAudioOutput>,
+    waveform: &'a mut WaveformWidget,
+    audio_command_sender: &'a mpsc::Sender<AudioCommand>,
+    audio_player: &'a mut CpalAudioPlayer,
     context: &'a mut AppContext,
 }
 
@@ -110,26 +103,14 @@ impl<'a> TabViewer for WaveformTabViewer<'a> {
 
                     if !was_enabled && self.context.audio_enabled {
                         // Start audio playback
-                        if let Some(output) = &mut self.audio_output {
-                            // Start the audio stream
-                            output.play().ok();
+                        let _ = self.audio_player.play().ok();
 
-                            // Notify the audio thread to start processing
-                            if let Some(sender) = &self.audio_command_sender {
-                                sender.send(AudioCommand::Play).ok();
-                            }
-                        }
+                        let _ = self.audio_command_sender.send(AudioCommand::Play);
                     } else if was_enabled && !self.context.audio_enabled {
                         // Stop audio playback
-                        if let Some(output) = &mut self.audio_output {
-                            // Pause the audio stream
-                            output.pause().ok();
+                        let _ = self.audio_player.pause().ok();
 
-                            // Notify the audio thread
-                            if let Some(sender) = &self.audio_command_sender {
-                                sender.send(AudioCommand::Pause).ok();
-                            }
-                        }
+                        let _ = self.audio_command_sender.send(AudioCommand::Pause);
                     }
                 }
 
@@ -165,9 +146,7 @@ impl<'a> TabViewer for WaveformTabViewer<'a> {
 
                     // Send command to audio thread if changed
                     if let Some(new_waveform) = new_waveform {
-                        if let Some(sender) = &self.audio_command_sender {
-                            sender.send(AudioCommand::SetWaveform(new_waveform)).ok();
-                        }
+                        let _ = self.audio_command_sender.send(AudioCommand::SetWaveform(new_waveform));
                     }
                 });
 
@@ -181,9 +160,7 @@ impl<'a> TabViewer for WaveformTabViewer<'a> {
                     .changed()
                 {
                     // Update oscillator frequency via command
-                    if let Some(sender) = &self.audio_command_sender {
-                        sender.send(AudioCommand::SetFrequency(self.context.frequency)).ok();
-                    }
+                    let _ = self.audio_command_sender.send(AudioCommand::SetFrequency(self.context.frequency));
                 }
 
                 // Duty cycle control (only for square wave)
@@ -193,11 +170,7 @@ impl<'a> TabViewer for WaveformTabViewer<'a> {
                         .changed()
                     {
                         // Update oscillator duty cycle via command
-                        if let Some(sender) = &self.audio_command_sender {
-                            sender
-                                .send(AudioCommand::SetWaveform(Waveform::Square(self.context.duty_cycle)))
-                                .ok();
-                        }
+                        let _ = self.audio_command_sender.send(AudioCommand::SetWaveform(Waveform::Square(self.context.duty_cycle)));
                     }
                 }
 
@@ -207,38 +180,19 @@ impl<'a> TabViewer for WaveformTabViewer<'a> {
                     .changed()
                 {
                     // Update audio output volume via command
-                    if let Some(sender) = &self.audio_command_sender {
-                        sender.send(AudioCommand::SetVolume(self.context.volume)).ok();
-                    }
+                    self.audio_player.set_volume(self.context.volume);
                 }
             },
             DockTab::Waveform => {
-                // Process samples from the ring buffer into the waveform visualizer
-                // Read a batch of samples from our lock-free consumer
-                let mut samples = Vec::with_capacity(64);
-                for _ in 0..64 {
-                    if let Some(sample) = self.sample_consumer.try_pop() {
-                        samples.push(sample);
-                    } else {
-                        break;
-                    }
-                }
-
-                // If we have samples, add them to the visualizer
-                if !samples.is_empty() {
-                    // Add the samples to the visualizer
-                    self.waveform_visualizer.add_samples(&samples);
-                }
-
                 // Display the waveform visualizer
-                self.waveform_visualizer.ui(ui);
+                self.waveform.ui(ui);
             },
         }
     }
 }
 
 impl WaveformPlayer {
-    fn new(_cc: &CreationContext<'_>) -> Self {
+    fn new(_cc: &CreationContext<'_>) -> Result<Self> {
         // Create dock state with the tabs
         let mut dock_state = DockState::new(vec![DockTab::Controls]);
 
@@ -248,10 +202,7 @@ impl WaveformPlayer {
             0.5,
             vec![DockTab::Waveform],
         );
-        // Create ringbuffer for visualization
-        let vis_buffer = HeapRb::<f32>::new(VIS_BUFFER_SIZE);
-        let (mut vis_producer, vis_consumer) = vis_buffer.split();
-
+        
         // Set up initial context
         let context = AppContext {
             audio_enabled: false,
@@ -261,139 +212,96 @@ impl WaveformPlayer {
             volume: 0.8,      // 80% volume
         };
 
-        // Create audio output using CpalAudioBuilder
-        match CpalAudioBuilder::build_default() {
-            Ok((mut audio_queue, audio_output)) => {
-                let sample_rate = audio_output.sample_rate();
-                // Create a command channel
-                let (tx, rx) = mpsc::channel();
+        // Create a command channel
+        let (audio_command_sender, audio_command_receiver) = mpsc::channel();
 
-                // Create oscillator in the audio thread to avoid mutex locking
+        let (audio_queue, audio_player) = CpalAudioBuilder::build_default()?;
+        let (multiplexer_producer, multiplexer_consumer) = ChannelBuilder::build(1024);
+        let (waveform_producer, waveform_consumer) = ChannelBuilder::build(1024);
+        
+        let sample_rate = audio_player.sample_rate();
 
-                // Start with the audio queue directly owned by the audio thread
-                let audio_thread = thread::spawn(move || {
-                    // Create oscillator owned by this thread
-                    let mut oscillator = Oscillator::new(sample_rate, Waveform::Sine, 440.0);
+        let mut multiplexer = Multiplexer::new(multiplexer_consumer);
+        
+        multiplexer.add_producer(Box::new(audio_queue));
+        multiplexer.add_producer(Box::new(waveform_producer));
 
-                    // Set initial volume and unmute
-                    audio_queue.set_volume(0.8);
-                    audio_queue.set_muted(false);
+        let mut oscillator = Oscillator::new(Box::new(multiplexer_producer), sample_rate, Waveform::Sine, 440.0);
 
-                    // Pre-fill the buffer with silence to avoid initial scratches
-                    for _ in 0..1024 {
-                        audio_queue.queue_sample(0.0);
-                    }
+        let waveform = WaveformWidget::new(Box::new(waveform_consumer));
 
-                    // Calculate time per sample in microseconds for sample rate
-                    let sample_time_us = (1.0 / sample_rate * 1_000_000.0) as u64;
-                    let mut next_sample_time = Instant::now();
+        // Start with the audio queue directly owned by the audio thread
+        let audio_thread = thread::spawn(move || {
+            // Create oscillator owned by this thread
 
-                    // For rate limiting visualization updates
-                    let mut vis_sample_counter = 0;
+            // Calculate time per sample in microseconds for sample rate
+            let sample_time_us = (1.0 / sample_rate * 1_000_000.0) as u64;
+            let mut next_sample_time = Instant::now();
 
-                    // Flag to track if we're actively generating audio
-                    let mut active = false;
+            // Flag to track if we're actively generating audio
+            let mut active = false;
 
-                    // High-resolution timer for audio generation
-                    let mut running = true;
-                    while running {
-                        // Process any pending commands
-                        while let Ok(command) = rx.try_recv() {
-                            match command {
-                                AudioCommand::SetWaveform(waveform) => {
-                                    oscillator.set_waveform(waveform);
-                                },
-                                AudioCommand::SetFrequency(freq) => {
-                                    oscillator.set_frequency(freq);
-                                },
-                                AudioCommand::SetVolume(vol) => {
-                                    audio_queue.set_volume(vol);
-                                },
-                                AudioCommand::Play => {
-                                    active = true;
-                                },
-                                AudioCommand::Pause => {
-                                    active = false;
-                                    // Fill with silence when paused
-                                    for _ in 0..512 {
-                                        audio_queue.queue_sample(0.0);
-                                    }
-                                },
-                                AudioCommand::Stop => {
-                                    running = false;
-                                    break;
-                                },
-                            }
-                        }
-
-                        if !running {
+            // High-resolution timer for audio generation
+            let mut running = true;
+            while running {
+                // Process any pending commands
+                while let Ok(command) = audio_command_receiver.try_recv() {
+                    match command {
+                        AudioCommand::SetWaveform(waveform) => {
+                            oscillator.set_waveform(waveform);
+                        },
+                        AudioCommand::SetFrequency(freq) => {
+                            oscillator.set_frequency(freq);
+                        },
+                        AudioCommand::Play => {
+                            active = true;
+                        },
+                        AudioCommand::Pause => {
+                            active = false;
+                        },
+                        AudioCommand::Stop => {
+                            running = false;
                             break;
-                        }
-
-                        if active {
-                            // Generate a sample from the oscillator
-                            let sample = oscillator.tick() * 0.8; // Scale to 80% volume
-
-                            // Only send every 4th sample to visualization to avoid overwhelming the UI
-                            vis_sample_counter += 1;
-                            if vis_sample_counter >= 4 {
-                                // Add to visualization ring buffer (non-blocking)
-                                let _ = vis_producer.try_push(sample);
-                                vis_sample_counter = 0;
-                            }
-
-                            // Send directly to audio output (no locking needed)
-                            audio_queue.queue_sample(sample);
-                        } else {
-                            // If not active, just sleep a bit to avoid busy-waiting
-                            thread::sleep(Duration::from_millis(10));
-                            continue;
-                        }
-
-                        // Precise timing for sample generation
-                        next_sample_time += Duration::from_micros(sample_time_us);
-
-                        let now = Instant::now();
-                        if next_sample_time > now {
-                            // Sleep until next sample is due
-                            thread::sleep(next_sample_time.duration_since(now));
-                        } else {
-                            // We're falling behind, reset timing
-                            next_sample_time = now;
-                        }
+                        },
                     }
-
-                    // Clear audio queue before exiting
-                    audio_queue.clear();
-                });
-
-                Self {
-                    waveform_visualizer: WaveformVisualizerWidget::new(),
-                    sample_consumer: vis_consumer,
-                    audio_output: Some(audio_output), 
-                    audio_thread: Some(audio_thread),
-                    audio_command_sender: Some(tx),
-                    dock_state,
-                    context,
                 }
-            },
-            Err(err) => {
-                eprintln!("Failed to initialize audio: {}", err);
 
-                // Create a dummy consumer since we don't have real audio
-                let (_, vis_consumer) = HeapRb::<f32>::new(VIS_BUFFER_SIZE).split();
-
-                Self {
-                    waveform_visualizer: WaveformVisualizerWidget::new(),
-                    sample_consumer: vis_consumer,
-                    audio_output: None,
-                    audio_thread: None,
-                    audio_command_sender: None,
-                    dock_state,
-                    context,
+                if !running {
+                    break;
                 }
-            },
-        }
+
+                if active {
+                    // Generate a sample from the oscillator
+                    oscillator.tick();
+                    multiplexer.tick();
+                } else {
+                    // If not active, just sleep a bit to avoid busy-waiting
+                    thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+
+                // Precise timing for sample generation
+                next_sample_time += Duration::from_micros(sample_time_us);
+
+                let now = Instant::now();
+                if next_sample_time > now {
+                    // Sleep until next sample is due
+                    thread::sleep(next_sample_time.duration_since(now));
+                } else {
+                    // We're falling behind, reset timing
+                    next_sample_time = now;
+                }
+            }
+        });
+
+        Ok(Self {
+            waveform,
+            audio_player, 
+            audio_thread: Some(audio_thread),
+            audio_command_sender,
+            dock_state,
+            context,
+        })
     }
 }
 
@@ -405,10 +313,9 @@ impl eframe::App for WaveformPlayer {
             .show(
                 ctx,
                 &mut WaveformTabViewer {
-                    waveform_visualizer: &mut self.waveform_visualizer,
-                    sample_consumer: &mut self.sample_consumer,
+                    waveform: &mut self.waveform,
                     audio_command_sender: &self.audio_command_sender,
-                    audio_output: &mut self.audio_output,
+                    audio_player: &mut self.audio_player,
                     context: &mut self.context,
                 },
             );
@@ -419,15 +326,11 @@ impl eframe::App for WaveformPlayer {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // Stop audio thread
-        if let Some(sender) = &self.audio_command_sender {
-            sender.send(AudioCommand::Stop).ok();
-        }
+        let _ = self.audio_command_sender.send(AudioCommand::Stop);
 
         // If audio is playing, pause it
         if self.context.audio_enabled {
-            if let Some(output) = &mut self.audio_output {
-                output.pause().ok();
-            }
+            let _ = self.audio_player.pause();
         }
 
         if let Some(thread) = self.audio_thread.take() {
@@ -449,6 +352,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Waveform Player",
         options,
-        Box::new(|cc| Ok(Box::new(WaveformPlayer::new(cc)))),
+        Box::new(|cc| Ok(Box::new(WaveformPlayer::new(cc)?))),
     )
 }

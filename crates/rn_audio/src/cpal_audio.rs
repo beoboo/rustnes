@@ -3,21 +3,16 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait}, SizedSample, Stream,
 };
 use cpal::{FromSample, Sample};
-use ringbuf::{
-    storage::Heap,
-    traits::{Consumer, Producer, Split},
-    CachingCons, CachingProd, HeapRb, SharedRb,
-};
-use rn_core::audio::AudioOutput;
+use rn_core::audio::{AudioOutput, SampleProducer, SampleConsumer};
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::{fmt, sync::Arc};
-type AudioProducer = CachingProd<Arc<SharedRb<Heap<f32>>>>;
-type AudioConsumer = CachingCons<Arc<SharedRb<Heap<f32>>>>;
+
+use crate::{RingBufferBuilder, RingBufferProducer};
 
 pub struct CpalAudioBuilder;
 
 impl CpalAudioBuilder {
-    pub fn build_default() -> Result<(CpalAudioQueue, CpalAudioOutput)> {
+    pub fn build_default() -> Result<(CpalAudioQueue, CpalAudioPlayer)> {
         // Get default host
         let host = cpal::default_host();
 
@@ -38,7 +33,7 @@ impl CpalAudioBuilder {
     pub fn build(
         device: cpal::Device,
         config: cpal::SupportedStreamConfig,
-    ) -> Result<(CpalAudioQueue, CpalAudioOutput)> {
+    ) -> Result<(CpalAudioQueue, CpalAudioPlayer)> {
         let latency_ms = 250.0; // Reduced from 1000ms to 250ms for better responsiveness
         let sample_rate = config.sample_rate().0 as f32;
         let num_channels = config.channels() as usize;
@@ -47,14 +42,14 @@ impl CpalAudioBuilder {
         let latency_samples = latency_frames as usize * num_channels;
 
         // Create a larger buffer to prevent underruns
-        let ring = HeapRb::<f32>::new(latency_samples * 4); // 4x buffer size
-        let (producer, consumer) = ring.split();
-
+        let (producer, consumer) = RingBufferBuilder::build(latency_samples * 4);
         let volume = Arc::new(AtomicU32::new(f32::to_bits(1.0)));
         let muted = Arc::new(AtomicBool::new(false));
         let clear = Arc::new(AtomicBool::new(false));
-        let audio_queue = CpalAudioQueue::new(producer, volume.clone(), muted.clone(), clear.clone());
-        let mut audio_output = CpalAudioOutput::new(device, volume, muted, clear)?;
+
+        let audio_queue = CpalAudioQueue::new(Box::new(producer), volume.clone(), muted.clone(), clear.clone());
+
+        let mut audio_output = CpalAudioPlayer::new(device, volume, muted, clear)?;
         audio_output.initialize(consumer, config)?;
 
         Ok((audio_queue, audio_output))
@@ -62,7 +57,7 @@ impl CpalAudioBuilder {
 }
 
 pub struct CpalAudioQueue {
-    producer: AudioProducer,
+    producer: Box<dyn SampleProducer<f32>>,
     volume: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
     clear: Arc<AtomicBool>,
@@ -79,7 +74,7 @@ impl fmt::Debug for CpalAudioQueue {
 }
 
 impl CpalAudioQueue {
-    fn new(producer: AudioProducer, volume: Arc<AtomicU32>, muted: Arc<AtomicBool>, clear: Arc<AtomicBool>) -> Self {
+    fn new(producer: Box<dyn SampleProducer<f32>>, volume: Arc<AtomicU32>, muted: Arc<AtomicBool>, clear: Arc<AtomicBool>) -> Self {
         Self {
             producer,
             volume,
@@ -89,13 +84,10 @@ impl CpalAudioQueue {
     }
 }
 
-pub struct CpalAudioOutput {
-    device: cpal::Device,
-    volume: Arc<AtomicU32>,
-    muted: Arc<AtomicBool>,
-    clear: Arc<AtomicBool>,
-    stream: Option<Stream>,
-    sample_rate: f32,
+impl SampleProducer<f32> for CpalAudioQueue {
+    fn produce(&mut self, sample: f32) {
+        self.queue_sample(sample);
+    }
 }
 
 impl AudioOutput for CpalAudioQueue {
@@ -109,7 +101,7 @@ impl AudioOutput for CpalAudioQueue {
     }
 
     fn queue_sample(&mut self, sample: f32) {
-        let _ = self.producer.try_push(sample);
+        let _ = self.producer.produce(sample);
     }
 
     fn clear(&mut self) {
@@ -121,7 +113,16 @@ impl AudioOutput for CpalAudioQueue {
     }
 }
 
-impl CpalAudioOutput {
+pub struct CpalAudioPlayer {
+    device: cpal::Device,
+    volume: Arc<AtomicU32>,
+    muted: Arc<AtomicBool>,
+    clear: Arc<AtomicBool>,
+    stream: Option<Stream>,
+    sample_rate: f32,
+}
+
+impl CpalAudioPlayer {
     fn new(
         device: cpal::Device,
         volume: Arc<AtomicU32>,
@@ -142,21 +143,21 @@ impl CpalAudioOutput {
         self.sample_rate
     }
 
-    fn initialize(&mut self, consumer: AudioConsumer, config: cpal::SupportedStreamConfig) -> Result<()> {
+    fn initialize<C: SampleConsumer<f32>>(&mut self, consumer: C, config: cpal::SupportedStreamConfig) -> Result<()> {
         self.sample_rate = config.sample_rate().0 as f32;
 
         let stream = match config.sample_format() {
-            cpal::SampleFormat::I8 => self.make_stream::<i8>(consumer, &config.into()),
-            cpal::SampleFormat::I16 => self.make_stream::<i16>(consumer, &config.into()),
+            cpal::SampleFormat::I8 => self.make_stream::<i8, C>(consumer, &config.into()),
+            cpal::SampleFormat::I16 => self.make_stream::<i16, C>(consumer, &config.into()),
             // cpal::SampleFormat::I24 => make_stream::<I24>(&device, &config.into()),
-            cpal::SampleFormat::I32 => self.make_stream::<i32>(consumer, &config.into()),
-            cpal::SampleFormat::I64 => self.make_stream::<i64>(consumer, &config.into()),
-            cpal::SampleFormat::U8 => self.make_stream::<u8>(consumer, &config.into()),
-            cpal::SampleFormat::U16 => self.make_stream::<u16>(consumer, &config.into()),
-            cpal::SampleFormat::U32 => self.make_stream::<u32>(consumer, &config.into()),
-            cpal::SampleFormat::U64 => self.make_stream::<u64>(consumer, &config.into()),
-            cpal::SampleFormat::F32 => self.make_stream::<f32>(consumer, &config.into()),
-            cpal::SampleFormat::F64 => self.make_stream::<f64>(consumer, &config.into()),
+            cpal::SampleFormat::I32 => self.make_stream::<i32, C>(consumer, &config.into()),
+            cpal::SampleFormat::I64 => self.make_stream::<i64, C>(consumer, &config.into()),
+            cpal::SampleFormat::U8 => self.make_stream::<u8, C>(consumer, &config.into()),
+            cpal::SampleFormat::U16 => self.make_stream::<u16, C>(consumer, &config.into()),
+            cpal::SampleFormat::U32 => self.make_stream::<u32, C>(consumer, &config.into()),
+            cpal::SampleFormat::U64 => self.make_stream::<u64, C>(consumer, &config.into()),
+            cpal::SampleFormat::F32 => self.make_stream::<f32, C>(consumer, &config.into()),
+            cpal::SampleFormat::F64 => self.make_stream::<f64, C>(consumer, &config.into()),
             sample_format => Err(anyhow::Error::msg(format!(
                 "Unsupported sample format '{sample_format}'"
             ))),
@@ -183,9 +184,14 @@ impl CpalAudioOutput {
         Ok(())
     }
 
-    fn make_stream<S>(&mut self, mut consumer: AudioConsumer, config: &cpal::StreamConfig) -> Result<cpal::Stream>
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume.store(f32::to_bits(volume), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn make_stream<S, C>(&mut self, mut consumer: C, config: &cpal::StreamConfig) -> Result<cpal::Stream>
     where
         S: SizedSample + FromSample<f32>,
+        C: SampleConsumer<f32>,
     {
         let num_channels = config.channels as usize;
         let err_fn = |err| eprintln!("Error building output sound stream: {}", err);
@@ -221,24 +227,23 @@ impl CpalAudioOutput {
         clear: Arc<AtomicBool>,
     ) where
         S: Sample + FromSample<f32>,
-        C: Consumer<Item = f32> + Send + 'static,
+        C: SampleConsumer<f32>,
     {
         if clear.load(std::sync::atomic::Ordering::Relaxed) {
-            consumer.clear();
+            // consumer.clear();
             clear.store(false, std::sync::atomic::Ordering::Relaxed);
             return;
         }
 
         for frame in output.chunks_mut(num_channels) {
             // Get sample from buffer or use silence (0.0) if buffer is empty
-            let sample_value = consumer.try_pop().unwrap_or(0.0);
-
+            let sample = consumer.consume().unwrap_or(0.0);
             let muted = muted.load(std::sync::atomic::Ordering::Relaxed);
             let volume = f32::from_bits(volume.load(std::sync::atomic::Ordering::Relaxed));
 
             // Copy the same value to all channels
-            for sample in frame.iter_mut() {
-                *sample = S::from_sample(if muted { 0.0 } else { sample_value * volume });
+            for s in frame.iter_mut() {
+                *s = S::from_sample(if muted { 0.0 } else { sample * volume });
             }
         }
     }

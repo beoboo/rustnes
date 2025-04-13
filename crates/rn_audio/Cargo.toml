@@ -9,7 +9,8 @@ license.workspace = true
 [dependencies]
 rn_core = { path = "../rn_core" }
 
-cpal.workspace = true
 anyhow.workspace = true
+cpal.workspace = true
+crossbeam-channel.workspace = true
 log.workspace = true
 ringbuf.workspace = true

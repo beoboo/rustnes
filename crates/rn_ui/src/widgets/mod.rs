@@ -17,7 +17,7 @@ mod pattern_table_widget;
 mod pixel_display;
 mod pixel_provider;
 mod ppu_widget;
-mod waveform_visualizer_widget;
+mod waveform_widget;
 
 // Re-export types
 // For backward compatibility with existing code
@@ -38,4 +38,4 @@ pub use pattern_table_widget::PatternTableWidget;
 pub use pixel_display::PixelDisplay;
 pub use pixel_provider::{MemoryPixelAdapter, PixelDataProvider, PpuPixelAdapter};
 pub use ppu_widget::PpuWidget;
-pub use waveform_visualizer_widget::WaveformVisualizerWidget;
+pub use waveform_widget::WaveformWidget;

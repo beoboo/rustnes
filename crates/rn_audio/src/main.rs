@@ -10,7 +10,7 @@ fn main() -> Result<()> {
 
     let (mut audio_queue, mut audio_output) = CpalAudioBuilder::build(device, config)?;
 
-    let mut oscillator = Oscillator::new(sample_rate, Waveform::Sine, 440.0);
+    let mut oscillator = Oscillator::new(Box::new(audio_queue), sample_rate, Waveform::Sine, 440.0);
 
     let time_at_start = std::time::Instant::now();
     println!("Time at start: {:?}", time_at_start);
@@ -19,8 +19,7 @@ fn main() -> Result<()> {
     let pre_fill_samples = (sample_rate * 0.1) as usize; // 100ms worth of samples
     println!("Pre-filling buffer with {} samples", pre_fill_samples);
     for _ in 0..pre_fill_samples {
-        let sample = oscillator.tick();
-        audio_queue.queue_sample(sample);
+        oscillator.tick();
     }
     println!("Buffer pre-filled");
 
@@ -51,10 +50,7 @@ fn main() -> Result<()> {
             }
 
             // Generate the next sample
-            let data = oscillator.tick();
-
-            // Push the sample to the buffer
-            audio_queue.queue_sample(data);
+            oscillator.tick();
 
             // Calculate time until next sample
             next_sample_time += std::time::Duration::from_micros(sample_time_us);

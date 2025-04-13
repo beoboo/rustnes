@@ -2,7 +2,7 @@
 use egui::{Slider, SliderClamping, Ui};
 use rn_core::{apu::ApuWrapper, memory::Addressable, system::nes_system::NesSystem};
 
-use super::{AudioCaptureOutput, WaveformVisualizerWidget};
+use super::{AudioCaptureOutput, WaveformWidget};
 
 /// Widget for controlling audio settings
 #[derive(Default)]

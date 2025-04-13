@@ -1,3 +1,5 @@
+use crate::SampleProducer;
+
 #[derive(Debug, Clone, Default)]
 pub enum Waveform {
     #[default]
@@ -12,11 +14,13 @@ pub struct Oscillator {
     pub waveform: Waveform,
     pub current_sample_index: f32,
     pub frequency: f32,
+    producer: Box<dyn SampleProducer<f32>>,
 }
 
 impl Oscillator {
-    pub fn new(sample_rate: f32, waveform: Waveform, frequency: f32) -> Self {
+    pub fn new(producer: Box<dyn SampleProducer<f32>>, sample_rate: f32, waveform: Waveform, frequency: f32) -> Self {
         Self {
+            producer,
             sample_rate,
             waveform,
             current_sample_index: 0.0,
@@ -32,13 +36,15 @@ impl Oscillator {
         self.frequency = frequency;
     }
 
-    pub fn tick(&mut self) -> f32 {
-        match self.waveform {
+    pub fn tick(&mut self) {
+        let sample = match self.waveform {
             Waveform::Sine => self.sine_wave(),
             Waveform::Square(duty_cycle) => self.square_wave(duty_cycle),
             Waveform::Saw => self.saw_wave(),
             Waveform::Triangle => self.triangle_wave(),
-        }
+        };
+
+        self.producer.produce(sample);
     }
 
     fn sine_wave(&mut self) -> f32 {

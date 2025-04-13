@@ -1,4 +1,18 @@
 use std::fmt::Debug;
+
+
+pub trait Sample: Clone + Copy + 'static {}
+
+impl Sample for f32 {}
+
+pub trait SampleProducer<T: Sample>: Send + Sync + 'static {
+    fn produce(&mut self, sample: T);
+}
+
+pub trait SampleConsumer<T: Sample>: Send + Sync + 'static {
+    fn consume(&mut self) -> Option<T>;
+}
+
 /// Trait for audio output devices that can receive samples from the APU
 pub trait AudioOutput: Debug {
     /// Set the volume for audio output

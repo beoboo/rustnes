@@ -5,7 +5,7 @@ use eframe::{egui, App, Frame};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[macro_use]
 extern crate log;
-use rn_audio::{CpalAudioBuilder, CpalAudioOutput};
+use rn_audio::{CpalAudioBuilder, CpalAudioPlayer};
 use rn_core::{
     cpu::CpuWrapper,
     errors::NesError,
@@ -28,7 +28,7 @@ use rn_ui::widgets::{
     PixelDisplay,
     PpuPixelAdapter,
     PpuWidget,
-    WaveformVisualizerWidget,
+    WaveformWidget,
 };
 
 /// Command line arguments for the NesDebugger
@@ -138,8 +138,8 @@ struct NesDebugger {
     pixel_display: PixelDisplay,
     ppu_widget: PpuWidget,
     audio_widget: AudioWidget,
-    waveform_visualizer: WaveformVisualizerWidget,
-    audio_output: CpalAudioOutput,
+    waveform_visualizer: WaveformWidget,
+    audio_output: CpalAudioPlayer,
 
     // Emulation state
     system: Rc<RefCell<NesSystem>>,
@@ -169,7 +169,7 @@ struct NesTabViewer<'a> {
     memory_widget: &'a mut MemoryWidget,
     pattern_table_widget: &'a mut PatternTableWidget,
     audio_widget: &'a mut AudioWidget,
-    waveform_visualizer: &'a mut WaveformVisualizerWidget,
+    waveform_visualizer: &'a mut WaveformWidget,
     system: Rc<RefCell<NesSystem>>,
     context: &'a mut AppContext,
 }
@@ -411,7 +411,7 @@ impl NesDebugger {
         let audio_widget = AudioWidget::new();
 
         // Create and connect waveform visualizer widget
-        let mut waveform_visualizer = WaveformVisualizerWidget::new();
+        let mut waveform_visualizer = WaveformWidget::new();
 
         // Connect the audio output to the system
         system
