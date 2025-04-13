@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{audio::{AudioOutput, SampleProducer}, errors::NesError, memory::Addressable};
+use crate::{audio::SampleProducer, errors::NesError, memory::Addressable};
 use derive_more::Debug;
 
 mod dmc_channel;
@@ -50,13 +50,8 @@ impl ApuWrapper {
     }
 
     /// Connect an audio output device
-    pub fn connect_audio_output(&self, audio_output: Box<dyn AudioOutput>) {
+    pub fn connect_audio_output(&self, audio_output: Box<dyn SampleProducer<f32>>) {
         self.apu.borrow_mut().connect_audio_output(audio_output);
-    }
-
-    /// Connect an audio output device
-    pub fn connect_audio_output2(&self, audio_output: Box<dyn SampleProducer<f32>>) {
-        self.apu.borrow_mut().connect_audio_output2(audio_output);
     }
 
     pub fn set_volume(&self, volume: f32) {
@@ -116,7 +111,6 @@ pub struct Apu {
     // Sample generation state
     cycle_counter: u64,
     sample_counter: f64,
-    samples_per_cycle: f64,
 
     // Frame counter state
     frame_counter: u64,
@@ -148,7 +142,6 @@ impl Apu {
             // Sample generation state
             cycle_counter: 0,
             sample_counter: 0.0,
-            samples_per_cycle: DEFAULT_SAMPLE_RATE as f64 / CPU_CLOCK_RATE,
 
             // Frame counter state
             frame_counter: 0,
@@ -180,11 +173,6 @@ impl Apu {
 
         // Reset frame counter
         self.frame_counter = 0;
-
-        // Clear any pending audio output
-        if let Some(audio_output) = &mut self.audio_output2 {
-            // audio_output.clear();
-        }
     }
 
     /// Process a single APU cycle
@@ -247,11 +235,7 @@ impl Apu {
     }
 
     /// Connect an audio output device
-    pub fn connect_audio_output(&mut self, audio_output: Box<dyn AudioOutput>) {
-    }
-
-    /// Connect an audio output device
-    pub fn connect_audio_output2(&mut self, audio_output: Box<dyn SampleProducer<f32>>) {
+    pub fn connect_audio_output(&mut self, audio_output: Box<dyn SampleProducer<f32>>) {
         // Store the audio output
         self.audio_output2 = Some(audio_output);
     }
@@ -393,12 +377,16 @@ mod tests {
             }
         }
 
+        fn clear(&mut self) {
+            self.samples.clear();
+        }
+
         fn set_ready(&mut self, ready: bool) {
             self.ready = ready;
         }
     }
 
-    impl AudioOutput for TestAudioOutput {
+    impl SampleProducer<f32> for TestAudioOutput {
         fn set_volume(&mut self, _volume: f32) {
             // Do nothing for test
         }
@@ -407,18 +395,10 @@ mod tests {
             // Do nothing for test
         }
 
-        fn queue_sample(&mut self, sample: f32) {
+        fn produce(&mut self, sample: f32) {
             if self.ready {
                 self.samples.push(sample);
             }
-        }
-
-        fn clear(&mut self) {
-            self.samples.clear();
-        }
-
-        fn is_ready(&self) -> bool {
-            self.ready
         }
     }
 
@@ -881,7 +861,7 @@ mod tests {
     #[derive(Debug)]
     struct TestOutputWrapper(Rc<RefCell<TestAudioOutput>>);
 
-    impl AudioOutput for TestOutputWrapper {
+    impl SampleProducer<f32> for TestOutputWrapper {
         fn set_volume(&mut self, _volume: f32) {
             // Do nothing for test
         }
@@ -890,18 +870,12 @@ mod tests {
             // Do nothing for test
         }
 
-        fn queue_sample(&mut self, sample: f32) {
+        fn produce(&mut self, sample: f32) {
             if self.0.borrow().ready {
                 self.0.borrow_mut().samples.push(sample);
             }
         }
-
-        fn clear(&mut self) {
-            self.0.borrow_mut().samples.clear();
-        }
-
-        fn is_ready(&self) -> bool {
-            self.0.borrow().ready
-        }
     }
+    unsafe impl Send for TestOutputWrapper {}
+    unsafe impl Sync for TestOutputWrapper {}
 }

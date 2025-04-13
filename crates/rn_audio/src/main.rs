@@ -1,6 +1,5 @@
 use cpal::traits::{DeviceTrait, HostTrait};
 use rn_audio::{CpalAudioBuilder, Oscillator, Waveform};
-use rn_core::audio::AudioOutput;
 use anyhow::Result;
 
 

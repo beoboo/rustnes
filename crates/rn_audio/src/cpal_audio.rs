@@ -3,7 +3,7 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait}, SizedSample, Stream,
 };
 use cpal::{FromSample, Sample};
-use rn_core::audio::{AudioOutput, SampleProducer, SampleConsumer};
+use rn_core::audio::{SampleProducer, SampleConsumer};
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::{fmt, sync::Arc};
 
@@ -45,11 +45,10 @@ impl CpalAudioBuilder {
         let (producer, consumer) = RingBufferBuilder::build(latency_samples * 4);
         let volume = Arc::new(AtomicU32::new(f32::to_bits(1.0)));
         let muted = Arc::new(AtomicBool::new(false));
-        let clear = Arc::new(AtomicBool::new(false));
 
-        let audio_queue = CpalAudioQueue::new(Box::new(producer), volume.clone(), muted.clone(), clear.clone());
+        let audio_queue = CpalAudioQueue::new(Box::new(producer), volume.clone(), muted.clone());
 
-        let mut audio_output = CpalAudioPlayer::new(device, volume, muted, clear)?;
+        let mut audio_output = CpalAudioPlayer::new(device, volume, muted)?;
         audio_output.initialize(consumer, config)?;
 
         Ok((audio_queue, audio_output))
@@ -60,7 +59,6 @@ pub struct CpalAudioQueue {
     producer: Box<dyn SampleProducer<f32>>,
     volume: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
-    clear: Arc<AtomicBool>,
 }
 
 impl fmt::Debug for CpalAudioQueue {
@@ -74,12 +72,11 @@ impl fmt::Debug for CpalAudioQueue {
 }
 
 impl CpalAudioQueue {
-    fn new(producer: Box<dyn SampleProducer<f32>>, volume: Arc<AtomicU32>, muted: Arc<AtomicBool>, clear: Arc<AtomicBool>) -> Self {
+    fn new(producer: Box<dyn SampleProducer<f32>>, volume: Arc<AtomicU32>, muted: Arc<AtomicBool>) -> Self {
         Self {
             producer,
             volume,
             muted,
-            clear,
         }
     }
 }
@@ -98,34 +95,10 @@ impl SampleProducer<f32> for CpalAudioQueue {
     }
 }
 
-impl AudioOutput for CpalAudioQueue {
-    fn set_volume(&mut self, volume: f32) {
-        self.volume
-            .store(f32::to_bits(volume), std::sync::atomic::Ordering::Relaxed);
-    }
-
-    fn set_muted(&mut self, muted: bool) {
-        self.muted.store(muted, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    fn queue_sample(&mut self, sample: f32) {
-        let _ = self.producer.produce(sample);
-    }
-
-    fn clear(&mut self) {
-        self.clear.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    fn is_ready(&self) -> bool {
-        true
-    }
-}
-
 pub struct CpalAudioPlayer {
     device: cpal::Device,
     volume: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
-    clear: Arc<AtomicBool>,
     stream: Option<Stream>,
     sample_rate: f32,
 }
@@ -135,13 +108,11 @@ impl CpalAudioPlayer {
         device: cpal::Device,
         volume: Arc<AtomicU32>,
         muted: Arc<AtomicBool>,
-        clear: Arc<AtomicBool>,
     ) -> Result<Self> {
         Ok(Self {
             device,
             volume,
             muted,
-            clear,
             stream: None,
             sample_rate: 0.0,
         })
@@ -205,7 +176,7 @@ impl CpalAudioPlayer {
         let err_fn = |err| eprintln!("Error building output sound stream: {}", err);
         let volume = self.volume.clone();
         let muted = self.muted.clone();
-        let clear = self.clear.clone();
+        // let clear = self.clear.clone();
 
         let stream = self.device.build_output_stream(
             &config,
@@ -216,7 +187,7 @@ impl CpalAudioPlayer {
                     num_channels,
                     volume.clone(),
                     muted.clone(),
-                    clear.clone(),
+                    // clear.clone(),
                 )
             },
             err_fn,
@@ -232,16 +203,16 @@ impl CpalAudioPlayer {
         num_channels: usize,
         volume: Arc<AtomicU32>,
         muted: Arc<AtomicBool>,
-        clear: Arc<AtomicBool>,
+        // clear: Arc<AtomicBool>,
     ) where
         S: Sample + FromSample<f32>,
         C: SampleConsumer<f32>,
     {
-        if clear.load(std::sync::atomic::Ordering::Relaxed) {
-            // consumer.clear();
-            clear.store(false, std::sync::atomic::Ordering::Relaxed);
-            return;
-        }
+        // if clear.load(std::sync::atomic::Ordering::Relaxed) {
+        //     // consumer.clear();
+        //     clear.store(false, std::sync::atomic::Ordering::Relaxed);
+        //     return;
+        // }
 
         for frame in output.chunks_mut(num_channels) {
             // Get sample from buffer or use silence (0.0) if buffer is empty

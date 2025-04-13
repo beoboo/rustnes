@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use rn_core::audio::AudioOutput;
+use rn_core::audio::SampleProducer;
 
 /// Simple implementation of AudioOutput that collects samples but doesn't output them
 #[derive(Debug)]
@@ -22,7 +22,7 @@ impl SimpleAudioOutput {
     }
 }
 
-impl AudioOutput for SimpleAudioOutput {
+impl SampleProducer<f32> for SimpleAudioOutput {
     fn set_volume(&mut self, volume: f32) {
         self.volume = volume;
     }
@@ -31,20 +31,12 @@ impl AudioOutput for SimpleAudioOutput {
         self.muted = muted;
     }
 
-    fn queue_sample(&mut self, sample: f32) {
+    fn produce(&mut self, sample: f32) {
         self.sample_buffer.push_back(sample);
 
         // Keep buffer at a reasonable size
         if self.sample_buffer.len() > 8192 {
             self.sample_buffer.pop_front();
         }
-    }
-
-    fn clear(&mut self) {
-        self.sample_buffer.clear();
-    }
-
-    fn is_ready(&self) -> bool {
-        true // Always ready to receive samples
     }
 }
