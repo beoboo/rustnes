@@ -5,7 +5,7 @@ use eframe::{egui, App, Frame};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[macro_use]
 extern crate log;
-use rn_audio::{ChannelBuilder, CpalAudioBuilder, CpalAudioPlayer, Multiplexer};
+use rn_audio::{ChannelBuilder, CpalAudioBuilder, CpalAudioConsumer, Multiplexer};
 use rn_core::{
     cpu::CpuWrapper,
     errors::NesError,
@@ -140,7 +140,7 @@ struct NesDebugger {
     ppu_widget: PpuWidget,
     audio_widget: AudioWidget,
     waveform_visualizer: WaveformWidget,
-    audio_output: CpalAudioPlayer,
+    audio_output: CpalAudioConsumer,
 
     // Emulation state
     system: Rc<RefCell<NesSystem>>,
@@ -404,13 +404,13 @@ impl NesDebugger {
         // Create the NES system
         let system = Rc::new(RefCell::new(NesSystem::new()));
 
-        let (audio_queue, audio_output) = CpalAudioBuilder::build_default()?;
-        let (multiplexer_producer, multiplexer_consumer) = ChannelBuilder::build(1024);
-        let (waveform_producer, waveform_consumer) = ChannelBuilder::build(1024);
+        let (audio_producer, audio_consumer) = CpalAudioBuilder::build_default()?;
+        let (multiplexer_producer, multiplexer_consumer) = ChannelBuilder::<f32>::build(1024);
+        let (waveform_producer, waveform_consumer) = ChannelBuilder::<f32>::build(1024);
 
         let mut multiplexer = Multiplexer::new(multiplexer_consumer);
-        multiplexer.add_producer(Box::new(audio_queue));
-        multiplexer.add_producer(Box::new(waveform_producer));
+        // multiplexer.add_producer(Box::new(audio_producer));
+        // multiplexer.add_producer(Box::new(waveform_producer));
 
         // Create audio widget
         let audio_widget = AudioWidget::new();
@@ -421,7 +421,7 @@ impl NesDebugger {
         // Connect the audio output to the system
         system
             .borrow_mut()
-            .connect_audio_output2(Box::new(multiplexer_producer));
+            .connect_audio_output2(Box::new(audio_producer));
 
         // Create input manager with default and WASD profiles
         let mut key_mapping_manager = KeyMappingManager::new();
@@ -492,7 +492,7 @@ impl NesDebugger {
                 .with_editable(true),
             pattern_table_widget: PatternTableWidget::new(),
             pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
-            audio_output,
+            audio_output: audio_consumer,
             waveform_visualizer: waveform,
             system,
             key_mapping_manager,

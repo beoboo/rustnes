@@ -30,6 +30,7 @@ impl WaveformWidget {
     /// Create a new waveform visualizer widget for real-time output
     pub fn new(consumer: Box<dyn SampleConsumer<f32>>) -> Self {
         let max_samples = 256;
+        
         Self {
             width: max_samples,
             height: 100,

@@ -220,14 +220,32 @@ impl Apu {
             let noise_sample = self.noise.generate_sample();
             let dmc_sample = self.dmc.generate_sample();
 
+            // Count active channels for dynamic gain adjustment
+            let mut active_channels = 0;
+            if pulse1_sample > 0.0 { active_channels += 1; }
+            if pulse2_sample > 0.0 { active_channels += 1; }
+            if triangle_sample > 0.0 { active_channels += 1; }
+            if noise_sample > 0.0 { active_channels += 1; }
+            if dmc_sample > 0.0 { active_channels += 1; }
+            
+            // Calculate dynamic gain (min 1.0, max 5.0)
+            let dynamic_gain = if active_channels > 0 {
+                // More channels = less gain needed
+                // With all 5 channels active, gain is 1.0
+                // With 1 channel active, gain is 5.0
+                5.0f32 / active_channels as f32
+            } else {
+                1.0f32 // Default gain when no channels active
+            };
+
             // Mix pulse channels (with 95.88/15 scaling)
             let pulse_out = (pulse1_sample + pulse2_sample) * 95.88f32 / 15.0f32;
 
             // Mix TND channels (with respective scalings)
             let tnd_out = (triangle_sample * 159.79 + noise_sample * 159.79f32 + dmc_sample * 127.0f32) / 15.0f32;
 
-            // Combine outputs and normalize to [-1.0, 1.0]
-            let mixed_sample = (pulse_out + tnd_out) / 400.0f32;
+            // Combine outputs and normalize to [-1.0, 1.0], with dynamic gain
+            let mixed_sample = (pulse_out + tnd_out) / 400.0f32 * dynamic_gain;
 
             // Output the sample
             audio_output.produce(mixed_sample);

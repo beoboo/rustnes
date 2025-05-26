@@ -6,7 +6,7 @@ use std::{
 
 use eframe::{egui, CreationContext, Frame, NativeOptions};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
-use rn_audio::{ChannelBuilder, CpalAudioBuilder, CpalAudioPlayer, Multiplexer, Oscillator, Waveform};
+use rn_audio::{ChannelBuilder, CpalAudioBuilder, CpalAudioConsumer, Multiplexer, Oscillator, Waveform};
 use rn_ui::widgets::WaveformWidget;
 use anyhow::Result;
 
@@ -65,7 +65,7 @@ struct WaveformPlayer {
     waveform: WaveformWidget,
 
     // Audio state
-    audio_player: CpalAudioPlayer,
+    audio_player: CpalAudioConsumer,
     audio_thread: Option<thread::JoinHandle<()>>,
     audio_command_sender: mpsc::Sender<AudioCommand>,
 
@@ -80,7 +80,7 @@ struct WaveformPlayer {
 struct WaveformTabViewer<'a> {
     waveform: &'a mut WaveformWidget,
     audio_command_sender: &'a mpsc::Sender<AudioCommand>,
-    audio_player: &'a mut CpalAudioPlayer,
+    audio_player: &'a mut CpalAudioConsumer,
     context: &'a mut AppContext,
 }
 
@@ -215,14 +215,14 @@ impl WaveformPlayer {
         // Create a command channel
         let (audio_command_sender, audio_command_receiver) = mpsc::channel();
 
-        let (audio_queue, audio_player) = CpalAudioBuilder::build_default()?;
+        let (audio_producer, audio_consumer) = CpalAudioBuilder::build_default()?;
         let (multiplexer_producer, multiplexer_consumer) = ChannelBuilder::build(1024);
         let (waveform_producer, waveform_consumer) = ChannelBuilder::build(1024);
         
-        let sample_rate = audio_player.sample_rate();
+        let sample_rate = audio_consumer.sample_rate();
 
         let mut multiplexer = Multiplexer::new(multiplexer_consumer);
-        multiplexer.add_producer(Box::new(audio_queue));
+        multiplexer.add_producer(Box::new(audio_producer));
         multiplexer.add_producer(Box::new(waveform_producer));
 
         let mut oscillator = Oscillator::new(Box::new(multiplexer_producer), sample_rate, Waveform::Sine, 440.0);
@@ -295,7 +295,7 @@ impl WaveformPlayer {
 
         Ok(Self {
             waveform,
-            audio_player, 
+            audio_player: audio_consumer, 
             audio_thread: Some(audio_thread),
             audio_command_sender,
             dock_state,

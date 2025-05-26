@@ -13,7 +13,7 @@ mod simple_audio;
 
 // Re-export common types
 pub use anyhow::Result;
-pub use cpal_audio::{CpalAudioBuilder, CpalAudioPlayer, CpalAudioQueue};
+pub use cpal_audio::{CpalAudioBuilder, CpalAudioConsumer, CpalAudioProducer};
 pub use channel_buffer::{ChannelBuilder, ChannelConsumer, ChannelProducer};
 pub use multiplexer::Multiplexer;
 pub use oscillator::{Oscillator, Waveform};

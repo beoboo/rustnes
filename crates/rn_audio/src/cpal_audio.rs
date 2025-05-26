@@ -12,7 +12,7 @@ use crate::ring_buffer::RingBufferBuilder;
 pub struct CpalAudioBuilder;
 
 impl CpalAudioBuilder {
-    pub fn build_default() -> Result<(CpalAudioQueue, CpalAudioPlayer)> {
+    pub fn build_default() -> Result<(CpalAudioProducer, CpalAudioConsumer)> {
         // Get default host
         let host = cpal::default_host();
 
@@ -33,7 +33,7 @@ impl CpalAudioBuilder {
     pub fn build(
         device: cpal::Device,
         config: cpal::SupportedStreamConfig,
-    ) -> Result<(CpalAudioQueue, CpalAudioPlayer)> {
+    ) -> Result<(CpalAudioProducer, CpalAudioConsumer)> {
         let latency_ms = 250.0; // Reduced from 1000ms to 250ms for better responsiveness
         let sample_rate = config.sample_rate().0 as f32;
         let num_channels = config.channels() as usize;
@@ -46,22 +46,22 @@ impl CpalAudioBuilder {
         let volume = Arc::new(AtomicU32::new(f32::to_bits(1.0)));
         let muted = Arc::new(AtomicBool::new(false));
 
-        let audio_queue = CpalAudioQueue::new(Box::new(producer), volume.clone(), muted.clone());
+        let audio_queue = CpalAudioProducer::new(Box::new(producer), volume.clone(), muted.clone());
 
-        let mut audio_output = CpalAudioPlayer::new(device, volume, muted)?;
+        let mut audio_output = CpalAudioConsumer::new(device, volume, muted)?;
         audio_output.initialize(consumer, config)?;
 
         Ok((audio_queue, audio_output))
     }
 }
 
-pub struct CpalAudioQueue {
+pub struct CpalAudioProducer {
     producer: Box<dyn SampleProducer<f32>>,
     volume: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
 }
 
-impl fmt::Debug for CpalAudioQueue {
+impl fmt::Debug for CpalAudioProducer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -71,7 +71,7 @@ impl fmt::Debug for CpalAudioQueue {
     }
 }
 
-impl CpalAudioQueue {
+impl CpalAudioProducer {
     fn new(producer: Box<dyn SampleProducer<f32>>, volume: Arc<AtomicU32>, muted: Arc<AtomicBool>) -> Self {
         Self {
             producer,
@@ -81,7 +81,7 @@ impl CpalAudioQueue {
     }
 }
 
-impl SampleProducer<f32> for CpalAudioQueue {
+impl SampleProducer<f32> for CpalAudioProducer {
     fn set_volume(&mut self, volume: f32) {
         self.volume.store(f32::to_bits(volume), std::sync::atomic::Ordering::Relaxed);
     }
@@ -95,7 +95,7 @@ impl SampleProducer<f32> for CpalAudioQueue {
     }
 }
 
-pub struct CpalAudioPlayer {
+pub struct CpalAudioConsumer {
     device: cpal::Device,
     volume: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
@@ -103,7 +103,7 @@ pub struct CpalAudioPlayer {
     sample_rate: f32,
 }
 
-impl CpalAudioPlayer {
+impl CpalAudioConsumer {
     fn new(
         device: cpal::Device,
         volume: Arc<AtomicU32>,
@@ -217,6 +217,7 @@ impl CpalAudioPlayer {
         for frame in output.chunks_mut(num_channels) {
             // Get sample from buffer or use silence (0.0) if buffer is empty
             let sample = consumer.consume().unwrap_or(0.0);
+            println!("sample: {}", sample);
             let muted = muted.load(std::sync::atomic::Ordering::Relaxed);
             let volume = f32::from_bits(volume.load(std::sync::atomic::Ordering::Relaxed));
 
