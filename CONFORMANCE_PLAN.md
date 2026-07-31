@@ -4,6 +4,14 @@ How this emulator gets validated against the NES test ROMs the community uses, a
 exist first. Companion to [PLAN.md](PLAN.md) and [TODO.md](TODO.md); the same shape as
 [AUDIO_PLAN.md](AUDIO_PLAN.md), which is now largely done.
 
+> **Progress.** P1 (PRG-ROM loading), P2 (the instruction set) and P4 (the runner) are done:
+> `.nes` files boot from their reset vector, all 56 official instructions exist, and
+> `tools/rom_test` runs both nestest log-diff and blargg's `$6000` protocol. P3 (interrupts) is
+> next, and then the ROMs themselves — which need downloading, since they cannot live here.
+>
+> Building the runner already found one gap: `$6000-$7FFF` cartridge PRG-RAM was unmapped, so
+> every blargg ROM would have been unable to report a result at all.
+
 ## Why this document
 
 Every audio defect this project had was invisible to its unit tests: each channel behaved

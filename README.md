@@ -15,12 +15,12 @@ A book teaching how to build one is the eventual goal — in the spirit of *Craf
 
 | Subsystem | State |
 | --- | --- |
-| 6502 CPU | Partial — 46 of 56 official instructions, 108 of 151 opcodes; no interrupts |
+| 6502 CPU | Partial — **all 56** official instructions, 128 of 151 opcodes; no interrupts |
 | Memory / bus | Working — address decoding, component attachment, region map |
 | DMA | Working — OAM DMA controller with cycle stealing |
 | Input | Working — controllers, remappable key profiles |
 | PPU | Partial — pattern tables, palettes, background and sprite rendering |
-| Cartridge | Partial — iNES header and CHR-ROM parsed; **PRG-ROM is skipped**, so `.nes` files cannot run |
+| Cartridge | Partial — `.nes` files load and boot from the reset vector; no mapper layer yet |
 | APU | Working — all five channels, hardware non-linear mixing, resampling, output filters |
 | Debugger UI | Working — dockable egui workspace with per-subsystem widgets |
 
@@ -38,6 +38,7 @@ crates/
   rn_ui/       egui widgets: cpu, ppu, memory, pattern table, disasm, audio, waveform, ...
 tools/
   apu_probe/        Headless audio harness — run a program, measure/save what the APU produced
+  rom_test/         Headless NES test-ROM runner (nestest log-diff, blargg $6000 protocol)
   nes_asm/          Command-line 6502 assembler
   nes_debugger/     The main application — full dockable debugger workspace
   waveform_player/  Standalone oscillator + waveform-visualizer playground (no emulation)
@@ -64,7 +65,13 @@ cargo run -p waveform_player                             # audio playground, no 
 cargo run -p apu_probe -- list                           # built-in audio test programs
 cargo run -p apu_probe -- check                          # measure them all, pass/fail
 cargo run -p apu_probe -- run pulse --out /tmp/a.wav     # capture one to a WAV
+
+cargo run -p rom_test -- nestest roms/nestest.nes roms/nestest.log
+cargo run -p rom_test -- suite roms/                     # every .nes under a directory
 ```
+
+Test ROMs are not distributed here (see [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)); `rom_test`
+skips cleanly with a message when they are absent, so a fresh checkout stays green.
 
 In the debugger: **Assemble** builds the source in the Assembly tab into system memory, **Run**
 starts continuous execution (and starts the audio stream), **Step** advances one instruction,

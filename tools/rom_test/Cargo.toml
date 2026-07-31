@@ -1,0 +1,16 @@
+[package]
+name = "rom_test"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Headless runner for the NES test ROMs (nestest, blargg's suites)"
+license.workspace = true
+
+[dependencies]
+rn_core = { path = "../../crates/rn_core" }
+
+anyhow.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true

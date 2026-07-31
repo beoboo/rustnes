@@ -64,6 +64,13 @@ impl NesSystem {
         // Add ROM mapping for program memory (0x8000-0xFFFF)
         let rom = Box::new(Ram::with_range(0x8000, 0xFFFF));
 
+        // Cartridge PRG-RAM (often battery-backed "save RAM") at $6000-$7FFF.
+        //
+        // Games use it for saves, but it also carries the protocol every blargg test ROM reports
+        // through: a status byte at $6000 and a message at $6004. Leaving it unmapped meant those
+        // ROMs could not communicate a result at all.
+        let prg_ram = Box::new(Ram::with_range(0x6000, 0x7FFF));
+
         // Create the CPU with its bus
         let cpu = CpuWrapper::new(Cpu::new());
 
@@ -81,6 +88,7 @@ impl NesSystem {
             let mut bus = bus.borrow_mut();
             bus.attach_component(Box::new(ppu.clone()));
             bus.attach_component(Box::new(apu.clone()));
+            bus.attach_component(prg_ram);
             bus.attach_component(rom);
             bus.attach_component(Box::new(dma.clone()));
             bus.attach_component(Box::new(controller_handler.clone()));

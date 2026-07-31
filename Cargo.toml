@@ -5,7 +5,8 @@ members = [
     "crates/rn_ui", 
     "tools/apu_probe",
     "tools/nes_asm",
-    "tools/nes_debugger", "tools/waveform_player",
+    "tools/nes_debugger",
+    "tools/rom_test", "tools/waveform_player",
 ]
 resolver = "2"
 
