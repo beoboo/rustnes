@@ -137,9 +137,9 @@ mod tests {
         assert_eq!(parsed.prg_rom_size, 2);
         assert_eq!(parsed.chr_rom_size, 1);
         assert_eq!(parsed.mapper, 1);
-        assert_eq!(parsed.mirroring, true);
-        assert_eq!(parsed.battery, false);
-        assert_eq!(parsed.trainer, false);
-        assert_eq!(parsed.four_screen, false);
+        assert!(parsed.mirroring);
+        assert!(!parsed.battery);
+        assert!(!parsed.trainer);
+        assert!(!parsed.four_screen);
     }
 }

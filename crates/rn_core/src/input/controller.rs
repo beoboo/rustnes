@@ -287,14 +287,14 @@ impl ControllerHandlerWrapper {
         // This requires extending ControllerHandler with methods to expose the state.
         let handler = self.handler.borrow();
         let controller1 = &handler.controller1;
-        controller1.controller_state.clone()
+        controller1.controller_state
     }
 
     /// Get a snapshot of controller 2's current state
     pub fn get_controller2_state(&self) -> ControllerState {
         let handler = self.handler.borrow();
         let controller2 = &handler.controller2;
-        controller2.controller_state.clone()
+        controller2.controller_state
     }
 }
 
@@ -309,6 +309,30 @@ impl Addressable for ControllerHandlerWrapper {
 
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
         self.handler.borrow_mut().write_byte(address, value)
+    }
+}
+
+impl Default for ControllerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for ControllerHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for ControllerHandlerWrapper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for StrobeLatch {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -104,7 +104,7 @@ impl PixelDataProvider for MemoryPixelAdapter {
 
     fn height(&self) -> usize {
         let memory_size = (self.end_addr - self.start_addr + 1) as usize;
-        (memory_size + self.display_width - 1) / self.display_width // Ceiling division
+        memory_size.div_ceil(self.display_width) // Ceiling division
     }
 
     fn title(&self) -> &str {

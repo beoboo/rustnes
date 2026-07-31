@@ -111,3 +111,9 @@ impl HexEditText {
         value_changed
     }
 }
+
+impl Default for HexEditText {
+    fn default() -> Self {
+        Self::new()
+    }
+}

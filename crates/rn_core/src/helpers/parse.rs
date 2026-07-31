@@ -39,19 +39,17 @@ where
     <T as std::str::FromStr>::Err: std::fmt::Debug,
 {
     // First remove '#' prefix if it exists (for immediate addressing mode)
-    let input = if input.starts_with('#') { &input[1..] } else { input };
+    let input = input.strip_prefix('#').unwrap_or(input);
 
     let input = input.trim();
 
     // Handle hexadecimal format (with $ prefix)
-    if input.starts_with('$') {
-        let hex_str = &input[1..];
+    if let Some(hex_str) = input.strip_prefix('$') {
         T::from_str_radix(hex_str, 16)
             .map_err(|_| ParseError::InvalidFormat(format!("Invalid hex {} value: ${}", type_name, hex_str)))
     }
     // Handle binary format (with % prefix)
-    else if input.starts_with('%') {
-        let bin_str = &input[1..];
+    else if let Some(bin_str) = input.strip_prefix('%') {
         T::from_str_radix(bin_str, 2)
             .map_err(|_| ParseError::InvalidFormat(format!("Invalid binary {} value: %{}", type_name, bin_str)))
     }

@@ -3,13 +3,9 @@ use egui::{Grid, Ui};
 use rn_core::system::{dma::DmaControllerWrapper, DmaController};
 
 /// Widget for displaying DMA controller state
+#[derive(Default)]
 pub struct DmaControllerWidget {}
 
-impl Default for DmaControllerWidget {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 impl DmaControllerWidget {
     /// Create a new DMA controller widget

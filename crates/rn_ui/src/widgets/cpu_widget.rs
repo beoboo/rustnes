@@ -6,6 +6,7 @@ use rn_core::cpu::{Cpu, CpuWrapper};
 use crate::widgets::{HexEditText, ValueType};
 
 /// Widget for displaying CPU state
+#[derive(Default)]
 pub struct CpuWidget {
     // Register edit widgets
     a_register: HexEditText,
@@ -15,17 +16,6 @@ pub struct CpuWidget {
     pc_register: HexEditText,
 }
 
-impl Default for CpuWidget {
-    fn default() -> Self {
-        Self {
-            a_register: HexEditText::new(),
-            x_register: HexEditText::new(),
-            y_register: HexEditText::new(),
-            sp_register: HexEditText::new(),
-            pc_register: HexEditText::new(),
-        }
-    }
-}
 
 impl CpuWidget {
     /// Create a new CPU widget

@@ -7,6 +7,7 @@ use rn_core::ppu::{self, PpuWrapper};
 use crate::widgets::{HexEditText, ValueType};
 
 /// Widget for displaying PPU state
+#[derive(Default)]
 pub struct PpuWidget {
     // Register edit widgets
     ctrl_register: HexEditText,
@@ -18,19 +19,6 @@ pub struct PpuWidget {
     ppu_addr_register: HexEditText,
 }
 
-impl Default for PpuWidget {
-    fn default() -> Self {
-        Self {
-            ctrl_register: HexEditText::new(),
-            mask_register: HexEditText::new(),
-            status_register: HexEditText::new(),
-            oam_addr_register: HexEditText::new(),
-            scroll_x_register: HexEditText::new(),
-            scroll_y_register: HexEditText::new(),
-            ppu_addr_register: HexEditText::new(),
-        }
-    }
-}
 
 impl PpuWidget {
     /// Create a new PPU widget

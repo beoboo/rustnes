@@ -3,7 +3,7 @@ mod pattern_table;
 
 use std::path::Path;
 
-pub use loader::{load_chr_rom, RomLoadError};
+pub use loader::{load_chr_rom, INesHeader, RomLoadError};
 pub use pattern_table::PatternTable;
 
 /// Basic NES cartridge implementation

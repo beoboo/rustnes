@@ -169,12 +169,12 @@ impl PatternTableWidget {
 
     /// Set the tile size (display size of each 8x8 tile)
     pub fn set_tile_size(&mut self, size: f32) {
-        self.tile_size = size.max(4.0).min(64.0); // Limit to reasonable range
+        self.tile_size = size.clamp(4.0, 64.0);
     }
 
     /// Set the zoom factor
     pub fn set_zoom(&mut self, zoom: f32) {
-        self.zoom = zoom.max(0.25).min(4.0); // Limit to reasonable range
+        self.zoom = zoom.clamp(0.25, 4.0);
     }
 
     /// Get the current zoom factor

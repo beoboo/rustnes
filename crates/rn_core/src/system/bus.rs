@@ -51,10 +51,11 @@ impl Bus {
     ///
     /// Returns a reference to the first component that claims to handle the address,
     /// or None if no component handles it (which shouldn't happen with RAM fallback).
-    fn find_component_for_address(&self, address: u16) -> Option<&Box<dyn Addressable>> {
+    fn find_component_for_address(&self, address: u16) -> Option<&dyn Addressable> {
         self.components
             .iter()
             .find(|component| component.handles_address(address))
+            .map(|component| component.as_ref())
     }
 
     /// Find the component that handles the given address (mutable version)
@@ -127,6 +128,12 @@ impl Addressable for Bus {
             return Ok(());
         }
         Err(NesError::MemoryAccessError(address))
+    }
+}
+
+impl Default for Bus {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

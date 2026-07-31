@@ -9,13 +9,9 @@ const ARROW_LEFT: &str = "⬅"; // LEFT ARROW
 const ARROW_RIGHT: &str = "➡"; // RIGHT ARROW
 
 /// Widget for displaying controller state
+#[derive(Default)]
 pub struct ControllerWidget {}
 
-impl Default for ControllerWidget {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 impl ControllerWidget {
     /// Create a new controller widget
@@ -213,7 +209,7 @@ impl ControllerWidget {
 }
 
 // Helper to create an interactive button that shows pressed state
-fn interactive_button(text: &str, is_pressed: bool) -> egui::Button {
+fn interactive_button(text: &str, is_pressed: bool) -> egui::Button<'_> {
     let mut button = egui::Button::new(RichText::new(text).size(18.0).strong().color(if is_pressed {
         Color32::BLACK
     } else {

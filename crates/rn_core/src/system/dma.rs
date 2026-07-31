@@ -158,9 +158,9 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
         let transfer_cycle = current_cycle - 1; // 0-511 after accounting for setup
         let byte_index = transfer_cycle / 2; // Which byte we're transferring (0-255)
 
-        let result = if transfer_cycle % 2 == 0 {
+        let result = if transfer_cycle.is_multiple_of(2) {
             // Even transfer cycles: READ from CPU memory
-            let source_addr = ((self.source_high_byte as u16) << 8) | (byte_index as u16);
+            let source_addr = ((self.source_high_byte as u16) << 8) | byte_index;
 
             // Read from memory
             match cpu.read_byte(source_addr) {
@@ -293,7 +293,7 @@ mod tests {
         fn setup_test_data(&mut self) {
             // Set up test data where each memory address contains its low byte as data
             for i in 0..256 {
-                self.data.insert(0x0000 + i, i as u8);
+                self.data.insert(i, i as u8);
                 self.data.insert(0x0200 + i, i as u8);
                 self.data.insert(0x2000 + i, i as u8);
                 self.data.insert(0x3000 + i, i as u8);
@@ -397,7 +397,7 @@ mod tests {
 
         assert_eq!(dma.source_high_byte, 0);
         assert_eq!(dma.cycles_remaining, 0);
-        assert_eq!(dma.transfer_active, false);
+        assert!(!dma.transfer_active);
     }
 
     #[test]
@@ -409,7 +409,7 @@ mod tests {
 
         assert_eq!(dma.source_high_byte, 0x20);
         assert_eq!(dma.cycles_remaining, 513);
-        assert_eq!(dma.transfer_active, true);
+        assert!(dma.transfer_active);
 
         Ok(())
     }
@@ -443,7 +443,7 @@ mod tests {
         );
 
         // Verify transfer is complete
-        assert_eq!(dma.transfer_active, false);
+        assert!(!dma.transfer_active);
         assert_eq!(dma.cycles_remaining, 0);
 
         // Verify we have the expected number of writes in our mock

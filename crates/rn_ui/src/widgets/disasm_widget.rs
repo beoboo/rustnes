@@ -192,3 +192,9 @@ impl DisasmWidget {
         Ok(())
     }
 }
+
+impl Default for DisasmWidget {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -114,11 +114,11 @@ impl PatternTable {
 
         // Process each pixel in the row
         let mut row_pixels = [0u8; 8];
-        for bit in 0..8 {
-            // Extract and combine the bits
+        for (bit, pixel) in row_pixels.iter_mut().enumerate() {
+            // Extract and combine the bits. Pixel 0 is the most significant bit.
             let low_bit = (low_byte >> (7 - bit)) & 0x01;
             let high_bit = (high_byte >> (7 - bit)) & 0x01;
-            row_pixels[bit] = (high_bit << 1) | low_bit;
+            *pixel = (high_bit << 1) | low_bit;
         }
 
         row_pixels

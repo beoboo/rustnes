@@ -114,10 +114,15 @@ pub enum KeyCode {
     Unknown,
 }
 
-impl KeyCode {
-    /// Convert from string representation of a key (useful for config files)
-    pub fn from_str(key_str: &str) -> Self {
-        match key_str.to_lowercase().as_str() {
+impl std::str::FromStr for KeyCode {
+    type Err = std::convert::Infallible;
+
+    /// Convert from a string representation of a key (useful for config files).
+    ///
+    /// Unrecognised names map to `Unknown` rather than failing, so a typo in a config file
+    /// degrades to an unbound key instead of refusing to load the profile.
+    fn from_str(key_str: &str) -> Result<Self, Self::Err> {
+        Ok(match key_str.to_lowercase().as_str() {
             "up" | "arrowup" => Self::ArrowUp,
             "down" | "arrowdown" => Self::ArrowDown,
             "left" | "arrowleft" => Self::ArrowLeft,
@@ -219,8 +224,11 @@ impl KeyCode {
             "numpadenter" => Self::NumpadEnter,
 
             _ => Self::Unknown,
-        }
+        })
     }
+}
+
+impl KeyCode {
 
     /// Convert to string representation
     pub fn to_str(&self) -> &'static str {
@@ -334,6 +342,7 @@ impl KeyCode {
 
 /// Manages key mappings and active keyboard state for a controller
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct KeyMapping {
     /// The active controller profile
     pub profile: ControllerProfile,
@@ -343,14 +352,6 @@ pub struct KeyMapping {
     pressed_keys: Vec<KeyCode>,
 }
 
-impl Default for KeyMapping {
-    fn default() -> Self {
-        Self {
-            profile: ControllerProfile::default(),
-            pressed_keys: Vec::new(),
-        }
-    }
-}
 
 impl KeyMapping {
     /// Create a new key mapping with the default profile
@@ -622,25 +623,25 @@ mod tests {
 
         // Initially no keys are pressed
         let state = mapping.get_controller_state()?;
-        assert_eq!(state.is_button_pressed(ControllerButton::A), false);
+        assert!(!state.is_button_pressed(ControllerButton::A));
 
         // Press Z key which is mapped to A button
         mapping.process_key_press(KeyCode::Z)?;
         let state = mapping.get_controller_state()?;
-        assert_eq!(state.is_button_pressed(ControllerButton::A), true);
-        assert_eq!(state.is_button_pressed(ControllerButton::B), false);
+        assert!(state.is_button_pressed(ControllerButton::A));
+        assert!(!state.is_button_pressed(ControllerButton::B));
 
         // Press X key which is mapped to B button
         mapping.process_key_press(KeyCode::X)?;
         let state = mapping.get_controller_state()?;
-        assert_eq!(state.is_button_pressed(ControllerButton::A), true);
-        assert_eq!(state.is_button_pressed(ControllerButton::B), true);
+        assert!(state.is_button_pressed(ControllerButton::A));
+        assert!(state.is_button_pressed(ControllerButton::B));
 
         // Release Z key
         mapping.process_key_release(KeyCode::Z)?;
         let state = mapping.get_controller_state()?;
-        assert_eq!(state.is_button_pressed(ControllerButton::A), false);
-        assert_eq!(state.is_button_pressed(ControllerButton::B), true);
+        assert!(!state.is_button_pressed(ControllerButton::A));
+        assert!(state.is_button_pressed(ControllerButton::B));
 
         Ok(())
     }
@@ -651,7 +652,7 @@ mod tests {
 
         // Default profile for controller 1
         let c1_state = manager.controller1_mapping.get_controller_state()?;
-        assert_eq!(c1_state.is_button_pressed(ControllerButton::A), false);
+        assert!(!c1_state.is_button_pressed(ControllerButton::A));
 
         // WASD profile for controller 2 by default
         assert_eq!(manager.controller2_mapping.profile.name, "WASD Layout");
@@ -659,12 +660,12 @@ mod tests {
         // Test controller 1 with default profile
         manager.process_controller1_key_press(KeyCode::Z)?;
         let state = manager.get_controller1_state()?;
-        assert_eq!(state.is_button_pressed(ControllerButton::A), true);
+        assert!(state.is_button_pressed(ControllerButton::A));
 
         // Test controller 2 with WASD profile
         manager.process_controller2_key_press(KeyCode::K)?;
         let state = manager.get_controller2_state()?;
-        assert_eq!(state.is_button_pressed(ControllerButton::A), true);
+        assert!(state.is_button_pressed(ControllerButton::A));
 
         // Switch controller 1 to WASD profile
         manager.set_controller1_profile("WASD Layout")?;
@@ -672,12 +673,12 @@ mod tests {
 
         // Now Z key should no longer trigger A button for controller 1
         let state = manager.get_controller1_state()?;
-        assert_eq!(state.is_button_pressed(ControllerButton::A), false);
+        assert!(!state.is_button_pressed(ControllerButton::A));
 
         // But K key should
         manager.process_controller1_key_press(KeyCode::K)?;
         let state = manager.get_controller1_state()?;
-        assert_eq!(state.is_button_pressed(ControllerButton::A), true);
+        assert!(state.is_button_pressed(ControllerButton::A));
 
         Ok(())
     }
@@ -700,7 +701,7 @@ mod tests {
         // Test the custom mappings
         manager.process_controller1_key_press(KeyCode::Space)?;
         let state = manager.get_controller1_state()?;
-        assert_eq!(state.is_button_pressed(ControllerButton::A), true);
+        assert!(state.is_button_pressed(ControllerButton::A));
 
         Ok(())
     }

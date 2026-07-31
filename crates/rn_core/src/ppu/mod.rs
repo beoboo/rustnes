@@ -103,6 +103,13 @@ impl PpuWrapper {
         ppu.cartridge()
     }
 
+    /// Raw pointer to the wrapped PPU.
+    ///
+    /// # Safety
+    ///
+    /// The caller must not use the returned pointer while any `RefCell` borrow of the PPU is
+    /// outstanding, and must not retain it beyond the lifetime of this wrapper. Aliasing it with
+    /// a live `borrow()`/`borrow_mut()` is undefined behaviour.
     pub unsafe fn as_ptr(&self) -> *mut Ppu {
         self.ppu.as_ptr()
     }
@@ -274,7 +281,13 @@ pub struct Ppu {
 
 /// Struct to hold processed sprite data for rendering
 struct SpriteData {
-    y_position: u8,     // Y position (top of sprite)
+    /// Y position (top of sprite).
+    ///
+    /// Only rendering-relevant during evaluation — by the time this struct exists, the scanline's
+    /// row is already resolved into `tile_data` — but retained for tests that check which sprites
+    /// were selected for a scanline.
+    #[cfg(test)]
+    y_position: u8,
     tile_index: u8,     // Tile index in pattern table
     attributes: u8,     // Sprite attributes (palette, flip, priority)
     x_position: u8,     // X position (left of sprite)
@@ -759,6 +772,7 @@ impl Ppu {
 
             // Add this sprite to the visible sprites
             visible_sprites.push(SpriteData {
+                #[cfg(test)]
                 y_position: y_pos,
                 tile_index: tile_idx,
                 attributes,
@@ -1367,12 +1381,8 @@ impl Ppu {
             let mut pattern_data = vec![0; 0x2000]; // 8KB for pattern tables
 
             // Set up the first tile (solid block)
-            for i in 0..8 {
-                pattern_data[i] = 0xFF; // First plane - all bits set
-            }
-            for i in 8..16 {
-                pattern_data[i] = 0xFF; // Second plane - all bits set
-            }
+            // Both bit planes set: a solid block of colour 3.
+            pattern_data[0..16].fill(0xFF);
 
             // Load the pattern data
             cart.load_chr_rom(&pattern_data);
@@ -1416,14 +1426,14 @@ impl Default for Ppu {
 
 impl Addressable for Ppu {
     fn handles_address(&self, address: u16) -> bool {
-        address >= 0x2000 && address <= 0x3FFF
+        (0x2000..=0x3FFF).contains(&address)
     }
 
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         // Handle PPU registers
-        if address >= 0x2000 && address < 0x4000 {
+        if (0x2000..0x4000).contains(&address) {
             // Map $2000-$3FFF to $2000-$2007 (mirroring)
-            let register = (address & 0x7) as u16;
+            let register = address & 0x7 ;
 
             // For status register at $2002
             if register == 2 {
@@ -1442,7 +1452,7 @@ impl Addressable for Ppu {
 
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
         // Check if this is a write to a PPU register ($2000-$2007)
-        if address >= 0x2000 && address <= 0x2007 {
+        if (0x2000..=0x2007).contains(&address) {
             self.write_register(address, value);
         } else {
             // Otherwise, treat it as a write to PPU memory space
@@ -1488,7 +1498,7 @@ mod tests {
         assert_eq!(ppu.oam_addr, 0);
 
         // Check initial internal state
-        assert_eq!(ppu.write_toggle.get(), false);
+        assert!(!ppu.write_toggle.get());
         assert_eq!(ppu.scanline, -1);
         assert_eq!(ppu.cycle, 0);
     }
@@ -1500,18 +1510,18 @@ mod tests {
         // Write to scroll register
         ppu.write_scroll(0x12);
         assert_eq!(ppu.scroll_x, 0x12);
-        assert_eq!(ppu.write_toggle.get(), true);
+        assert!(ppu.write_toggle.get());
 
         // Write again to scroll register
         ppu.write_scroll(0x34);
         assert_eq!(ppu.scroll_y, 0x34);
-        assert_eq!(ppu.write_toggle.get(), false);
+        assert!(!ppu.write_toggle.get());
 
         // Test reset of write toggle when reading status
         ppu.write_scroll(0x56);
-        assert_eq!(ppu.write_toggle.get(), true);
+        assert!(ppu.write_toggle.get());
         ppu.read_status();
-        assert_eq!(ppu.write_toggle.get(), false);
+        assert!(!ppu.write_toggle.get());
     }
 
     #[test]
@@ -1839,13 +1849,9 @@ mod tests {
 
         // Set up the first tile (8x8 pixels)
         // First plane (lower bits)
-        for i in 0..8 {
-            pattern_data[i] = 0xFF; // All pixels set
-        }
+        pattern_data[0..8].fill(0xFF); // All pixels set
         // Second plane (upper bits)
-        for i in 8..16 {
-            pattern_data[i] = 0xFF; // All pixels set
-        }
+        pattern_data[8..16].fill(0xFF); // All pixels set
 
         // Create and connect a cartridge with our test pattern
         let mut cartridge = Cartridge::new();
@@ -1859,7 +1865,7 @@ mod tests {
         ppu.write_ppu_memory(0x3F13, 0x30); // Set sprite palette 0 color 3 to white
 
         // Set up OAM data for a single sprite
-        let oam_data = vec![
+        let oam_data = [
             100, // Y position (100 pixels from top)
             0,   // Tile index (first tile)
             0,   // Attributes (no flip, palette 0)
@@ -2205,12 +2211,8 @@ mod tests {
         let mut pattern_data = vec![0; 0x2000]; // 8KB for pattern tables
 
         // Set up the first tile (solid block)
-        for i in 0..8 {
-            pattern_data[i] = 0xFF; // First plane - all bits set
-        }
-        for i in 8..16 {
-            pattern_data[i] = 0xFF; // Second plane - all bits set
-        }
+        pattern_data[0..8].fill(0xFF); // First plane - all bits set
+        pattern_data[8..16].fill(0xFF); // Second plane - all bits set
 
         // Create and connect cartridge
         let mut cart = Cartridge::new();

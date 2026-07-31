@@ -159,3 +159,9 @@ impl PixelDisplay {
         self.show_grid
     }
 }
+
+impl Default for PixelDisplay {
+    fn default() -> Self {
+        Self::new()
+    }
+}

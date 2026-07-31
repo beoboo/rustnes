@@ -49,7 +49,7 @@ impl MemoryVisualizer {
 
         // Calculate dimensions based on memory range and settings
         let memory_size = (self.end_addr - self.start_addr + 1) as usize;
-        let height = (memory_size + self.width - 1) / self.width; // Ceiling division
+        let height = memory_size.div_ceil(self.width); // Ceiling division
 
         // Calculate display size
         let display_size = Vec2::new(
@@ -179,5 +179,11 @@ impl MemoryVisualizer {
                 egui::Color32::from_rgb(brightness as u8, brightness as u8, brightness as u8)
             },
         }
+    }
+}
+
+impl Default for MemoryVisualizer {
+    fn default() -> Self {
+        Self::new()
     }
 }
