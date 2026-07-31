@@ -68,6 +68,16 @@ pub enum Instruction {
     BCS, // Branch if Carry Set
     BVC, // Branch if Overflow Clear
     BVS, // Branch if Overflow Set
+    PHA, // Push Accumulator
+    PHP, // Push Processor Status
+    PLA, // Pull Accumulator
+    PLP, // Pull Processor Status
+    ROL, // Rotate Left
+    ROR, // Rotate Right
+    CPY, // Compare Y Register
+    CLV, // Clear Overflow Flag
+    TSX, // Transfer Stack Pointer to X
+    RTI, // Return from Interrupt
     CPX, // Compare Memory with X Register
 }
 
@@ -109,6 +119,13 @@ impl Instruction {
                 | Instruction::CLI
                 | Instruction::CLD
                 | Instruction::SED
+                | Instruction::PHA
+                | Instruction::PHP
+                | Instruction::PLA
+                | Instruction::PLP
+                | Instruction::CLV
+                | Instruction::TSX
+                | Instruction::RTI
         )
     }
 
@@ -122,7 +139,11 @@ impl Instruction {
     pub fn modifies_pc(&self) -> bool {
         matches!(
             self,
-            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK
+            Instruction::JMP
+                | Instruction::JSR
+                | Instruction::RTS
+                | Instruction::RTI
+                | Instruction::BRK
         ) || self.is_branch()
     }
 }
@@ -223,6 +244,33 @@ impl InstructionDecoder {
         self.add_instruction(0x50, Instruction::BVC, AddressingMode::Relative, 2, 2);
         self.add_instruction(0x70, Instruction::BVS, AddressingMode::Relative, 2, 2);
         self.add_instruction(0xD8, Instruction::CLD, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0xB8, Instruction::CLV, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0xBA, Instruction::TSX, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x40, Instruction::RTI, AddressingMode::Implied, 1, 6);
+
+        // Stack operations. Pushes take 3 cycles, pulls 4 — a pull needs the extra cycle to
+        // increment the stack pointer before reading.
+        self.add_instruction(0x48, Instruction::PHA, AddressingMode::Implied, 1, 3);
+        self.add_instruction(0x08, Instruction::PHP, AddressingMode::Implied, 1, 3);
+        self.add_instruction(0x68, Instruction::PLA, AddressingMode::Implied, 1, 4);
+        self.add_instruction(0x28, Instruction::PLP, AddressingMode::Implied, 1, 4);
+
+        // CPY mirrors CPX.
+        self.add_instruction(0xC0, Instruction::CPY, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0xC4, Instruction::CPY, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0xCC, Instruction::CPY, AddressingMode::Absolute, 3, 4);
+
+        // Rotates, mirroring ASL/LSR including the accumulator form.
+        self.add_instruction(0x2A, Instruction::ROL, AddressingMode::Accumulator, 1, 2);
+        self.add_instruction(0x26, Instruction::ROL, AddressingMode::ZeroPage, 2, 5);
+        self.add_instruction(0x36, Instruction::ROL, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0x2E, Instruction::ROL, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0x3E, Instruction::ROL, AddressingMode::AbsoluteX, 3, 7);
+        self.add_instruction(0x6A, Instruction::ROR, AddressingMode::Accumulator, 1, 2);
+        self.add_instruction(0x66, Instruction::ROR, AddressingMode::ZeroPage, 2, 5);
+        self.add_instruction(0x76, Instruction::ROR, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0x6E, Instruction::ROR, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0x7E, Instruction::ROR, AddressingMode::AbsoluteX, 3, 7);
         self.add_instruction(0xF8, Instruction::SED, AddressingMode::Implied, 1, 2);
         self.add_instruction(0xF0, Instruction::BEQ, AddressingMode::Relative, 2, 2);
         self.add_instruction(0xD0, Instruction::BNE, AddressingMode::Relative, 2, 2);
@@ -390,6 +438,16 @@ impl Cpu {
             Instruction::BVC => additional_cycles = self.bvc()?,
             Instruction::BVS => additional_cycles = self.bvs()?,
             Instruction::CLD => self.cld(),
+            Instruction::CLV => self.clv(),
+            Instruction::TSX => self.tsx(),
+            Instruction::PHA => self.pha()?,
+            Instruction::PHP => self.php()?,
+            Instruction::PLA => self.pla()?,
+            Instruction::PLP => self.plp()?,
+            Instruction::RTI => self.rti()?,
+            Instruction::CPY => self.cpy(addressing_mode)?,
+            Instruction::ROL => self.rol(addressing_mode)?,
+            Instruction::ROR => self.ror(addressing_mode)?,
             Instruction::SED => self.sed(),
             Instruction::CLC => self.clc(),
             Instruction::SEC => self.sec(),
@@ -838,6 +896,130 @@ impl Cpu {
     /// CLI - Clear Interrupt Disable
     pub fn cli(&mut self) {
         self.set_flag(CpuFlag::InterruptDisable, false);
+    }
+
+    /// PHA - Push Accumulator
+    pub fn pha(&mut self) -> Result<(), NesError> {
+        self.push_byte(self.registers.a)
+    }
+
+    /// PHP - Push Processor Status
+    ///
+    /// The pushed byte always has bits 4 and 5 (Break and Unused) set, regardless of the actual
+    /// flag state — the 6502 has no real Break flag, it only exists in pushed copies. Getting this
+    /// wrong is a classic source of `nestest` failures, because the value is observable via PLA.
+    pub fn php(&mut self) -> Result<(), NesError> {
+        let status = self.registers.status | CpuFlag::Break as u8 | CpuFlag::Unused as u8;
+        self.push_byte(status)
+    }
+
+    /// PLA - Pull Accumulator
+    pub fn pla(&mut self) -> Result<(), NesError> {
+        self.registers.a = self.pop_byte()?;
+        self.set_flag(CpuFlag::Zero, self.registers.a == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
+        Ok(())
+    }
+
+    /// PLP - Pull Processor Status
+    ///
+    /// The mirror of [`Cpu::php`]: Break is discarded and Unused is forced set, so the register
+    /// never holds a cleared bit 5.
+    pub fn plp(&mut self) -> Result<(), NesError> {
+        let status = self.pop_byte()?;
+        self.registers.status = (status & !(CpuFlag::Break as u8)) | CpuFlag::Unused as u8;
+        Ok(())
+    }
+
+    /// RTI - Return from Interrupt
+    ///
+    /// Pulls the status register and then the program counter. Unlike RTS, the pulled address is
+    /// used as-is: an interrupt pushes the address to resume at, whereas JSR pushes one byte short.
+    pub fn rti(&mut self) -> Result<(), NesError> {
+        let status = self.pop_byte()?;
+        self.registers.status = (status & !(CpuFlag::Break as u8)) | CpuFlag::Unused as u8;
+
+        let low = self.pop_byte()? as u16;
+        let high = self.pop_byte()? as u16;
+        self.registers.pc = (high << 8) | low;
+        Ok(())
+    }
+
+    /// TSX - Transfer Stack Pointer to X
+    pub fn tsx(&mut self) {
+        self.registers.x = self.registers.sp;
+        self.set_flag(CpuFlag::Zero, self.registers.x == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.x & 0x80) != 0);
+    }
+
+    /// CLV - Clear Overflow Flag
+    pub fn clv(&mut self) {
+        self.set_flag(CpuFlag::Overflow, false);
+    }
+
+    /// CPY - Compare Y Register
+    pub fn cpy(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let addr = addressing_mode.get_operand_address(self)?;
+        let value = self.read_byte(addr)?;
+        let result = self.registers.y.wrapping_sub(value);
+
+        self.set_flag(CpuFlag::Carry, self.registers.y >= value);
+        self.set_flag(CpuFlag::Zero, self.registers.y == value);
+        self.set_flag(CpuFlag::Negative, (result & 0x80) != 0);
+        Ok(())
+    }
+
+    /// ROL - Rotate Left
+    ///
+    /// A nine-bit rotate through the carry flag: carry becomes bit 0, and the old bit 7 becomes
+    /// the new carry. That distinguishes it from ASL, which shifts a zero in.
+    pub fn rol(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let carry_in = u8::from(self.get_flag(CpuFlag::Carry));
+
+        let (value, address) = self.read_shift_operand(addressing_mode)?;
+        let result = (value << 1) | carry_in;
+
+        self.set_flag(CpuFlag::Carry, (value & 0x80) != 0);
+        self.write_shift_result(address, result)?;
+        Ok(())
+    }
+
+    /// ROR - Rotate Right
+    ///
+    /// The mirror of [`Cpu::rol`]: carry becomes bit 7, and the old bit 0 becomes the new carry.
+    pub fn ror(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let carry_in = u8::from(self.get_flag(CpuFlag::Carry));
+
+        let (value, address) = self.read_shift_operand(addressing_mode)?;
+        let result = (value >> 1) | (carry_in << 7);
+
+        self.set_flag(CpuFlag::Carry, (value & 0x01) != 0);
+        self.write_shift_result(address, result)?;
+        Ok(())
+    }
+
+    /// Read the operand for a shift or rotate, which may be the accumulator or a memory location.
+    ///
+    /// Returns the value and, for memory forms, where to write the result back.
+    fn read_shift_operand(&mut self, addressing_mode: AddressingMode) -> Result<(u8, Option<u16>), NesError> {
+        if matches!(addressing_mode, AddressingMode::Accumulator) {
+            Ok((self.registers.a, None))
+        } else {
+            let address = addressing_mode.get_operand_address(self)?;
+            Ok((self.read_byte(address)?, Some(address)))
+        }
+    }
+
+    /// Write back a shift or rotate result and set the Zero and Negative flags from it.
+    fn write_shift_result(&mut self, address: Option<u16>, result: u8) -> Result<(), NesError> {
+        match address {
+            Some(address) => self.write_byte(address, result)?,
+            None => self.registers.a = result,
+        }
+
+        self.set_flag(CpuFlag::Zero, result == 0);
+        self.set_flag(CpuFlag::Negative, (result & 0x80) != 0);
+        Ok(())
     }
 
     /// CLD - Clear Decimal Mode
@@ -3218,6 +3400,219 @@ mod tests {
         run_instruction(&mut cpu, "SED", 0x0100)?;
         assert!(cpu.is_flag_set(CpuFlag::DecimalMode), "SED should set the flag");
 
+        Ok(())
+    }
+
+
+    #[test]
+    fn test_pha_pla_round_trip() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+
+        cpu.registers.a = 0x42;
+        let cycles = run_instruction(&mut cpu, "PHA", 0x0100)?;
+        assert_eq!(cycles, 3, "PHA should take 3 cycles");
+        assert_eq!(cpu.registers.sp, 0xFC, "the stack pointer should have moved down");
+
+        cpu.registers.a = 0x00;
+        let cycles = run_instruction(&mut cpu, "PLA", 0x0100)?;
+        assert_eq!(cycles, 4, "PLA should take 4 cycles");
+        assert_eq!(cpu.registers.a, 0x42, "PLA should restore what PHA pushed");
+        assert_eq!(cpu.registers.sp, 0xFD, "the stack pointer should be back where it started");
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+
+        // PLA sets the flags from the pulled value.
+        cpu.registers.a = 0x00;
+        run_instruction(&mut cpu, "PHA", 0x0100)?;
+        run_instruction(&mut cpu, "PLA", 0x0100)?;
+        assert!(cpu.is_flag_set(CpuFlag::Zero), "pulling zero should set Zero");
+
+        Ok(())
+    }
+
+    /// The 6502 has no real Break flag: bits 4 and 5 exist only in pushed copies of the status
+    /// register, and are always set on a push. Getting this wrong is a classic `nestest` failure,
+    /// because the pushed value is observable through PLA.
+    #[test]
+    fn test_php_always_sets_break_and_unused_in_the_pushed_byte() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.registers.status = 0; // every flag clear, including Break and Unused
+
+        run_instruction(&mut cpu, "PHP", 0x0100)?;
+        run_instruction(&mut cpu, "PLA", 0x0100)?;
+
+        assert_eq!(
+            cpu.registers.a & 0x30,
+            0x30,
+            "the pushed status byte must have bits 4 and 5 set, got ${:02X}",
+            cpu.registers.a
+        );
+        Ok(())
+    }
+
+    /// PLP is the mirror: Break is discarded and Unused forced set, so the status register never
+    /// holds a cleared bit 5.
+    #[test]
+    fn test_plp_discards_break_and_forces_unused() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+
+        cpu.registers.a = 0b1100_1111; // Break clear, Unused set, plus assorted flags
+        run_instruction(&mut cpu, "PHA", 0x0100)?;
+        run_instruction(&mut cpu, "PLP", 0x0100)?;
+        assert_eq!(cpu.registers.status & 0x20, 0x20, "Unused must always read as set");
+
+        cpu.registers.a = 0b0001_0000; // Break set in the pushed value
+        run_instruction(&mut cpu, "PHA", 0x0100)?;
+        run_instruction(&mut cpu, "PLP", 0x0100)?;
+        assert_eq!(cpu.registers.status & 0x10, 0x00, "Break must not reach the register");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_php_plp_preserve_the_real_flags() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+
+        cpu.set_flag(CpuFlag::Carry, true);
+        cpu.set_flag(CpuFlag::Negative, true);
+        cpu.set_flag(CpuFlag::Zero, false);
+        run_instruction(&mut cpu, "PHP", 0x0100)?;
+
+        cpu.set_flag(CpuFlag::Carry, false);
+        cpu.set_flag(CpuFlag::Negative, false);
+        cpu.set_flag(CpuFlag::Zero, true);
+        run_instruction(&mut cpu, "PLP", 0x0100)?;
+
+        assert!(cpu.is_flag_set(CpuFlag::Carry), "Carry should be restored");
+        assert!(cpu.is_flag_set(CpuFlag::Negative), "Negative should be restored");
+        assert!(!cpu.is_flag_set(CpuFlag::Zero), "Zero should be restored to clear");
+        Ok(())
+    }
+
+    #[test]
+    fn test_rol_rotates_through_carry() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        // Carry rotates into bit 0; the old bit 7 becomes the new carry. This is what separates
+        // ROL from ASL, which shifts in a zero.
+        cpu.registers.a = 0b1000_0001;
+        cpu.set_flag(CpuFlag::Carry, false);
+        run_instruction(&mut cpu, "ROL A", 0x0100)?;
+        assert_eq!(cpu.registers.a, 0b0000_0010, "bit 7 out, 0 in from carry");
+        assert!(cpu.is_flag_set(CpuFlag::Carry), "the old bit 7 becomes carry");
+
+        cpu.registers.a = 0b0100_0000;
+        cpu.set_flag(CpuFlag::Carry, true);
+        run_instruction(&mut cpu, "ROL A", 0x0100)?;
+        assert_eq!(cpu.registers.a, 0b1000_0001, "carry rotates into bit 0");
+        assert!(!cpu.is_flag_set(CpuFlag::Carry));
+        assert!(cpu.is_flag_set(CpuFlag::Negative), "bit 7 set should set Negative");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ror_rotates_through_carry() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        cpu.registers.a = 0b0000_0011;
+        cpu.set_flag(CpuFlag::Carry, false);
+        run_instruction(&mut cpu, "ROR A", 0x0100)?;
+        assert_eq!(cpu.registers.a, 0b0000_0001);
+        assert!(cpu.is_flag_set(CpuFlag::Carry), "the old bit 0 becomes carry");
+
+        cpu.registers.a = 0b0000_0010;
+        cpu.set_flag(CpuFlag::Carry, true);
+        run_instruction(&mut cpu, "ROR A", 0x0100)?;
+        assert_eq!(cpu.registers.a, 0b1000_0001, "carry rotates into bit 7");
+        assert!(cpu.is_flag_set(CpuFlag::Negative));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_rol_ror_on_memory() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        cpu.write_byte(0x0042, 0b1000_0000)?;
+        cpu.set_flag(CpuFlag::Carry, false);
+        let cycles = run_instruction(&mut cpu, "ROL $42", 0x0100)?;
+        assert_eq!(cpu.read_byte(0x0042)?, 0b0000_0000, "memory should be rotated in place");
+        assert_eq!(cycles, 5, "ROL ZeroPage should take 5 cycles");
+        assert!(cpu.is_flag_set(CpuFlag::Carry));
+        assert!(cpu.is_flag_set(CpuFlag::Zero), "a zero result should set Zero");
+
+        cpu.write_byte(0x0042, 0b0000_0001)?;
+        cpu.set_flag(CpuFlag::Carry, false);
+        run_instruction(&mut cpu, "ROR $42", 0x0100)?;
+        assert_eq!(cpu.read_byte(0x0042)?, 0b0000_0000);
+        assert!(cpu.is_flag_set(CpuFlag::Carry));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_cpy() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        // Equal: Carry and Zero set.
+        cpu.registers.y = 0x42;
+        run_instruction(&mut cpu, "CPY #$42", 0x0100)?;
+        assert!(cpu.is_flag_set(CpuFlag::Carry));
+        assert!(cpu.is_flag_set(CpuFlag::Zero));
+
+        // Greater: Carry set, Zero clear.
+        cpu.registers.y = 0x50;
+        run_instruction(&mut cpu, "CPY #$42", 0x0100)?;
+        assert!(cpu.is_flag_set(CpuFlag::Carry));
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+
+        // Less: Carry clear.
+        cpu.registers.y = 0x10;
+        run_instruction(&mut cpu, "CPY #$42", 0x0100)?;
+        assert!(!cpu.is_flag_set(CpuFlag::Carry), "Y < M should clear Carry");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_clv_and_tsx() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        cpu.set_flag(CpuFlag::Overflow, true);
+        run_instruction(&mut cpu, "CLV", 0x0100)?;
+        assert!(!cpu.is_flag_set(CpuFlag::Overflow), "CLV should clear Overflow");
+
+        cpu.registers.sp = 0x80;
+        cpu.registers.x = 0x00;
+        run_instruction(&mut cpu, "TSX", 0x0100)?;
+        assert_eq!(cpu.registers.x, 0x80, "TSX should copy SP into X");
+        assert!(cpu.is_flag_set(CpuFlag::Negative), "bit 7 set should set Negative");
+
+        Ok(())
+    }
+
+    /// RTI pulls the status register and then the PC. Unlike RTS it uses the pulled address
+    /// as-is, because an interrupt pushes the address to resume at rather than one byte short.
+    #[test]
+    fn test_rti_restores_status_and_pc() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+
+        // Push what an interrupt would: PC high, PC low, then status.
+        cpu.push_word(0xC123)?;
+        cpu.push_byte(CpuFlag::Carry as u8 | CpuFlag::Negative as u8)?;
+
+        let cycles = run_instruction(&mut cpu, "RTI", 0x0100)?;
+
+        assert_eq!(cpu.registers.pc, 0xC123, "RTI should resume at the pushed address exactly");
+        assert_eq!(cycles, 6, "RTI should take 6 cycles");
+        assert!(cpu.is_flag_set(CpuFlag::Carry));
+        assert!(cpu.is_flag_set(CpuFlag::Negative));
+        assert_eq!(cpu.registers.sp, 0xFD, "the stack should be fully unwound");
         Ok(())
     }
 

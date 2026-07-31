@@ -33,6 +33,77 @@ pub struct INesHeader {
     pub four_screen: bool,   // Four-screen VRAM layout
 }
 
+/// A loaded iNES ROM: its header plus both memory images.
+///
+/// PRG-ROM is the program the CPU executes and CHR-ROM the pattern tables the PPU draws from.
+/// Previously only CHR was returned and the PRG data was read purely to seek past it, which meant
+/// no `.nes` file could actually be run.
+#[derive(Debug)]
+pub struct Rom {
+    pub header: INesHeader,
+    pub prg_rom: Vec<u8>,
+    pub chr_rom: Vec<u8>,
+}
+
+impl Rom {
+    /// Read the byte the CPU sees at `address` in `$8000..=$FFFF`.
+    ///
+    /// A 16 KB PRG image is mirrored into both halves of the range, which is what NROM-128 does
+    /// and what makes the reset vector at `$FFFC` resolve for a single-bank ROM.
+    pub fn read_prg(&self, address: u16) -> u8 {
+        if self.prg_rom.is_empty() {
+            return 0;
+        }
+
+        let offset = (address as usize).saturating_sub(0x8000);
+        self.prg_rom[offset % self.prg_rom.len()]
+    }
+
+    /// The reset vector at `$FFFC`, where execution begins.
+    pub fn reset_vector(&self) -> u16 {
+        u16::from_le_bytes([self.read_prg(0xFFFC), self.read_prg(0xFFFD)])
+    }
+}
+
+/// Load a complete iNES ROM: header, PRG-ROM and CHR-ROM.
+pub fn load_rom(path: &Path) -> Result<Rom, RomLoadError> {
+    let mut file = File::open(path)?;
+
+    let mut header = [0u8; INES_HEADER_SIZE];
+    file.read_exact(&mut header)?;
+
+    if header[0..4] != INES_MAGIC {
+        return Err(RomLoadError::InvalidFormat("Not a valid iNES ROM file"));
+    }
+
+    let parsed = parse_ines_header(&header)?;
+
+    // A trainer, when present, sits between the header and the PRG data.
+    if parsed.trainer {
+        let mut trainer = [0u8; 512];
+        file.read_exact(&mut trainer)?;
+    }
+
+    let mut prg_rom = vec![0u8; parsed.prg_rom_size * 16 * 1024];
+    file.read_exact(&mut prg_rom)?;
+
+    // A CHR size of zero means the cartridge uses CHR RAM rather than ROM.
+    let chr_rom_size = parsed.chr_rom_size * 8 * 1024;
+    let chr_rom = if chr_rom_size == 0 {
+        vec![0u8; 8192]
+    } else {
+        let mut chr_rom = vec![0u8; chr_rom_size];
+        file.read_exact(&mut chr_rom)?;
+        chr_rom
+    };
+
+    Ok(Rom {
+        header: parsed,
+        prg_rom,
+        chr_rom,
+    })
+}
+
 /// Load CHR ROM data from an iNES format file
 pub fn load_chr_rom(path: &Path) -> Result<Vec<u8>, RomLoadError> {
     // Open the file

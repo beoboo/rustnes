@@ -6,7 +6,7 @@ use super::{dma::DmaControllerWrapper, DmaController};
 use crate::{
     apu::{Apu, ApuWrapper},
     audio::SampleProducer,
-    cartridge::Cartridge,
+    cartridge::{Cartridge, Rom},
     cpu::{Cpu, CpuWrapper},
     errors::NesError,
     input::{ControllerHandlerWrapper, ControllerState},
@@ -145,6 +145,47 @@ impl NesSystem {
         debug!("System state transition: {:?} -> {:?}", old_state, self.state);
         self.error_message = None;
         info!("Program loaded at ${:04X}, size: {} bytes", address, program.len());
+        Ok(())
+    }
+
+    /// Load a complete iNES ROM and start execution at its reset vector.
+    ///
+    /// The PRG image is mirrored across `$8000..=$FFFF`, so a 16 KB NROM-128 cartridge appears at
+    /// both `$8000` and `$C000` and its reset vector at `$FFFC` resolves correctly.
+    ///
+    /// Note that `$8000..=$FFFF` is currently backed by RAM rather than a read-only mapper, so
+    /// writes into cartridge space are accepted where hardware would ignore them. That does not
+    /// affect programs that behave, but a proper mapper layer is needed before tests that probe
+    /// bus behaviour can be trusted.
+    pub fn load_rom(&mut self, rom: &Rom) -> Result<(), NesError> {
+        if rom.prg_rom.is_empty() {
+            return Err(NesError::MemoryAccessError(0x8000));
+        }
+
+        for address in 0x8000..=0xFFFFu32 {
+            let address = address as u16;
+            self.cpu.write_byte(address, rom.read_prg(address))?;
+        }
+
+        if !rom.chr_rom.is_empty() {
+            self.load_chr_rom(&rom.chr_rom)?;
+        }
+
+        let reset = rom.reset_vector();
+        self.cpu.set_pc(reset);
+
+        let old_state = self.state;
+        self.state = SystemState::Loaded;
+        debug!("System state transition: {:?} -> {:?}", old_state, self.state);
+        self.error_message = None;
+        info!(
+            "ROM loaded: {} KB PRG, {} KB CHR, mapper {}, reset vector ${:04X}",
+            rom.prg_rom.len() / 1024,
+            rom.chr_rom.len() / 1024,
+            rom.header.mapper,
+            reset
+        );
+
         Ok(())
     }
 

@@ -972,7 +972,8 @@ impl Assembler {
         if operand.eq_ignore_ascii_case("a") {
             // Check if the instruction supports accumulator addressing
             match instruction {
-                Instruction::ASL | Instruction::LSR => {
+                // The four shift/rotate instructions are the only ones with an accumulator form.
+                Instruction::ASL | Instruction::LSR | Instruction::ROL | Instruction::ROR => {
                     let metadata = self.decoder.lookup(instruction, AddressingMode::Accumulator)?;
                     return Ok(vec![metadata.opcode]);
                 },
