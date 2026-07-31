@@ -20,7 +20,7 @@ mod waveform_widget;
 
 // Re-export types
 pub use asm_widget::AsmWidget;
-pub use audio_widget::AudioWidget;
+pub use audio_widget::{AudioStats, AudioWidget};
 pub use controller_widget::ControllerWidget;
 pub use cpu_widget::CpuWidget;
 pub use disasm_widget::DisasmWidget;

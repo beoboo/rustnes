@@ -5,12 +5,18 @@ use derive_more::Debug;
 
 mod dmc_channel;
 mod envelope;
+mod filter;
+mod frame_counter;
 mod length_counter;
+mod mixer;
 mod noise_channel;
 mod pulse_channel;
 mod sweep;
 mod triangle_channel;
 use dmc_channel::DmcChannel;
+use filter::OutputFilter;
+use frame_counter::{FrameClock, FrameCounter};
+use mixer::Mixer;
 use noise_channel::NoiseChannel;
 use pulse_channel::PulseChannel;
 use triangle_channel::TriangleChannel;
@@ -18,12 +24,55 @@ use triangle_channel::TriangleChannel;
 // Required APU register constants for simple tone test
 const APU_STATUS: u16 = 0x4015; // APU status/control
 
-// Constants for audio generation
-const CPU_CLOCK_RATE: f64 = 1789773.0; // NES CPU clock rate (NTSC)
-const DEFAULT_SAMPLE_RATE: u32 = 44100; // Default audio sample rate
+/// NES CPU clock rate (NTSC), in Hz.
+pub const CPU_CLOCK_RATE: f64 = 1_789_773.0;
 
-// Frame counter constants
-const QUARTER_FRAME_PERIOD: u64 = 7457; // CPU cycles between quarter frame ticks (NTSC)
+/// Sample rate assumed until a real audio device reports its own.
+pub const DEFAULT_SAMPLE_RATE: f64 = 44_100.0;
+
+/// The APU's five sound channels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Channel {
+    Pulse1,
+    Pulse2,
+    Triangle,
+    Noise,
+    Dmc,
+}
+
+impl Channel {
+    pub const ALL: [Channel; 5] = [
+        Channel::Pulse1,
+        Channel::Pulse2,
+        Channel::Triangle,
+        Channel::Noise,
+        Channel::Dmc,
+    ];
+
+    /// This channel's enable bit in `$4015`.
+    pub fn status_bit(&self) -> u8 {
+        match self {
+            Channel::Pulse1 => 0x01,
+            Channel::Pulse2 => 0x02,
+            Channel::Triangle => 0x04,
+            Channel::Noise => 0x08,
+            Channel::Dmc => 0x10,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Channel::Pulse1 => "Pulse 1",
+            Channel::Pulse2 => "Pulse 2",
+            Channel::Triangle => "Triangle",
+            Channel::Noise => "Noise",
+            Channel::Dmc => "DMC",
+        }
+    }
+}
+
+/// APU status/control register bits.
+const STATUS_FRAME_IRQ: u8 = 0x40;
 
 /// Wrapper for APU to make it easier to use with Rc/RefCell
 #[derive(Clone, Debug)]
@@ -54,8 +103,22 @@ impl ApuWrapper {
         self.apu.borrow_mut().connect_audio_output(audio_output);
     }
 
+    /// Set the output sample rate, in Hz — take this from the real audio device.
+    pub fn set_sample_rate(&self, sample_rate: f64) {
+        self.apu.borrow_mut().set_sample_rate(sample_rate);
+    }
+
+    pub fn sample_rate(&self) -> f64 {
+        self.apu.borrow().sample_rate()
+    }
+
     pub fn set_volume(&self, volume: f32) {
         self.apu.borrow_mut().set_volume(volume);
+    }
+
+    /// Whether a channel is currently enabled via `$4015`.
+    pub fn channel_enabled(&self, channel: Channel) -> bool {
+        self.apu.borrow().channel_enabled(channel)
     }
 
     pub fn set_muted(&self, muted: bool) {
@@ -78,7 +141,16 @@ impl Addressable for ApuWrapper {
     }
 
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
-        self.apu.borrow().read_byte(address)
+        let value = self.apu.borrow().read_byte(address)?;
+
+        // Reading $4015 acknowledges the frame IRQ. `Apu::read_byte` cannot do this itself —
+        // `Addressable::read_byte` takes `&self` — but the wrapper owns the `RefCell`, so the
+        // side effect belongs here.
+        if address == APU_STATUS {
+            self.apu.borrow_mut().acknowledge_frame_irq();
+        }
+
+        Ok(value)
     }
 
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
@@ -107,14 +179,42 @@ pub struct Apu {
 
     // Audio output device
     #[debug(skip)]
-    audio_output2: Option<Box<dyn SampleProducer<f32>>>,
+    audio_output: Option<Box<dyn SampleProducer<f32>>>,
+
+    // Non-linear channel mixer
+    mixer: Mixer,
+
+    // 90 Hz / 440 Hz high-pass and 14 kHz low-pass applied to the mixed output
+    filter: OutputFilter,
+
     // Sample generation state
     cycle_counter: u64,
-    sample_counter: f64,
 
-    // Frame counter state
-    frame_counter: u64,
-    frame_mode: u8, // 0 = 4-step, 1 = 5-step (not fully implemented yet)
+    /// Divides the CPU clock by two to get the APU clock.
+    ///
+    /// Pulse and noise timers are clocked at APU rate; triangle runs at full CPU rate. Getting
+    /// this wrong puts pulse and noise an octave out.
+    apu_cycle: bool,
+
+    /// Resampling accumulator.
+    ///
+    /// The APU is evaluated once per CPU cycle (~1.79 MHz) but the audio device wants ~48 kHz, so
+    /// `samples_per_cycle` is added each tick and a sample is emitted whenever it crosses 1.0.
+    /// Without this the buffer is fed ~37× faster than it drains.
+    sample_counter: f64,
+    samples_per_cycle: f64,
+    sample_rate: f64,
+
+    /// Running sum of mixed values since the last emitted sample, and how many were summed.
+    ///
+    /// Averaging the discarded intermediate values instead of point-sampling costs one add per
+    /// cycle and removes most of the aliasing that naive decimation would fold into the audible
+    /// band.
+    sample_accumulator: f64,
+    accumulated_cycles: u32,
+
+    /// Frame sequencer: clocks envelopes, sweeps and length counters, and raises the frame IRQ.
+    frame_counter: FrameCounter,
 }
 
 impl Apu {
@@ -138,15 +238,44 @@ impl Apu {
             status: 0,
 
             // No audio output initially
-            audio_output2: None,
+            audio_output: None,
+
+            mixer: Mixer::new(),
+            filter: OutputFilter::new(DEFAULT_SAMPLE_RATE as f32),
+
             // Sample generation state
             cycle_counter: 0,
+            apu_cycle: false,
             sample_counter: 0.0,
+            samples_per_cycle: DEFAULT_SAMPLE_RATE / CPU_CLOCK_RATE,
+            sample_rate: DEFAULT_SAMPLE_RATE,
+            sample_accumulator: 0.0,
+            accumulated_cycles: 0,
 
-            // Frame counter state
-            frame_counter: 0,
-            frame_mode: 0, // 4-step mode by default
+            frame_counter: FrameCounter::new(),
         }
+    }
+
+    /// Set the output sample rate, in Hz.
+    ///
+    /// Called with the audio device's real rate once one is connected, so resampling and the
+    /// output filters are computed against what the hardware actually wants rather than an
+    /// assumed 44.1 kHz.
+    pub fn set_sample_rate(&mut self, sample_rate: f64) {
+        if sample_rate <= 0.0 {
+            return;
+        }
+
+        self.sample_rate = sample_rate;
+        self.samples_per_cycle = sample_rate / CPU_CLOCK_RATE;
+        self.filter = OutputFilter::new(sample_rate as f32);
+        self.sample_counter = 0.0;
+        self.sample_accumulator = 0.0;
+        self.accumulated_cycles = 0;
+    }
+
+    pub fn sample_rate(&self) -> f64 {
+        self.sample_rate
     }
 
     /// Reset the APU to initial state
@@ -169,28 +298,56 @@ impl Apu {
 
         // Reset sample generation state
         self.cycle_counter = 0;
+        self.apu_cycle = false;
         self.sample_counter = 0.0;
+        self.sample_accumulator = 0.0;
+        self.accumulated_cycles = 0;
+        self.filter.reset();
 
-        // Reset frame counter
-        self.frame_counter = 0;
+        self.frame_counter.reset();
     }
 
-    /// Process a single APU cycle
+    /// Advance the APU by one **CPU** cycle.
+    ///
+    /// Not every unit runs at this rate: the pulse and noise timers are clocked at APU rate
+    /// (CPU / 2) while the triangle runs at full CPU rate, and the frame sequencer runs at
+    /// ~240 Hz. The divider below is what keeps those three domains apart.
     pub fn tick(&mut self) {
-        // Increment cycle counter
         self.cycle_counter += 1;
+        self.apu_cycle = !self.apu_cycle;
 
-        // Process frame counter
-        if self.cycle_counter % QUARTER_FRAME_PERIOD == 0 {
-            // Process quarter frame
+        // Frame sequencer. Rates depend on the mode selected through $4017.
+        let clock = self.frame_counter.tick();
+        self.apply_frame_clock(clock);
+
+        // Pulse, noise and DMC timers advance once per APU cycle...
+        if self.apu_cycle {
+            self.pulse1.tick();
+            self.pulse2.tick();
+            self.noise.tick();
+            self.dmc.tick();
+        }
+
+        // ...while the triangle's sequencer advances every CPU cycle, which is why it can reach
+        // frequencies the pulse channels cannot.
+        self.triangle.tick();
+
+        self.generate_sample();
+    }
+
+    /// Clock the units a frame-sequencer step asks for.
+    ///
+    /// A half frame always accompanies a quarter frame on hardware, so the quarter-frame units are
+    /// clocked first and unconditionally when either applies.
+    fn apply_frame_clock(&mut self, clock: FrameClock) {
+        if clock.quarter_frame {
             self.pulse1.tick_envelope();
             self.pulse2.tick_envelope();
             self.triangle.tick_linear_counter();
             self.noise.tick_envelope();
         }
 
-        if self.cycle_counter % (QUARTER_FRAME_PERIOD * 2) == 0 {
-            // Process half frame
+        if clock.half_frame {
             self.pulse1.tick_sweep();
             self.pulse2.tick_sweep();
             self.pulse1.tick_length_counter();
@@ -198,76 +355,95 @@ impl Apu {
             self.triangle.tick_length_counter();
             self.noise.tick_length_counter();
         }
-
-        // Process channel cycles
-        self.pulse1.tick();
-        self.pulse2.tick();
-        self.triangle.tick();
-        self.noise.tick();
-        self.dmc.tick();
-
-        // Generate samples
-        self.generate_sample();
     }
 
-    fn generate_sample(&mut self) {
-        // Only generate samples if we have an audio output device
-        if let Some(audio_output) = &mut self.audio_output2 {
-            // Get samples from each channel
-            let pulse1_sample = self.pulse1.generate_sample();
-            let pulse2_sample = self.pulse2.generate_sample();
-            let triangle_sample = self.triangle.generate_sample();
-            let noise_sample = self.noise.generate_sample();
-            let dmc_sample = self.dmc.generate_sample();
+    /// Clear the frame IRQ, as reading `$4015` does on hardware.
+    pub fn acknowledge_frame_irq(&mut self) {
+        self.frame_counter.take_irq();
+    }
 
-            // Count active channels for dynamic gain adjustment
-            let mut active_channels = 0;
-            if pulse1_sample > 0.0 { active_channels += 1; }
-            if pulse2_sample > 0.0 { active_channels += 1; }
-            if triangle_sample > 0.0 { active_channels += 1; }
-            if noise_sample > 0.0 { active_channels += 1; }
-            if dmc_sample > 0.0 { active_channels += 1; }
-            
-            // Calculate dynamic gain (min 1.0, max 5.0)
-            let dynamic_gain = if active_channels > 0 {
-                // More channels = less gain needed
-                // With all 5 channels active, gain is 1.0
-                // With 1 channel active, gain is 5.0
-                5.0f32 / active_channels as f32
-            } else {
-                1.0f32 // Default gain when no channels active
-            };
-
-            // Mix pulse channels (with 95.88/15 scaling)
-            let pulse_out = (pulse1_sample + pulse2_sample) * 95.88f32 / 15.0f32;
-
-            // Mix TND channels (with respective scalings)
-            let tnd_out = (triangle_sample * 159.79 + noise_sample * 159.79f32 + dmc_sample * 127.0f32) / 15.0f32;
-
-            // Combine outputs and normalize to [-1.0, 1.0], with dynamic gain
-            let mixed_sample = (pulse_out + tnd_out) / 400.0f32 * dynamic_gain;
-
-            // Output the sample
-            audio_output.produce(mixed_sample);
+    /// Whether a channel is currently enabled via `$4015`.
+    ///
+    /// Lets the UI show what the running program actually asked for, rather than only what was
+    /// last clicked.
+    pub fn channel_enabled(&self, channel: Channel) -> bool {
+        match channel {
+            Channel::Pulse1 => self.pulse1.is_enabled(),
+            Channel::Pulse2 => self.pulse2.is_enabled(),
+            Channel::Triangle => self.triangle.is_enabled(),
+            Channel::Noise => self.noise.is_enabled(),
+            Channel::Dmc => self.dmc.is_enabled(),
         }
     }
 
-    /// Connect an audio output device
+    /// Whether the frame counter is asserting an IRQ.
+    ///
+    /// The CPU has no interrupt line yet, so nothing consumes this; the flag is maintained
+    /// correctly so `$4015` reports it, and so connecting it later is wiring rather than work.
+    pub fn irq_pending(&self) -> bool {
+        self.frame_counter.irq_pending()
+    }
+
+    /// Mix the current channel levels into one sample in roughly 0.0..=1.0.
+    ///
+    /// Kept separate from the resampling in [`Apu::generate_sample`] so it can be tested against
+    /// the reference formula without involving any timing.
+    fn mix(&self) -> f32 {
+        self.mixer.mix(
+            self.pulse1.output(),
+            self.pulse2.output(),
+            self.triangle.output(),
+            self.noise.output(),
+            self.dmc.output(),
+        )
+    }
+
+    /// Accumulate this cycle's mix and emit a filtered sample when one is due.
+    ///
+    /// The APU is evaluated at ~1.79 MHz and the device wants ~48 kHz, so roughly 37 cycles are
+    /// averaged into each emitted sample.
+    fn generate_sample(&mut self) {
+        if self.audio_output.is_none() {
+            return;
+        }
+
+        self.sample_accumulator += self.mix() as f64;
+        self.accumulated_cycles += 1;
+        self.sample_counter += self.samples_per_cycle;
+
+        if self.sample_counter < 1.0 {
+            return;
+        }
+        self.sample_counter -= 1.0;
+
+        let averaged = (self.sample_accumulator / self.accumulated_cycles as f64) as f32;
+        self.sample_accumulator = 0.0;
+        self.accumulated_cycles = 0;
+
+        // The filters run on the decimated stream, and the 90 Hz high-pass is what removes the
+        // DC offset the unipolar mix leaves behind.
+        let filtered = self.filter.process(averaged);
+
+        if let Some(audio_output) = &mut self.audio_output {
+            audio_output.produce(filtered);
+        }
+    }
+
+    /// Connect an audio output device.
     pub fn connect_audio_output(&mut self, audio_output: Box<dyn SampleProducer<f32>>) {
-        // Store the audio output
-        self.audio_output2 = Some(audio_output);
+        self.audio_output = Some(audio_output);
     }
 
     /// Set the volume (0.0 to 1.0)
     pub fn set_volume(&mut self, volume: f32) {
-        if let Some(audio_output) = &mut self.audio_output2 {
+        if let Some(audio_output) = &mut self.audio_output {
             audio_output.set_volume(volume);
         }
     }
 
     /// Set muted state
     pub fn set_muted(&mut self, muted: bool) {
-        if let Some(audio_output) = &mut self.audio_output2 {
+        if let Some(audio_output) = &mut self.audio_output {
             audio_output.set_muted(muted);
         }
     }
@@ -276,18 +452,22 @@ impl Apu {
 impl Addressable for Apu {
     fn handles_address(&self, address: u16) -> bool {
         // Handle APU registers
-        match address {
-            0x4000..=0x400F | 0x4015 | 0x4017 => true,
-            _ => false,
-        }
+        matches!(address, 0x4000..=0x400F | 0x4015 | 0x4017)
     }
 
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         match address {
             // APU status register ($4015)
             APU_STATUS => {
-                // Build status register from channel states
+                // Build status register from channel states.
+                //
+                // Note this cannot clear the frame IRQ, because `Addressable::read_byte` takes
+                // `&self`. `ApuWrapper` owns the RefCell and does the clearing; see its
+                // `read_byte`.
                 let mut status = 0;
+                if self.frame_counter.irq_pending() {
+                    status |= STATUS_FRAME_IRQ;
+                }
                 if self.pulse1.is_length_counter_active() {
                     status |= 0x01;
                 }
@@ -355,12 +535,10 @@ impl Addressable for Apu {
             },
             // Frame counter register ($4017)
             0x4017 => {
-                // Set frame counter mode
-                self.frame_mode = value & 0x80;
-                // Reset frame counter if bit 7 is set
-                if (value & 0x80) != 0 {
-                    self.frame_counter = 0;
-                }
+                // Selecting 5-step mode clocks quarter and half frames immediately, which is how
+                // music drivers force a known starting state.
+                let immediate = self.frame_counter.write(value);
+                self.apply_frame_clock(immediate);
                 Ok(())
             },
             // Ignore other registers for minimal implementation
@@ -369,243 +547,356 @@ impl Addressable for Apu {
     }
 }
 
+
+impl Default for Apu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use derive_more::Debug;
 
     use super::*;
+
     const PULSE1_CONTROL: u16 = 0x4000; // Volume/Duty/Envelope control
     const PULSE1_SWEEP: u16 = 0x4001; // Sweep control
     const PULSE1_TIMER_LO: u16 = 0x4002; // Timer low byte
     const PULSE1_TIMER_HI: u16 = 0x4003; // Timer high byte
 
-    // A very simple audio output implementation for testing
-    #[derive(Debug)]
+    const TEST_SAMPLE_RATE: f64 = 48_000.0;
+
+    /// CPU cycles in one full 4-step frame-counter sequence.
+    const FOUR_STEP_SEQUENCE_CYCLES: usize = 29_830;
+
+    /// Collects everything the APU emits, so tests can assert on the real output stream.
+    ///
+    /// Shared with the APU through a channel rather than `Rc<RefCell<_>>`: `SampleProducer` is
+    /// `Send`, and a plain channel satisfies that without any `unsafe` claims.
+    #[derive(std::fmt::Debug)]
     struct TestAudioOutput {
-        samples: Vec<f32>,
-        ready: bool,
+        sender: std::sync::mpsc::Sender<f32>,
     }
 
-    impl TestAudioOutput {
-        fn new() -> Self {
-            Self {
-                samples: Vec::new(),
-                ready: true,
+    /// The test-side handle: drains whatever the APU has produced so far.
+    struct Captured {
+        receiver: std::sync::mpsc::Receiver<f32>,
+        samples: Vec<f32>,
+    }
+
+    impl Captured {
+        fn new() -> (TestAudioOutput, Self) {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            (
+                TestAudioOutput { sender },
+                Self {
+                    receiver,
+                    samples: Vec::new(),
+                },
+            )
+        }
+
+        fn samples(&mut self) -> &[f32] {
+            while let Ok(sample) = self.receiver.try_recv() {
+                self.samples.push(sample);
             }
+            &self.samples
         }
 
-        fn clear(&mut self) {
-            self.samples.clear();
-        }
 
-        fn set_ready(&mut self, ready: bool) {
-            self.ready = ready;
+        fn peak(&mut self) -> f32 {
+            self.samples().iter().fold(0.0f32, |a, &b| a.max(b.abs()))
         }
     }
 
     impl SampleProducer<f32> for TestAudioOutput {
-        fn set_volume(&mut self, _volume: f32) {
-            // Do nothing for test
-        }
+        fn set_volume(&mut self, _volume: f32) {}
 
-        fn set_muted(&mut self, _muted: bool) {
-            // Do nothing for test
-        }
+        fn set_muted(&mut self, _muted: bool) {}
 
         fn produce(&mut self, sample: f32) {
-            if self.ready {
-                self.samples.push(sample);
-            }
+            let _ = self.sender.send(sample);
         }
+    }
+
+    /// An APU with a capture buffer attached, running at a known sample rate.
+    fn apu_with_capture() -> (Apu, Captured) {
+        let mut apu = Apu::new();
+        let (output, captured) = Captured::new();
+        apu.set_sample_rate(TEST_SAMPLE_RATE);
+        apu.connect_audio_output(Box::new(output));
+        (apu, captured)
+    }
+
+    fn tick_cycles(apu: &mut Apu, cycles: usize) {
+        for _ in 0..cycles {
+            apu.tick();
+        }
+    }
+
+    /// Program pulse 1 as a steady, audible tone: constant volume 15, no sweep muting,
+    /// length counter loaded.
+    fn program_pulse1_tone(apu: &mut Apu, timer_lo: u8, timer_hi: u8) -> Result<()> {
+        apu.write_byte(PULSE1_CONTROL, 0b0101_1111)?; // 25% duty, constant volume 15
+        apu.write_byte(PULSE1_SWEEP, 0x08)?; // negate set, so the sweep never mutes
+        apu.write_byte(PULSE1_TIMER_LO, timer_lo)?;
+        apu.write_byte(APU_STATUS, 0x01)?; // enable pulse 1
+        apu.write_byte(PULSE1_TIMER_HI, timer_hi)?; // timer high + length counter load
+        Ok(())
     }
 
     #[test]
     fn test_apu_new() {
         let apu = Apu::new();
 
-        // Check default state
         assert_eq!(apu.status, 0);
         assert_eq!(apu.cycle_counter, 0);
         assert_eq!(apu.sample_counter, 0.0);
-        assert!(apu.audio_output2.is_none());
+        assert!(apu.audio_output.is_none());
+        assert_eq!(apu.sample_rate(), DEFAULT_SAMPLE_RATE);
     }
 
     #[test]
     fn test_apu_reset() {
         let mut apu = Apu::new();
 
-        // Set some non-default values
         apu.status = 0x0F;
         apu.cycle_counter = 1000;
         apu.sample_counter = 0.5;
+        apu.apu_cycle = true;
 
-        // Reset and check that values are back to defaults
         apu.reset();
 
         assert_eq!(apu.status, 0);
         assert_eq!(apu.cycle_counter, 0);
         assert_eq!(apu.sample_counter, 0.0);
+        assert!(!apu.apu_cycle);
     }
 
     #[test]
-    fn test_apu_tick_no_sample_when_not_ready() -> Result<()> {
+    fn test_no_samples_without_output() -> Result<()> {
+        // With no output connected the APU must still tick correctly, just produce nothing.
         let mut apu = Apu::new();
-        let test_output = Rc::new(RefCell::new(TestAudioOutput::new()));
 
-        // Set output to not ready
-        test_output.borrow_mut().set_ready(false);
+        program_pulse1_tone(&mut apu, 0x40, 0x08)?;
+        tick_cycles(&mut apu, 10_000);
 
-        // Enable the pulse channel first
-        apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
-        apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
-
-        // Connect the test output
-        apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
-
-        // Tick several times
-        for _ in 0..100 {
-            apu.tick();
-        }
-
-        // Verify that no samples were queued since output was not ready
-        assert_eq!(
-            test_output.borrow().samples.len(),
-            0,
-            "Samples were queued when output was not ready"
-        );
-
+        assert!(apu.audio_output.is_none());
         Ok(())
     }
 
     #[test]
-    fn test_apu_tick_sample_generation() -> Result<()> {
+    fn test_sample_generation() -> Result<()> {
+        let (mut apu, mut captured) = apu_with_capture();
+
+        program_pulse1_tone(&mut apu, 0x40, 0x08)?;
+        tick_cycles(&mut apu, 100_000);
+
+        assert!(!captured.samples().is_empty(), "No samples were generated");
+        assert!(
+            captured.samples().iter().any(|&s| s.abs() > 0.001),
+            "All samples were silent"
+        );
+        Ok(())
+    }
+
+    /// The regression test for the resampling defect.
+    ///
+    /// The APU is evaluated once per CPU cycle (~1.79 MHz) but must emit at the device's rate.
+    /// Before resampling existed this produced ~37x too many samples, which is exactly what made
+    /// the output unlistenable.
+    #[test]
+    fn test_emits_at_the_device_sample_rate() -> Result<()> {
+        let (mut apu, mut captured) = apu_with_capture();
+
+        program_pulse1_tone(&mut apu, 0x40, 0x08)?;
+
+        // Run for one emulated second.
+        tick_cycles(&mut apu, CPU_CLOCK_RATE as usize);
+
+        let produced = captured.samples().len() as f64;
+        let error = (produced - TEST_SAMPLE_RATE).abs() / TEST_SAMPLE_RATE;
+
+        assert!(
+            error < 0.01,
+            "expected ~{TEST_SAMPLE_RATE} samples in one emulated second, got {produced}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_sample_rate_follows_the_device() -> Result<()> {
         let mut apu = Apu::new();
-        let test_output = Rc::new(RefCell::new(TestAudioOutput::new()));
+        let (output, mut captured) = Captured::new();
+        apu.set_sample_rate(22_050.0);
+        apu.connect_audio_output(Box::new(output));
 
-        // Configure pulse channel with a very short timer to cycle through duty positions quickly
-        apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
-        apu.write_byte(PULSE1_TIMER_LO, 0x01)?; // Very short timer to cycle through positions quickly
-        apu.write_byte(PULSE1_TIMER_HI, 0x00)?; // Set high timer byte
+        program_pulse1_tone(&mut apu, 0x40, 0x08)?;
+        tick_cycles(&mut apu, CPU_CLOCK_RATE as usize);
 
-        // Disable sweep to prevent muting (for test)
-        apu.write_byte(PULSE1_SWEEP, 0x08)?; // Negate flag set to prevent muting
+        let produced = captured.samples().len() as f64;
+        assert!(
+            (produced - 22_050.0).abs() / 22_050.0 < 0.01,
+            "expected ~22050 samples, got {produced}"
+        );
+        Ok(())
+    }
 
-        // Enable pulse 1 and load initial length counter value
-        apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
-        apu.write_byte(PULSE1_TIMER_HI, 0x08)?; // Reload length counter
+    /// The regression test for the clock-domain defect.
+    ///
+    /// Pulse timers are clocked at APU rate (CPU / 2), so a pulse channel completes one duty
+    /// period every `8 * (timer + 1)` APU cycles — twice that many CPU cycles. Clocking it per CPU
+    /// cycle instead put every pulse tone an octave sharp.
+    #[test]
+    fn test_pulse_runs_at_apu_rate() -> Result<()> {
+        let mut apu = Apu::new();
 
-        // Connect the test output
-        apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
+        let timer: u16 = 100;
+        apu.write_byte(PULSE1_CONTROL, 0b0101_1111)?;
+        apu.write_byte(PULSE1_SWEEP, 0x08)?;
+        apu.write_byte(PULSE1_TIMER_LO, (timer & 0xFF) as u8)?;
+        apu.write_byte(APU_STATUS, 0x01)?;
+        apu.write_byte(PULSE1_TIMER_HI, 0x08 | ((timer >> 8) as u8))?;
 
-        // Tick many times to cycle through all duty positions and generate many samples
-        for _ in 0..1000 {
+        // The timer starts at 0, so the very first step lands after a single cycle. Wait for it
+        // before timing, or that partial period skews the measurement.
+        let mut guard = 0;
+        while apu.pulse1.duty_pos() == 0 && guard < 10_000 {
             apu.tick();
+            guard += 1;
         }
 
-        // Verify that samples were generated
-        assert!(test_output.borrow().samples.len() > 0, "No samples were generated");
+        // Count how many CPU cycles it takes to walk the 8-step duty sequence once.
+        let start = apu.pulse1.duty_pos();
+        let mut steps = 0;
+        let mut cycles = 0usize;
+        while steps < 8 && cycles < 10_000 {
+            let before = apu.pulse1.duty_pos();
+            apu.tick();
+            cycles += 1;
+            if apu.pulse1.duty_pos() != before {
+                steps += 1;
+            }
+        }
 
-        // Verify that some samples are non-zero
-        let has_non_zero = test_output.borrow().samples.iter().any(|&s| s.abs() > 0.001);
-        assert!(has_non_zero, "All samples were zero");
+        assert_eq!(steps, 8, "duty sequence did not complete");
+        assert_eq!(apu.pulse1.duty_pos(), start, "duty position should wrap to where it began");
 
+        // 8 steps x (timer + 1) APU cycles x 2 CPU cycles per APU cycle.
+        let expected = 8 * (timer as usize + 1) * 2;
+        assert!(
+            (cycles as i64 - expected as i64).abs() <= 2,
+            "pulse period was {cycles} CPU cycles, expected ~{expected} (an octave error would give ~{})",
+            expected / 2
+        );
+        Ok(())
+    }
+
+    /// The triangle channel is the one that really is clocked every CPU cycle.
+    #[test]
+    fn test_triangle_runs_at_cpu_rate() -> Result<()> {
+        let mut apu = Apu::new();
+
+        let timer: u16 = 100;
+        apu.write_byte(0x4008, 0b1000_1111)?; // linear counter reload 15, control set
+        apu.write_byte(0x400A, (timer & 0xFF) as u8)?;
+        apu.write_byte(APU_STATUS, 0x04)?; // enable triangle
+        apu.write_byte(0x400B, 0x08 | ((timer >> 8) as u8))?;
+
+        // Same cold-start allowance as the pulse test.
+        let mut guard = 0;
+        while apu.triangle.sequence_pos() == 0 && guard < 10_000 {
+            apu.tick();
+            guard += 1;
+        }
+
+        let mut steps = 0;
+        let mut cycles = 0usize;
+        while steps < 4 && cycles < 10_000 {
+            let before = apu.triangle.sequence_pos();
+            apu.tick();
+            cycles += 1;
+            if apu.triangle.sequence_pos() != before {
+                steps += 1;
+            }
+        }
+
+        assert_eq!(steps, 4, "triangle sequence did not advance");
+
+        // 4 steps x (timer + 1) CPU cycles — no divider.
+        let expected = 4 * (timer as usize + 1);
+        assert!(
+            (cycles as i64 - expected as i64).abs() <= 2,
+            "triangle period was {cycles} CPU cycles, expected ~{expected}"
+        );
         Ok(())
     }
 
     #[test]
     fn test_simple_tone_sequence() -> Result<()> {
-        let mut apu = Apu::new();
-        let test_output = Rc::new(RefCell::new(TestAudioOutput::new()));
+        let (mut apu, mut captured) = apu_with_capture();
 
-        // Program the APU to play a tone - similar to the basic_tone_test.asm
-        apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
-        apu.write_byte(PULSE1_SWEEP, 0x08)?; // No sweep, negate bit set to prevent muting
-        apu.write_byte(PULSE1_TIMER_LO, 0x8)?; // Short timer for faster testing
+        program_pulse1_tone(&mut apu, 0x08, 0x01)?;
+        tick_cycles(&mut apu, 200_000);
 
-        // Enable pulse 1
-        apu.write_byte(APU_STATUS, 0x01)?; // Enable pulse 1
+        assert!(!captured.samples().is_empty(), "No samples were generated");
+        assert!(
+            captured.samples().iter().any(|&s| s.abs() > 0.001),
+            "All samples were silent"
+        );
+        assert!(apu.pulse1.is_enabled(), "Pulse channel should be enabled");
+        Ok(())
+    }
 
-        // Load timer high and length counter in one operation
-        apu.write_byte(PULSE1_TIMER_HI, 0x01)?; // High byte (period over 8 to avoid muting)
+    /// The mixed signal must swing around zero once the output filters have settled.
+    ///
+    /// The mixer is deliberately unipolar — silence is 0.0, matching the hardware DAC — so this is
+    /// what proves the high-pass stages are actually removing that offset.
+    #[test]
+    fn test_output_has_no_dc_offset() -> Result<()> {
+        let (mut apu, mut captured) = apu_with_capture();
 
-        // Connect the test output
-        apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
+        program_pulse1_tone(&mut apu, 0x40, 0x08)?;
+        tick_cycles(&mut apu, CPU_CLOCK_RATE as usize);
 
-        // Run for a significant amount of time to generate many samples
-        for _ in 0..2000 {
-            apu.tick();
-        }
+        let samples = captured.samples();
+        // Skip the filters' settling time.
+        let settled = &samples[samples.len() / 2..];
+        let mean = settled.iter().sum::<f32>() / settled.len() as f32;
 
-        // Verify that samples were generated
-        assert!(test_output.borrow().samples.len() > 0, "No samples were generated");
-
-        // Verify that some samples are non-zero
-        let has_non_zero = test_output.borrow().samples.iter().any(|&s| s.abs() > 0.001);
-        assert!(has_non_zero, "All samples were zero");
-
-        // Verify the APU configuration is correct for tone generation
-        assert_eq!(apu.pulse1.is_enabled(), true, "Pulse channel should be enabled");
-
+        assert!(mean.abs() < 0.01, "output has a DC offset of {mean}");
+        assert!(
+            settled.iter().any(|&s| s < 0.0) && settled.iter().any(|&s| s > 0.0),
+            "output never crosses zero, so it is not a waveform"
+        );
         Ok(())
     }
 
     #[test]
     fn test_length_counter_in_apu() -> Result<()> {
         let mut apu = Apu::new();
-        let test_output = Rc::new(RefCell::new(TestAudioOutput::new()));
 
-        // Configure pulse channel with a very short timer for quick testing
-        apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
-        apu.write_byte(PULSE1_TIMER_LO, 0x08)?; // Timer low
-
-        // Enable pulse channel
+        apu.write_byte(PULSE1_CONTROL, 0b0101_1111)?; // 25% duty, constant volume 15
+        apu.write_byte(PULSE1_SWEEP, 0x08)?;
+        apu.write_byte(PULSE1_TIMER_LO, 0x08)?;
         apu.write_byte(APU_STATUS, 0x01)?;
+        apu.write_byte(PULSE1_TIMER_HI, 0x18)?; // length index 3 = 2 (very short)
 
-        // Load timer high with a length value - use shortest length value
-        apu.write_byte(PULSE1_TIMER_HI, 0x18)?; // Index 3 = value 2 (very short)
+        apu.pulse1.set_duty_pos(0); // a position where the duty pattern is high
 
-        // Connect test output
-        apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
+        assert!(apu.mix() > 0.0, "expected audible output while the length counter is active");
 
-        // We'll directly manipulate the pulse channel for testing
-        // This is more reliable than waiting for the timer to advance
-        apu.pulse1.set_duty_pos(0); // Set position where output is high
-
-        // Force a sample generation to verify we have sound
-        apu.generate_sample();
-
-        // Verify that we did produce non-zero sound
-        assert!(test_output.borrow().samples.len() > 0, "No samples were generated");
-        assert!(
-            test_output.borrow().samples.iter().any(|&s| s > 0.0),
-            "Expected non-zero samples but all were zero"
-        );
-
-        // Clear samples
-        test_output.borrow_mut().clear();
-
-        // Manually tick the length counter twice to exhaust it
-        // Since we used a length of 2, this should silence the channel
+        // Exhaust the length counter.
         apu.pulse1.tick_length_counter();
         apu.pulse1.tick_length_counter();
 
-        // Verify the length counter is now inactive
         assert_eq!(
             apu.read_byte(APU_STATUS)? & 0x01,
             0,
             "Pulse 1 should be silent after length counter expires"
         );
-
-        // Generate another sample
-        apu.generate_sample();
-
-        // Verify it produced silence
-        assert!(
-            test_output.borrow().samples.iter().all(|&s| s == 0.0),
-            "All samples should be zero after length counter expires"
-        );
-
+        assert_eq!(apu.mix(), 0.0, "expected silence after the length counter expires");
         Ok(())
     }
 
@@ -613,49 +904,32 @@ mod tests {
     fn test_length_counter_halt() -> Result<()> {
         let mut apu = Apu::new();
 
-        // Enable pulse channel first
         apu.write_byte(APU_STATUS, 0x01)?;
-
-        // Configure pulse with length counter halt flag set (bit 5 of control register)
-        apu.write_byte(PULSE1_CONTROL, 0b00100000)?; // Halt bit set, constant volume (0)
+        apu.write_byte(PULSE1_CONTROL, 0b0010_0000)?; // halt set, constant volume 0
         apu.write_byte(PULSE1_TIMER_LO, 0x08)?;
+        apu.write_byte(PULSE1_TIMER_HI, 0x01)?;
 
-        // Now load timer high to get length counter
-        apu.write_byte(PULSE1_TIMER_HI, 0x01)?; // Timer high with length counter
-
-        // Tick many half-frames - length counter shouldn't decrement because halt is set
         for _ in 0..20 {
-            // Simulate many CPU cycles to trigger multiple half-frames
-            for _ in 0..QUARTER_FRAME_PERIOD * 4 {
-                apu.tick();
-            }
+            tick_cycles(&mut apu, FOUR_STEP_SEQUENCE_CYCLES * 2);
         }
 
-        // Status register should still show pulse 1 as active
         assert_eq!(
             apu.read_byte(APU_STATUS)? & 0x01,
             0x01,
             "Pulse 1 should still be active with length counter halt set"
         );
 
-        // Now clear the halt flag
-        apu.write_byte(PULSE1_CONTROL, 0b00000000)?; // Halt bit cleared, constant volume (0)
+        apu.write_byte(PULSE1_CONTROL, 0b0000_0000)?; // clear halt
 
-        // Tick many half-frames - length counter should now decrement
         for _ in 0..20 {
-            // Simulate many CPU cycles to trigger multiple half-frames
-            for _ in 0..QUARTER_FRAME_PERIOD * 4 {
-                apu.tick();
-            }
+            tick_cycles(&mut apu, FOUR_STEP_SEQUENCE_CYCLES * 2);
         }
 
-        // Status register should now show pulse 1 as inactive
         assert_eq!(
             apu.read_byte(APU_STATUS)? & 0x01,
             0,
             "Pulse 1 should be silent after length counter expires"
         );
-
         Ok(())
     }
 
@@ -663,237 +937,141 @@ mod tests {
     fn test_reload_length_counter() -> Result<()> {
         let mut apu = Apu::new();
 
-        // Enable pulse channel but without loading a length counter
-        apu.write_byte(PULSE1_CONTROL, 0b01011111)?; // 25% duty, constant volume (15)
+        apu.write_byte(PULSE1_CONTROL, 0b0101_1111)?;
         apu.write_byte(APU_STATUS, 0x01)?;
-
-        // Check that it's not active yet (no length value loaded)
         assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0x00);
 
-        // Now load a length counter
-        apu.write_byte(PULSE1_TIMER_HI, 0x01)?; // Any value will load a length
-
-        // Check that it's active now
+        apu.write_byte(PULSE1_TIMER_HI, 0x01)?;
         assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0x01);
 
-        // Disable the channel
         apu.write_byte(APU_STATUS, 0x00)?;
-
-        // Should be inactive
         assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0x00);
 
-        // Re-enable and load a length value
         apu.write_byte(APU_STATUS, 0x01)?;
         apu.write_byte(PULSE1_TIMER_HI, 0x01)?;
-
-        // Should be active again
         assert_eq!(apu.read_byte(APU_STATUS)? & 0x01, 0x01);
+        Ok(())
+    }
+
+    /// Channel mixing, asserted against the reference formula rather than against whatever the
+    /// implementation happened to produce.
+    ///
+    /// This is tested through `mix()` rather than through the sample stream: mixing is a pure
+    /// function of the five DAC levels, and involving timing, resampling and filtering here would
+    /// only make a failure harder to localise.
+    #[test]
+    fn test_all_channels_mixing() -> Result<()> {
+        let mut apu = Apu::new();
+
+        let pulse_ref = |n: f32| 95.88 / (8128.0 / n + 100.0);
+        let tnd_ref = |n: f32| 163.67 / (24329.0 / n + 100.0);
+
+        // Silence in, silence out.
+        assert_eq!(apu.mix(), 0.0);
+
+        // Pulse 1 alone, at full volume.
+        apu.write_byte(0x4000, 0b0111_1111)?; // constant volume 15
+        apu.write_byte(0x4001, 0x08)?; // no sweep muting
+        apu.write_byte(0x4002, 0x0F)?;
+        apu.write_byte(0x4015, 0x01)?;
+        apu.write_byte(0x4003, 0x08)?;
+        apu.pulse1.set_duty_pos(0);
+
+        assert_eq!(apu.pulse1.output(), 15);
+        assert!((apu.mix() - pulse_ref(15.0)).abs() < 1e-6, "pulse 1 mixing incorrect");
+
+        // Adding pulse 2 at the same level must compress, not double.
+        apu.write_byte(0x4004, 0b0111_1111)?;
+        apu.write_byte(0x4005, 0x08)?;
+        apu.write_byte(0x4006, 0x0F)?;
+        apu.write_byte(0x4015, 0x03)?;
+        apu.write_byte(0x4007, 0x08)?;
+        apu.pulse2.set_duty_pos(0);
+
+        let both = apu.mix();
+        assert!((both - pulse_ref(30.0)).abs() < 1e-6, "pulse pair mixing incorrect");
+        assert!(
+            both < 2.0 * pulse_ref(15.0),
+            "mixing must be non-linear: {both} is not below {}",
+            2.0 * pulse_ref(15.0)
+        );
+
+        // Triangle alone.
+        let mut apu = Apu::new();
+        apu.write_byte(0x4015, 0x04)?;
+        apu.write_byte(0x4008, 0b1000_1111)?;
+        apu.write_byte(0x400A, 0x01)?;
+        apu.write_byte(0x400B, 0x08)?;
+
+        let triangle = apu.triangle.output();
+        assert!(triangle > 0, "triangle should be audible");
+        assert!(
+            (apu.mix() - tnd_ref(3.0 * triangle as f32)).abs() < 1e-6,
+            "triangle mixing incorrect"
+        );
+
+        // DMC alone, at full scale.
+        let mut apu = Apu::new();
+        apu.write_byte(0x4010, 0x00)?;
+        apu.write_byte(0x4011, 0x7F)?; // direct load, maximum
+        apu.write_byte(0x4012, 0x00)?;
+        apu.write_byte(0x4013, 0x01)?;
+        apu.write_byte(0x4015, 0x10)?;
+
+        assert_eq!(apu.dmc.output(), 127);
+        assert!((apu.mix() - tnd_ref(127.0)).abs() < 1e-6, "DMC mixing incorrect");
 
         Ok(())
     }
 
     #[test]
-    fn test_all_channels_mixing() -> Result<()> {
+    fn test_mix_never_clips() -> Result<()> {
         let mut apu = Apu::new();
-        let test_output = Rc::new(RefCell::new(TestAudioOutput::new()));
 
-        // Test 1: Individual channel contributions
-        // Configure pulse channel 1 only
-        apu.write_byte(0x4000, 0b01111111)?; // 25% duty, constant volume (15)
-        apu.write_byte(0x4001, 0x08)?; // No sweep
-        apu.write_byte(0x4002, 0x0F)?; // Timer low
-        apu.write_byte(0x4015, 0x01)?; // Enable only pulse 1
-        apu.write_byte(0x4003, 0x08)?; // Timer high and length counter (non-zero length)
-
-        // Set duty position to 0 for 25% duty cycle
-        apu.pulse1.set_duty_pos(0);
-
-        // Connect test output
-        apu.connect_audio_output(Box::new(TestOutputWrapper(test_output.clone())));
-
-        // Generate samples
-        for _ in 0..100 {
-            apu.tick();
-        }
-
-        // Verify pulse 1 output (should be scaled by 95.88/15)
-        let pulse1_samples: Vec<f32> = test_output.borrow().samples.iter().map(|&s| s * 400.0f32).collect();
-        let pulse1_max = pulse1_samples.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
-        assert!(
-            (pulse1_max - 95.88f32 / 15.0f32).abs() < 0.01f32,
-            "Pulse 1 scaling incorrect"
-        );
-
-        // Clear samples
-        test_output.borrow_mut().clear();
-
-        // Configure pulse channel 2 only
-        apu.write_byte(0x4004, 0b01111111)?; // 25% duty, constant volume (15)
-        apu.write_byte(0x4005, 0x08)?; // No sweep
-        apu.write_byte(0x4006, 0x0F)?; // Timer low
-        apu.write_byte(0x4007, 0x08)?; // Timer high and length counter (non-zero length)
-
-        // Set duty position to 0 for 25% duty cycle
-        apu.pulse2.set_duty_pos(0);
-
-        // Generate samples
-        for _ in 0..100 {
-            apu.tick();
-        }
-
-        // Verify pulse 2 output (should be scaled by 95.88/15)
-        let pulse2_samples: Vec<f32> = test_output.borrow().samples.iter().map(|&s| s * 400.0f32).collect();
-        let pulse2_max = pulse2_samples.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
-        assert!(
-            (pulse2_max - 95.88f32 / 15.0f32).abs() < 0.01f32,
-            "Pulse 2 scaling incorrect"
-        );
-
-        // Clear samples
-        test_output.borrow_mut().clear();
-
-        // Configure triangle channel only
-        apu.write_byte(0x4015, 0x04)?; // Enable only triangle
-        apu.write_byte(0x4008, 0b10001111)?; // Linear counter control (reload value 15, halt flag set)
-        apu.write_byte(0x400A, 0x01)?; // Timer low
-        apu.write_byte(0x400B, 0x00)?; // Timer high and length counter
-
-        // Generate samples
-        for _ in 0..100 {
-            apu.tick();
-        }
-
-        // Verify triangle output (should be scaled by 159.79/15)
-        let triangle_samples: Vec<f32> = test_output.borrow().samples.iter().map(|&s| s * 400.0f32).collect();
-        let triangle_max = triangle_samples.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
-        assert!(
-            (triangle_max - 159.79f32 / 15.0f32).abs() < 0.01f32,
-            "Triangle scaling incorrect"
-        );
-
-        // Clear samples
-        test_output.borrow_mut().clear();
-
-        // Configure noise channel only
-        apu.write_byte(0x4015, 0x08)?; // Enable only noise
-        apu.write_byte(0x400C, 0b00011111)?; // Volume control
-        apu.write_byte(0x400E, 0x00)?; // Mode and period
-        apu.write_byte(0x400F, 0x08)?; // Length counter load
-
-        // Generate samples
-        for _ in 0..100 {
-            apu.tick();
-        }
-
-        // Verify noise output (should be scaled by 159.79/15)
-        let noise_samples: Vec<f32> = test_output.borrow().samples.iter().map(|&s| s * 400.0f32).collect();
-        let noise_max = noise_samples.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
-        assert!(
-            (noise_max - 159.79f32 / 15.0f32).abs() < 0.01f32,
-            "Noise scaling incorrect"
-        );
-
-        // Clear samples
-        test_output.borrow_mut().clear();
-
-        // Configure DMC channel only
-        apu.write_byte(0x4010, 0x00)?; // Sample rate and loop
-        apu.write_byte(0x4011, 0x7F)?; // Direct load (maximum)
-        apu.write_byte(0x4012, 0x00)?; // Sample address
-        apu.write_byte(0x4013, 0x01)?; // Sample length
-        apu.write_byte(0x4015, 0x10)?; // Enable only DMC
-
-        // Generate samples
-        for _ in 0..100 {
-            apu.tick();
-        }
-
-        // Verify DMC output (should be scaled by 127.0/15)
-        let dmc_samples: Vec<f32> = test_output.borrow().samples.iter().map(|&s| s * 400.0f32).collect();
-        let dmc_max = dmc_samples.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
-        assert!((dmc_max - 127.0f32 / 15.0f32).abs() < 0.01f32, "DMC scaling incorrect");
-
-        // Test 2: Combined channel mixing
-
-        // Clear samples
-        test_output.borrow_mut().clear();
-
-        // Enable all channels first
+        // Everything on, everything at maximum.
         apu.write_byte(0x4015, 0x1F)?;
-
-        // Configure all channels with maximum values
-        // Pulse 1
-        apu.write_byte(0x4000, 0b01111111)?; // 25% duty, constant volume (15)
-        apu.write_byte(0x4001, 0x08)?; // No sweep
-        apu.write_byte(0x4002, 0x0F)?; // Timer low
-        apu.write_byte(0x4003, 0x08)?; // Timer high and length counter
+        apu.write_byte(0x4000, 0b0111_1111)?;
+        apu.write_byte(0x4001, 0x08)?;
+        apu.write_byte(0x4002, 0x0F)?;
+        apu.write_byte(0x4003, 0x08)?;
         apu.pulse1.set_duty_pos(0);
-
-        // Pulse 2
-        apu.write_byte(0x4004, 0b01111111)?; // 25% duty, constant volume (15)
-        apu.write_byte(0x4005, 0x08)?; // No sweep
-        apu.write_byte(0x4006, 0x0F)?; // Timer low
-        apu.write_byte(0x4007, 0x08)?; // Timer high and length counter
+        apu.write_byte(0x4004, 0b0111_1111)?;
+        apu.write_byte(0x4005, 0x08)?;
+        apu.write_byte(0x4006, 0x0F)?;
+        apu.write_byte(0x4007, 0x08)?;
         apu.pulse2.set_duty_pos(0);
+        apu.write_byte(0x4008, 0b1000_1111)?;
+        apu.write_byte(0x400A, 0x01)?;
+        apu.write_byte(0x400B, 0x08)?;
+        apu.write_byte(0x400C, 0b0001_1111)?;
+        apu.write_byte(0x400E, 0x00)?;
+        apu.write_byte(0x400F, 0x08)?;
+        apu.write_byte(0x4010, 0x00)?;
+        apu.write_byte(0x4011, 0x7F)?;
+        apu.write_byte(0x4012, 0x00)?;
+        apu.write_byte(0x4013, 0x01)?;
 
-        // Triangle
-        apu.write_byte(0x4008, 0b10001111)?; // Linear counter control (reload value 15, halt flag set)
-        apu.write_byte(0x400A, 0x01)?; // Timer low
-        apu.write_byte(0x400B, 0x08)?; // Timer high and length counter
-
-        // Noise
-        apu.write_byte(0x400C, 0b00011111)?; // Volume control
-        apu.write_byte(0x400E, 0x00)?; // Mode and period
-        apu.write_byte(0x400F, 0x08)?; // Length counter load
-
-        // DMC
-        apu.write_byte(0x4010, 0x00)?; // Sample rate and loop
-        apu.write_byte(0x4011, 0x7F)?; // Direct load (maximum)
-        apu.write_byte(0x4012, 0x00)?; // Sample address
-        apu.write_byte(0x4013, 0x01)?; // Sample length
-
-        // Generate samples
-        for _ in 0..100 {
-            apu.tick();
-        }
-
-        // Verify combined output
-        let mixed_samples: Vec<f32> = test_output.borrow().samples.iter().map(|&s| s * 400.0f32).collect();
-        let mixed_max = mixed_samples.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
-
-        // We're using the empirically measured maximum value for assertion
-        // This is based on all channels at their peak levels
-        let expected_max = 33.323288f32;
-
-        // Since we're measuring the maximum across all samples, we just need to verify
-        // that the maximum is close to the expected maximum
-        assert!(
-            (mixed_max - expected_max).abs() < 0.5f32,
-            "Combined output scaling incorrect"
-        );
-
+        // Every channel at maximum reaches ~1.001 on hardware, so a hair above unity is correct;
+        // what this guards against is a scaling error putting the peak at 0.1 or at 12.
+        let peak = apu.mix();
+        assert!(peak > 0.5, "full-scale mix is implausibly quiet: {peak}");
+        assert!(peak < 1.05, "full-scale mix would clip badly: {peak}");
         Ok(())
     }
 
-    // Wrapper to allow sharing TestAudioOutput through Rc<RefCell>
-    #[derive(Debug)]
-    struct TestOutputWrapper(Rc<RefCell<TestAudioOutput>>);
+    #[test]
+    fn test_volume_and_mute_reach_the_output() -> Result<()> {
+        let (mut apu, mut captured) = apu_with_capture();
 
-    impl SampleProducer<f32> for TestOutputWrapper {
-        fn set_volume(&mut self, _volume: f32) {
-            // Do nothing for test
-        }
+        program_pulse1_tone(&mut apu, 0x40, 0x08)?;
+        tick_cycles(&mut apu, 200_000);
+        assert!(captured.peak() > 0.0, "expected audible output");
 
-        fn set_muted(&mut self, _muted: bool) {
-            // Do nothing for test
-        }
-
-        fn produce(&mut self, sample: f32) {
-            if self.0.borrow().ready {
-                self.0.borrow_mut().samples.push(sample);
-            }
-        }
+        // Volume and mute are applied by the output device, not by the APU, so the sample stream
+        // itself is unchanged — this only proves the calls are plumbed through without panicking.
+        apu.set_volume(0.5);
+        apu.set_muted(true);
+        apu.set_muted(false);
+        Ok(())
     }
-    unsafe impl Send for TestOutputWrapper {}
-    unsafe impl Sync for TestOutputWrapper {}
 }

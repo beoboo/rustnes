@@ -1,19 +1,31 @@
 #![allow(dead_code)]
 use egui::{Slider, SliderClamping, Ui};
-use rn_core::{apu::ApuWrapper, memory::Addressable, system::nes_system::NesSystem};
+use rn_core::{
+    apu::{ApuWrapper, Channel},
+    memory::Addressable,
+};
 
-use super::WaveformWidget;
+/// A snapshot of the audio pipeline's health, for display.
+///
+/// Passed in rather than read directly so `rn_ui` stays independent of the host audio backend.
+/// The fill level is the useful one: emulation is paced to hold it near 50%, so a value that
+/// drifts towards 0 or 1 is the visible symptom of a timing problem.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AudioStats {
+    pub running: bool,
+    pub sample_rate: f32,
+    pub queued: usize,
+    pub capacity: usize,
+    pub fill_level: f32,
+    pub underruns: u64,
+    pub dropped: u64,
+}
 
 /// Widget for controlling audio settings
 #[derive(Default)]
 pub struct AudioWidget {
     volume: f32,
     muted: bool,
-    pulse1_enabled: bool,
-    pulse2_enabled: bool,
-    triangle_enabled: bool,
-    noise_enabled: bool,
-    dmc_enabled: bool,
 }
 
 impl AudioWidget {
@@ -22,16 +34,60 @@ impl AudioWidget {
         Self {
             volume: 1.0, // Default to full volume
             muted: false,
-            pulse1_enabled: true,
-            pulse2_enabled: true,
-            triangle_enabled: true,
-            noise_enabled: true,
-            dmc_enabled: true,
         }
     }
 
     /// Render the audio widget using the given UI
-    pub fn ui(&mut self, ui: &mut Ui, mut apu: ApuWrapper) {
+    pub fn ui(&mut self, ui: &mut Ui, apu: ApuWrapper, stats: AudioStats) {
+        self.controls_ui(ui, apu);
+        ui.separator();
+        self.stats_ui(ui, stats);
+    }
+
+    /// Buffer health and error counters.
+    fn stats_ui(&mut self, ui: &mut Ui, stats: AudioStats) {
+        ui.collapsing("Output Pipeline", |ui| {
+            if !stats.running {
+                ui.label("Stream paused");
+                return;
+            }
+
+            ui.label(format!("Device rate: {:.0} Hz", stats.sample_rate));
+            ui.label(format!("Buffered: {} / {} samples", stats.queued, stats.capacity));
+
+            // Emulation tops the buffer back up to ~50%, so the bar should sit near the middle.
+            // Pinned at either end means production and consumption have come apart.
+            ui.add(
+                egui::ProgressBar::new(stats.fill_level)
+                    .text(format!("{:.0}% full", stats.fill_level * 100.0)),
+            );
+
+            ui.horizontal(|ui| {
+                ui.label("Underruns:");
+                if stats.underruns > 0 {
+                    ui.colored_label(egui::Color32::YELLOW, stats.underruns.to_string());
+                } else {
+                    ui.label("0");
+                }
+
+                ui.label("Dropped:");
+                if stats.dropped > 0 {
+                    ui.colored_label(egui::Color32::YELLOW, stats.dropped.to_string());
+                } else {
+                    ui.label("0");
+                }
+            });
+
+            if stats.underruns > 0 {
+                ui.small("Underruns mean the emulator is not keeping up with the sound card.");
+            }
+            if stats.dropped > 0 {
+                ui.small("Drops mean the emulator is running ahead of the sound card.");
+            }
+        });
+    }
+
+    fn controls_ui(&mut self, ui: &mut Ui, mut apu: ApuWrapper) {
         ui.heading("Audio Controls");
 
         // Volume slider
@@ -63,51 +119,28 @@ impl AudioWidget {
             }
         });
 
-        // UI section for individual channel controls
+        // Channel enables, read back from the APU each frame so they show what the running
+        // program actually asked for rather than only what was last clicked here.
         ui.collapsing("Channel Controls", |ui| {
+            let mut enabled: Vec<bool> = Channel::ALL.iter().map(|&c| apu.channel_enabled(c)).collect();
             let mut changed = false;
-            // Pulse Channel 1
-            if ui.checkbox(&mut self.pulse1_enabled, "Pulse Channel 1").changed() {
-                changed = true;
-            }
 
-            // Pulse Channel 2
-            if ui.checkbox(&mut self.pulse2_enabled, "Pulse Channel 2").changed() {
-                changed = true;
-            }
-
-            // Triangle Channel
-            if ui.checkbox(&mut self.triangle_enabled, "Triangle Channel").changed() {
-                changed = true;
-            }
-
-            // Noise Channel
-            if ui.checkbox(&mut self.noise_enabled, "Noise Channel").changed() {
-            }
-
-            // DMC Channel
-            if ui.checkbox(&mut self.dmc_enabled, "DMC Channel").changed() {
-                changed = true;
+            for (index, channel) in Channel::ALL.iter().enumerate() {
+                if ui.checkbox(&mut enabled[index], channel.label()).changed() {
+                    changed = true;
+                }
             }
 
             if changed {
-                let mut status = 0;
-                if self.pulse1_enabled {
-                    status |= 0x01;
+                let status = Channel::ALL
+                    .iter()
+                    .zip(&enabled)
+                    .filter(|(_, &on)| on)
+                    .fold(0u8, |acc, (channel, _)| acc | channel.status_bit());
+
+                if let Err(error) = apu.write_byte(0x4015, status) {
+                    log::warn!("Failed to update APU channel enables: {error}");
                 }
-                if self.pulse2_enabled {
-                    status |= 0x02;
-                }
-                if self.triangle_enabled {
-                    status |= 0x04;
-                }
-                if self.noise_enabled {
-                    status |= 0x08;
-                }
-                if self.dmc_enabled {
-                    status |= 0x10;
-                }
-                apu.write_byte(0x4015, status).unwrap();
             }
         });
     }

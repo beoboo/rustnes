@@ -10,6 +10,12 @@ pub struct SimpleAudioOutput {
     muted: bool,
 }
 
+impl Default for SimpleAudioOutput {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimpleAudioOutput {
     pub fn new() -> Self {
         Self {

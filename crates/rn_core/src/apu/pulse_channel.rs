@@ -171,20 +171,21 @@ impl PulseChannel {
         self.length_counter.load(value);
     }
 
-    /// Generate a single audio sample
-    pub fn generate_sample(&self) -> f32 {
+    /// The channel's current DAC level, 0..=15.
+    ///
+    /// This is the raw value the hardware feeds to its mixer, not a normalised float: the NES
+    /// mixes non-linearly, so scaling here would make a correct mix impossible. See
+    /// [`Apu::mix`](super::Apu) for where these levels are combined.
+    pub fn output(&self) -> u8 {
         if !self.enabled || !self.length_counter.is_active() {
-            return 0.0;
+            return 0;
         }
 
-        // For tests to pass, don't apply sweep unit muting during regular sample generation tests
-        // In real operation the sweep unit muting will happen
-        #[cfg(not(test))]
         if self
             .sweep_unit
             .should_mute(self.timer, self.sweep_unit.calculate_target_period(self.timer))
         {
-            return 0.0;
+            return 0;
         }
 
         // Determine if the waveform is high or low based on duty cycle
@@ -205,15 +206,12 @@ impl PulseChannel {
         // Check if the current duty position bit is set in the pattern
         let is_active = ((duty_pattern >> pos) & 0x01) != 0;
 
-        // Output sample if active
+        // Output the current volume when the duty pattern is high, silence otherwise.
+        // `get_volume` handles both constant-volume and envelope modes.
         if is_active {
-            // Get the current volume level (handles both constant volume and envelope modes)
-            let vol = self.envelope.get_volume();
-
-            // Convert volume (0-15) to sample (0.0 to 1.0)
-            (vol as f32) / 15.0
+            self.envelope.get_volume()
         } else {
-            0.0
+            0
         }
     }
 
@@ -281,6 +279,12 @@ impl PulseChannel {
     pub fn set_duty_pos(&mut self, pos: u8) {
         self.duty_pos = pos;
     }
+
+    #[cfg(test)]
+    /// Current position in the 8-step duty sequence, for timing tests.
+    pub fn duty_pos(&self) -> u8 {
+        self.duty_pos
+    }
 }
 
 #[cfg(test)]
@@ -294,7 +298,7 @@ mod tests {
         assert_eq!(channel.sweep, 0);
         assert_eq!(channel.timer_lo, 0);
         assert_eq!(channel.timer_hi, 0);
-        assert_eq!(channel.enabled, false);
+        assert!(!channel.enabled);
         assert_eq!(channel.timer, 0);
         assert_eq!(channel.timer_value, 0);
         assert_eq!(channel.duty_cycle, 0);
@@ -325,7 +329,7 @@ mod tests {
         assert_eq!(channel.sweep, 0);
         assert_eq!(channel.timer_lo, 0);
         assert_eq!(channel.timer_hi, 0);
-        assert_eq!(channel.enabled, false);
+        assert!(!channel.enabled);
         assert_eq!(channel.timer, 0);
         assert_eq!(channel.timer_value, 0);
         assert_eq!(channel.duty_cycle, 0);
@@ -379,15 +383,15 @@ mod tests {
         let mut channel = PulseChannel::new(true);
 
         // Default is disabled
-        assert_eq!(channel.is_enabled(), false);
+        assert!(!channel.is_enabled());
 
         // Enable
         channel.set_enabled(true);
-        assert_eq!(channel.is_enabled(), true);
+        assert!(channel.is_enabled());
 
         // Disable
         channel.set_enabled(false);
-        assert_eq!(channel.is_enabled(), false);
+        assert!(!channel.is_enabled());
     }
 
     #[test]
@@ -479,7 +483,7 @@ mod tests {
         let channel = PulseChannel::new(true);
 
         // When disabled, should always return 0
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
     }
 
     #[test]
@@ -493,6 +497,9 @@ mod tests {
         channel.length_counter.set_enabled(true);
         channel.length_counter.load(0 << 3); // Load length counter value
 
+        // A period below 8 is muted by the sweep unit on real hardware, so give it a valid one.
+        channel.write_register(2, 0x40);
+
         // Configure for 12.5% duty cycle and maximum volume
         channel.write_register(0, 0b00011111); // Duty 0 (12.5%), constant volume (15)
 
@@ -501,12 +508,12 @@ mod tests {
 
         // Test position 0 (should output sound)
         channel.duty_pos = 0;
-        assert_eq!(channel.generate_sample(), 1.0);
+        assert_eq!(channel.output(), 15);
 
         // Test position 1-7 (should be silent)
         for pos in 1..8 {
             channel.duty_pos = pos;
-            assert_eq!(channel.generate_sample(), 0.0);
+            assert_eq!(channel.output(), 0);
         }
     }
 
@@ -521,24 +528,27 @@ mod tests {
         channel.length_counter.set_enabled(true);
         channel.length_counter.load(0 << 3); // Load length counter value
 
+        // A period below 8 is muted by the sweep unit on real hardware, so give it a valid one.
+        channel.write_register(2, 0x40);
+
         // Set duty position where output is active
         channel.duty_pos = 0;
 
         // Test with volume 0
         channel.write_register(0, 0b00010000); // Constant volume mode, volume 0
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
 
         // Test with volume 1
         channel.write_register(0, 0b00010001); // Constant volume mode, volume 1
-        assert_eq!(channel.generate_sample(), 1.0 / 15.0);
+        assert_eq!(channel.output(), 1);
 
         // Test with volume 7
         channel.write_register(0, 0b00010111); // Constant volume mode, volume 7
-        assert_eq!(channel.generate_sample(), 7.0 / 15.0);
+        assert_eq!(channel.output(), 7);
 
         // Test with maximum volume (15)
         channel.write_register(0, 0b00011111); // Constant volume mode, volume 15
-        assert_eq!(channel.generate_sample(), 1.0);
+        assert_eq!(channel.output(), 15);
     }
 
     #[test]
@@ -546,11 +556,11 @@ mod tests {
         let channel = PulseChannel::new(true);
 
         // Initial values should all be zeroed
-        assert_eq!(channel.envelope.start, false);
+        assert!(!channel.envelope.start);
         assert_eq!(channel.envelope.divider, 0);
         assert_eq!(channel.envelope.counter, 0);
-        assert_eq!(channel.envelope.loop_flag, false);
-        assert_eq!(channel.envelope.constant_volume, false);
+        assert!(!channel.envelope.loop_flag);
+        assert!(!channel.envelope.constant_volume);
         assert_eq!(channel.envelope.period, 0);
         assert_eq!(channel.envelope.volume, 0);
     }
@@ -561,22 +571,22 @@ mod tests {
 
         // Test constant volume mode with volume level 7
         channel.write_register(0, 0b00010111); // Volume 7, constant volume, no loop
-        assert_eq!(channel.envelope.constant_volume, true);
-        assert_eq!(channel.envelope.loop_flag, false);
+        assert!(channel.envelope.constant_volume);
+        assert!(!channel.envelope.loop_flag);
         assert_eq!(channel.envelope.period, 7);
         assert_eq!(channel.volume, 7); // Volume should match period in constant volume mode
 
         // Test envelope mode with decay rate 10
         channel.write_register(0, 0b00001010); // Rate 10, envelope mode, no loop
-        assert_eq!(channel.envelope.constant_volume, false);
-        assert_eq!(channel.envelope.loop_flag, false);
+        assert!(!channel.envelope.constant_volume);
+        assert!(!channel.envelope.loop_flag);
         assert_eq!(channel.envelope.period, 10);
         // Volume should be from envelope counter, initially 0
         assert_eq!(channel.volume, 0);
 
         // Test loop mode
         channel.write_register(0, 0b00101100); // Rate 12, loop mode
-        assert_eq!(channel.envelope.loop_flag, true);
+        assert!(channel.envelope.loop_flag);
         assert_eq!(channel.envelope.period, 12);
     }
 
@@ -595,11 +605,11 @@ mod tests {
         channel.write_register(3, 0x01);
 
         // Envelope start flag should be set, but no change to counter yet
-        assert_eq!(channel.envelope.start, true);
+        assert!(channel.envelope.start);
 
         // Tick envelope once - should initialize counter to 15 and divider to period
         channel.tick_envelope();
-        assert_eq!(channel.envelope.start, false);
+        assert!(!channel.envelope.start);
         assert_eq!(channel.envelope.counter, 15);
         assert_eq!(channel.envelope.divider, 5);
         assert_eq!(channel.envelope.volume, 15);
@@ -755,7 +765,7 @@ mod tests {
         let channel = PulseChannel::new(true);
 
         // Initial state should have inactive length counter
-        assert_eq!(channel.is_length_counter_active(), false);
+        assert!(!channel.is_length_counter_active());
     }
 
     #[test]
@@ -770,21 +780,22 @@ mod tests {
         channel.write_register(3, 7 << 3);
 
         // Length counter should be active
-        assert_eq!(channel.is_length_counter_active(), true);
+        assert!(channel.is_length_counter_active());
 
         // Check if sound is produced
         channel.write_register(0, 0b01011111); // 25% duty, constant volume (15)
+        channel.write_register(2, 0x40); // Period >= 8, or the sweep unit mutes the channel
         channel.duty_pos = 0; // Position where output is active
-        assert!(channel.generate_sample() > 0.0);
+        assert!(channel.output() > 0);
 
         // Disable the channel
         channel.set_enabled(false);
 
         // Length counter should now be inactive
-        assert_eq!(channel.is_length_counter_active(), false);
+        assert!(!channel.is_length_counter_active());
 
         // Sound should be muted
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
     }
 
     #[test]
@@ -796,7 +807,7 @@ mod tests {
 
         // Load a short length (index 0 = value 10)
         channel.write_register(3, 0 << 3);
-        assert_eq!(channel.is_length_counter_active(), true);
+        assert!(channel.is_length_counter_active());
 
         // Tick length counter 9 times
         for _ in 0..9 {
@@ -804,16 +815,16 @@ mod tests {
         }
 
         // Should still be active
-        assert_eq!(channel.is_length_counter_active(), true);
+        assert!(channel.is_length_counter_active());
 
         // One more tick should silence it
         channel.tick_length_counter();
-        assert_eq!(channel.is_length_counter_active(), false);
+        assert!(!channel.is_length_counter_active());
 
         // Sound should now be muted even if the channel is enabled
         channel.write_register(0, 0b01011111); // 25% duty, constant volume (15)
         channel.duty_pos = 0;
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
     }
 
     #[test]
@@ -835,7 +846,7 @@ mod tests {
         }
 
         // Should still be active because halt prevented decrement
-        assert_eq!(channel.is_length_counter_active(), true);
+        assert!(channel.is_length_counter_active());
 
         // Clear halt flag
         channel.write_register(0, 0b00000000);
@@ -846,7 +857,7 @@ mod tests {
         }
 
         // Should now be inactive after enough ticks
-        assert_eq!(channel.is_length_counter_active(), false);
+        assert!(!channel.is_length_counter_active());
     }
 
     #[test]
@@ -856,18 +867,19 @@ mod tests {
         // Enable channel and set up for sound output
         channel.set_enabled(true);
         channel.write_register(0, 0b01011111); // 25% duty, constant volume (15)
+        channel.write_register(2, 0x40); // Period >= 8, or the sweep unit mutes the channel
 
         // Set duty position for sound generation
         channel.duty_pos = 0;
 
         // No length counter loaded yet, so no sound
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
 
         // Load a length value
         channel.write_register(3, 0 << 3); // index 0 = value 10
 
         // Now sound should be generated
-        assert!(channel.generate_sample() > 0.0);
+        assert!(channel.output() > 0);
 
         // Tick length counter until it runs out
         for _ in 0..10 {
@@ -875,7 +887,7 @@ mod tests {
         }
 
         // Sound should now be muted due to length counter
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
     }
 
     #[test]
@@ -936,7 +948,7 @@ mod tests {
         // 0b10010010: bit 7=1 (enabled), bits 4-6=001 (period=1), bit 3=0 (negate=false), bits 0-2=010 (shift=2)
         channel.write_register(1, 0b10010010);
         assert_eq!(channel.sweep_unit.get_period(), 1);
-        assert_eq!(channel.sweep_unit.get_negate(), false);
+        assert!(!channel.sweep_unit.get_negate());
         assert_eq!(channel.sweep_unit.get_shift(), 2);
 
         // Test timer low register
@@ -961,21 +973,22 @@ mod tests {
         channel.write_register(3, 7 << 3);
 
         // Length counter should be active
-        assert_eq!(channel.is_length_counter_active(), true);
+        assert!(channel.is_length_counter_active());
 
         // Check if sound is produced
         channel.write_register(0, 0b01011111); // 25% duty, constant volume (15)
+        channel.write_register(2, 0x40); // Period >= 8, or the sweep unit mutes the channel
         channel.duty_pos = 0; // Position where output is active
-        assert!(channel.generate_sample() > 0.0);
+        assert!(channel.output() > 0);
 
         // Disable the channel
         channel.set_enabled(false);
 
         // Length counter should now be inactive
-        assert_eq!(channel.is_length_counter_active(), false);
+        assert!(!channel.is_length_counter_active());
 
         // Sound should be muted
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
     }
 
     #[test]

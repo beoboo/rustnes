@@ -42,6 +42,8 @@ pub struct AsmWidget {
     limit_fps: bool,
     /// Last timestamp for FPS limiting
     last_frame_time: std::time::Instant,
+    /// CPU cycles executed since continuous run started, for the optional cycle limit.
+    total_cycles_run: usize,
 }
 
 impl AsmWidget {
@@ -66,6 +68,7 @@ impl AsmWidget {
             target_fps: 60.0,           // Default to 60 FPS
             limit_fps: true,            // Limit FPS by default
             last_frame_time: std::time::Instant::now(),
+            total_cycles_run: 0,
         }
     }
 
@@ -92,7 +95,7 @@ impl AsmWidget {
         if let Some(chr_data) = self.assembled_segments.get("CHARS") {
             if !chr_data.is_empty() {
                 // Get the cartridge and load the CHR ROM data
-                if let Err(err) = system.load_chr_rom(&chr_data) {
+                if let Err(err) = system.load_chr_rom(chr_data) {
                     self.error_message = Some(format!("Error loading CHR ROM: {}", err));
                     log::error!("Error loading CHR ROM: {}", err);
                 } else {
@@ -208,7 +211,7 @@ impl AsmWidget {
                 // Also load CHR ROM data if available
                 if let Some(chr_data) = self.assembled_segments.get("CHARS") {
                     if !chr_data.is_empty() {
-                        system.load_chr_rom(&chr_data)?;
+                        system.load_chr_rom(chr_data)?;
                     }
                 }
             }
@@ -246,7 +249,7 @@ impl AsmWidget {
             if let Some(chr_data) = self.assembled_segments.get("CHARS") {
                 if !chr_data.is_empty() {
                     // Get the cartridge and load the CHR ROM data
-                    if let Err(err) = system.load_chr_rom(&chr_data) {
+                    if let Err(err) = system.load_chr_rom(chr_data) {
                         self.error_message = Some(format!("Error loading CHR ROM: {}", err));
                         log::error!("Error loading CHR ROM: {}", err);
                     } else {
@@ -284,7 +287,7 @@ impl AsmWidget {
                 // Also load CHR ROM data if available
                 if let Some(chr_data) = self.assembled_segments.get("CHARS") {
                     if !chr_data.is_empty() {
-                        system.load_chr_rom(&chr_data)?;
+                        system.load_chr_rom(chr_data)?;
                     }
                 }
             }
@@ -439,9 +442,21 @@ impl AsmWidget {
         });
     }
 
-    /// Run a fixed number of cycles in continuous mode
-    /// Returns true if we should continue running, false if we've stopped
+    /// Run a batch of cycles in continuous mode, paced by the wall clock.
+    ///
+    /// Returns true if we should continue running, false if we've stopped.
     pub fn run_continuous(&mut self, system: &mut NesSystem) -> bool {
+        self.run_continuous_with_budget(system, None)
+    }
+
+    /// Run a batch of cycles in continuous mode.
+    ///
+    /// `cycle_budget` is how many CPU cycles to execute this call. When `Some`, the caller is
+    /// pacing emulation itself — normally against the audio clock, which is the only source of
+    /// timing that cannot drift relative to what you hear — and the frame/FPS logic is bypassed.
+    /// When `None` the widget falls back to its own wall-clock pacing, which is what happens when
+    /// audio is paused or unavailable.
+    pub fn run_continuous_with_budget(&mut self, system: &mut NesSystem, cycle_budget: Option<usize>) -> bool {
         if !self.continuous_run {
             return false;
         }
@@ -449,7 +464,11 @@ impl AsmWidget {
         let now = std::time::Instant::now();
 
         // Apply FPS control - determines both timing and cycles per update
-        if self.limit_fps {
+        if cycle_budget.is_some() {
+            // Externally paced: the caller decides how much work to do, so skip the FPS gate but
+            // keep the timestamp current for when pacing hands back to the wall clock.
+            self.last_frame_time = now;
+        } else if self.limit_fps {
             // Calculate the target frame duration based on the desired FPS
             let target_frame_duration = std::time::Duration::from_secs_f32(1.0 / self.target_fps);
             let elapsed = now.duration_since(self.last_frame_time);
@@ -485,7 +504,7 @@ impl AsmWidget {
                         // Also load CHR ROM data if available
                         if let Some(chr_data) = self.assembled_segments.get("CHARS") {
                             if !chr_data.is_empty() {
-                                if let Err(e) = system.load_chr_rom(&chr_data) {
+                                if let Err(e) = system.load_chr_rom(chr_data) {
                                     self.error_message = Some(format!("Error loading CHR ROM: {}", e));
                                     self.continuous_run = false;
                                     return false;
@@ -502,9 +521,11 @@ impl AsmWidget {
             }
         }
 
-        // Determine how many cycles to run this frame
-        // Scale cycles based on target FPS when FPS limiting is enabled
-        let cycles_to_run = if self.limit_fps && self.target_fps != 60.0 {
+        // Determine how many cycles to run this frame.
+        // An externally supplied budget wins; otherwise scale by the target FPS.
+        let cycles_to_run = if let Some(budget) = cycle_budget {
+            budget
+        } else if self.limit_fps && self.target_fps != 60.0 {
             // Calculate cycles based on target FPS
             // At 60 FPS we run exactly one frame's worth of cycles (29780)
             // At higher FPS we run fewer cycles per frame
@@ -517,12 +538,16 @@ impl AsmWidget {
             self.cycles_per_frame
         };
 
-        // Run the calculated number of cycles
-        let mut cycles_run = 0;
+        // Run the calculated number of cycles.
+        //
+        // `step()` executes one instruction and returns how many CPU cycles it took, so the budget
+        // must be charged that many cycles — counting calls instead made a "frame" run roughly 3x
+        // too much work, since the average 6502 instruction is about 3 cycles.
+        let mut cycles_run = 0usize;
         while cycles_run < cycles_to_run {
             match system.step() {
-                Ok(_) => {
-                    cycles_run += 1;
+                Ok(cycles) => {
+                    cycles_run += cycles.max(1) as usize;
                 },
                 Err(e) => {
                     self.error_message = Some(format!("Error during continuous run: {}", e));
@@ -538,21 +563,17 @@ impl AsmWidget {
             }
         }
 
-        // Check if we've hit the cycle limit when no_cycle_limit is false
+        // Check if we've hit the cycle limit when no_cycle_limit is false.
+        // Held per widget rather than in a `static mut`, which was both unsound and shared across
+        // every AsmWidget in the process.
         if !self.no_cycle_limit {
-            // Keep track of total cycles run in this continuous run
-            static mut TOTAL_CYCLES: usize = 0;
+            self.total_cycles_run += cycles_run;
 
-            unsafe {
-                TOTAL_CYCLES += cycles_run;
-
-                // If we've reached the max cycles, stop running
-                if TOTAL_CYCLES >= self.max_cycles {
-                    log::info!("Reached cycle limit of {} cycles", self.max_cycles);
-                    self.continuous_run = false;
-                    TOTAL_CYCLES = 0; // Reset for next run
-                    return false;
-                }
+            if self.total_cycles_run >= self.max_cycles {
+                log::info!("Reached cycle limit of {} cycles", self.max_cycles);
+                self.continuous_run = false;
+                self.total_cycles_run = 0; // Reset for next run
+                return false;
             }
         }
 
@@ -563,5 +584,11 @@ impl AsmWidget {
     /// Check if continuous run is enabled
     pub fn is_continuous_run(&self) -> bool {
         self.continuous_run
+    }
+}
+
+impl Default for AsmWidget {
+    fn default() -> Self {
+        Self::new()
     }
 }

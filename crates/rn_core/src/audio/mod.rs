@@ -1,11 +1,15 @@
-use std::fmt::Debug;
-
-
-pub trait Sample: Clone + Copy + 'static {}
+pub trait Sample: Clone + Copy + Send + 'static {}
 
 impl Sample for f32 {}
 
-pub trait SampleProducer<T: Sample>: Send + Sync + 'static {
+/// The producing end of an audio path.
+///
+/// Only `Send` is required, not `Sync`: a producer is always owned by exactly one place and used
+/// through `&mut self`, so it never needs to be shared by reference across threads. Demanding
+/// `Sync` here would force lock-free queue types — whose handles are deliberately not `Sync` — to
+/// paper over the mismatch with `unsafe impl`, which is exactly the kind of assertion that hides a
+/// real bug later.
+pub trait SampleProducer<T: Sample>: Send + 'static {
     /// Set the volume for audio output
     fn set_volume(&mut self, volume: f32);
 
@@ -16,7 +20,9 @@ pub trait SampleProducer<T: Sample>: Send + Sync + 'static {
     fn produce(&mut self, sample: T);
 }
 
-pub trait SampleConsumer<T: Sample>: Send + Sync + 'static {
+/// The consuming end of an audio path. `Send` for the same reason as [`SampleProducer`]: it is
+/// moved onto the realtime callback thread and used exclusively from there.
+pub trait SampleConsumer<T: Sample>: Send + 'static {
     /// Get the volume for audio output
     fn volume(&self) -> f32;
 

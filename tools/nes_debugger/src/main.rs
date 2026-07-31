@@ -5,7 +5,7 @@ use eframe::{egui, App, Frame};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[macro_use]
 extern crate log;
-use rn_audio::{ChannelBuilder, CpalAudioBuilder, CpalAudioConsumer, Multiplexer};
+use rn_audio::{AudioControls, ChannelBuilder, CpalAudioBuilder, CpalAudioConsumer, Multiplexer};
 use rn_core::{
     cpu::CpuWrapper,
     errors::NesError,
@@ -16,6 +16,7 @@ use rn_input::{controller_profile::ControllerProfile, key_mapping::KeyMappingMan
 use rn_ui::widgets::{
     convert_egui_key,
     AsmWidget,
+    AudioStats,
     AudioWidget,
     ControllerWidget,
     CpuWidget,
@@ -69,16 +70,13 @@ impl Addressable for CpuMemoryAdapter {
 
 /// Display mode enum for the pixel display
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 enum DisplayMode {
+    #[default]
     Memory,
     Ppu,
 }
 
-impl Default for DisplayMode {
-    fn default() -> Self {
-        DisplayMode::Memory
-    }
-}
 
 /// Available tabs for the dock
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +139,10 @@ struct NesDebugger {
     audio_widget: AudioWidget,
     waveform_visualizer: WaveformWidget,
     audio_output: CpalAudioConsumer,
+    /// Buffer fill level and underrun/drop counts for the running audio stream.
+    audio_controls: AudioControls,
+    /// Whether the audio stream is running; emulation paces itself against it when it is.
+    audio_running: bool,
 
     // Emulation state
     system: Rc<RefCell<NesSystem>>,
@@ -170,6 +172,7 @@ struct NesTabViewer<'a> {
     memory_widget: &'a mut MemoryWidget,
     pattern_table_widget: &'a mut PatternTableWidget,
     audio_widget: &'a mut AudioWidget,
+    audio_stats: AudioStats,
     waveform_visualizer: &'a mut WaveformWidget,
     system: Rc<RefCell<NesSystem>>,
     context: &'a mut AppContext,
@@ -186,7 +189,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
         match tab {
             DockTab::Assembly => {
                 let mut system_borrow = self.system.borrow_mut();
-                self.asm_widget.ui(ui, &mut *system_borrow);
+                self.asm_widget.ui(ui, &mut system_borrow);
             },
             DockTab::AssembledCode => {
                 // Only show content if code is loaded
@@ -369,8 +372,8 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                         let ppu_adapter = PpuPixelAdapter::new(move || {
                             let system = system_ref.borrow();
                             // Create a copy of the frame buffer to avoid borrowing issues
-                            let frame_buffer = system.ppu().frame_buffer().to_vec();
-                            frame_buffer
+                            
+                            system.ppu().frame_buffer().to_vec()
                         });
 
                         // Update zoom and show the PPU display
@@ -384,7 +387,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                 let system = self.system.borrow_mut();
 
                 // Use the audio widget
-                self.audio_widget.ui(ui, system.apu());
+                self.audio_widget.ui(ui, system.apu(), self.audio_stats);
             },
             DockTab::WaveformVisualizer => {
                 // Waveform Visualizer Tab content
@@ -405,12 +408,23 @@ impl NesDebugger {
         let system = Rc::new(RefCell::new(NesSystem::new()));
 
         let (audio_producer, audio_consumer) = CpalAudioBuilder::build_default()?;
-        let (multiplexer_producer, multiplexer_consumer) = ChannelBuilder::<f32>::build(1024);
-        let (waveform_producer, waveform_consumer) = ChannelBuilder::<f32>::build(1024);
 
-        let mut multiplexer = Multiplexer::new(multiplexer_consumer);
-        // multiplexer.add_producer(Box::new(audio_producer));
-        // multiplexer.add_producer(Box::new(waveform_producer));
+        // The APU must resample to whatever the device actually asked for, not to an assumed rate.
+        let sample_rate = audio_producer.sample_rate() as f64;
+
+        // Buffer telemetry, kept after the producer is handed to the APU: emulation paces itself
+        // against this, and the audio widget displays it.
+        let audio_controls = audio_producer.controls();
+
+        // The visualiser taps the same stream the speakers get, through a bounded channel that
+        // drops rather than blocks — a stalled UI must never stall audio.
+        let (waveform_producer, waveform_consumer) = ChannelBuilder::<f32>::build(8192);
+
+        // One stream, two destinations. The multiplexer is a SampleProducer itself, so it needs no
+        // thread and nothing has to remember to pump it.
+        let audio_fanout = Multiplexer::new()
+            .with_producer(Box::new(audio_producer))
+            .with_producer(Box::new(waveform_producer));
 
         // Create audio widget
         let audio_widget = AudioWidget::new();
@@ -421,7 +435,7 @@ impl NesDebugger {
         // Connect the audio output to the system
         system
             .borrow_mut()
-            .connect_audio_output2(Box::new(audio_producer));
+            .connect_audio_output(Box::new(audio_fanout), sample_rate);
 
         // Create input manager with default and WASD profiles
         let mut key_mapping_manager = KeyMappingManager::new();
@@ -493,6 +507,8 @@ impl NesDebugger {
             pattern_table_widget: PatternTableWidget::new(),
             pixel_display: PixelDisplay::new().with_pixel_size(2.0).with_zoom(1.0),
             audio_output: audio_consumer,
+            audio_controls,
+            audio_running: false,
             waveform_visualizer: waveform,
             system,
             key_mapping_manager,
@@ -505,6 +521,61 @@ impl NesDebugger {
     }
 }
 
+impl NesDebugger {
+    /// How far the audio buffer has to be refilled, expressed in CPU cycles.
+    ///
+    /// This is what makes the sound card the master clock. The buffer drains at exactly the
+    /// device's sample rate, so topping it back up to a target level runs the emulator at exactly
+    /// the right speed — no drift, however irregularly the UI happens to repaint.
+    ///
+    /// Returns `None` when audio is not running, in which case the widget falls back to its own
+    /// wall-clock pacing so stepping and frame-advance still work.
+    /// Current audio pipeline health, for display in the audio widget.
+    fn audio_stats(&self) -> AudioStats {
+        AudioStats {
+            running: self.audio_running,
+            sample_rate: self.audio_output.sample_rate(),
+            queued: self.audio_controls.queued(),
+            capacity: self.audio_controls.capacity(),
+            fill_level: self.audio_controls.fill_level(),
+            underruns: self.audio_controls.underruns(),
+            dropped: self.audio_controls.dropped(),
+        }
+    }
+
+    fn audio_cycle_budget(&self) -> Option<usize> {
+        if !self.audio_running {
+            return None;
+        }
+
+        let capacity = self.audio_controls.capacity();
+        if capacity == 0 {
+            return None;
+        }
+
+        // Aim to keep the buffer half full: enough slack to absorb a slow repaint without adding
+        // more latency than necessary.
+        let target = capacity / 2;
+        let queued = self.audio_controls.queued();
+        let deficit = target.saturating_sub(queued);
+        if deficit == 0 {
+            return Some(0);
+        }
+
+        let sample_rate = self.audio_output.sample_rate() as f64;
+        if sample_rate <= 0.0 {
+            return None;
+        }
+
+        let cycles = deficit as f64 * (rn_core::apu::CPU_CLOCK_RATE / sample_rate);
+
+        // Cap the batch so a long stall cannot turn into one enormous catch-up run that freezes
+        // the UI. Dropping the excess costs a glitch; blocking the event loop costs the app.
+        let max_batch = (rn_core::apu::CPU_CLOCK_RATE / 20.0) as usize; // ~50 ms of emulation
+        Some((cycles as usize).min(max_batch))
+    }
+}
+
 impl App for NesDebugger {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         // Handle keyboard input for controller
@@ -513,32 +584,30 @@ impl App for NesDebugger {
             ctx.input_mut(|input| {
                 // Handle key presses
                 for event in &input.events {
-                    match event {
-                        egui::Event::Key {
-                            key,
-                            pressed,
-                            repeat: false, // Ignore key repeats
-                            ..
-                        } => {
-                            if let Some(our_key) = convert_egui_key(*key) {
-                                // Update key state in our mapping manager
-                                if *pressed {
-                                    if let Ok(state) = self.key_mapping_manager.process_controller1_key_press(our_key) {
-                                        // Set controller state in NES system
-                                        let system = self.system.borrow_mut();
-                                        system.controller_handler().set_controller1_state(state);
-                                    }
-                                } else {
-                                    if let Ok(state) = self.key_mapping_manager.process_controller1_key_release(our_key)
-                                    {
-                                        // Set controller state in NES system
-                                        let system = self.system.borrow_mut();
-                                        system.controller_handler().set_controller1_state(state);
-                                    }
-                                }
-                            }
-                        },
-                        _ => {},
+                    let egui::Event::Key {
+                        key,
+                        pressed,
+                        repeat: false, // Ignore key repeats
+                        ..
+                    } = event
+                    else {
+                        continue;
+                    };
+
+                    let Some(our_key) = convert_egui_key(*key) else {
+                        continue;
+                    };
+
+                    // Update key state in our mapping manager, then push it to the NES system.
+                    let state = if *pressed {
+                        self.key_mapping_manager.process_controller1_key_press(our_key)
+                    } else {
+                        self.key_mapping_manager.process_controller1_key_release(our_key)
+                    };
+
+                    if let Ok(state) = state {
+                        let system = self.system.borrow_mut();
+                        system.controller_handler().set_controller1_state(state);
                     }
                 }
 
@@ -558,7 +627,7 @@ impl App for NesDebugger {
 
                         // Assemble and load the code
                         let mut system_borrow = self.system.borrow_mut();
-                        match self.asm_widget.assemble_code(&mut *system_borrow) {
+                        match self.asm_widget.assemble_code(&mut system_borrow) {
                             Ok(_) => {
                                 info!("Successfully assembled and loaded code from: {}", file_path.display());
                                 // Switch to PPU view by default for test files
@@ -590,10 +659,11 @@ impl App for NesDebugger {
 
         // Run cycles if continuous mode is enabled in the AsmWidget
         if self.asm_widget.is_continuous_run() {
+            let budget = self.audio_cycle_budget();
             let mut system = self.system.borrow_mut();
 
             // Run a batch of cycles via the AsmWidget
-            if self.asm_widget.run_continuous(&mut system) {
+            if self.asm_widget.run_continuous_with_budget(&mut system, budget) {
                 // If still running, request a redraw for the next frame
                 ctx.request_repaint();
             }
@@ -708,6 +778,7 @@ impl App for NesDebugger {
                         let mut system = self.system.borrow_mut();
                         let _ = self.asm_widget.run_program(&mut system);
                         let _ = self.audio_output.pause();
+                        self.audio_running = false;
                     }
                 } else {
                     // Only enable Run when loaded, running, or finished
@@ -719,7 +790,10 @@ impl App for NesDebugger {
                         // Start continuous execution
                         let mut system = self.system.borrow_mut();
                         let _ = self.asm_widget.run_program(&mut system);
+                        // Reset telemetry so the counters describe this run, not the last one.
+                        self.audio_controls.reset_stats();
                         let _ = self.audio_output.play();
+                        self.audio_running = true;
                     }
                 }
 
@@ -797,6 +871,9 @@ impl App for NesDebugger {
             ui.add_space(4.0);
         });
 
+        // Snapshot the audio pipeline's health for this frame's UI.
+        let audio_stats = self.audio_stats();
+
         // Main central panel with dock area
         egui::CentralPanel::default().show(ctx, |ui| {
             // Create a tab viewer with references to all components
@@ -811,6 +888,7 @@ impl App for NesDebugger {
                 memory_widget: &mut self.memory_widget,
                 pattern_table_widget: &mut self.pattern_table_widget,
                 audio_widget: &mut self.audio_widget,
+                audio_stats,
                 waveform_visualizer: &mut self.waveform_visualizer,
                 system: self.system.clone(),
                 context: &mut self.context,

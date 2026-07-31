@@ -140,20 +140,18 @@ impl NoiseChannel {
         self.length_counter.load(value);
     }
 
-    /// Generate a single audio sample
-    pub fn generate_sample(&self) -> f32 {
+    /// The channel's current DAC level, 0..=15. See [`PulseChannel::output`](super::PulseChannel).
+    pub fn output(&self) -> u8 {
         if !self.enabled || !self.length_counter.is_active() {
-            return 0.0;
+            return 0;
         }
 
-        // Output is based on the least significant bit of the shift register
-        let output = (self.shift_register & 1) as u8;
-
-        // Get the current volume level
-        let vol = self.envelope.get_volume();
-
-        // Convert volume (0-15) to sample (0.0 to 1.0)
-        (output as f32) * (vol as f32) / 15.0
+        // Bit 0 of the shift register gates the envelope volume.
+        if self.shift_register & 1 != 0 {
+            self.envelope.get_volume()
+        } else {
+            0
+        }
     }
 
     /// Set the enabled state
@@ -228,11 +226,11 @@ mod tests {
         assert_eq!(channel.control, 0);
         assert_eq!(channel.timer_lo, 0);
         assert_eq!(channel.timer_hi, 0);
-        assert_eq!(channel.enabled, false);
+        assert!(!channel.enabled);
         assert_eq!(channel.timer, 0);
         assert_eq!(channel.timer_value, 0);
         assert_eq!(channel.shift_register, 1);
-        assert_eq!(channel.mode, false);
+        assert!(!channel.mode);
     }
 
     #[test]
@@ -256,11 +254,11 @@ mod tests {
         assert_eq!(channel.control, 0);
         assert_eq!(channel.timer_lo, 0);
         assert_eq!(channel.timer_hi, 0);
-        assert_eq!(channel.enabled, false);
+        assert!(!channel.enabled);
         assert_eq!(channel.timer, 0);
         assert_eq!(channel.timer_value, 0);
         assert_eq!(channel.shift_register, 1);
-        assert_eq!(channel.mode, false);
+        assert!(!channel.mode);
     }
 
     #[test]
@@ -334,13 +332,13 @@ mod tests {
         channel.set_shift_register(1);
 
         // Should generate maximum volume sample
-        assert_eq!(channel.generate_sample(), 1.0);
+        assert_eq!(channel.output(), 15);
 
         // Set shift register to 0
         channel.set_shift_register(0);
 
         // Should generate zero sample
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
     }
 
     #[test]
@@ -355,21 +353,21 @@ mod tests {
         channel.write_register(3, 7 << 3);
 
         // Length counter should be active
-        assert_eq!(channel.is_length_counter_active(), true);
+        assert!(channel.is_length_counter_active());
 
         // Check if sound is produced
         channel.write_register(0, 0b00011111); // Constant volume (15)
         channel.set_shift_register(1); // Set for sound output
-        assert!(channel.generate_sample() > 0.0);
+        assert!(channel.output() > 0);
 
         // Disable the channel
         channel.set_enabled(false);
 
         // Length counter should now be inactive
-        assert_eq!(channel.is_length_counter_active(), false);
+        assert!(!channel.is_length_counter_active());
 
         // Sound should be muted
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
     }
 
     #[test]
@@ -381,7 +379,7 @@ mod tests {
 
         // Load a short length (index 0 = value 10)
         channel.write_register(3, 0 << 3);
-        assert_eq!(channel.is_length_counter_active(), true);
+        assert!(channel.is_length_counter_active());
 
         // Tick length counter 9 times
         for _ in 0..9 {
@@ -389,16 +387,16 @@ mod tests {
         }
 
         // Should still be active
-        assert_eq!(channel.is_length_counter_active(), true);
+        assert!(channel.is_length_counter_active());
 
         // One more tick should silence it
         channel.tick_length_counter();
-        assert_eq!(channel.is_length_counter_active(), false);
+        assert!(!channel.is_length_counter_active());
 
         // Sound should now be muted even if the channel is enabled
         channel.write_register(0, 0b00011111); // Constant volume (15)
         channel.set_shift_register(1);
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
     }
 
     #[test]
@@ -420,7 +418,7 @@ mod tests {
         }
 
         // Should still be active because halt prevented decrement
-        assert_eq!(channel.is_length_counter_active(), true);
+        assert!(channel.is_length_counter_active());
 
         // Clear halt flag
         channel.write_register(0, 0b00000000);
@@ -431,6 +429,6 @@ mod tests {
         }
 
         // Should now be inactive after enough ticks
-        assert_eq!(channel.is_length_counter_active(), false);
+        assert!(!channel.is_length_counter_active());
     }
 }

@@ -102,11 +102,17 @@ impl TriangleChannel {
         if self.linear_counter_reload_flag {
             // Reload counter with reload value
             self.linear_counter = self.linear_counter_reload;
-            // Clear the reload flag
-            self.linear_counter_reload_flag = false;
         } else if self.linear_counter > 0 {
             // Only decrement if greater than 0
             self.linear_counter -= 1;
+        }
+
+        // The reload flag is only cleared while the control flag ($4008 bit 7) is clear. With the
+        // control flag set the counter reloads every quarter frame and the note sustains, which is
+        // how a program holds a triangle tone; clearing it unconditionally let the counter run
+        // down to zero and silenced the channel after ~60 ms no matter what was written.
+        if !self.linear_counter_halt {
+            self.linear_counter_reload_flag = false;
         }
     }
 
@@ -141,10 +147,10 @@ impl TriangleChannel {
         self.length_counter.load(value);
     }
 
-    /// Generate a single audio sample
-    pub fn generate_sample(&self) -> f32 {
+    /// The channel's current DAC level, 0..=15. See [`PulseChannel::output`](super::PulseChannel).
+    pub fn output(&self) -> u8 {
         if !self.enabled || !self.length_counter.is_active() || self.linear_counter == 0 {
-            return 0.0;
+            return 0;
         }
 
         // Triangle wave sequence (32 steps)
@@ -154,11 +160,7 @@ impl TriangleChannel {
             15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
         ];
 
-        // Get the current sequence value
-        let value = sequence[self.sequence_pos as usize];
-
-        // Convert to sample value (0.0 to 1.0)
-        (value as f32) / 15.0
+        sequence[self.sequence_pos as usize]
     }
 
     /// Set the enabled state
@@ -217,6 +219,12 @@ impl TriangleChannel {
     pub fn set_sequence_pos(&mut self, pos: u8) {
         self.sequence_pos = pos;
     }
+
+    #[cfg(test)]
+    /// Current position in the 32-step sequence, for timing tests.
+    pub fn sequence_pos(&self) -> u8 {
+        self.sequence_pos
+    }
 }
 
 #[cfg(test)]
@@ -231,14 +239,14 @@ mod tests {
         assert_eq!(channel.control, 0);
         assert_eq!(channel.timer_lo, 0);
         assert_eq!(channel.timer_hi, 0);
-        assert_eq!(channel.enabled, false);
+        assert!(!channel.enabled);
         assert_eq!(channel.timer, 0);
         assert_eq!(channel.timer_value, 0);
         assert_eq!(channel.sequence_pos, 0);
         assert_eq!(channel.volume, 0);
         assert_eq!(channel.linear_counter, 0);
         assert_eq!(channel.linear_counter_reload, 0);
-        assert_eq!(channel.linear_counter_halt, false);
+        assert!(!channel.linear_counter_halt);
     }
 
     #[test]
@@ -265,14 +273,14 @@ mod tests {
         assert_eq!(channel.control, 0);
         assert_eq!(channel.timer_lo, 0);
         assert_eq!(channel.timer_hi, 0);
-        assert_eq!(channel.enabled, false);
+        assert!(!channel.enabled);
         assert_eq!(channel.timer, 0);
         assert_eq!(channel.timer_value, 0);
         assert_eq!(channel.sequence_pos, 0);
         assert_eq!(channel.volume, 0);
         assert_eq!(channel.linear_counter, 0);
         assert_eq!(channel.linear_counter_reload, 0);
-        assert_eq!(channel.linear_counter_halt, false);
+        assert!(!channel.linear_counter_halt);
     }
 
     #[test]
@@ -383,33 +391,33 @@ mod tests {
 
         // Test sequence position 0 (should be 15/15)
         channel.set_sequence_pos(0);
-        assert_eq!(channel.generate_sample(), 1.0);
+        assert_eq!(channel.output(), 15);
 
         // Test sequence position 8 (should be 7/15)
         channel.set_sequence_pos(8);
-        assert_eq!(channel.generate_sample(), 7.0 / 15.0);
+        assert_eq!(channel.output(), 7);
 
         // Test sequence position 16 (should be 0/15)
         channel.set_sequence_pos(16);
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
 
         // Test sequence position 24 (should be 8/15)
         channel.set_sequence_pos(24);
-        assert_eq!(channel.generate_sample(), 8.0 / 15.0);
+        assert_eq!(channel.output(), 8);
 
         // Test with channel disabled
         channel.set_enabled(false);
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
 
         // Test with length counter inactive
         channel.set_enabled(true);
         channel.length_counter.set_enabled(false);
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
 
         // Test with linear counter at 0
         channel.length_counter.set_enabled(true);
         channel.linear_counter = 0;
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
     }
 
     #[test]
@@ -422,7 +430,7 @@ mod tests {
         // Test control register (linear counter reload and halt)
         channel.write_register(0, 0x87); // Reload = 7, halt = true
         assert_eq!(channel.linear_counter_reload, 7);
-        assert_eq!(channel.linear_counter_halt, true);
+        assert!(channel.linear_counter_halt);
 
         // Test timer low register
         channel.write_register(2, 0x42);

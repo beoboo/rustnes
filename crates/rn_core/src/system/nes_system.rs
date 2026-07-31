@@ -85,13 +85,10 @@ impl NesSystem {
             bus.attach_component(Box::new(dma.clone()));
             bus.attach_component(Box::new(controller_handler.clone()));
 
-            // Debug: Print the memory map before attaching to CPU
-            // This will help diagnose missing memory components during development
-            #[cfg(debug_assertions)]
-            {
-                println!("\n=== NesSystem Memory Map ===");
-                println!("{}", bus.debug_memory_map());
-            }
+            // Log the memory map before attaching to the CPU, to diagnose missing components.
+            // Via `debug!` rather than `println!` so it does not corrupt the output of
+            // command-line tools that print machine-readable results to stdout.
+            debug!("NesSystem memory map:\n{}", bus.debug_memory_map());
         }
 
         // Establish all component connections
@@ -366,8 +363,12 @@ impl NesSystem {
         self.controller_handler.set_controller2_state(state);
     }
 
-    /// Connect an audio output device to the APU
-    pub fn connect_audio_output2(&mut self, audio_output: Box<dyn SampleProducer<f32>>) {
+    /// Connect an audio output device to the APU.
+    ///
+    /// `sample_rate` must be the output device's real rate: the APU resamples its ~1.79 MHz
+    /// internal stream down to it, so a wrong value here is heard directly as a wrong pitch.
+    pub fn connect_audio_output(&mut self, audio_output: Box<dyn SampleProducer<f32>>, sample_rate: f64) {
+        self.apu.set_sample_rate(sample_rate);
         self.apu.connect_audio_output(audio_output);
     }
 }
@@ -424,7 +425,7 @@ mod tests {
         );
 
         // Verify DMA controller connections
-        assert!(system.dma.is_active() == false, "DMA should not be active initially");
+        assert!(!system.dma.is_active(), "DMA should not be active initially");
 
         // Test DMA transfer
         let test_data = vec![0x42; 256]; // 256 bytes of test data
@@ -858,9 +859,8 @@ mod tests {
         let mut pattern_data = vec![0u8; 8192]; // 8KB of pattern data (full CHR ROM size)
 
         // Fill pattern 0 with a solid block pattern (all bits set to 1)
-        for i in 0..16 {
-            pattern_data[i] = 0xFF; // Low bit plane and high bit plane - full solid block
-        }
+        // Both bit planes set: a full solid block.
+        pattern_data[0..16].fill(0xFF);
 
         // Load the pattern data into CHR ROM
         system.load_chr_rom(&pattern_data)?;

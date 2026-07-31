@@ -1,92 +1,114 @@
-use std::sync::{
-    atomic::{AtomicBool, AtomicU32},
-    Arc,
-};
+use std::sync::Arc;
 
 use ringbuf::{
     storage::Heap,
-    traits::{Consumer, Producer, Split},
+    traits::{Consumer, Observer, Producer, Split},
     CachingCons, CachingProd, HeapRb, SharedRb,
 };
 use rn_core::audio::{Sample, SampleConsumer, SampleProducer};
+
+use crate::controls::AudioControls;
 
 pub struct RingBufferBuilder<T: Sample> {
     marker: std::marker::PhantomData<T>,
 }
 
 impl<T: Sample> RingBufferBuilder<T> {
-    pub fn build(buffer_size: usize) -> (RingBufferProducer<T>, RingBufferConsumer<T>) {
-        let volume = Arc::new(AtomicU32::new(f32::to_bits(1.0)));
-        let muted = Arc::new(AtomicBool::new(false));
-
+    /// Build a single-producer / single-consumer ring buffer sharing `controls`.
+    ///
+    /// Both ends see the same volume, mute state and telemetry — there is deliberately no
+    /// second set of atomics anywhere in the path.
+    pub fn build(buffer_size: usize, controls: AudioControls) -> (RingBufferProducer<T>, RingBufferConsumer<T>) {
         let ring = HeapRb::<T>::new(buffer_size);
         let (producer, consumer) = ring.split();
 
+        // Occupancy is published through the shared controls so the emulator can read it even
+        // after the producer has been handed off, and without touching the consumer (which lives
+        // on the realtime thread).
+        controls.set_capacity(buffer_size);
+        controls.set_queued(0);
+
         (
-            RingBufferProducer::new(volume.clone(), muted.clone(), producer),
-            RingBufferConsumer::new(volume.clone(), muted.clone(), consumer),
+            RingBufferProducer::new(controls.clone(), producer),
+            RingBufferConsumer::new(controls, consumer),
         )
     }
 }
 
 pub struct RingBufferProducer<T: Sample> {
-    volume: Arc<AtomicU32>,
-    muted: Arc<AtomicBool>,
+    controls: AudioControls,
     producer: CachingProd<Arc<SharedRb<Heap<T>>>>,
 }
 
-unsafe impl<T: Sample> Send for RingBufferProducer<T> {}
-unsafe impl<T: Sample> Sync for RingBufferProducer<T> {}
-
 impl<T: Sample> RingBufferProducer<T> {
-    pub fn new(volume: Arc<AtomicU32>, muted: Arc<AtomicBool>, producer: CachingProd<Arc<SharedRb<Heap<T>>>>) -> Self {
-        Self {
-            volume,
-            muted,
-            producer,
-        }
+    pub fn new(controls: AudioControls, producer: CachingProd<Arc<SharedRb<Heap<T>>>>) -> Self {
+        Self { controls, producer }
+    }
+
+    /// How many samples are currently queued for playback.
+    pub fn queued(&self) -> usize {
+        self.controls.queued()
+    }
+
+    /// Buffer occupancy in the range 0.0 (empty, about to underrun) to 1.0 (full).
+    pub fn fill_level(&self) -> f32 {
+        self.controls.fill_level()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.controls.capacity()
+    }
+
+    pub fn controls(&self) -> &AudioControls {
+        &self.controls
     }
 }
 
 impl<T: Sample> SampleProducer<T> for RingBufferProducer<T> {
     fn set_volume(&mut self, volume: f32) {
-        self.volume
-            .store(f32::to_bits(volume), std::sync::atomic::Ordering::Relaxed);
+        self.controls.set_volume(volume);
     }
 
     fn set_muted(&mut self, muted: bool) {
-        self.muted.store(muted, std::sync::atomic::Ordering::Relaxed);
+        self.controls.set_muted(muted);
     }
 
     fn produce(&mut self, sample: T) {
-        let _ = self.producer.try_push(sample);
+        if self.producer.try_push(sample).is_err() {
+            // Buffer full: the emulator is running ahead of the sound card. Dropping is the right
+            // recovery, but it must be visible rather than silent.
+            self.controls.record_dropped();
+        }
+        self.controls.set_queued(self.producer.occupied_len());
     }
 }
+
 pub struct RingBufferConsumer<T: Sample> {
-    volume: Arc<AtomicU32>,
-    muted: Arc<AtomicBool>,
+    controls: AudioControls,
     consumer: CachingCons<Arc<SharedRb<Heap<T>>>>,
 }
 
-unsafe impl<T: Sample> Send for RingBufferConsumer<T> {}
-unsafe impl<T: Sample> Sync for RingBufferConsumer<T> {}
-
 impl<T: Sample> RingBufferConsumer<T> {
-    pub fn new(volume: Arc<AtomicU32>, muted: Arc<AtomicBool>, consumer: CachingCons<Arc<SharedRb<Heap<T>>>>) -> Self {
-        Self { volume, muted, consumer }
+    pub fn new(controls: AudioControls, consumer: CachingCons<Arc<SharedRb<Heap<T>>>>) -> Self {
+        Self { controls, consumer }
     }
 }
 
 impl<T: Sample> SampleConsumer<T> for RingBufferConsumer<T> {
     fn volume(&self) -> f32 {
-        f32::from_bits(self.volume.load(std::sync::atomic::Ordering::Relaxed))
+        self.controls.volume()
     }
 
     fn muted(&self) -> bool {
-        self.muted.load(std::sync::atomic::Ordering::Relaxed)
+        self.controls.muted()
     }
 
     fn consume(&mut self) -> Option<T> {
-        self.consumer.try_pop()
+        let sample = self.consumer.try_pop();
+        if sample.is_none() {
+            self.controls.record_underrun();
+        }
+        self.controls.set_queued(self.consumer.occupied_len());
+        sample
     }
 }

@@ -15,6 +15,25 @@ pub struct Sweep {
 }
 
 impl Sweep {
+    // Register-state accessors, used by the pulse channel's tests to check decoding. Gated so
+    // they do not read as dead code in a normal build.
+    #[cfg(test)]
+    pub fn get_period(&self) -> u8 {
+        self.period
+    }
+
+    #[cfg(test)]
+    pub fn get_negate(&self) -> bool {
+        self.negate
+    }
+
+    #[cfg(test)]
+    pub fn get_shift(&self) -> u8 {
+        self.shift
+    }
+
+
+
     /// Create a new sweep unit
     pub fn new(is_pulse1: bool) -> Self {
         Self {
@@ -28,30 +47,10 @@ impl Sweep {
         }
     }
 
-    /// Get the sweep period
-    pub fn get_period(&self) -> u8 {
-        self.period
-    }
 
-    /// Get the negate flag
-    pub fn get_negate(&self) -> bool {
-        self.negate
-    }
 
-    /// Get the shift count
-    pub fn get_shift(&self) -> u8 {
-        self.shift
-    }
 
-    /// Get whether the sweep unit is enabled
-    pub fn is_enabled(&self) -> bool {
-        self.enabled
-    }
 
-    /// Get whether this is pulse channel 1
-    pub fn is_pulse1(&self) -> bool {
-        self.is_pulse1
-    }
 
     /// Reset the sweep unit to initial state
     pub fn reset(&mut self) {
@@ -114,14 +113,20 @@ impl Sweep {
         // Calculate the change amount by shifting the current period right
         let change_amount = current_period >> self.shift;
 
-        // Apply the change based on negate flag and which pulse channel we are
+        // Apply the change based on negate flag and which pulse channel we are.
+        //
+        // Saturating, not wrapping: in negate mode the target period can go negative, and hardware
+        // does *not* mute the channel when it does. Wrapping would turn a small negative value
+        // into ~0xFFFF, which trips the "target > $7FF" muting rule below and silences the channel
+        // outright — the exact failure that a `#[cfg(not(test))]` bypass in `PulseChannel::output`
+        // used to hide.
         if self.negate {
             if self.is_pulse1 {
                 // Pulse 1 uses ones' complement negation (∼c + 1)
-                current_period.wrapping_sub(change_amount).wrapping_sub(1)
+                current_period.saturating_sub(change_amount).saturating_sub(1)
             } else {
                 // Pulse 2 uses two's complement negation (∼c)
-                current_period.wrapping_sub(change_amount)
+                current_period.saturating_sub(change_amount)
             }
         } else {
             // Addition mode (increase period, lower frequency)
@@ -157,22 +162,22 @@ mod tests {
         // Register value 0b10100011:
         // bit 7 = 1 (enabled), bits 6-4 = 010 (period=2), bit 3 = 0 (negate=false), bits 2-0 = 011 (shift=3)
         sweep_unit.update_from_register(0b10100011);
-        assert_eq!(sweep_unit.enabled, true);
+        assert!(sweep_unit.enabled);
         assert_eq!(sweep_unit.period, 2);
-        assert_eq!(sweep_unit.negate, false);
+        assert!(!sweep_unit.negate);
         assert_eq!(sweep_unit.shift, 3);
-        assert_eq!(sweep_unit.reload_flag, true);
+        assert!(sweep_unit.reload_flag);
 
         // Test with enabled = 0, period = 2, negate = 1, shift = 7
         // Register value 0b00100111:
         // bit 7 = 0 (disabled), bits 6-4 = 010 (period=2), bit 3 = 1 (negate=true), bits 2-0 = 111 (shift=7)
         sweep_unit.reload_flag = false;
         sweep_unit.update_from_register(0b00101111);
-        assert_eq!(sweep_unit.enabled, false);
+        assert!(!sweep_unit.enabled);
         assert_eq!(sweep_unit.period, 2);
-        assert_eq!(sweep_unit.negate, true);
+        assert!(sweep_unit.negate);
         assert_eq!(sweep_unit.shift, 7);
-        assert_eq!(sweep_unit.reload_flag, true);
+        assert!(sweep_unit.reload_flag);
     }
 
     #[test]
@@ -212,11 +217,11 @@ mod tests {
         let sweep = Sweep::new(true);
 
         // Mute if period < 8
-        assert_eq!(sweep.should_mute(7, 10), true);
-        assert_eq!(sweep.should_mute(8, 10), false);
+        assert!(sweep.should_mute(7, 10));
+        assert!(!sweep.should_mute(8, 10));
 
         // Mute if target period > 0x7FF
-        assert_eq!(sweep.should_mute(100, 0x7FF), false);
-        assert_eq!(sweep.should_mute(100, 0x800), true);
+        assert!(!sweep.should_mute(100, 0x7FF));
+        assert!(sweep.should_mute(100, 0x800));
     }
 }

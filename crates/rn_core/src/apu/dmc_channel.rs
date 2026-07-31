@@ -105,10 +105,8 @@ impl DmcChannel {
                     if self.sample_buffer <= 0x7D {
                         self.sample_buffer += 2;
                     }
-                } else {
-                    if self.sample_buffer >= 0x02 {
-                        self.sample_buffer -= 2;
-                    }
+                } else if self.sample_buffer >= 0x02 {
+                    self.sample_buffer -= 2;
                 }
 
                 // If we've processed all bits, try to load the next byte
@@ -183,14 +181,16 @@ impl DmcChannel {
         self.timer = timer_value;
     }
 
-    /// Generate a single audio sample
-    pub fn generate_sample(&self) -> f32 {
+    /// The channel's current DAC level, 0..=127 (the DMC has a 7-bit DAC).
+    ///
+    /// See [`PulseChannel::output`](super::PulseChannel) for why this is a raw level. Note that
+    /// silence here means level 0, not "the midpoint": the DC offset that leaves is removed by the
+    /// high-pass filters on the mixed output, exactly as on hardware.
+    pub fn output(&self) -> u8 {
         if !self.enabled || self.silence_flag {
-            return 0.0;
+            return 0;
         }
-        // The DMC channel uses a 7-bit DAC, so the value range is 0-127
-        let value = self.sample_buffer as f32;
-        value / 63.5 - 1.0 // Map 0-127 to -1.0 to 1.0
+        self.sample_buffer
     }
 
     /// Set the enabled state
@@ -257,14 +257,14 @@ mod tests {
         assert_eq!(channel.direct_load, 0);
         assert_eq!(channel.address, 0);
         assert_eq!(channel.length, 0);
-        assert_eq!(channel.enabled, false);
-        assert_eq!(channel.irq_enabled, false);
-        assert_eq!(channel.loop_flag, false);
+        assert!(!channel.enabled);
+        assert!(!channel.irq_enabled);
+        assert!(!channel.loop_flag);
         assert_eq!(channel.sample_buffer, 0);
-        assert_eq!(channel.sample_buffer_empty, true);
+        assert!(channel.sample_buffer_empty);
         assert_eq!(channel.bits_remaining, 0);
         assert_eq!(channel.shift_register, 0);
-        assert_eq!(channel.silence_flag, true);
+        assert!(channel.silence_flag);
         assert_eq!(channel.current_address, 0);
         assert_eq!(channel.bytes_remaining, 0);
         assert_eq!(channel.timer, 0);
@@ -300,14 +300,14 @@ mod tests {
         assert_eq!(channel.direct_load, 0);
         assert_eq!(channel.address, 0);
         assert_eq!(channel.length, 0);
-        assert_eq!(channel.enabled, false);
-        assert_eq!(channel.irq_enabled, false);
-        assert_eq!(channel.loop_flag, false);
+        assert!(!channel.enabled);
+        assert!(!channel.irq_enabled);
+        assert!(!channel.loop_flag);
         assert_eq!(channel.sample_buffer, 0);
-        assert_eq!(channel.sample_buffer_empty, true);
+        assert!(channel.sample_buffer_empty);
         assert_eq!(channel.bits_remaining, 0);
         assert_eq!(channel.shift_register, 0);
-        assert_eq!(channel.silence_flag, true);
+        assert!(channel.silence_flag);
         assert_eq!(channel.current_address, 0);
         assert_eq!(channel.bytes_remaining, 0);
         assert_eq!(channel.timer, 0);
@@ -340,7 +340,7 @@ mod tests {
 
         // Check that the sample buffer was updated
         assert_eq!(channel.sample_buffer, 0x80);
-        assert_eq!(channel.silence_flag, false);
+        assert!(!channel.silence_flag);
     }
 
     #[test]
@@ -348,28 +348,28 @@ mod tests {
         let mut channel = DmcChannel::new();
 
         // Channel should be silent when disabled
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
 
         // Enable the channel
         channel.set_enabled(true);
 
         // Should still be silent with silence flag set
-        assert_eq!(channel.generate_sample(), 0.0);
+        assert_eq!(channel.output(), 0);
 
         // Set a sample value and clear silence flag
         channel.sample_buffer = 0x40; // 64 - middle of 7-bit range
         channel.silence_flag = false;
 
         // Should output 0.0 (middle value)
-        assert_eq!(channel.generate_sample(), 0.007874012); // Approximately 0
+        assert_eq!(channel.output(), 64); // Mid-scale: the DAC centre
 
         // Test maximum value (127)
         channel.sample_buffer = 0x7F;
-        assert_eq!(channel.generate_sample(), 1.0);
+        assert_eq!(channel.output(), 127); // Full scale
 
         // Test minimum value (0)
         channel.sample_buffer = 0x00;
-        assert_eq!(channel.generate_sample(), -1.0);
+        assert_eq!(channel.output(), 0); // Bottom of the DAC range
     }
 
     #[test]
@@ -378,13 +378,13 @@ mod tests {
 
         // Test control register ($4010)
         channel.write_register(0, 0xC0); // Set IRQ enable and loop flag
-        assert_eq!(channel.irq_enabled, true);
-        assert_eq!(channel.loop_flag, true);
+        assert!(channel.irq_enabled);
+        assert!(channel.loop_flag);
 
         // Test direct load register ($4011)
         channel.write_register(1, 0x42);
         assert_eq!(channel.sample_buffer, 0x42);
-        assert_eq!(channel.silence_flag, false);
+        assert!(!channel.silence_flag);
 
         // Test address register ($4012)
         channel.write_register(2, 0x30);

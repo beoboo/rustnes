@@ -94,8 +94,8 @@ mod tests {
     fn test_new_length_counter() {
         let counter = LengthCounter::new();
         assert_eq!(counter.counter, 0);
-        assert_eq!(counter.halt, false);
-        assert_eq!(counter.enabled, false);
+        assert!(!counter.halt);
+        assert!(!counter.enabled);
     }
 
     #[test]
@@ -141,7 +141,7 @@ mod tests {
         // One more tick should bring it to zero
         let is_zero = counter.tick();
         assert_eq!(counter.counter, 0);
-        assert_eq!(is_zero, true);
+        assert!(is_zero);
 
         // Further ticks shouldn't change it
         counter.tick();

@@ -1,71 +1,82 @@
 
-use std::sync::{atomic::{AtomicBool, AtomicU32}, Arc};
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, TrySendError};
 use rn_core::audio::{Sample, SampleConsumer, SampleProducer};
 
+use crate::controls::AudioControls;
+
+/// A bounded-channel audio path.
+///
+/// Used for taps that must never block or stall the speaker path — the waveform visualiser, for
+/// example, which reads whenever the UI happens to repaint.
 pub struct ChannelBuilder<T: Sample> {
-  marker: std::marker::PhantomData<T>,
+    marker: std::marker::PhantomData<T>,
 }
 
 impl<T: Sample> ChannelBuilder<T> {
-  pub fn build(buffer_size: usize) -> (ChannelProducer<T>, ChannelConsumer<T>) {
-      let volume = Arc::new(AtomicU32::new(f32::to_bits(1.0)));
-      let muted = Arc::new(AtomicBool::new(false));
+    pub fn build(buffer_size: usize) -> (ChannelProducer<T>, ChannelConsumer<T>) {
+        Self::build_with(buffer_size, AudioControls::new())
+    }
 
-      let (sender, receiver) = crossbeam_channel::bounded(buffer_size);
-      (ChannelProducer::new(volume.clone(), muted.clone(), sender), ChannelConsumer{volume, muted, receiver})
-  }
+    pub fn build_with(buffer_size: usize, controls: AudioControls) -> (ChannelProducer<T>, ChannelConsumer<T>) {
+        let (sender, receiver) = crossbeam_channel::bounded(buffer_size);
+        (
+            ChannelProducer::new(controls.clone(), sender),
+            ChannelConsumer::new(controls, receiver),
+        )
+    }
 }
 
-pub struct ChannelProducer<T: Sample>{
-  volume: Arc<AtomicU32>,
-  muted: Arc<AtomicBool>,
-
-  sender: Sender<T>,
+pub struct ChannelProducer<T: Sample> {
+    controls: AudioControls,
+    sender: Sender<T>,
 }
 
 impl<T: Sample> ChannelProducer<T> {
-  pub fn new(volume: Arc<AtomicU32>, muted: Arc<AtomicBool>, sender: Sender<T>) -> Self {
-      Self { volume, muted, sender }
-  }
+    pub fn new(controls: AudioControls, sender: Sender<T>) -> Self {
+        Self { controls, sender }
+    }
 }
-
-unsafe impl<T: Sample> Send for ChannelProducer<T> {}
-unsafe impl<T: Sample> Sync for ChannelProducer<T> {}
 
 impl<T: Sample> SampleProducer<T> for ChannelProducer<T> {
-  fn set_volume(&mut self, volume: f32) {
-      self.volume.store(f32::to_bits(volume), std::sync::atomic::Ordering::Relaxed);
-  }
+    fn set_volume(&mut self, volume: f32) {
+        self.controls.set_volume(volume);
+    }
 
-  fn set_muted(&mut self, muted: bool) {
-      self.muted.store(muted, std::sync::atomic::Ordering::Relaxed);
-  }
+    fn set_muted(&mut self, muted: bool) {
+        self.controls.set_muted(muted);
+    }
 
-  fn produce(&mut self, sample: T) {
-      let _ = self.sender.send(sample);
-  }
+    fn produce(&mut self, sample: T) {
+        // `try_send`, never `send`: a slow or absent reader must not stall sample generation.
+        match self.sender.try_send(sample) {
+            Ok(()) => {},
+            Err(TrySendError::Full(_)) => self.controls.record_dropped(),
+            Err(TrySendError::Disconnected(_)) => {},
+        }
+    }
 }
 
-pub struct ChannelConsumer<T: Sample>{ 
-  volume: Arc<AtomicU32>,
-  muted: Arc<AtomicBool>,
-  receiver: Receiver<T>,
+pub struct ChannelConsumer<T: Sample> {
+    controls: AudioControls,
+    receiver: Receiver<T>,
 }
 
-unsafe impl<T: Sample> Send for ChannelConsumer<T> {}
-unsafe impl<T: Sample> Sync for ChannelConsumer<T> {}
+impl<T: Sample> ChannelConsumer<T> {
+    pub fn new(controls: AudioControls, receiver: Receiver<T>) -> Self {
+        Self { controls, receiver }
+    }
+}
 
 impl<T: Sample> SampleConsumer<T> for ChannelConsumer<T> {
-  fn volume(&self) -> f32 {
-      f32::from_bits(self.volume.load(std::sync::atomic::Ordering::Relaxed))
-  }
+    fn volume(&self) -> f32 {
+        self.controls.volume()
+    }
 
-  fn muted(&self) -> bool {
-      self.muted.load(std::sync::atomic::Ordering::Relaxed)
-  }
+    fn muted(&self) -> bool {
+        self.controls.muted()
+    }
 
-  fn consume(&mut self) -> Option<T> {
-      self.receiver.try_recv().ok()
-  }
+    fn consume(&mut self) -> Option<T> {
+        self.receiver.try_recv().ok()
+    }
 }

@@ -37,18 +37,15 @@ struct AppContext {
 
 /// Application-specific waveform type enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 enum WaveformType {
+    #[default]
     Sine,
     Square,
     Triangle,
     Sawtooth,
 }
 
-impl Default for WaveformType {
-    fn default() -> Self {
-        WaveformType::Sine
-    }
-}
 
 // Command channel to communicate with the audio thread
 enum AudioCommand {
@@ -164,15 +161,14 @@ impl<'a> TabViewer for WaveformTabViewer<'a> {
                 }
 
                 // Duty cycle control (only for square wave)
-                if self.context.selected_waveform == WaveformType::Square {
-                    if ui
+                if self.context.selected_waveform == WaveformType::Square
+                    && ui
                         .add(egui::Slider::new(&mut self.context.duty_cycle, 0.0..=1.0).text("Duty Cycle"))
                         .changed()
                     {
                         // Update oscillator duty cycle via command
                         let _ = self.audio_command_sender.send(AudioCommand::SetWaveform(Waveform::Square(self.context.duty_cycle)));
                     }
-                }
 
                 // Volume control
                 if ui
@@ -216,16 +212,17 @@ impl WaveformPlayer {
         let (audio_command_sender, audio_command_receiver) = mpsc::channel();
 
         let (audio_producer, audio_consumer) = CpalAudioBuilder::build_default()?;
-        let (multiplexer_producer, multiplexer_consumer) = ChannelBuilder::build(1024);
-        let (waveform_producer, waveform_consumer) = ChannelBuilder::build(1024);
-        
+        let (waveform_producer, waveform_consumer) = ChannelBuilder::build(8192);
+
         let sample_rate = audio_consumer.sample_rate();
 
-        let mut multiplexer = Multiplexer::new(multiplexer_consumer);
-        multiplexer.add_producer(Box::new(audio_producer));
-        multiplexer.add_producer(Box::new(waveform_producer));
+        // Fan the oscillator's output out to the speakers and the visualiser. The multiplexer is
+        // itself a SampleProducer, so it sits inline and needs no separate pump.
+        let fanout = Multiplexer::new()
+            .with_producer(Box::new(audio_producer))
+            .with_producer(Box::new(waveform_producer));
 
-        let mut oscillator = Oscillator::new(Box::new(multiplexer_producer), sample_rate, Waveform::Sine, 440.0);
+        let mut oscillator = Oscillator::new(Box::new(fanout), sample_rate, Waveform::Sine, 440.0);
 
         let waveform = WaveformWidget::new(Box::new(waveform_consumer));
 
@@ -270,9 +267,9 @@ impl WaveformPlayer {
                 }
 
                 if active {
-                    // Generate a sample from the oscillator
+                    // Generate a sample; the multiplexer inside the oscillator's producer fans it
+                    // out to both destinations.
                     oscillator.tick();
-                    multiplexer.tick();
                 } else {
                     // If not active, just sleep a bit to avoid busy-waiting
                     thread::sleep(Duration::from_millis(10));

@@ -1,31 +1,38 @@
 use anyhow::Result;
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait}, SizedSample, Stream,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    FromSample, Sample, SizedSample, Stream,
 };
-use cpal::{FromSample, Sample};
-use rn_core::audio::{SampleProducer, SampleConsumer};
-use std::sync::atomic::{AtomicBool, AtomicU32};
-use std::{fmt, sync::Arc};
+use log::{debug, info, warn};
+use rn_core::audio::{SampleConsumer, SampleProducer};
+use std::fmt;
 
-use crate::ring_buffer::RingBufferBuilder;
+use crate::{
+    controls::AudioControls,
+    ring_buffer::{RingBufferBuilder, RingBufferProducer},
+};
+
+/// Target buffering, in milliseconds.
+///
+/// This is the latency between the emulator producing a sample and hearing it. It also sets how
+/// much slack the emulator has to fall behind before the device underruns, so it cannot be made
+/// arbitrarily small; ~100 ms is a comfortable compromise for a debugger that also has to render a
+/// UI on the same machine.
+const TARGET_LATENCY_MS: f32 = 100.0;
 
 pub struct CpalAudioBuilder;
 
 impl CpalAudioBuilder {
     pub fn build_default() -> Result<(CpalAudioProducer, CpalAudioConsumer)> {
-        // Get default host
         let host = cpal::default_host();
-
-        // Get default output device
         let device = host
             .default_output_device()
             .ok_or_else(|| anyhow::anyhow!("No output device available"))?;
 
-        println!("Using audio device: {}", device.name()?);
+        info!("Using audio device: {}", device.name()?);
 
-        // Get supported config
         let config = device.default_output_config()?;
-        println!("Default output config: {:?}", config);
+        debug!("Default output config: {:?}", config);
 
         Self::build(device, config)
     }
@@ -34,21 +41,19 @@ impl CpalAudioBuilder {
         device: cpal::Device,
         config: cpal::SupportedStreamConfig,
     ) -> Result<(CpalAudioProducer, CpalAudioConsumer)> {
-        let latency_ms = 250.0; // Reduced from 1000ms to 250ms for better responsiveness
         let sample_rate = config.sample_rate().0 as f32;
-        let num_channels = config.channels() as usize;
 
-        let latency_frames = (latency_ms / 1_000.0) * sample_rate;
-        let latency_samples = latency_frames as usize * num_channels;
+        // The buffer holds mono samples: the callback duplicates each one across output channels,
+        // so its size is independent of the channel count.
+        let buffer_size = ((TARGET_LATENCY_MS / 1_000.0) * sample_rate) as usize;
 
-        // Create a larger buffer to prevent underruns
-        let (producer, consumer) = RingBufferBuilder::build(latency_samples * 4);
-        let volume = Arc::new(AtomicU32::new(f32::to_bits(1.0)));
-        let muted = Arc::new(AtomicBool::new(false));
+        // One set of controls for the whole path — producer, consumer and callback all share it.
+        let controls = AudioControls::new();
+        let (producer, consumer) = RingBufferBuilder::build(buffer_size, controls.clone());
 
-        let audio_queue = CpalAudioProducer::new(Box::new(producer), volume.clone(), muted.clone());
+        let audio_queue = CpalAudioProducer::new(producer, controls.clone(), sample_rate);
 
-        let mut audio_output = CpalAudioConsumer::new(device, volume, muted)?;
+        let mut audio_output = CpalAudioConsumer::new(device, controls)?;
         audio_output.initialize(consumer, config)?;
 
         Ok((audio_queue, audio_output))
@@ -56,63 +61,77 @@ impl CpalAudioBuilder {
 }
 
 pub struct CpalAudioProducer {
-    producer: Box<dyn SampleProducer<f32>>,
-    volume: Arc<AtomicU32>,
-    muted: Arc<AtomicBool>,
+    producer: RingBufferProducer<f32>,
+    controls: AudioControls,
+    sample_rate: f32,
 }
 
 impl fmt::Debug for CpalAudioProducer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "CpalAudioQueue {{ volume: {:?}, muted: {:?} }}",
-            self.volume, self.muted
-        )
+        f.debug_struct("CpalAudioProducer")
+            .field("sample_rate", &self.sample_rate)
+            .field("volume", &self.controls.volume())
+            .field("muted", &self.controls.muted())
+            .field("fill_level", &self.producer.fill_level())
+            .finish()
     }
 }
 
 impl CpalAudioProducer {
-    fn new(producer: Box<dyn SampleProducer<f32>>, volume: Arc<AtomicU32>, muted: Arc<AtomicBool>) -> Self {
+    fn new(producer: RingBufferProducer<f32>, controls: AudioControls, sample_rate: f32) -> Self {
         Self {
             producer,
-            volume,
-            muted,
+            controls,
+            sample_rate,
         }
+    }
+
+    /// The device's actual sample rate. The APU needs this to resample correctly, rather than
+    /// assuming a fixed 44.1 kHz.
+    pub fn sample_rate(&self) -> f32 {
+        self.sample_rate
+    }
+
+    /// Buffer occupancy, 0.0 (empty) to 1.0 (full). The emulator paces itself against this.
+    pub fn fill_level(&self) -> f32 {
+        self.producer.fill_level()
+    }
+
+    pub fn queued(&self) -> usize {
+        self.producer.queued()
+    }
+
+    pub fn controls(&self) -> AudioControls {
+        self.controls.clone()
     }
 }
 
 impl SampleProducer<f32> for CpalAudioProducer {
     fn set_volume(&mut self, volume: f32) {
-        self.volume.store(f32::to_bits(volume), std::sync::atomic::Ordering::Relaxed);
+        self.controls.set_volume(volume);
     }
 
     fn set_muted(&mut self, muted: bool) {
-        self.muted.store(muted, std::sync::atomic::Ordering::Relaxed);
+        self.controls.set_muted(muted);
     }
 
     fn produce(&mut self, sample: f32) {
-        let _ = self.producer.produce(sample);
+        self.producer.produce(sample);
     }
 }
 
 pub struct CpalAudioConsumer {
     device: cpal::Device,
-    volume: Arc<AtomicU32>,
-    muted: Arc<AtomicBool>,
+    controls: AudioControls,
     stream: Option<Stream>,
     sample_rate: f32,
 }
 
 impl CpalAudioConsumer {
-    fn new(
-        device: cpal::Device,
-        volume: Arc<AtomicU32>,
-        muted: Arc<AtomicBool>,
-    ) -> Result<Self> {
+    fn new(device: cpal::Device, controls: AudioControls) -> Result<Self> {
         Ok(Self {
             device,
-            volume,
-            muted,
+            controls,
             stream: None,
             sample_rate: 0.0,
         })
@@ -122,13 +141,16 @@ impl CpalAudioConsumer {
         self.sample_rate
     }
 
+    pub fn controls(&self) -> AudioControls {
+        self.controls.clone()
+    }
+
     fn initialize<C: SampleConsumer<f32>>(&mut self, consumer: C, config: cpal::SupportedStreamConfig) -> Result<()> {
         self.sample_rate = config.sample_rate().0 as f32;
 
         let stream = match config.sample_format() {
             cpal::SampleFormat::I8 => self.make_stream::<i8, C>(consumer, &config.into()),
             cpal::SampleFormat::I16 => self.make_stream::<i16, C>(consumer, &config.into()),
-            // cpal::SampleFormat::I24 => make_stream::<I24>(&device, &config.into()),
             cpal::SampleFormat::I32 => self.make_stream::<i32, C>(consumer, &config.into()),
             cpal::SampleFormat::I64 => self.make_stream::<i64, C>(consumer, &config.into()),
             cpal::SampleFormat::U8 => self.make_stream::<u8, C>(consumer, &config.into()),
@@ -149,7 +171,7 @@ impl CpalAudioConsumer {
 
     pub fn play(&mut self) -> Result<()> {
         if let Some(stream) = &self.stream {
-            println!("Playing stream");
+            debug!("Starting audio stream");
             stream.play()?;
         }
         Ok(())
@@ -157,14 +179,14 @@ impl CpalAudioConsumer {
 
     pub fn pause(&mut self) -> Result<()> {
         if let Some(stream) = &self.stream {
-            println!("Pausing stream");
+            debug!("Pausing audio stream");
             stream.pause()?;
         }
         Ok(())
     }
 
     pub fn set_volume(&mut self, volume: f32) {
-        self.volume.store(f32::to_bits(volume), std::sync::atomic::Ordering::Relaxed);
+        self.controls.set_volume(volume);
     }
 
     fn make_stream<S, C>(&mut self, mut consumer: C, config: &cpal::StreamConfig) -> Result<cpal::Stream>
@@ -173,22 +195,13 @@ impl CpalAudioConsumer {
         C: SampleConsumer<f32>,
     {
         let num_channels = config.channels as usize;
-        let err_fn = |err| eprintln!("Error building output sound stream: {}", err);
-        let volume = self.volume.clone();
-        let muted = self.muted.clone();
-        // let clear = self.clear.clone();
+        let err_fn = |err| warn!("Audio output stream error: {}", err);
+        let controls = self.controls.clone();
 
         let stream = self.device.build_output_stream(
-            &config,
+            config,
             move |output: &mut [S], _: &cpal::OutputCallbackInfo| {
-                Self::process_frame(
-                    output,
-                    &mut consumer,
-                    num_channels,
-                    volume.clone(),
-                    muted.clone(),
-                    // clear.clone(),
-                )
+                Self::process_frame(output, &mut consumer, num_channels, &controls)
             },
             err_fn,
             None,
@@ -197,33 +210,26 @@ impl CpalAudioConsumer {
         Ok(stream)
     }
 
-    fn process_frame<S, C>(
-        output: &mut [S],
-        consumer: &mut C,
-        num_channels: usize,
-        volume: Arc<AtomicU32>,
-        muted: Arc<AtomicBool>,
-        // clear: Arc<AtomicBool>,
-    ) where
+    /// The realtime audio callback.
+    ///
+    /// This runs on a thread with a hard deadline. It must not allocate, lock, log or perform any
+    /// I/O — it only reads atomics and pops from the lock-free queue. `consume()` returning `None`
+    /// is recorded as an underrun by the consumer and substituted with silence.
+    fn process_frame<S, C>(output: &mut [S], consumer: &mut C, num_channels: usize, controls: &AudioControls)
+    where
         S: Sample + FromSample<f32>,
         C: SampleConsumer<f32>,
     {
-        // if clear.load(std::sync::atomic::Ordering::Relaxed) {
-        //     // consumer.clear();
-        //     clear.store(false, std::sync::atomic::Ordering::Relaxed);
-        //     return;
-        // }
+        // Read the controls once per callback rather than per sample: they change at UI rate, and
+        // reloading them for every frame buys nothing but cache traffic.
+        let gain = if controls.muted() { 0.0 } else { controls.volume() };
 
         for frame in output.chunks_mut(num_channels) {
-            // Get sample from buffer or use silence (0.0) if buffer is empty
-            let sample = consumer.consume().unwrap_or(0.0);
-            println!("sample: {}", sample);
-            let muted = muted.load(std::sync::atomic::Ordering::Relaxed);
-            let volume = f32::from_bits(volume.load(std::sync::atomic::Ordering::Relaxed));
+            let value = S::from_sample(consumer.consume().unwrap_or(0.0) * gain);
 
-            // Copy the same value to all channels
+            // Mono source: the same value goes to every output channel.
             for s in frame.iter_mut() {
-                *s = S::from_sample(if muted { 0.0 } else { sample * volume });
+                *s = value;
             }
         }
     }
