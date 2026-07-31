@@ -4,6 +4,11 @@ How this emulator gets validated against the NES test ROMs the community uses, a
 exist first. Companion to [PLAN.md](PLAN.md) and [TODO.md](TODO.md); the same shape as
 [AUDIO_PLAN.md](AUDIO_PLAN.md), which is now largely done.
 
+> **First results.** nestest matches its golden log for **all 5003 instructions of the
+> official-opcode section**, stopping exactly where the unofficial section begins. blargg's
+> `instr_test-v5/official_only.nes` reports **all 16 tests passed**, and all four `apu_mixer` ROMs
+> pass. Running them found four real bugs — see the results table in section 3.
+>
 > **Progress.** P1 (PRG-ROM loading), P2 (the instruction set) and P4 (the runner) are done:
 > `.nes` files boot from their reset vector, all 56 official instructions exist, and
 > `tools/rom_test` runs both nestest log-diff and blargg's `$6000` protocol. P3 (interrupts) is
@@ -93,6 +98,35 @@ failure. It found three real bugs in a day.
 ## 3. The test ROMs, in the order they should pass
 
 Roughly easiest-first, and each one's prerequisites are already met by the time it appears.
+
+### Results so far
+
+Run with `cargo run -p rom_test -- suite <dir>` against a clone of
+[nes-test-roms](https://github.com/christopherpow/nes-test-roms). `nestest` lives in its `other/`
+directory.
+
+| ROM | Result |
+| --- | --- |
+| `nestest` official section | **PASS** — 5003/5003 instructions match the log |
+| `nestest` unofficial section | stops at line 5004; unofficial opcodes not implemented |
+| `instr_test-v5/official_only` | **PASS** — all 16 tests |
+| `instr_test-v5/all_instrs` | needs unofficial opcodes |
+| `instr_timing/2-branch_timing` | **PASS** |
+| `instr_timing/1-instr_timing` | hangs — needs cycle-accurate timing |
+| `apu_mixer` (dmc, noise, square, triangle) | **PASS** — independent check on the audio rebuild |
+| `apu_test` | **FAIL(01)** at `2-len_table` — length-counter clocking, table values are correct |
+| `cpu_reset`, `cpu_dummy_reads` | hang or report nothing — need interrupts and reset semantics |
+| `branch_timing_tests` | older ROMs that report on screen, not through `$6000` |
+
+Bugs these found, none of which the unit tests could see:
+
+1. **Zero-page wrap in indexed indirect.** `LDA ($FF,X)` read its pointer from `$00FF`/`$0100`
+   instead of `$00FF`/`$0000`.
+2. **ASL and LSR ignored their addressing mode when writing back**, always storing to the
+   accumulator — so `LSR $78` corrupted A and left memory untouched.
+3. **23 official opcodes were unregistered** — mostly the indirect forms of the arithmetic group.
+4. **The APU panicked on writes to unused registers** (`$4009`, `$400D`), taking the whole emulator
+   down. blargg's suite does this, so it could not even start.
 
 ### Tier 1 — CPU correctness
 
