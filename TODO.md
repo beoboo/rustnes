@@ -10,6 +10,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [T5] Track 5: Input Controllers - Implement controller input for user interaction
 - [T6] Track 6: Basic Sound Output - Implementing fundamental APU functionality for simple tones
 - [T7] Track 7: Complete Audio System - Adding full music and sound effects capabilities
+- [T8] Track 8: Conformance & Test ROMs - Validating against the community's NES test suites
 - [T8] Track 8: Mappers & Cartridges - Support for different ROM mappers
 - [T9] Track 9: Full Desktop System - Complete playable NES emulator application
 - [T10] Track 10: Web Integration - WebAssembly support for browser play
@@ -468,6 +469,15 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Test all channel functionality
 - [x] Add proper channel mixing
 
+### [APU] Outstanding Accuracy Work [T7]
+- [ ] Implement the frame counter's 5-step mode ($4017 bit 7)
+- [ ] Implement the frame IRQ: $4015 bit 6, the $4017 inhibit flag, and the CPU IRQ line
+- [ ] Give the DMC bus access so `load_next_byte` reads real memory, including CPU stall cycles
+- [ ] Fix the PPU vblank flag so the `asm/` audio demos reach their APU init instead of spinning
+      in `WaitForVBlank` (blocks every demo ROM, not just audio)
+- [ ] Drop the `objc2` `relax-sign-encoding` workaround in the root Cargo.toml once eframe/winit
+      move to objc2 0.6+ (see AUDIO_PLAN.md section 4)
+
 ### [APU] Advanced Audio Features [T7]
 - [x] Implement length counters for sound duration
 - [x] Complete envelope generators for volume control
@@ -488,7 +498,55 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Verify correct audio output using reference audio files
 - [ ] Develop audio accuracy test suite
 
-## MILESTONE 8: Mappers & Cartridges [T8]
+## MILESTONE 8: Conformance & Test ROMs [T8]
+
+The community's test ROMs are the independent check on everything built so far. None can run yet:
+the iNES loader parses the header then *skips* the PRG data, so there is no way to get a ROM's
+program into memory. Full rationale, ROM list and ordering in [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md).
+
+### [Cartridge] PRG-ROM loading [T8]
+- [ ] Return PRG-ROM from the loader instead of skipping past it to the CHR data
+- [ ] Map PRG-ROM into $8000-$FFFF, mirroring a 16KB image at both $8000 and $C000
+- [ ] Start execution from the reset vector at $FFFC rather than a fixed load address
+- [ ] Add `--rom file.nes` to nes_debugger and the probe tools
+
+### [CPU] Complete the official instruction set [T8]
+Missing 10 of 56 instructions, and 43 of 151 official opcodes. The missing set is every stack
+operation, both rotates, and the interrupt return — so nothing that pushes or pulls the stack runs.
+- [ ] PHA, PHP, PLA, PLP (including the B flag's behaviour in the pushed status byte)
+- [ ] ROL, ROR (accumulator and memory forms)
+- [ ] CPY, CLV, TSX
+- [ ] RTI (also unblocks asm/full_sprite_test.asm)
+- [ ] Fill in missing addressing modes on existing instructions until all 151 official opcodes decode
+- [ ] Decide the policy on unofficial opcodes: nestest exercises them and some games rely on them
+
+### [CPU] Interrupts [T8]
+The InterruptDisable flag exists and nothing reads it. The APU already maintains a frame IRQ flag
+correctly, with no line to assert it.
+- [ ] NMI: 7-cycle sequence, vector at $FFFA, triggered by PPU vblank when $2000 bit 7 is set
+- [ ] IRQ: vector at $FFFE, gated on InterruptDisable, asserted by the APU frame counter
+- [ ] BRK pushing the correct status byte, RTI restoring it
+- [ ] Connect `Apu::irq_pending()` to the CPU IRQ line
+
+### [Testing] Headless test-ROM runner [T8]
+Blargg's ROMs write a status byte to $6000 and a message at $6004, so no screen is needed.
+- [ ] `tools/rom_test`: load a .nes, run to completion or timeout, report $6000 and $6004
+- [ ] nestest log-diff mode: run from $C000 and diff the CPU trace against nestest.log
+- [ ] Machine-readable output suitable for CI
+- [ ] Skip cleanly with a clear message when no ROMs are present (they cannot be committed here)
+- [ ] Document in the README where to obtain the ROMs
+
+### [Testing] Pass the suites, in order [T8]
+- [ ] nestest.nes (official opcodes, then unofficial)
+- [ ] blargg instr_test-v5
+- [ ] blargg instr_timing
+- [ ] blargg cpu_interrupts_v2
+- [ ] blargg ppu_vbl_nmi
+- [ ] blargg sprite_hit_tests, sprite_overflow_tests, oam_read
+- [ ] blargg apu_test, apu_mixer, dmc_dma
+
+
+## MILESTONE 9: Mappers & Cartridges [T9]
 - [ ] Implement support for different ROM formats
 - [ ] Test with various commercial ROMs
 - [ ] Support bank switching and expanded memory
@@ -532,7 +590,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Implement battery-backed save support (if needed)
 - [ ] Test ROM loading with various games
 
-## MILESTONE 9: Full Desktop System [T9]
+## MILESTONE 10: Full Desktop System [T10]
 - [ ] Create a fully playable NES emulator application
 - [ ] Support loading and playing commercial ROMs
 - [ ] Implement save states and game management
@@ -616,7 +674,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [ ] Support runtime code modification
 - [ ] Add support for debugging symbols
 
-## MILESTONE 10: Web Integration [T10]
+## MILESTONE 11: Web Integration [T11]
 - [ ] Create a web-based version of the NES emulator
 - [ ] Implement WebAssembly (WASM) support
 - [ ] Create browser-based UI
@@ -679,11 +737,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
 - Track 5 (Input Controllers): 100% complete (33/33 tasks) - Controller input is fully implemented with keyboard mapping support
-- Track 6 (Basic Sound Output): 100% complete (47/47 tasks) - Basic APU pulse channel implementation with volume/mute controls, unit tests, and operational audio output through CPAL
-- Track 7 (Complete Audio System): 100% complete (31/31 tasks) - All audio channels implemented (pulse, triangle, noise, DMC) with proper mixing, envelope generators, sweep units, length counters, and frame counter
-- Track 8 (Mappers & Cartridges): 0% complete (0/25 tasks) 
-- Track 9 (Full Desktop System): 0% complete (0/91 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
-- Track 10 (Web Integration): 0% complete (0/40 tasks)
+- Track 6 (Basic Sound Output): 100% complete (47/47 tasks) - APU registers, pulse channel, volume/mute controls, and audio output through CPAL. The output pipeline was rebuilt (resampling, non-linear mixing, APU clock divider, audio-clock pacing) — see [AUDIO_PLAN.md](AUDIO_PLAN.md)
+- Track 7 (Complete Audio System): 100% complete (31/31 tasks) - All audio channels implemented (pulse, triangle, noise, DMC) with hardware non-linear mixing, output filters, envelope generators, sweep units and length counters. Still outstanding: frame IRQ, 5-step frame counter mode, and DMC bus reads (tracked below)
+- Track 8 (Conformance & Test ROMs): 0% complete (0/25 tasks) - Blocked on PRG-ROM loading; see CONFORMANCE_PLAN.md
+- Track 9 (Mappers & Cartridges): 0% complete (0/25 tasks) 
+- Track 10 (Full Desktop System): 0% complete (0/91 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
+- Track 11 (Web Integration): 0% complete (0/40 tasks)
 - Additional Areas: 0% complete (0/113 tasks) - Including cycle-accurate timing, background rendering, testing, edge cases, distribution, extended features, legal considerations, documentation, performance optimization, and demo ROMs
 
 **Total Progress: 299/535 tasks complete (55.9%)** 🚀

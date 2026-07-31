@@ -1,5 +1,14 @@
 # RustNES Emulator Project Plan 📝
 
+> **Where things stand.** Tracks 1–7 are done: CPU (46 of 56 official instructions), memory bus,
+> PPU rendering, sprites, controllers, and a full APU that produces correct audio (see
+> [AUDIO_PLAN.md](AUDIO_PLAN.md)). The debugger runs and ten of the `asm/` demos play sound.
+>
+> **The next milestone is conformance, not features.** The emulator has never been checked against
+> anything it cannot argue with. It cannot yet load a `.nes` file at all — the loader parses the
+> header and discards the program — so no standard test ROM has ever run. That, the ten missing
+> instructions, and interrupts are the gate; see **[CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)**.
+
 ## Project Overview 🎮
 
 RustNES is a Nintendo Entertainment System (NES) emulator written in Rust, following a test-driven development approach. The project aims to:
@@ -111,23 +120,27 @@ Finalize the emulator with:
 
 ## Component Architecture 🧩
 
+The project is a Cargo workspace. `rn_core` depends on no host graphics or audio library, which
+is what keeps it testable headlessly and portable to WebAssembly later; the outer crates implement
+narrow traits (`Addressable` for the bus, `SampleProducer`/`SampleConsumer` for audio).
+
 ```
-rustnes/
-├── src/
-│   ├── cpu/         # 6502 CPU emulation
-│   ├── ppu/         # Picture Processing Unit
-│   ├── apu/         # Audio Processing Unit [T4]
-│   ├── mappers/     # Memory mapper implementations
-│   ├── input/       # Controller input handling [T3]
-│   ├── memory/      # Memory management
-│   ├── debugger/    # Debugging tools [T4]
-│   ├── ui/          # User interface (desktop) [T3-T4]
-│   ├── web/         # WebAssembly-specific code [T4]
-│   └── main.rs      # Application entry point
-├── tests/           # Integration tests
-├── benches/         # Performance benchmarks [T4]
-└── examples/        # Example usage
+crates/
+├── rn_core/      cpu, ppu, apu, memory, cartridge, dma, input, system bus
+├── rn_audio/     host audio: cpal output, ring buffer, multiplexer, oscillator
+├── rn_input/     controller profiles and key mapping
+└── rn_ui/        egui widgets, one per subsystem
+tools/
+├── apu_probe/    headless audio harness — run a program, measure what the APU produced
+├── nes_asm/      command-line 6502 assembler
+├── nes_debugger/ the main application: dockable debugger workspace
+└── waveform_player/  oscillator playground, no emulation
+asm/              6502 test programs
 ```
+
+Still to be created: a mapper layer (currently the iNES mapper field is parsed and ignored), a
+headless test-ROM runner (see [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)), and the WebAssembly
+target.
 
 ## Testing Strategy 🧪
 
@@ -138,15 +151,23 @@ rustnes/
 
 2. **Integration Tests**
    - Test component interactions
-   - Verify system-wide behaviors
-   - ROM test suites (nestest, etc.)
+   - Verify system-wide behaviours
+   - Assert on measurable properties rather than exact bytes where output is a signal: the audio
+     tests in `crates/rn_core/tests/audio_pipeline.rs` check sample rate, dominant frequency, DC
+     offset and peak level, which is what caught defects the per-channel unit tests could not see
 
-3. **Track Milestone Tests**
+3. **Conformance Tests**
+   - The community's NES test ROMs — `nestest`, blargg's CPU/PPU/APU suites — run headlessly
+   - These are the independent check on everything above; see
+     [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md) for what has to exist first and in what order
+   - ROMs cannot be committed here, so the suite skips cleanly when they are absent
+
+4. **Track Milestone Tests**
    - Specific test ROMs for each track milestone
    - Verification of track completion requirements
    - Self-assessment checkpoints
 
-4. **Acceptance Tests**
+5. **Acceptance Tests**
    - End-to-end emulator testing
    - Known game compatibility
    - Performance benchmarks
@@ -177,12 +198,18 @@ The book will follow the multi-track approach with chapters organized to support
 
 ## Dependencies 📦
 
-The project will use minimal dependencies, with a focus on:
+Minimal dependencies, chosen and now settled:
 
-- Graphics libraries (TBD: SDL2, pixels, wgpu)
-- Audio libraries (TBD: cpal, rodio)
-- WebAssembly support (wasm-bindgen, web-sys)
-- Testing frameworks (standard Rust testing + criterion for benchmarks)
+- **Graphics/UI**: `eframe` + `egui` + `egui_dock` (the debugger's dockable workspace)
+- **Audio**: `cpal` for output, `ringbuf` for the lock-free queue, `crossbeam-channel` for taps
+- **CLI**: `clap`
+- **Testing**: standard Rust testing; `criterion` for benchmarks when they arrive
+- **WebAssembly**: `wasm-bindgen`/`web-sys` — not yet started
+
+Warnings are denied workspace-wide (`[workspace.lints]`), so a warning fails the build. The dev
+profile is optimized (`opt-level = 2`, dependencies at 3): an unoptimized build runs the emulator
+at only ~1.4x real time, which is not enough to keep the audio buffer fed once the UI is also
+rendering.
 
 ## Future Enhancements 🔮
 
