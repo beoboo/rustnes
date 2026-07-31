@@ -24,45 +24,43 @@ emulator community has already written those end-to-end tests. They are the diff
 
 Measured, not estimated:
 
-| | State |
-| --- | --- |
-| Official 6502 instructions | **46 of 56** |
-| Official opcodes | **108 of 151** |
-| Interrupts (NMI / IRQ / RTI) | **none** |
-| PRG-ROM loading from `.nes` | **none** — the loader parses the header, then *skips* the PRG data |
-| Mappers | none (header's mapper field is parsed and ignored) |
-| Test ROM harness | none |
+| | Was | Now |
+| --- | --- | --- |
+| Official 6502 instructions | 46 of 56 | **56 of 56** |
+| Official opcodes | 108 of 151 | **128 of 151** |
+| Interrupts (NMI / IRQ / RTI) | none | `RTI` exists; **no NMI or IRQ delivery** |
+| PRG-ROM loading from `.nes` | none — header parsed, PRG *skipped* | **loads and boots from the reset vector** |
+| Cartridge PRG-RAM (`$6000-$7FFF`) | unmapped | **mapped** |
+| Mappers | none | none (header's mapper field parsed and ignored) |
+| Test ROM harness | none | **`tools/rom_test`** |
 
-**Missing instructions:** `CLV` `CPY` `PHA` `PHP` `PLA` `PLP` `ROL` `ROR` `RTI` `TSX`
+The remaining 23 opcodes are addressing-mode gaps on instructions that already exist, not missing
+instructions.
 
-That set is not arbitrary — it is every stack operation, both rotates, and the interrupt return.
-Nothing that pushes or pulls the stack can run, which rules out most real programs. Addressing-mode
-coverage is also incomplete on instructions that do exist (`LDA` was missing five modes until
-recently), which is most of the gap between 108 and 151 opcodes.
-
-**No test ROM can run today**, for the blunt reason that there is no way to get a ROM's program
-code into memory.
+**What still blocks a full pass:** interrupts (P3), and the mapper layer — cartridge space is
+currently backed by RAM, so writes there are accepted where hardware ignores them.
 
 ## 2. The blocking prerequisites
 
 In dependency order. None of these is optional — each test ROM below needs all four.
 
-### P1 — Load PRG-ROM from `.nes` files
+### P1 — Load PRG-ROM from `.nes` files ✅
 
-`cartridge/loader.rs` reads the iNES header and then does
-`file.read_exact(&mut prg_rom)` purely to skip past it to the CHR data. The program is discarded.
+`cartridge/loader.rs` read the iNES header and then did `file.read_exact(&mut prg_rom)` purely to
+skip past it to the CHR data, discarding the program.
 
-- [ ] Return PRG-ROM alongside CHR-ROM from the loader
-- [ ] Map PRG-ROM into `$8000–$FFFF`, mirroring a 16 KB image at both `$8000` and `$C000`
-- [ ] Load the reset vector from `$FFFC` and start execution there, rather than at a fixed address
-- [ ] Add `--rom file.nes` to the debugger and to the probe tools
+- [x] Return PRG-ROM alongside CHR-ROM from the loader (`Rom`, `load_rom`)
+- [x] Map PRG-ROM into `$8000-$FFFF`, mirroring a 16 KB image at both `$8000` and `$C000`
+- [x] Load the reset vector from `$FFFC` and start execution there
+- [ ] Add `--rom file.nes` to the debugger (rom_test takes ROMs directly; the debugger still
+      only loads assembly)
 
-### P2 — Complete the official instruction set
+### P2 — Complete the official instruction set ✅
 
-- [ ] `PHA` `PHP` `PLA` `PLP` — stack push/pull, including the B flag's behaviour in the pushed status byte
-- [ ] `ROL` `ROR` — accumulator and memory forms
-- [ ] `CPY`, `CLV`, `TSX`
-- [ ] `RTI`
+- [x] `PHA` `PHP` `PLA` `PLP` — stack push/pull, including the B flag's behaviour in the pushed status byte
+- [x] `ROL` `ROR` — accumulator and memory forms
+- [x] `CPY`, `CLV`, `TSX`
+- [x] `RTI`
 - [ ] Fill in missing addressing modes on existing instructions until all 151 official opcodes decode
 - [ ] Decide the policy on the ~105 unofficial opcodes: `nestest` exercises them, and some
       commercial games rely on them. At minimum they must not be silently mis-decoded.
@@ -77,16 +75,17 @@ frame IRQ flag correctly with no line to assert it, and the PPU's vblank NMI is 
 - [ ] `BRK` pushing the correct status byte, and `RTI` restoring it
 - [ ] Wire `Apu::irq_pending()` — already implemented and tested — to the new CPU IRQ line
 
-### P4 — A headless test-ROM runner
+### P4 — A headless test-ROM runner ✅
 
 Blargg's ROMs are designed for exactly this: they write a status byte to `$6000` (`$80` = running,
 `$00` = pass, other = fail) and a NUL-terminated message at `$6004`. So a runner needs no screen
 and no eyes.
 
-- [ ] `tools/rom_test`: load a `.nes`, run to completion or timeout, read `$6000`, print `$6004`
-- [ ] Machine-readable output so it can gate CI
-- [ ] `nestest` needs a different mode: run from `$C000` with a fixed initial state and diff the
-      CPU trace against the published `nestest.log`, line by line, stopping at the first divergence
+- [x] `tools/rom_test`: load a `.nes`, run to completion or timeout, read `$6000`, print `$6004`
+- [x] Non-zero exit on failure so it can gate CI
+- [x] `nestest` log-diff mode: run from `$C000` with the documented initial state and diff the CPU
+      trace against `nestest.log`, stopping at the first divergence and naming the differing fields
+- [x] Skip cleanly when ROMs are absent, so a fresh checkout stays green
 
 `apu_probe` is the model here — headless, measures rather than displays, reports the specific
 failure. It found three real bugs in a day.
@@ -145,13 +144,15 @@ The runner should therefore:
 
 ## 5. Suggested order of work
 
-1. **P1** — PRG loading. Nothing else is testable without it, and it is small.
-2. **P2** — the ten missing instructions. Mechanical, and each is easy to unit-test first.
-3. **P4** — the runner, with `nestest` in log-diff mode. This is the payoff step: the first time
-   the emulator is checked against something it cannot argue with.
-4. Fix whatever `nestest` finds. Expect this to take longer than writing the runner.
-5. **P3** — interrupts, then `cpu_interrupts_v2`.
-6. Tier 2 and 3 ROMs, which will also validate the PPU and the APU rebuild independently.
+1. ~~**P1** — PRG loading.~~ Done.
+2. ~~**P2** — the ten missing instructions.~~ Done.
+3. ~~**P4** — the runner.~~ Done.
+4. **Obtain the ROMs and run them.** They cannot be committed here, so drop `nestest.nes` and
+   `nestest.log` into a `roms/` directory and run
+   `cargo run -p rom_test -- nestest roms/nestest.nes roms/nestest.log`.
+5. Fix whatever `nestest` finds. Expect this to take longer than writing the runner did.
+6. **P3** — interrupts, then `cpu_interrupts_v2`.
+7. Tier 2 and 3 ROMs, which will also validate the PPU and the APU rebuild independently.
 
 Steps 1–3 are worth doing together: they are the smallest change that turns "we think it works"
 into "here is the line where it stops working".
