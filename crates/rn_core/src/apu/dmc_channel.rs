@@ -241,7 +241,10 @@ impl DmcChannel {
                 self.length = value;
                 self.length_counter.load(value);
             },
-            _ => panic!("Invalid DMC channel register offset: {}", register_offset),
+            // Writes to registers the hardware does not use are simply ignored — every offset 0-3 is decoded, so this is unreachable via the bus.
+            // A ROM writing one must not bring the emulator down: blargg's instr_test-v5 does
+            // exactly this, and it used to panic.
+            _ => {},
         }
     }
 }

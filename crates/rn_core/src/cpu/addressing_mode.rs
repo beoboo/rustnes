@@ -262,8 +262,13 @@ impl AddressingMode {
                 // 2. Add X register to get the effective pointer (with zero page wrap-around)
                 let eff_ptr = base_ptr.wrapping_add(cpu.registers.x);
 
-                // 3. Read the target address from the zero page (with wrap-around for the high byte)
-                cpu.read_word(eff_ptr as u16)
+                // 3. Read the target address, wrapping *within page zero* for the high byte.
+                //
+                // `read_word` cannot be used here: for a pointer at $FF it would read $00FF and
+                // $0100, but the 6502 reads $00FF and $0000. The pointer never leaves page zero.
+                let low_byte = cpu.read_byte(eff_ptr as u16)? as u16;
+                let high_byte = cpu.read_byte(eff_ptr.wrapping_add(1) as u16)? as u16;
+                Ok((high_byte << 8) | low_byte)
             },
             AddressingMode::IndirectIndexed => {
                 // 1. Get the zero page pointer from the current PC

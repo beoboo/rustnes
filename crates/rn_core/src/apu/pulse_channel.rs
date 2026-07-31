@@ -270,7 +270,10 @@ impl PulseChannel {
                 // Writing to the timer high register also loads the length counter
                 self.load_length_counter(value);
             },
-            _ => panic!("Invalid pulse channel register offset: {}", register_offset),
+            // Writes to registers the hardware does not use are simply ignored — every offset 0-3 is decoded, so this is unreachable via the bus.
+            // A ROM writing one must not bring the emulator down: blargg's instr_test-v5 does
+            // exactly this, and it used to panic.
+            _ => {},
         }
     }
 

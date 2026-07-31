@@ -205,7 +205,10 @@ impl NoiseChannel {
                 // Writing to the timer high register restarts the envelope generator
                 self.envelope.restart();
             },
-            _ => panic!("Invalid noise channel register offset: {}", register_offset),
+            // Writes to registers the hardware does not use are simply ignored — $400D is unused on hardware.
+            // A ROM writing one must not bring the emulator down: blargg's instr_test-v5 does
+            // exactly this, and it used to panic.
+            _ => {},
         }
     }
 

@@ -261,6 +261,34 @@ impl InstructionDecoder {
         self.add_instruction(0xCC, Instruction::CPY, AddressingMode::Absolute, 3, 4);
 
         // Rotates, mirroring ASL/LSR including the accumulator form.
+
+        // The remaining official opcodes: addressing modes missing from instructions that were
+        // already implemented. Completing the table means every official opcode decodes, which is
+        // what nestest walks through one by one.
+        self.add_instruction(0x01, Instruction::ORA, AddressingMode::IndexedIndirect, 2, 6);
+        self.add_instruction(0x11, Instruction::ORA, AddressingMode::IndirectIndexed, 2, 5);
+        self.add_instruction(0x16, Instruction::ASL, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0x1E, Instruction::ASL, AddressingMode::AbsoluteX, 3, 7);
+        self.add_instruction(0x21, Instruction::AND, AddressingMode::IndexedIndirect, 2, 6);
+        self.add_instruction(0x31, Instruction::AND, AddressingMode::IndirectIndexed, 2, 5);
+        self.add_instruction(0x41, Instruction::EOR, AddressingMode::IndexedIndirect, 2, 6);
+        self.add_instruction(0x51, Instruction::EOR, AddressingMode::IndirectIndexed, 2, 5);
+        self.add_instruction(0x56, Instruction::LSR, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0x5E, Instruction::LSR, AddressingMode::AbsoluteX, 3, 7);
+        self.add_instruction(0x61, Instruction::ADC, AddressingMode::IndexedIndirect, 2, 6);
+        self.add_instruction(0x71, Instruction::ADC, AddressingMode::IndirectIndexed, 2, 5);
+        self.add_instruction(0x75, Instruction::ADC, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0x79, Instruction::ADC, AddressingMode::AbsoluteY, 3, 4);
+        self.add_instruction(0x7D, Instruction::ADC, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0xC1, Instruction::CMP, AddressingMode::IndexedIndirect, 2, 6);
+        self.add_instruction(0xD1, Instruction::CMP, AddressingMode::IndirectIndexed, 2, 5);
+        self.add_instruction(0xE1, Instruction::SBC, AddressingMode::IndexedIndirect, 2, 6);
+        self.add_instruction(0xEC, Instruction::CPX, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0xF1, Instruction::SBC, AddressingMode::IndirectIndexed, 2, 5);
+        self.add_instruction(0xF5, Instruction::SBC, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0xF9, Instruction::SBC, AddressingMode::AbsoluteY, 3, 4);
+        self.add_instruction(0xFD, Instruction::SBC, AddressingMode::AbsoluteX, 3, 4);
+
         self.add_instruction(0x2A, Instruction::ROL, AddressingMode::Accumulator, 1, 2);
         self.add_instruction(0x26, Instruction::ROL, AddressingMode::ZeroPage, 2, 5);
         self.add_instruction(0x36, Instruction::ROL, AddressingMode::ZeroPageX, 2, 6);
@@ -811,45 +839,21 @@ impl Cpu {
 
     /// ASL - Arithmetic Shift Left
     pub fn asl(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        let value = match addressing_mode {
-            AddressingMode::Accumulator => {
-                // When using accumulator mode, we operate directly on the accumulator
-                self.registers.a
-            },
-            _ => {
-                // For memory operands, we need to read, modify, and write back
-                let addr = addressing_mode.get_operand_address(self)?;
-                self.read_byte(addr)?
-            },
-        };
-
+        let (value, address) = self.read_shift_operand(addressing_mode)?;
         let result = value << 1;
+
         self.set_flag(CpuFlag::Carry, (value & 0x80) != 0);
-        self.registers.a = result;
-        self.set_flag(CpuFlag::Zero, result == 0);
-        self.set_flag(CpuFlag::Negative, (result & 0x80) != 0);
+        self.write_shift_result(address, result)?;
         Ok(())
     }
 
     /// LSR - Logical Shift Right
     pub fn lsr(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        let value = match addressing_mode {
-            AddressingMode::Accumulator => {
-                // When using accumulator mode, we operate directly on the accumulator
-                self.registers.a
-            },
-            _ => {
-                // For memory operands, we need to read, modify, and write back
-                let addr = addressing_mode.get_operand_address(self)?;
-                self.read_byte(addr)?
-            },
-        };
-
+        let (value, address) = self.read_shift_operand(addressing_mode)?;
         let result = value >> 1;
+
         self.set_flag(CpuFlag::Carry, (value & 0x01) != 0);
-        self.registers.a = result;
-        self.set_flag(CpuFlag::Zero, result == 0);
-        self.set_flag(CpuFlag::Negative, false); // Bit 7 is always 0 after LSR
+        self.write_shift_result(address, result)?;
         Ok(())
     }
 

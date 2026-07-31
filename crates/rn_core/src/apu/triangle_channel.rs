@@ -210,7 +210,10 @@ impl TriangleChannel {
                 // Set flag to reload linear counter
                 self.linear_counter_reload_flag = true;
             },
-            _ => panic!("Invalid triangle channel register offset: {}", register_offset),
+            // Writes to registers the hardware does not use are simply ignored — $4009 is unused on hardware.
+            // A ROM writing one must not bring the emulator down: blargg's instr_test-v5 does
+            // exactly this, and it used to panic.
+            _ => {},
         }
     }
 
