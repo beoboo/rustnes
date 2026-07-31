@@ -23,12 +23,14 @@ RESET:
   ; Wait for vblank to ensure we're in a stable state
   JSR WaitForVBlank
 
-  ; Initialize APU
-  JSR InitializeAPU
-  
-  ; Enable pulse channel 1
+  ; Enable pulse channel 1 FIRST.
+  ; While a channel is disabled its length counter is forced to 0 and writes to $4003 are
+  ; ignored, so programming the channel before enabling it leaves it permanently silent.
   LDA #$01        ; Enable pulse channel 1
   STA $4015       ; APU status/control register
+
+  ; Now initialize the channel registers
+  JSR InitializeAPU
 
 ; Main loop - just maintain the tone
 MainLoop:
@@ -41,9 +43,11 @@ InitializeAPU:
   
   ; $4000 - Duty cycle, envelope, volume
   ; 01xx xxxx = 25% duty cycle (square wave)
+  ; xx1x xxxx = halt the length counter, so the tone sustains instead of
+  ;             fading out after ~80ms
   ; xxx1 xxxx = use constant volume (disable envelope)
   ; xxxx 1111 = maximum volume (15)
-  LDA #%01011111
+  LDA #%01111111
   STA $4000
   
   ; $4001 - Sweep unit

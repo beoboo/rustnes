@@ -26,6 +26,7 @@
   pattern_type:  .res 1   ; Current pattern type (0=ascending, 1=descending)
   volume_level:  .res 1   ; Current volume level (0-15)
   duty_cycle:    .res 1   ; Current duty cycle (0-3)
+  scratch:       .res 1   ; Scratch byte for UpdateDutyAndVolume
 
 .segment "STARTUP"
 RESET:
@@ -53,12 +54,14 @@ RESET:
   ; Wait for vblank to ensure we're in a stable state
   JSR WaitForVBlank
 
-  ; Initialize APU
-  JSR InitializeAPU
-  
-  ; Enable pulse channel 1
+  ; Enable pulse channel 1 FIRST.
+  ; While a channel is disabled its length counter is forced to 0 and writes to $4003 are
+  ; ignored, so programming the channel before enabling it leaves it permanently silent.
   LDA #$01        ; Enable pulse channel 1
   STA $4015       ; APU status/control register
+
+  ; Now initialize the channel registers
+  JSR InitializeAPU
 
 ; Main loop - play the tone patterns
 MainLoop:
@@ -98,12 +101,15 @@ UpdateDutyAndVolume:
   ASL A
   ASL A
   ASL A
-  STA $00          ; Store temporarily
+  STA scratch      ; Store temporarily
+                   ; (NOT $00 — that is note_index, the first ZEROPAGE variable)
   
   LDA volume_level ; Load volume (0-15)
   AND #$0F         ; Ensure it's only 4 bits
-  ORA $00          ; Combine with duty cycle
-  ORA #%00010000   ; Disable envelope, use constant volume
+  ORA scratch      ; Combine with duty cycle
+  ORA #%00110000   ; Halt length counter (bit 5) + constant volume (bit 4).
+                   ; Without the halt bit each note is cut off after ~83ms, leaving a
+                   ; short blip rather than a sustained tone.
   STA $4000        ; Update register
   
   RTS
