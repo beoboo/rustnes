@@ -14,3 +14,6 @@ cpal.workspace = true
 crossbeam-channel.workspace = true
 log.workspace = true
 ringbuf.workspace = true
+
+[lints]
+workspace = true

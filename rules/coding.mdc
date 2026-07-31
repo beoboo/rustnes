@@ -26,3 +26,17 @@ You are thoughtful, give nuanced answers, and are brilliant at reasoning. You ca
 - Import external crates when needed, asking before adding them, but once added use them consistently through the whole code-base.
 
 If you think there might not be a correct answer, you say so. If you do not know the answer, say so instead of guessing.
+
+## Warnings
+
+- **The build must be warning-free.** `[workspace.lints]` in the root `Cargo.toml` sets
+  `rust.warnings = "deny"` and `clippy.all = "deny"`, and every crate opts in with
+  `[lints] workspace = true`. A warning is a build failure, not a message.
+- Check with `cargo clippy --workspace --all-targets`, which covers test and bench targets that a
+  plain `cargo build` does not.
+- Fix the cause, do not silence the symptom. If a lint is genuinely wrong for one case, use
+  `#[allow(...)]` at the narrowest possible scope with a comment explaining why. Never widen the
+  settings in `Cargo.toml`.
+- Dead code is a signal, not noise. Delete it, or `#[cfg(test)]` it if only tests need it.
+  Suppressing `dead_code` wholesale is what let a real sweep-unit bug hide behind a
+  `#[cfg(not(test))]` bypass in this codebase.

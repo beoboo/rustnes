@@ -3,6 +3,7 @@ members = [
     "crates/rn_core",
     "crates/rn_input",
     "crates/rn_ui", 
+    "tools/apu_probe",
     "tools/nes_asm",
     "tools/nes_debugger", "tools/waveform_player",
 ]
@@ -18,6 +19,34 @@ repository = "https://github.com/beoboo/rustnes3"
 license = "MIT OR Apache-2.0"
 
 # Common dependencies for workspace members
+# An unoptimized build is far too slow to emulate in real time: a plain `cargo build` runs the
+# emulator at only ~1.4x real time, and once the debugger also renders its widgets each frame the
+# margin vanishes, starving the audio buffer and making sound stutter.
+#
+# Optimizing the dev profile fixes that while keeping debug assertions and debug info. Dependencies
+# get full optimization (they are compiled once and rarely stepped through); our own crates get
+# opt-level 2, which is enough for comfortable real-time audio and still debuggable.
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# Lints are denied, not warned, so a warning fails the build rather than scrolling past.
+# Every crate opts in via `[lints] workspace = true`.
+#
+# Rationale: warnings that are merely printed accumulate until real ones are invisible. This
+# codebase reached ~80 before they were cleaned up, which hid genuinely dead code — an unused
+# accessor and a `#[cfg(not(test))]` bypass that masked a real sweep-unit bug.
+#
+# If a lint is wrong for a specific case, silence it at the narrowest scope with `#[allow(...)]`
+# and a comment saying why. Do not weaken the settings here.
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
 [workspace.dependencies]
 anyhow = "1.0"
 cpal = "0.15"
@@ -35,4 +64,16 @@ ringbuf = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
+
+# Transitive dependency of winit/eframe, declared here only to enable one feature.
+#
+# macOS now returns a Swift-backed array from NSScreen.screens, whose
+# countByEnumeratingWithState: is declared NSUInteger where objc2 expects NSInteger. objc2's
+# debug-only encoding verification treats that sign mismatch as fatal and aborts before the window
+# opens ("expected return to have type code 'q', but found 'Q'"). `relax-sign-encoding` makes the
+# check ignore signedness, which is exactly the case this feature exists for. Signedness does not
+# affect the ABI here, so the call itself was always correct — only the assertion was wrong.
+#
+# Removable once eframe/winit move to objc2 0.6+.
+objc2 = { version = "0.5", features = ["relax-sign-encoding"] }
 tracing-subscriber = "0.3"

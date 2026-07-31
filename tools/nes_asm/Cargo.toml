@@ -13,3 +13,6 @@ anyhow.workspace = true
 clap = { version = "4.4", features = ["derive"] }
 log.workspace = true
 env_logger = "0.11"
+
+[lints]
+workspace = true

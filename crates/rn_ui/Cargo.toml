@@ -19,3 +19,9 @@ eframe.workspace = true
 egui.workspace = true
 log.workspace = true
 tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+
+[lints]
+workspace = true
