@@ -1,0 +1,17 @@
+[package]
+name = "apu_probe"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Headless APU harness: run a program, capture the audio, measure it"
+license.workspace = true
+
+[dependencies]
+rn_audio = { path = "../../crates/rn_audio" }
+rn_core = { path = "../../crates/rn_core" }
+
+anyhow.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true
