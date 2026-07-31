@@ -17,6 +17,17 @@ pub trait Addressable: Debug {
     /// should handle a read or write operation.
     fn handles_address(&self, address: u16) -> bool;
 
+    /// Returns true if this component handles *writes* to the specified address.
+    ///
+    /// Defaults to [`Addressable::handles_address`], which is right for almost everything. It is
+    /// overridden for registers the hardware splits by direction: writing `$4017` sets the APU's
+    /// frame counter while reading it returns controller 2, and a single address-to-component
+    /// mapping cannot express that. Without this, whichever component is attached first silently
+    /// swallows the other's half of the register.
+    fn handles_write(&self, address: u16) -> bool {
+        self.handles_address(address)
+    }
+
     /// Read a byte from the specified address
     ///
     /// # Arguments

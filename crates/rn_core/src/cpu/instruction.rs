@@ -3620,4 +3620,188 @@ mod tests {
         Ok(())
     }
 
+
+    // ---------------------------------------------------------------------------------------
+    // Interrupts
+    //
+    // The B flag is the subtle part: the 6502 has no real Break flag, only bit 4 of the status
+    // byte *pushed* onto the stack. A hardware interrupt pushes it clear and BRK pushes it set,
+    // which is the only way a shared handler can tell them apart.
+    // ---------------------------------------------------------------------------------------
+
+    use crate::cpu::{IRQ_VECTOR, NMI_VECTOR};
+
+    /// The status byte most recently pushed, i.e. the one at the top of the stack.
+    fn pushed_status(cpu: &Cpu) -> Result<u8> {
+        let top = 0x0100 | (cpu.registers.sp as u16 + 1);
+        Ok(cpu.read_byte(top)?)
+    }
+
+    /// Install a vector at `address` pointing to `target`, so an interrupt has somewhere to go.
+    fn set_vector(cpu: &mut Cpu, address: u16, target: u16) -> Result<()> {
+        let [low, high] = target.to_le_bytes();
+        cpu.write_byte(address, low)?;
+        cpu.write_byte(address + 1, high)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_nmi_jumps_through_its_vector_and_pushes_state() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.registers.pc = 0x8000;
+        cpu.registers.status = CpuFlag::Carry as u8;
+        set_vector(&mut cpu, NMI_VECTOR, 0x9000)?;
+
+        cpu.request_nmi();
+        let cycles = cpu.step()?;
+
+        assert_eq!(cpu.registers.pc, 0x9000, "NMI should enter the handler");
+        assert_eq!(cycles, 7, "the interrupt sequence takes 7 cycles");
+        assert!(cpu.get_flag(CpuFlag::InterruptDisable), "IRQs should be masked in the handler");
+
+        // Pushed: PC high, PC low, then status.
+        let status = pushed_status(&cpu)?;
+        assert_eq!(status & 0x10, 0, "a hardware interrupt pushes B clear");
+        assert_eq!(status & 0x20, 0x20, "Unused is always set in a pushed status byte");
+        assert_eq!(status & 0x01, 0x01, "the real flags should survive");
+        Ok(())
+    }
+
+    #[test]
+    fn test_nmi_fires_once_per_request() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.registers.pc = 0x8000;
+        set_vector(&mut cpu, NMI_VECTOR, 0x9000)?;
+        cpu.write_byte(0x9000, 0xEA)?; // NOP in the handler
+
+        cpu.request_nmi();
+        cpu.step()?; // services the NMI
+        assert_eq!(cpu.registers.pc, 0x9000);
+
+        cpu.step()?; // should execute the NOP, not re-enter
+        assert_eq!(cpu.registers.pc, 0x9001, "NMI is edge-triggered and must not repeat");
+        Ok(())
+    }
+
+    #[test]
+    fn test_irq_is_masked_by_the_interrupt_disable_flag() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.registers.pc = 0x8000;
+        cpu.write_byte(0x8000, 0xEA)?; // NOP
+        set_vector(&mut cpu, IRQ_VECTOR, 0x9000)?;
+
+        cpu.set_flag(CpuFlag::InterruptDisable, true);
+        cpu.set_irq_line(true);
+        cpu.step()?;
+        assert_eq!(cpu.registers.pc, 0x8001, "the IRQ should have been ignored");
+
+        cpu.set_flag(CpuFlag::InterruptDisable, false);
+        cpu.step()?;
+        assert_eq!(cpu.registers.pc, 0x9000, "with I clear the IRQ should be taken");
+        Ok(())
+    }
+
+    #[test]
+    fn test_nmi_is_not_maskable() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.registers.pc = 0x8000;
+        set_vector(&mut cpu, NMI_VECTOR, 0x9000)?;
+
+        // The clue is in the name: unlike IRQ, the InterruptDisable flag does not stop it.
+        cpu.set_flag(CpuFlag::InterruptDisable, true);
+        cpu.request_nmi();
+        cpu.step()?;
+
+        assert_eq!(cpu.registers.pc, 0x9000);
+        Ok(())
+    }
+
+    #[test]
+    fn test_nmi_takes_priority_over_irq() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.registers.pc = 0x8000;
+        set_vector(&mut cpu, NMI_VECTOR, 0x9000)?;
+        set_vector(&mut cpu, IRQ_VECTOR, 0xA000)?;
+
+        cpu.request_nmi();
+        cpu.set_irq_line(true);
+        cpu.step()?;
+
+        assert_eq!(cpu.registers.pc, 0x9000, "NMI should win when both are pending");
+        Ok(())
+    }
+
+    /// The IRQ line is level-triggered: it stays asserted until the device releases it, so it
+    /// fires again after RTI unless the handler acknowledges the source.
+    #[test]
+    fn test_irq_line_is_level_triggered() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.registers.pc = 0x8000;
+        set_vector(&mut cpu, IRQ_VECTOR, 0x9000)?;
+        cpu.write_byte(0x9000, 0x40)?; // RTI
+
+        // Reset leaves InterruptDisable set, as on hardware, so clear it before expecting IRQs.
+        cpu.set_flag(CpuFlag::InterruptDisable, false);
+
+        cpu.set_irq_line(true);
+        cpu.step()?; // enter the handler
+        assert_eq!(cpu.registers.pc, 0x9000);
+        cpu.step()?; // RTI back
+        assert_eq!(cpu.registers.pc, 0x8000);
+
+        cpu.step()?; // still asserted, so we re-enter
+        assert_eq!(cpu.registers.pc, 0x9000, "a held IRQ line should fire again");
+
+        // Releasing the line stops it.
+        cpu.set_irq_line(false);
+        cpu.step()?; // RTI back
+        cpu.write_byte(0x8000, 0xEA)?; // NOP
+        cpu.step()?;
+        assert_eq!(cpu.registers.pc, 0x8001, "a released line should not fire");
+        Ok(())
+    }
+
+    #[test]
+    fn test_brk_pushes_break_set_unlike_a_hardware_interrupt() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.registers.pc = 0x8000;
+        cpu.write_byte(0x8000, 0x00)?; // BRK
+        set_vector(&mut cpu, IRQ_VECTOR, 0x9000)?;
+
+        cpu.step()?;
+
+        assert_eq!(cpu.registers.pc, 0x9000, "BRK uses the IRQ vector");
+        let status = pushed_status(&cpu)?;
+        assert_eq!(status & 0x10, 0x10, "BRK pushes B set — this is what distinguishes it");
+        Ok(())
+    }
+
+    #[test]
+    fn test_rti_returns_from_a_hardware_interrupt() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.registers.pc = 0x8000;
+        cpu.write_byte(0x8000, 0xEA)?; // NOP, the instruction we return to
+        set_vector(&mut cpu, NMI_VECTOR, 0x9000)?;
+        cpu.write_byte(0x9000, 0x40)?; // RTI
+
+        cpu.set_flag(CpuFlag::Carry, true);
+        cpu.set_flag(CpuFlag::InterruptDisable, false); // reset leaves it set
+        cpu.request_nmi();
+        cpu.step()?; // into the handler
+        cpu.step()?; // RTI
+
+        assert_eq!(cpu.registers.pc, 0x8000, "RTI should resume exactly where we were");
+        assert!(cpu.get_flag(CpuFlag::Carry), "flags should be restored");
+        assert!(!cpu.get_flag(CpuFlag::InterruptDisable), "the handler's I mask should be undone");
+        Ok(())
+    }
+
 }

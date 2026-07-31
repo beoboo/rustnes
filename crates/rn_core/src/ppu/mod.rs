@@ -169,6 +169,15 @@ impl PpuWrapper {
         );
     }
 
+    /// Take a pending vblank NMI, if one was raised since the last call.
+    ///
+    /// Consuming rather than peeking keeps this edge-triggered: one vblank raises exactly one
+    /// interrupt, however often the system polls.
+    pub fn take_nmi(&self) -> bool {
+        let mut ppu = self.ppu.borrow_mut();
+        std::mem::take(&mut ppu.nmi_raised)
+    }
+
     /// Get the status register value
     pub fn status(&self) -> u8 {
         let ppu = self.ppu.borrow();
@@ -268,6 +277,9 @@ pub struct Ppu {
     read_buffer: Cell<u8>,    // Internal read buffer for PPUDATA reads
     write_toggle: Cell<bool>, // Tracks whether the next write is first (false) or second (true)
     frame_count: u64,         // Total frames rendered
+    /// Set when vblank begins with NMI enabled; cleared when the system collects it.
+    nmi_raised: bool,
+
     scanline: i16,            // Current scanline (-1 to 261)
     cycle: u16,               // Current cycle (0 to 340)
 
@@ -316,6 +328,7 @@ impl Ppu {
             read_buffer: Cell::new(0),
             write_toggle: Cell::new(false),
             frame_count: 0,
+            nmi_raised: false,
             scanline: -1, // Start at pre-render scanline
             cycle: 0,
 
@@ -377,9 +390,10 @@ impl Ppu {
                     new_status
                 );
 
-                // If NMI is enabled, this would trigger an interrupt
-                // In our emulator, this is a good time to render the frame
+                // Vblank with NMI enabled raises the interrupt. Latched here and collected by
+                // the system, which owns the connection to the CPU.
                 if (self.ctrl & CTRL_NMI_ENABLE) != 0 {
+                    self.nmi_raised = true;
                     log::debug!("Calling render_frame at VBlank with NMI enabled");
                     self.render_frame();
                 }

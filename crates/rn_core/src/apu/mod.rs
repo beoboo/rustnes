@@ -121,6 +121,13 @@ impl ApuWrapper {
         self.apu.borrow().channel_enabled(channel)
     }
 
+    /// Whether the frame counter is asserting its IRQ.
+    ///
+    /// Level-triggered: stays true until the program acknowledges it by reading `$4015`.
+    pub fn irq_pending(&self) -> bool {
+        self.apu.borrow().irq_pending()
+    }
+
     pub fn set_muted(&self, muted: bool) {
         self.apu.borrow_mut().set_muted(muted);
     }
@@ -138,6 +145,13 @@ impl Addressable for ApuWrapper {
             0x4015 => true,   // APU status/control
             _ => false,
         }
+    }
+
+    fn handles_write(&self, address: u16) -> bool {
+        // $4017 is write-only for the APU: it sets the frame counter's mode and IRQ inhibit.
+        // Reads of $4017 belong to controller 2, so it is deliberately absent from
+        // `handles_address` above.
+        self.handles_address(address) || address == 0x4017
     }
 
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {

@@ -62,10 +62,14 @@ impl Bus {
     ///
     /// Returns a mutable reference to the first component that claims to handle the address,
     /// or None if no component handles it (which shouldn't happen with RAM fallback).
+    /// Find the component that handles *writes* to an address.
+    ///
+    /// Uses `handles_write`, which differs from `handles_address` only for direction-split
+    /// registers such as `$4017`.
     fn find_component_for_address_mut(&mut self, address: u16) -> Option<&mut Box<dyn Addressable>> {
         self.components
             .iter_mut()
-            .find(|component| component.handles_address(address))
+            .find(|component| component.handles_write(address))
     }
 
     /// Returns a debugging string showing all attached components and their address ranges

@@ -17,6 +17,14 @@ pub use assembler::{AssembleError, AssembleResult, Assembler};
 mod disassembler;
 pub use disassembler::{DisassembleError, Disassembler};
 
+/// Interrupt vectors, at the very top of the address space.
+pub const NMI_VECTOR: u16 = 0xFFFA;
+pub const RESET_VECTOR: u16 = 0xFFFC;
+pub const IRQ_VECTOR: u16 = 0xFFFE;
+
+/// Cycles taken to push state and jump through a vector.
+const INTERRUPT_CYCLES: u8 = 7;
+
 /// CPU status flags
 #[derive(Debug, Clone, Copy)]
 #[rustfmt::skip]
@@ -70,6 +78,16 @@ impl CpuWrapper {
 
     pub fn set_pc(&self, pc: u16) {
         self.cpu.borrow_mut().registers.pc = pc;
+    }
+
+    /// Assert the NMI line (edge-triggered; latches until serviced).
+    pub fn request_nmi(&self) {
+        self.cpu.borrow_mut().request_nmi();
+    }
+
+    /// Set the IRQ line's state (level-triggered; held by the asserting device).
+    pub fn set_irq_line(&self, asserted: bool) {
+        self.cpu.borrow_mut().set_irq_line(asserted);
     }
 
     pub fn registers(&self) -> CpuRegisters {
@@ -142,6 +160,20 @@ pub struct Cpu {
 
     // Instruction decoder
     decoder: InstructionDecoder,
+
+    /// Latched NMI request.
+    ///
+    /// NMI is edge-triggered: the PPU asserts it once when vblank begins, and it stays latched
+    /// until the CPU services it. It cannot be masked — that is what "non-maskable" means, and why
+    /// this is separate from the IRQ line below.
+    nmi_pending: bool,
+
+    /// State of the IRQ line.
+    ///
+    /// IRQ is level-triggered: a device holds the line low for as long as its condition persists,
+    /// so this is set and cleared by whoever asserts it (the APU frame counter, today) rather than
+    /// consumed by the CPU. It only takes effect while the InterruptDisable flag is clear.
+    irq_line: bool,
 }
 
 impl Cpu {
@@ -154,6 +186,8 @@ impl Cpu {
             cycles: 0,
             memory: None,
             decoder: InstructionDecoder::new(),
+            nmi_pending: false,
+            irq_line: false,
         }
     }
 
@@ -284,7 +318,63 @@ impl Cpu {
     }
 
     /// Execute a single CPU instruction and return the number of cycles used
+    /// Assert the NMI line. Edge-triggered, so this latches until serviced.
+    pub fn request_nmi(&mut self) {
+        self.nmi_pending = true;
+    }
+
+    /// Set the state of the IRQ line. Level-triggered: the asserting device holds it.
+    pub fn set_irq_line(&mut self, asserted: bool) {
+        self.irq_line = asserted;
+    }
+
+    pub fn irq_line(&self) -> bool {
+        self.irq_line
+    }
+
+    /// Enter an interrupt handler: push the return address and status, then jump through `vector`.
+    ///
+    /// The pushed status has Break *clear* and Unused set. That bit is how a handler distinguishes
+    /// a hardware interrupt from a `BRK`, which pushes it set — the 6502 has no real Break flag,
+    /// only these pushed copies.
+    fn service_interrupt(&mut self, vector: u16) -> Result<u8, NesError> {
+        self.push_word(self.registers.pc)?;
+
+        let status = (self.registers.status & !(CpuFlag::Break as u8)) | CpuFlag::Unused as u8;
+        self.push_byte(status)?;
+
+        // Mask further IRQs while the handler runs. NMI is unaffected, being non-maskable.
+        self.set_flag(CpuFlag::InterruptDisable, true);
+        self.registers.pc = self.read_word(vector)?;
+
+        Ok(INTERRUPT_CYCLES)
+    }
+
+    /// Service a pending interrupt, if any, returning the cycles it took.
+    ///
+    /// Checked before each instruction rather than mid-instruction: the 6502 finishes the current
+    /// instruction before honouring an interrupt, and this emulator steps whole instructions.
+    fn poll_interrupts(&mut self) -> Result<Option<u8>, NesError> {
+        if self.nmi_pending {
+            self.nmi_pending = false;
+            return Ok(Some(self.service_interrupt(NMI_VECTOR)?));
+        }
+
+        // IRQ is ignored entirely while the InterruptDisable flag is set.
+        if self.irq_line && !self.get_flag(CpuFlag::InterruptDisable) {
+            return Ok(Some(self.service_interrupt(IRQ_VECTOR)?));
+        }
+
+        Ok(None)
+    }
+
     pub fn step(&mut self) -> Result<u8, NesError> {
+        // An interrupt takes the place of this step's instruction.
+        if let Some(cycles) = self.poll_interrupts()? {
+            self.cycles += cycles as u64;
+            return Ok(cycles);
+        }
+
         // Fetch opcode
         let opcode = self.fetch()?;
 

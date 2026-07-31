@@ -274,10 +274,22 @@ impl NesSystem {
             self.ppu.tick();
         }
 
+        // Deliver interrupts raised by this step's work.
+        //
+        // The PPU's vblank NMI and the APU's frame IRQ are both maintained by their components;
+        // the system owns the wiring to the CPU, which is what makes them actually fire.
+        if self.ppu.take_nmi() {
+            self.cpu.request_nmi();
+        }
+
         // Run the APU for each CPU cycle
         for _ in 0..cpu_cycles {
             self.apu.tick();
         }
+
+        // IRQ is level-triggered: the APU holds it for as long as its frame IRQ is pending, and
+        // reading $4015 is what clears it.
+        self.cpu.set_irq_line(self.apu.irq_pending());
 
         // Only check for BRK if CPU is active (not during DMA)
         if !dma_active {

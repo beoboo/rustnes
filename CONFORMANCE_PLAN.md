@@ -70,15 +70,20 @@ skip past it to the CHR data, discarding the program.
 - [ ] Decide the policy on the ~105 unofficial opcodes: `nestest` exercises them, and some
       commercial games rely on them. At minimum they must not be silently mis-decoded.
 
-### P3 — Interrupts
+### P3 — Interrupts ✅ (functional, not cycle-exact)
 
-The CPU has an `InterruptDisable` flag and nothing that reads it. The APU already maintains a
-frame IRQ flag correctly with no line to assert it, and the PPU's vblank NMI is likewise inert.
+- [x] NMI: 7-cycle sequence, vector at `$FFFA`, triggered by PPU vblank when `$2000` bit 7 is set
+- [x] IRQ: vector at `$FFFE`, gated on the `InterruptDisable` flag, asserted by the APU frame counter
+- [x] `BRK` pushes B set, hardware interrupts push it clear; `RTI` restores state
+- [x] `Apu::irq_pending()` wired to the CPU IRQ line
+- [ ] Poll interrupts *within* an instruction rather than only between them. Interrupts currently
+      take effect at instruction boundaries, which is enough for games and for `apu_test` and
+      `vbl_basics`, but not for `cpu_interrupts_v2` or the NMI-timing tests, which measure exactly
+      when an interrupt lands relative to a partially executed instruction.
 
-- [ ] NMI: 7-cycle sequence, vector at `$FFFA`, triggered by PPU vblank when `$2000` bit 7 is set
-- [ ] IRQ: vector at `$FFFE`, gated on the `InterruptDisable` flag, asserted by the APU frame counter
-- [ ] `BRK` pushing the correct status byte, and `RTI` restoring it
-- [ ] Wire `Apu::irq_pending()` — already implemented and tested — to the new CPU IRQ line
+NMI is edge-triggered (latched by the PPU, consumed once) and IRQ is level-triggered (held by the
+APU until `$4015` is read) — modelled separately, because conflating them makes a held IRQ fire
+once or a single vblank fire repeatedly.
 
 ### P4 — A headless test-ROM runner ✅
 
@@ -114,8 +119,11 @@ directory.
 | `instr_timing/2-branch_timing` | **PASS** |
 | `instr_timing/1-instr_timing` | hangs — needs cycle-accurate timing |
 | `apu_mixer` (dmc, noise, square, triangle) | **PASS** — independent check on the audio rebuild |
-| `apu_test` | **FAIL(01)** at `2-len_table` — length-counter clocking, table values are correct |
-| `cpu_reset`, `cpu_dummy_reads` | hang or report nothing — need interrupts and reset semantics |
+| `apu_test` | **PASS** — all 8 tests |
+| `ppu_vbl_nmi/01-vbl_basics`, `03-vbl_clear_time` | **PASS** — needed working NMI |
+| `ppu_vbl_nmi` (the other 7) | fail on cycle-exact vblank/NMI timing |
+| `cpu_interrupts_v2` | fails — needs interrupt polling *within* an instruction, not between |
+| `cpu_reset`, `cpu_dummy_reads` | hang or report nothing — need reset semantics |
 | `branch_timing_tests` | older ROMs that report on screen, not through `$6000` |
 
 Bugs these found, none of which the unit tests could see:
@@ -127,6 +135,11 @@ Bugs these found, none of which the unit tests could see:
 3. **23 official opcodes were unregistered** — mostly the indirect forms of the arithmetic group.
 4. **The APU panicked on writes to unused registers** (`$4009`, `$400D`), taking the whole emulator
    down. blargg's suite does this, so it could not even start.
+5. **`$4017` writes never reached the APU.** It is a direction-split register — writes set the
+   frame counter, reads return controller 2 — and the bus mapped one component per address, so the
+   controller swallowed both halves. Programs therefore could not inhibit the frame IRQ, and
+   `apu_test`'s `2-len_table` failed because the frame counter could not be configured at all.
+   Fixed by adding `Addressable::handles_write`, which defaults to `handles_address`.
 
 ### Tier 1 — CPU correctness
 
