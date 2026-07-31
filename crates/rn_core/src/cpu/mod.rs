@@ -517,8 +517,10 @@ mod tests {
     fn test_unknown_opcode() -> Result<()> {
         let mut ram = Ram::default();
 
-        // Set up an unknown opcode (0xFF is not used in 6502)
-        ram.write_byte(0x0000, 0xFF)?;
+        // $02 is a JAM/KIL opcode: it locks the real CPU up and has no behaviour worth
+        // emulating, so it stays undecodable. ($FF was used here until the unofficial opcodes
+        // were implemented and it became a valid ISB Absolute,X.)
+        ram.write_byte(0x0000, 0x02)?;
 
         let mut cpu = setup_cpu_with_memory(ram);
         cpu.registers.pc = 0x0000;
@@ -529,7 +531,7 @@ mod tests {
         // Verify the error is the expected one
         assert!(result.is_err(), "Expected an error for invalid opcode");
         if let Err(NesError::InstructionDecoderError(InstructionDecoderError::InvalidOpcode(op))) = result {
-            assert_eq!(op, 0xFF);
+            assert_eq!(op, 0x02);
         } else {
             anyhow::bail!("Expected InvalidOpcode error, got: {:?}", result);
         }

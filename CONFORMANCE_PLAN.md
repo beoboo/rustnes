@@ -4,10 +4,14 @@ How this emulator gets validated against the NES test ROMs the community uses, a
 exist first. Companion to [PLAN.md](PLAN.md) and [TODO.md](TODO.md); the same shape as
 [AUDIO_PLAN.md](AUDIO_PLAN.md), which is now largely done.
 
-> **First results.** nestest matches its golden log for **all 5003 instructions of the
-> official-opcode section**, stopping exactly where the unofficial section begins. blargg's
-> `instr_test-v5/official_only.nes` reports **all 16 tests passed**, and all four `apu_mixer` ROMs
-> pass. Running them found four real bugs — see the results table in section 3.
+> **nestest passes in full: all 8991 instructions match the golden log**, official and unofficial
+> opcodes alike. blargg's `instr_test-v5` passes both `official_only` and `all_instrs` (16/16
+> each), `apu_test` passes, and all four `apu_mixer` ROMs pass.
+>
+> What remains failing is almost entirely **cycle timing**: interrupts are polled between
+> instructions rather than within them, so tests that measure exactly when an interrupt lands
+> ("Frame irq is set too late", "Flag first set too late") cannot pass yet. That is the next
+> structural piece, and it is a CPU-wide change rather than a bug fix.
 >
 > **Progress.** P1 (PRG-ROM loading), P2 (the instruction set) and P4 (the runner) are done:
 > `.nes` files boot from their reset vector, all 56 official instructions exist, and
@@ -67,8 +71,11 @@ skip past it to the CHR data, discarding the program.
 - [x] `CPY`, `CLV`, `TSX`
 - [x] `RTI`
 - [ ] Fill in missing addressing modes on existing instructions until all 151 official opcodes decode
-- [ ] Decide the policy on the ~105 unofficial opcodes: `nestest` exercises them, and some
-      commercial games rely on them. At minimum they must not be silently mis-decoded.
+- [x] Unofficial opcodes: the stable set is implemented — `SLO` `RLA` `SRE` `RRA` `SAX` `LAX`
+      `DCP` `ISB`, the unofficial `SBC` at `$EB`, and the multi-byte `NOP`s. 231 of 256 opcodes now
+      decode. The remainder are the unstable ones (`ANC`, `ARR`, `XAA`, `AHX`, `TAS`, `SHY`, `SHX`,
+      `LAS`, `AXS`) and the `JAM`/`KIL` opcodes that lock a real CPU up; those stay undecodable,
+      which is honest — they have no behaviour worth emulating.
 
 ### P3 — Interrupts ✅ (functional, not cycle-exact)
 
@@ -112,14 +119,15 @@ directory.
 
 | ROM | Result |
 | --- | --- |
-| `nestest` official section | **PASS** — 5003/5003 instructions match the log |
-| `nestest` unofficial section | stops at line 5004; unofficial opcodes not implemented |
-| `instr_test-v5/official_only` | **PASS** — all 16 tests |
-| `instr_test-v5/all_instrs` | needs unofficial opcodes |
+| `nestest` | **PASS** — 8991/8991 instructions, official *and* unofficial |
+| `instr_test-v5/official_only` | **PASS** — 16/16 |
+| `instr_test-v5/all_instrs` | **PASS** — 16/16 |
+| `instr_test-v5` sub-ROMs | 14 pass; `15-brk` and `16-special` hang |
 | `instr_timing/2-branch_timing` | **PASS** |
 | `instr_timing/1-instr_timing` | hangs — needs cycle-accurate timing |
 | `apu_mixer` (dmc, noise, square, triangle) | **PASS** — independent check on the audio rebuild |
 | `apu_test` | **PASS** — all 8 tests |
+| `apu_test` sub-ROMs | 4 pass; `4-jitter`, `5-len_timing`, `6-irq_flag_timing` fail on timing |
 | `ppu_vbl_nmi/01-vbl_basics`, `03-vbl_clear_time` | **PASS** — needed working NMI |
 | `ppu_vbl_nmi` (the other 7) | fail on cycle-exact vblank/NMI timing |
 | `cpu_interrupts_v2` | fails — needs interrupt polling *within* an instruction, not between |

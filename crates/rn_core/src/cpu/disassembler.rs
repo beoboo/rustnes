@@ -275,14 +275,16 @@ mod tests {
     fn test_invalid_opcode() -> Result<()> {
         let disassembler = Disassembler::new();
 
-        // Test an invalid opcode (0xFF)
-        let memory = [0xFF];
+        // $02 is one of the JAM/KIL opcodes, which lock the real CPU up. Unlike the unofficial
+        // opcodes this emulator implements, it has no useful behaviour to emulate, so it stays
+        // undecodable. ($FF was used here until it became a valid ISB Absolute,X.)
+        let memory = [0x02];
         let result = disassembler.disassemble_instruction(&memory, 0);
 
         // Should return an error
         assert!(result.is_err());
         if let Err(DisassembleError::DecodeError(InstructionDecoderError::InvalidOpcode(opcode))) = result {
-            assert_eq!(opcode, 0xFF);
+            assert_eq!(opcode, 0x02);
         } else {
             anyhow::bail!("Expected InvalidOpcode error, got: {:?}", result);
         }
@@ -290,7 +292,7 @@ mod tests {
         // But we can still disassemble a program with invalid opcodes
         let disassembly = disassembler.disassemble_program(&memory, 0, memory.len());
         assert_eq!(disassembly.len(), 1);
-        assert_eq!(disassembly[0].2, ".byte $FF");
+        assert_eq!(disassembly[0].2, ".byte $02");
 
         Ok(())
     }

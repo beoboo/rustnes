@@ -78,6 +78,18 @@ pub enum Instruction {
     CLV, // Clear Overflow Flag
     TSX, // Transfer Stack Pointer to X
     RTI, // Return from Interrupt
+
+    // Unofficial ("illegal") opcodes. Undocumented by MOS, but stable across the 6502s used in
+    // NES cartridges, and relied on by some commercial games — so an emulator that decodes them
+    // as errors will not run those. Each is a composition of two official operations.
+    SLO, // ASL memory, then ORA
+    RLA, // ROL memory, then AND
+    SRE, // LSR memory, then EOR
+    RRA, // ROR memory, then ADC
+    SAX, // Store A AND X
+    LAX, // Load both A and X
+    DCP, // DEC memory, then CMP
+    ISB, // INC memory, then SBC
     CPX, // Compare Memory with X Register
 }
 
@@ -261,6 +273,91 @@ impl InstructionDecoder {
         self.add_instruction(0xCC, Instruction::CPY, AddressingMode::Absolute, 3, 4);
 
         // Rotates, mirroring ASL/LSR including the accumulator form.
+
+
+        // Unofficial opcodes, in the stable set nestest exercises. See the Instruction enum for
+        // what each one composes; the multi-byte NOPs read their operand and discard it, which
+        // matters because the read still costs cycles.
+        self.add_instruction(0x07, Instruction::SLO, AddressingMode::ZeroPage, 2, 5);
+        self.add_instruction(0x17, Instruction::SLO, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0x0F, Instruction::SLO, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0x1F, Instruction::SLO, AddressingMode::AbsoluteX, 3, 7);
+        self.add_instruction(0x1B, Instruction::SLO, AddressingMode::AbsoluteY, 3, 7);
+        self.add_instruction(0x03, Instruction::SLO, AddressingMode::IndexedIndirect, 2, 8);
+        self.add_instruction(0x13, Instruction::SLO, AddressingMode::IndirectIndexed, 2, 8);
+        self.add_instruction(0x27, Instruction::RLA, AddressingMode::ZeroPage, 2, 5);
+        self.add_instruction(0x37, Instruction::RLA, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0x2F, Instruction::RLA, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0x3F, Instruction::RLA, AddressingMode::AbsoluteX, 3, 7);
+        self.add_instruction(0x3B, Instruction::RLA, AddressingMode::AbsoluteY, 3, 7);
+        self.add_instruction(0x23, Instruction::RLA, AddressingMode::IndexedIndirect, 2, 8);
+        self.add_instruction(0x33, Instruction::RLA, AddressingMode::IndirectIndexed, 2, 8);
+        self.add_instruction(0x47, Instruction::SRE, AddressingMode::ZeroPage, 2, 5);
+        self.add_instruction(0x57, Instruction::SRE, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0x4F, Instruction::SRE, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0x5F, Instruction::SRE, AddressingMode::AbsoluteX, 3, 7);
+        self.add_instruction(0x5B, Instruction::SRE, AddressingMode::AbsoluteY, 3, 7);
+        self.add_instruction(0x43, Instruction::SRE, AddressingMode::IndexedIndirect, 2, 8);
+        self.add_instruction(0x53, Instruction::SRE, AddressingMode::IndirectIndexed, 2, 8);
+        self.add_instruction(0x67, Instruction::RRA, AddressingMode::ZeroPage, 2, 5);
+        self.add_instruction(0x77, Instruction::RRA, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0x6F, Instruction::RRA, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0x7F, Instruction::RRA, AddressingMode::AbsoluteX, 3, 7);
+        self.add_instruction(0x7B, Instruction::RRA, AddressingMode::AbsoluteY, 3, 7);
+        self.add_instruction(0x63, Instruction::RRA, AddressingMode::IndexedIndirect, 2, 8);
+        self.add_instruction(0x73, Instruction::RRA, AddressingMode::IndirectIndexed, 2, 8);
+        self.add_instruction(0xC7, Instruction::DCP, AddressingMode::ZeroPage, 2, 5);
+        self.add_instruction(0xD7, Instruction::DCP, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0xCF, Instruction::DCP, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0xDF, Instruction::DCP, AddressingMode::AbsoluteX, 3, 7);
+        self.add_instruction(0xDB, Instruction::DCP, AddressingMode::AbsoluteY, 3, 7);
+        self.add_instruction(0xC3, Instruction::DCP, AddressingMode::IndexedIndirect, 2, 8);
+        self.add_instruction(0xD3, Instruction::DCP, AddressingMode::IndirectIndexed, 2, 8);
+        self.add_instruction(0xE7, Instruction::ISB, AddressingMode::ZeroPage, 2, 5);
+        self.add_instruction(0xF7, Instruction::ISB, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0xEF, Instruction::ISB, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0xFF, Instruction::ISB, AddressingMode::AbsoluteX, 3, 7);
+        self.add_instruction(0xFB, Instruction::ISB, AddressingMode::AbsoluteY, 3, 7);
+        self.add_instruction(0xE3, Instruction::ISB, AddressingMode::IndexedIndirect, 2, 8);
+        self.add_instruction(0xF3, Instruction::ISB, AddressingMode::IndirectIndexed, 2, 8);
+        self.add_instruction(0x87, Instruction::SAX, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x97, Instruction::SAX, AddressingMode::ZeroPageY, 2, 4);
+        self.add_instruction(0x8F, Instruction::SAX, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0x83, Instruction::SAX, AddressingMode::IndexedIndirect, 2, 6);
+        self.add_instruction(0xA7, Instruction::LAX, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0xB7, Instruction::LAX, AddressingMode::ZeroPageY, 2, 4);
+        self.add_instruction(0xAF, Instruction::LAX, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0xBF, Instruction::LAX, AddressingMode::AbsoluteY, 3, 4);
+        self.add_instruction(0xA3, Instruction::LAX, AddressingMode::IndexedIndirect, 2, 6);
+        self.add_instruction(0xB3, Instruction::LAX, AddressingMode::IndirectIndexed, 2, 5);
+        self.add_instruction(0xEB, Instruction::SBC, AddressingMode::Immediate, 2, 2);  // duplicate of $E9
+        self.add_instruction(0x1A, Instruction::NOP, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x3A, Instruction::NOP, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x5A, Instruction::NOP, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x7A, Instruction::NOP, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0xDA, Instruction::NOP, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0xFA, Instruction::NOP, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x80, Instruction::NOP, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x82, Instruction::NOP, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x89, Instruction::NOP, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0xC2, Instruction::NOP, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0xE2, Instruction::NOP, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x04, Instruction::NOP, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x44, Instruction::NOP, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x64, Instruction::NOP, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x14, Instruction::NOP, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0x34, Instruction::NOP, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0x54, Instruction::NOP, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0x74, Instruction::NOP, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0xD4, Instruction::NOP, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0xF4, Instruction::NOP, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0x0C, Instruction::NOP, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0x1C, Instruction::NOP, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0x3C, Instruction::NOP, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0x5C, Instruction::NOP, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0x7C, Instruction::NOP, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0xDC, Instruction::NOP, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0xFC, Instruction::NOP, AddressingMode::AbsoluteX, 3, 4);
 
         // The remaining official opcodes: addressing modes missing from instructions that were
         // already implemented. Completing the table means every official opcode decodes, which is
@@ -473,6 +570,14 @@ impl Cpu {
             Instruction::PLA => self.pla()?,
             Instruction::PLP => self.plp()?,
             Instruction::RTI => self.rti()?,
+            Instruction::SLO => self.slo(addressing_mode)?,
+            Instruction::RLA => self.rla(addressing_mode)?,
+            Instruction::SRE => self.sre(addressing_mode)?,
+            Instruction::RRA => self.rra(addressing_mode)?,
+            Instruction::SAX => self.sax(addressing_mode)?,
+            Instruction::LAX => self.lax(addressing_mode)?,
+            Instruction::DCP => self.dcp(addressing_mode)?,
+            Instruction::ISB => self.isb(addressing_mode)?,
             Instruction::CPY => self.cpy(addressing_mode)?,
             Instruction::ROL => self.rol(addressing_mode)?,
             Instruction::ROR => self.ror(addressing_mode)?,
@@ -638,6 +743,122 @@ impl Cpu {
         Ok(())
     }
 
+    /// SLO - ASL memory, then ORA the result into A
+    pub fn slo(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let result = self.modify_memory(addressing_mode, |cpu, value| {
+            cpu.set_flag(CpuFlag::Carry, (value & 0x80) != 0);
+            value << 1
+        })?;
+        self.registers.a |= result;
+        self.set_zero_negative(self.registers.a);
+        Ok(())
+    }
+
+    /// RLA - ROL memory, then AND the result into A
+    pub fn rla(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let carry_in = u8::from(self.get_flag(CpuFlag::Carry));
+        let result = self.modify_memory(addressing_mode, |cpu, value| {
+            cpu.set_flag(CpuFlag::Carry, (value & 0x80) != 0);
+            (value << 1) | carry_in
+        })?;
+        self.registers.a &= result;
+        self.set_zero_negative(self.registers.a);
+        Ok(())
+    }
+
+    /// SRE - LSR memory, then EOR the result into A
+    pub fn sre(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let result = self.modify_memory(addressing_mode, |cpu, value| {
+            cpu.set_flag(CpuFlag::Carry, (value & 0x01) != 0);
+            value >> 1
+        })?;
+        self.registers.a ^= result;
+        self.set_zero_negative(self.registers.a);
+        Ok(())
+    }
+
+    /// RRA - ROR memory, then ADC the result into A
+    pub fn rra(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let carry_in = u8::from(self.get_flag(CpuFlag::Carry));
+        let result = self.modify_memory(addressing_mode, |cpu, value| {
+            cpu.set_flag(CpuFlag::Carry, (value & 0x01) != 0);
+            (value >> 1) | (carry_in << 7)
+        })?;
+        self.add_to_accumulator(result);
+        Ok(())
+    }
+
+    /// SAX - Store A AND X.
+    ///
+    /// The only one of these that touches no flags: it is a store, and stores never do.
+    pub fn sax(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let address = addressing_mode.get_operand_address(self)?;
+        self.write_byte(address, self.registers.a & self.registers.x)
+    }
+
+    /// LAX - Load the same value into both A and X
+    pub fn lax(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.load_register(addressing_mode)?;
+        self.registers.a = value;
+        self.registers.x = value;
+        self.set_zero_negative(value);
+        Ok(())
+    }
+
+    /// DCP - DEC memory, then CMP it against A
+    pub fn dcp(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let result = self.modify_memory(addressing_mode, |_, value| value.wrapping_sub(1))?;
+        self.set_flag(CpuFlag::Carry, self.registers.a >= result);
+        self.set_zero_negative(self.registers.a.wrapping_sub(result));
+        Ok(())
+    }
+
+    /// ISB - INC memory, then SBC it from A
+    pub fn isb(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let result = self.modify_memory(addressing_mode, |_, value| value.wrapping_add(1))?;
+        // SBC is ADC with the operand complemented.
+        self.add_to_accumulator(!result);
+        Ok(())
+    }
+
+    /// Add a value to the accumulator with carry, setting C, V, Z and N.
+    ///
+    /// Shared by ADC, SBC (which adds the complement) and the unofficial RRA and ISB, so the
+    /// overflow rule — inputs agree in sign but the result disagrees — lives in exactly one place.
+    fn add_to_accumulator(&mut self, value: u8) {
+        let carry = u8::from(self.get_flag(CpuFlag::Carry));
+        let sum = self.registers.a as u16 + value as u16 + carry as u16;
+        let result = sum as u8;
+
+        self.set_flag(CpuFlag::Carry, sum > 0xFF);
+        let overflow = ((self.registers.a ^ value) & 0x80) == 0 && ((self.registers.a ^ result) & 0x80) != 0;
+        self.set_flag(CpuFlag::Overflow, overflow);
+
+        self.registers.a = result;
+        self.set_zero_negative(result);
+    }
+
+    /// Read-modify-write an operand, returning the modified value.
+    ///
+    /// The address is resolved once: the unofficial read-modify-write opcodes perform two
+    /// operations on the *same* location, and re-resolving would consume the operand twice.
+    fn modify_memory<F>(&mut self, addressing_mode: AddressingMode, modify: F) -> Result<u8, NesError>
+    where
+        F: FnOnce(&mut Self, u8) -> u8,
+    {
+        let address = addressing_mode.get_operand_address(self)?;
+        let value = self.read_byte(address)?;
+        let result = modify(self, value);
+        self.write_byte(address, result)?;
+        Ok(result)
+    }
+
+    /// Set Zero and Negative from a result, which almost every instruction does.
+    fn set_zero_negative(&mut self, value: u8) {
+        self.set_flag(CpuFlag::Zero, value == 0);
+        self.set_flag(CpuFlag::Negative, (value & 0x80) != 0);
+    }
+
     /// NOP - No Operation
     pub fn nop(&mut self) {
         // NOP does not affect any processor state
@@ -745,29 +966,7 @@ impl Cpu {
     /// ADC - Add Memory to Accumulator with Carry
     pub fn adc(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
         let value = self.load_register(addressing_mode)?;
-        let carry = if self.get_flag(CpuFlag::Carry) { 1 } else { 0 };
-
-        // Add with carry (A + M + C)
-        let result = self.registers.a as u16 + value as u16 + carry as u16;
-
-        // Set carry flag based on whether result exceeds 255
-        self.set_flag(CpuFlag::Carry, result > 0xFF);
-
-        // Convert result back to u8 (automatically handles overflow)
-        let result = result as u8;
-
-        // Set overflow flag
-        // Overflow occurs when the sign of the inputs is the same but differs from the result
-        let overflow = ((self.registers.a ^ value) & 0x80) == 0 && ((self.registers.a ^ result) & 0x80) != 0;
-        self.set_flag(CpuFlag::Overflow, overflow);
-
-        // Update accumulator with result
-        self.registers.a = result;
-
-        // Set zero and negative flags based on result
-        self.set_flag(CpuFlag::Zero, self.registers.a == 0);
-        self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
-
+        self.add_to_accumulator(value);
         Ok(())
     }
 
@@ -1549,14 +1748,16 @@ mod tests {
     fn test_invalid_opcode() -> Result<()> {
         let decoder = InstructionDecoder::new();
 
-        // Test an invalid opcode (0xFF)
-        let result = decoder.decode(0xFF);
+        // $02 is one of the JAM/KIL opcodes, which lock the real CPU up. Unlike the unofficial
+        // opcodes this emulator implements, it has no useful behaviour to emulate, so it stays
+        // undecodable. ($FF was used here until it became a valid ISB Absolute,X.)
+        let result = decoder.decode(0x02);
 
         // Should return an InvalidOpcode error
         assert!(result.is_err(), "Expected an error for invalid opcode");
 
         if let Err(InstructionDecoderError::InvalidOpcode(opcode)) = result {
-            assert_eq!(opcode, 0xFF);
+            assert_eq!(opcode, 0x02);
         } else {
             anyhow::bail!("Expected InvalidOpcode error, got: {:?}", result);
         }
