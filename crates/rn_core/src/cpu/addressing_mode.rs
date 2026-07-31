@@ -104,8 +104,8 @@ impl FromStr for AddressingMode {
                             addr_part.len()
                         )));
                     }
-                } else if index_part == "y" {
-                    if addr_part.starts_with('$') {
+                } else if index_part == "y"
+                    && addr_part.starts_with('$') {
                         if addr_part.len() == 3 {
                             return Ok(Self::ZeroPageY);
                         }
@@ -118,7 +118,6 @@ impl FromStr for AddressingMode {
                             addr_part.len()
                         )));
                     }
-                }
             }
         }
 
@@ -380,9 +379,8 @@ impl AddressingMode {
         }
 
         // 3. Handle immediate addressing (#$xx)
-        if operand.starts_with('#') {
+        if let Some(value_part) = operand.strip_prefix('#') {
             // Verify it's a valid immediate format
-            let value_part = &operand[1..];
             match parse_value::<u8>(value_part) {
                 Ok(_) => return Ok(Self::Immediate),
                 Err(_) => return Err(AddressingModeError::InvalidFormat(operand.to_string())),
@@ -497,9 +495,9 @@ impl AddressingMode {
         match parse_value::<u16>(operand) {
             Ok(value) => {
                 if value <= 0xFF {
-                    return Ok(Self::ZeroPage);
+                    Ok(Self::ZeroPage)
                 } else {
-                    return Ok(Self::Absolute);
+                    Ok(Self::Absolute)
                 }
             },
             Err(err) => {
@@ -513,7 +511,7 @@ impl AddressingMode {
                     )));
                 }
 
-                return Err(AddressingModeError::InvalidFormat(operand.to_string()));
+                Err(AddressingModeError::InvalidFormat(operand.to_string()))
             },
         }
     }
@@ -1154,9 +1152,9 @@ mod tests {
 
             // Write the value at the zero page address
             if let Some(value) = zp_addr_value {
-                write_word_at(&mut test_cpu, base_addr as u16, value)?;
+                write_word_at(&mut test_cpu, base_addr, value)?;
             } else {
-                write_word_at(&mut test_cpu, base_addr as u16, 0x12F0)?; // Default base address
+                write_word_at(&mut test_cpu, base_addr, 0x12F0)?; // Default base address
             }
         }
 

@@ -180,6 +180,12 @@ impl Disassembler {
     }
 }
 
+impl Default for Disassembler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;

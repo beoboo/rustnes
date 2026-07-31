@@ -52,13 +52,39 @@ pub enum Instruction {
     TYA, // Transfer Y to Accumulator
     INX, // Increment X Register
     DEX, // Decrement X Register
+    INY, // Increment Y Register
+    DEY, // Decrement Y Register
+    INC, // Increment Memory
+    DEC, // Decrement Memory
+    EOR, // Exclusive OR with Accumulator
+    TAX, // Transfer Accumulator to X
+    TXA, // Transfer X to Accumulator
+    SEI, // Set Interrupt Disable
+    CLI, // Clear Interrupt Disable
+    CLD, // Clear Decimal Mode
+    SED, // Set Decimal Mode
+    BMI, // Branch if Minus
+    BCC, // Branch if Carry Clear
+    BCS, // Branch if Carry Set
+    BVC, // Branch if Overflow Clear
+    BVS, // Branch if Overflow Set
     CPX, // Compare Memory with X Register
 }
 
 impl Instruction {
     /// Returns true if the instruction is a branch instruction
     pub fn is_branch(&self) -> bool {
-        matches!(self, Instruction::BPL | Instruction::BEQ | Instruction::BNE)
+        matches!(
+            self,
+            Instruction::BPL
+                | Instruction::BMI
+                | Instruction::BEQ
+                | Instruction::BNE
+                | Instruction::BCC
+                | Instruction::BCS
+                | Instruction::BVC
+                | Instruction::BVS
+        )
     }
 
     /// Returns true if the instruction has implied addressing
@@ -75,6 +101,14 @@ impl Instruction {
                 | Instruction::TYA
                 | Instruction::INX
                 | Instruction::DEX
+                | Instruction::INY
+                | Instruction::DEY
+                | Instruction::TAX
+                | Instruction::TXA
+                | Instruction::SEI
+                | Instruction::CLI
+                | Instruction::CLD
+                | Instruction::SED
         )
     }
 
@@ -88,14 +122,8 @@ impl Instruction {
     pub fn modifies_pc(&self) -> bool {
         matches!(
             self,
-            Instruction::JMP
-                | Instruction::JSR
-                | Instruction::RTS
-                | Instruction::BRK
-                | Instruction::BPL
-                | Instruction::BNE
-                | Instruction::BEQ
-        )
+            Instruction::JMP | Instruction::JSR | Instruction::RTS | Instruction::BRK
+        ) || self.is_branch()
     }
 }
 
@@ -136,14 +164,23 @@ impl InstructionDecoder {
         self.add_instruction(0xA9, Instruction::LDA, AddressingMode::Immediate, 2, 2);
         self.add_instruction(0xA5, Instruction::LDA, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0xAD, Instruction::LDA, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0xB5, Instruction::LDA, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0xBD, Instruction::LDA, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0xB9, Instruction::LDA, AddressingMode::AbsoluteY, 3, 4);
+        self.add_instruction(0xA1, Instruction::LDA, AddressingMode::IndexedIndirect, 2, 6);
+        self.add_instruction(0xB1, Instruction::LDA, AddressingMode::IndirectIndexed, 2, 5);
 
         self.add_instruction(0xA2, Instruction::LDX, AddressingMode::Immediate, 2, 2);
         self.add_instruction(0xA6, Instruction::LDX, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0xAE, Instruction::LDX, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0xB6, Instruction::LDX, AddressingMode::ZeroPageY, 2, 4);
+        self.add_instruction(0xBE, Instruction::LDX, AddressingMode::AbsoluteY, 3, 4);
 
         self.add_instruction(0xA0, Instruction::LDY, AddressingMode::Immediate, 2, 2);
         self.add_instruction(0xA4, Instruction::LDY, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0xAC, Instruction::LDY, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0xB4, Instruction::LDY, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0xBC, Instruction::LDY, AddressingMode::AbsoluteX, 3, 4);
 
         // Store instructions
         self.add_instruction(0x85, Instruction::STA, AddressingMode::ZeroPage, 2, 3);
@@ -151,6 +188,8 @@ impl InstructionDecoder {
         self.add_instruction(0x95, Instruction::STA, AddressingMode::ZeroPageX, 2, 4);
         self.add_instruction(0x9D, Instruction::STA, AddressingMode::AbsoluteX, 3, 5);
         self.add_instruction(0x99, Instruction::STA, AddressingMode::AbsoluteY, 3, 5);
+        self.add_instruction(0x81, Instruction::STA, AddressingMode::IndexedIndirect, 2, 6);
+        self.add_instruction(0x91, Instruction::STA, AddressingMode::IndirectIndexed, 2, 6);
 
         self.add_instruction(0x86, Instruction::STX, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0x8E, Instruction::STX, AddressingMode::Absolute, 3, 4);
@@ -178,6 +217,13 @@ impl InstructionDecoder {
 
         // Branch instructions
         self.add_instruction(0x10, Instruction::BPL, AddressingMode::Relative, 2, 2);
+        self.add_instruction(0x30, Instruction::BMI, AddressingMode::Relative, 2, 2);
+        self.add_instruction(0x90, Instruction::BCC, AddressingMode::Relative, 2, 2);
+        self.add_instruction(0xB0, Instruction::BCS, AddressingMode::Relative, 2, 2);
+        self.add_instruction(0x50, Instruction::BVC, AddressingMode::Relative, 2, 2);
+        self.add_instruction(0x70, Instruction::BVS, AddressingMode::Relative, 2, 2);
+        self.add_instruction(0xD8, Instruction::CLD, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0xF8, Instruction::SED, AddressingMode::Implied, 1, 2);
         self.add_instruction(0xF0, Instruction::BEQ, AddressingMode::Relative, 2, 2);
         self.add_instruction(0xD0, Instruction::BNE, AddressingMode::Relative, 2, 2);
 
@@ -235,6 +281,32 @@ impl InstructionDecoder {
         // Add X register operations
         self.add_instruction(0xE8, Instruction::INX, AddressingMode::Implied, 1, 2);
         self.add_instruction(0xCA, Instruction::DEX, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0xC8, Instruction::INY, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x88, Instruction::DEY, AddressingMode::Implied, 1, 2);
+
+        // INC/DEC are read-modify-write on memory, so they cost more cycles than the register
+        // forms above and have no immediate or accumulator mode.
+        self.add_instruction(0xE6, Instruction::INC, AddressingMode::ZeroPage, 2, 5);
+        self.add_instruction(0xF6, Instruction::INC, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0xEE, Instruction::INC, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0xFE, Instruction::INC, AddressingMode::AbsoluteX, 3, 7);
+        self.add_instruction(0xAA, Instruction::TAX, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x8A, Instruction::TXA, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x78, Instruction::SEI, AddressingMode::Implied, 1, 2);
+        self.add_instruction(0x58, Instruction::CLI, AddressingMode::Implied, 1, 2);
+
+        // EOR mirrors AND/ORA exactly, including addressing modes and cycle counts.
+        self.add_instruction(0x49, Instruction::EOR, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x45, Instruction::EOR, AddressingMode::ZeroPage, 2, 3);
+        self.add_instruction(0x55, Instruction::EOR, AddressingMode::ZeroPageX, 2, 4);
+        self.add_instruction(0x4D, Instruction::EOR, AddressingMode::Absolute, 3, 4);
+        self.add_instruction(0x5D, Instruction::EOR, AddressingMode::AbsoluteX, 3, 4);
+        self.add_instruction(0x59, Instruction::EOR, AddressingMode::AbsoluteY, 3, 4);
+
+        self.add_instruction(0xC6, Instruction::DEC, AddressingMode::ZeroPage, 2, 5);
+        self.add_instruction(0xD6, Instruction::DEC, AddressingMode::ZeroPageX, 2, 6);
+        self.add_instruction(0xCE, Instruction::DEC, AddressingMode::Absolute, 3, 6);
+        self.add_instruction(0xDE, Instruction::DEC, AddressingMode::AbsoluteX, 3, 7);
         self.add_instruction(0xE0, Instruction::CPX, AddressingMode::Immediate, 2, 2);
         self.add_instruction(0xE4, Instruction::CPX, AddressingMode::ZeroPage, 2, 3);
 
@@ -312,6 +384,13 @@ impl Cpu {
             Instruction::NOP => self.nop(),
             Instruction::BIT => self.bit(addressing_mode)?,
             Instruction::BPL => additional_cycles = self.bpl()?,
+            Instruction::BMI => additional_cycles = self.bmi()?,
+            Instruction::BCC => additional_cycles = self.bcc()?,
+            Instruction::BCS => additional_cycles = self.bcs()?,
+            Instruction::BVC => additional_cycles = self.bvc()?,
+            Instruction::BVS => additional_cycles = self.bvs()?,
+            Instruction::CLD => self.cld(),
+            Instruction::SED => self.sed(),
             Instruction::CLC => self.clc(),
             Instruction::SEC => self.sec(),
             Instruction::BEQ => additional_cycles = self.beq()?,
@@ -328,6 +407,15 @@ impl Cpu {
             Instruction::TYA => self.tya(),
             Instruction::INX => self.inx(),
             Instruction::DEX => self.dex(),
+            Instruction::INY => self.iny(),
+            Instruction::DEY => self.dey(),
+            Instruction::EOR => self.eor(addressing_mode)?,
+            Instruction::TAX => self.tax(),
+            Instruction::TXA => self.txa(),
+            Instruction::SEI => self.sei(),
+            Instruction::CLI => self.cli(),
+            Instruction::INC => self.inc(addressing_mode)?,
+            Instruction::DEC => self.dec(addressing_mode)?,
             Instruction::CPX => self.cpx(addressing_mode)?,
         }
 
@@ -491,40 +579,36 @@ impl Cpu {
     }
 
     /// BPL - Branch on Plus (N flag = 0)
-    pub fn bpl(&mut self) -> Result<u8, NesError> {
-        // Initially no additional cycles
-        let mut additional_cycles = 0;
-
-        // Only branch if the Negative flag is clear (positive result)
-        if !self.get_flag(CpuFlag::Negative) {
-            // For branch instructions, we need to read the offset directly
-            // The offset is stored at PC (PC already points to the offset byte after fetch)
-            let offset = self.read_byte(self.registers.pc)? as i8; // Read as signed byte
-
-            // Add 1 cycle for taking the branch
-            additional_cycles += 1;
-
-            // Save the old PC for page boundary check
-            let old_pc = self.registers.pc;
-
-            // Calculate the target address
-            // PC+1 is the address of the next instruction (after the branch opcode and offset byte)
-            let target = ((self.registers.pc.wrapping_add(1) as i32) + (offset as i32)) as u16;
-
-            // Set the PC to the target address
-            self.registers.pc = target;
-
-            // Add 1 more cycle if the branch crosses a page boundary
-            if (old_pc & 0xFF00) != (target & 0xFF00) {
-                additional_cycles += 1;
-            }
-        } else {
-            // When branch is not taken, we need to increment the PC to skip the offset byte
-            // Since we're marked as a PC-modifying instruction, we need to handle this ourselves
+    /// Shared implementation for every conditional branch.
+    ///
+    /// All eight 6502 branches differ only in the flag they test, so the addressing, the signed
+    /// offset arithmetic and the cycle rules live here once.
+    ///
+    /// Returns the *additional* cycles beyond the base 2: one for taking the branch, and one more
+    /// if the target lands on a different page.
+    fn branch_if(&mut self, condition: bool) -> Result<u8, NesError> {
+        if !condition {
+            // Not taken: still skip the offset byte, since branches are marked as PC-modifying
+            // and so the normal PC advance does not apply.
             self.registers.pc = self.registers.pc.wrapping_add(1);
+            return Ok(0);
         }
 
-        Ok(additional_cycles)
+        // PC currently points at the offset byte, which is signed.
+        let offset = self.read_byte(self.registers.pc)? as i8;
+        let old_pc = self.registers.pc;
+
+        // The offset is relative to the instruction *after* the branch.
+        let target = ((self.registers.pc.wrapping_add(1) as i32) + (offset as i32)) as u16;
+        self.registers.pc = target;
+
+        let page_crossed = (old_pc & 0xFF00) != (target & 0xFF00);
+        Ok(1 + u8::from(page_crossed))
+    }
+
+    /// BPL - Branch if Plus (N clear)
+    pub fn bpl(&mut self) -> Result<u8, NesError> {
+        self.branch_if(!self.get_flag(CpuFlag::Negative))
     }
 
     /// CLC - Clear Carry Flag
@@ -537,78 +621,39 @@ impl Cpu {
         self.set_flag(CpuFlag::Carry, true);
     }
 
-    /// BEQ - Branch if Equal (Z flag = 1)
-    pub fn beq(&mut self) -> Result<u8, NesError> {
-        // Initially no additional cycles
-        let mut additional_cycles = 0;
-
-        // Only branch if the Zero flag is set
-        if self.get_flag(CpuFlag::Zero) {
-            // For branch instructions, we need to read the offset directly
-            // The offset is stored at PC (PC already points to the offset byte after fetch)
-            let offset = self.read_byte(self.registers.pc)? as i8; // Read as signed byte
-
-            // Add 1 cycle for taking the branch
-            additional_cycles += 1;
-
-            // Save the old PC for page boundary check
-            let old_pc = self.registers.pc;
-
-            // Calculate the target address
-            // PC+1 is the address of the next instruction (after the branch opcode and offset byte)
-            let target = ((self.registers.pc.wrapping_add(1) as i32) + (offset as i32)) as u16;
-
-            // Set the PC to the target address
-            self.registers.pc = target;
-
-            // Add 1 more cycle if the branch crosses a page boundary
-            if (old_pc & 0xFF00) != (target & 0xFF00) {
-                additional_cycles += 1;
-            }
-        } else {
-            // When branch is not taken, we need to increment the PC to skip the offset byte
-            // Since we're marked as a PC-modifying instruction, we need to handle this ourselves
-            self.registers.pc = self.registers.pc.wrapping_add(1);
-        }
-
-        Ok(additional_cycles)
+    /// BMI - Branch if Minus (N set)
+    pub fn bmi(&mut self) -> Result<u8, NesError> {
+        self.branch_if(self.get_flag(CpuFlag::Negative))
     }
 
-    /// BNE - Branch if Not Equal (Z flag = 0)
+    /// BEQ - Branch if Equal (Z set)
+    pub fn beq(&mut self) -> Result<u8, NesError> {
+        self.branch_if(self.get_flag(CpuFlag::Zero))
+    }
+
+    /// BNE - Branch if Not Equal (Z clear)
     pub fn bne(&mut self) -> Result<u8, NesError> {
-        // Initially no additional cycles
-        let mut additional_cycles = 0;
+        self.branch_if(!self.get_flag(CpuFlag::Zero))
+    }
 
-        // Only branch if the Zero flag is clear
-        if !self.get_flag(CpuFlag::Zero) {
-            // For branch instructions, we need to read the offset directly
-            // The offset is stored at PC (PC already points to the offset byte after fetch)
-            let offset = self.read_byte(self.registers.pc)? as i8; // Read as signed byte
+    /// BCC - Branch if Carry Clear
+    pub fn bcc(&mut self) -> Result<u8, NesError> {
+        self.branch_if(!self.get_flag(CpuFlag::Carry))
+    }
 
-            // Add 1 cycle for taking the branch
-            additional_cycles += 1;
+    /// BCS - Branch if Carry Set
+    pub fn bcs(&mut self) -> Result<u8, NesError> {
+        self.branch_if(self.get_flag(CpuFlag::Carry))
+    }
 
-            // Save the old PC for page boundary check
-            let old_pc = self.registers.pc;
+    /// BVC - Branch if Overflow Clear
+    pub fn bvc(&mut self) -> Result<u8, NesError> {
+        self.branch_if(!self.get_flag(CpuFlag::Overflow))
+    }
 
-            // Calculate the target address
-            // PC+1 is the address of the next instruction (after the branch opcode and offset byte)
-            let target = ((self.registers.pc.wrapping_add(1) as i32) + (offset as i32)) as u16;
-
-            // Set the PC to the target address
-            self.registers.pc = target;
-
-            // Add 1 more cycle if the branch crosses a page boundary
-            if (old_pc & 0xFF00) != (target & 0xFF00) {
-                additional_cycles += 1;
-            }
-        } else {
-            // When branch is not taken, we need to increment the PC to skip the offset byte
-            // Since we're marked as a PC-modifying instruction, we need to handle this ourselves
-            self.registers.pc = self.registers.pc.wrapping_add(1);
-        }
-
-        Ok(additional_cycles)
+    /// BVS - Branch if Overflow Set
+    pub fn bvs(&mut self) -> Result<u8, NesError> {
+        self.branch_if(self.get_flag(CpuFlag::Overflow))
     }
 
     /// ADC - Add Memory to Accumulator with Carry
@@ -759,6 +804,55 @@ impl Cpu {
         Ok(())
     }
 
+    /// EOR - Exclusive OR with Accumulator
+    pub fn eor(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.load_register(addressing_mode)?;
+        self.registers.a ^= value;
+        self.set_flag(CpuFlag::Zero, self.registers.a == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
+        Ok(())
+    }
+
+    /// TAX - Transfer Accumulator to X
+    pub fn tax(&mut self) {
+        self.registers.x = self.registers.a;
+        self.set_flag(CpuFlag::Zero, self.registers.x == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.x & 0x80) != 0);
+    }
+
+    /// TXA - Transfer X to Accumulator
+    pub fn txa(&mut self) {
+        self.registers.a = self.registers.x;
+        self.set_flag(CpuFlag::Zero, self.registers.a == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.a & 0x80) != 0);
+    }
+
+    /// SEI - Set Interrupt Disable
+    ///
+    /// The flag is maintained, but the CPU has no interrupt delivery yet, so nothing observes it.
+    /// Programs still expect the instruction to exist and to advance the PC correctly.
+    pub fn sei(&mut self) {
+        self.set_flag(CpuFlag::InterruptDisable, true);
+    }
+
+    /// CLI - Clear Interrupt Disable
+    pub fn cli(&mut self) {
+        self.set_flag(CpuFlag::InterruptDisable, false);
+    }
+
+    /// CLD - Clear Decimal Mode
+    ///
+    /// The NES's 6502 has no working decimal mode, but programs still clear the flag during
+    /// startup out of habit, so the instruction must exist and set the flag correctly.
+    pub fn cld(&mut self) {
+        self.set_flag(CpuFlag::DecimalMode, false);
+    }
+
+    /// SED - Set Decimal Mode
+    pub fn sed(&mut self) {
+        self.set_flag(CpuFlag::DecimalMode, true);
+    }
+
     pub fn tay(&mut self) {
         self.registers.y = self.registers.a;
         self.set_flag(CpuFlag::Zero, self.registers.y == 0);
@@ -783,6 +877,47 @@ impl Cpu {
         self.set_flag(CpuFlag::Negative, (self.registers.x & 0x80) != 0);
     }
 
+    /// INY - Increment Y Register
+    pub fn iny(&mut self) {
+        self.registers.y = self.registers.y.wrapping_add(1);
+        self.set_flag(CpuFlag::Zero, self.registers.y == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.y & 0x80) != 0);
+    }
+
+    /// DEY - Decrement Y Register
+    pub fn dey(&mut self) {
+        self.registers.y = self.registers.y.wrapping_sub(1);
+        self.set_flag(CpuFlag::Zero, self.registers.y == 0);
+        self.set_flag(CpuFlag::Negative, (self.registers.y & 0x80) != 0);
+    }
+
+    /// INC - Increment Memory
+    ///
+    /// Read-modify-write: the value is read, adjusted and written back. Only Zero and Negative
+    /// are affected — notably not Carry, so this wraps $FF to $00 silently.
+    pub fn inc(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let addr = addressing_mode.get_operand_address(self)?;
+        let value = self.read_byte(addr)?.wrapping_add(1);
+        self.write_byte(addr, value)?;
+
+        self.set_flag(CpuFlag::Zero, value == 0);
+        self.set_flag(CpuFlag::Negative, (value & 0x80) != 0);
+        Ok(())
+    }
+
+    /// DEC - Decrement Memory
+    ///
+    /// The counterpart to [`Cpu::inc`]; wraps $00 to $FF without touching Carry.
+    pub fn dec(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let addr = addressing_mode.get_operand_address(self)?;
+        let value = self.read_byte(addr)?.wrapping_sub(1);
+        self.write_byte(addr, value)?;
+
+        self.set_flag(CpuFlag::Zero, value == 0);
+        self.set_flag(CpuFlag::Negative, (value & 0x80) != 0);
+        Ok(())
+    }
+
     pub fn cpx(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
         // Get the operand address
         let addr = addressing_mode.get_operand_address(self)?;
@@ -799,6 +934,12 @@ impl Cpu {
         self.set_flag(CpuFlag::Negative, (result & 0x80) != 0);
 
         Ok(())
+    }
+}
+
+impl Default for InstructionDecoder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1872,7 +2013,7 @@ mod tests {
 
         // Result should be 0x20 (0x10 + 0x10), no carry
         assert_eq!(cpu.registers.a, 0x20, "Basic addition failed");
-        assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should not be set");
+        assert!(!cpu.get_flag(CpuFlag::Carry), "Carry flag should not be set");
 
         // Case 2: Addition with carry flag set
         cpu.set_flag(CpuFlag::Carry, true);
@@ -1892,7 +2033,7 @@ mod tests {
 
         // Result should be 0x81 (0x40 + 0x40 + 0x01 from carry), no carry out
         assert_eq!(cpu.registers.a, 0x81, "Addition with carry in failed");
-        assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should not be set");
+        assert!(!cpu.get_flag(CpuFlag::Carry), "Carry flag should not be set");
 
         // Case 3: Addition with carry out
         cpu.set_flag(CpuFlag::Carry, false);
@@ -1912,8 +2053,8 @@ mod tests {
 
         // Result should be 0x00 (0xFF + 0x01 = 0x100, which wraps to 0x00), with carry set
         assert_eq!(cpu.registers.a, 0x00, "Addition with carry out failed");
-        assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
-        assert_eq!(cpu.get_flag(CpuFlag::Zero), true, "Zero flag should be set");
+        assert!(cpu.get_flag(CpuFlag::Carry), "Carry flag should be set");
+        assert!(cpu.get_flag(CpuFlag::Zero), "Zero flag should be set");
 
         Ok(())
     }
@@ -1946,7 +2087,7 @@ mod tests {
 
         // Result should be 0x20 (0x50 - 0x30), with carry still set (no borrow)
         assert_eq!(cpu.registers.a, 0x20, "Basic subtraction failed");
-        assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should still be set");
+        assert!(cpu.get_flag(CpuFlag::Carry), "Carry flag should still be set");
 
         // Case 2: Subtraction with carry clear (indicating borrow)
         cpu.set_flag(CpuFlag::Carry, false); // Carry clear = borrow
@@ -1966,7 +2107,7 @@ mod tests {
 
         // Result should be 0x1F (0x50 - 0x30 - 0x01), with carry set (no further borrow)
         assert_eq!(cpu.registers.a, 0x1F, "Subtraction with borrow failed");
-        assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
+        assert!(cpu.get_flag(CpuFlag::Carry), "Carry flag should be set");
 
         // Case 3: Subtraction causing borrow
         cpu.set_flag(CpuFlag::Carry, true); // No initial borrow
@@ -1987,12 +2128,11 @@ mod tests {
         // Result should be 0xF0 (0x30 - 0x40 = -0x10, which is 0xF0 in two's complement)
         // Carry should be clear (indicating borrow)
         assert_eq!(cpu.registers.a, 0xF0, "Subtraction with result borrow failed");
-        assert_eq!(
-            cpu.get_flag(CpuFlag::Carry),
-            false,
+        assert!(
+            !cpu.get_flag(CpuFlag::Carry),
             "Carry flag should be clear (borrow)"
         );
-        assert_eq!(cpu.get_flag(CpuFlag::Negative), true, "Negative flag should be set");
+        assert!(cpu.get_flag(CpuFlag::Negative), "Negative flag should be set");
 
         Ok(())
     }
@@ -2024,11 +2164,10 @@ mod tests {
 
         // Result should set Zero flag and Carry flag, and not modify accumulator
         assert_eq!(cpu.registers.a, 0x40, "Accumulator should not be modified");
-        assert_eq!(cpu.get_flag(CpuFlag::Zero), true, "Zero flag should be set");
-        assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
-        assert_eq!(
-            cpu.get_flag(CpuFlag::Negative),
-            false,
+        assert!(cpu.get_flag(CpuFlag::Zero), "Zero flag should be set");
+        assert!(cpu.get_flag(CpuFlag::Carry), "Carry flag should be set");
+        assert!(
+            !cpu.get_flag(CpuFlag::Negative),
             "Negative flag should not be set"
         );
 
@@ -2049,8 +2188,8 @@ mod tests {
 
         // Result: A (0x50) > M (0x40), so carry set, zero clear
         assert_eq!(cpu.registers.a, 0x50, "Accumulator should not be modified");
-        assert_eq!(cpu.get_flag(CpuFlag::Zero), false, "Zero flag should not be set");
-        assert_eq!(cpu.get_flag(CpuFlag::Carry), true, "Carry flag should be set");
+        assert!(!cpu.get_flag(CpuFlag::Zero), "Zero flag should not be set");
+        assert!(cpu.get_flag(CpuFlag::Carry), "Carry flag should be set");
 
         // Case 3: A < M (Carry clear, Zero clear, potentially Negative set)
         cpu.registers.a = 0x30;
@@ -2069,9 +2208,9 @@ mod tests {
 
         // Result: A (0x30) < M (0x40), so carry clear, zero clear, negative likely set
         assert_eq!(cpu.registers.a, 0x30, "Accumulator should not be modified");
-        assert_eq!(cpu.get_flag(CpuFlag::Zero), false, "Zero flag should not be set");
-        assert_eq!(cpu.get_flag(CpuFlag::Carry), false, "Carry flag should not be set");
-        assert_eq!(cpu.get_flag(CpuFlag::Negative), true, "Negative flag should be set");
+        assert!(!cpu.get_flag(CpuFlag::Zero), "Zero flag should not be set");
+        assert!(!cpu.get_flag(CpuFlag::Carry), "Carry flag should not be set");
+        assert!(cpu.get_flag(CpuFlag::Negative), "Negative flag should be set");
 
         Ok(())
     }
@@ -2839,4 +2978,247 @@ mod tests {
 
         Ok(())
     }
+
+    /// Assemble one instruction at `pc`, run it, and return the cycles it took.
+    fn run_instruction(cpu: &mut Cpu, source: &str, pc: u16) -> Result<u8> {
+        let mut assembler = Assembler::new(0);
+        let bytes = assembler.assemble_instruction(source, &HashMap::new())?;
+        for (i, &byte) in bytes.iter().enumerate() {
+            cpu.write_byte(pc + i as u16, byte)?;
+        }
+        cpu.registers.pc = pc;
+        Ok(cpu.step()?)
+    }
+
+    #[test]
+    fn test_iny_dey() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        cpu.registers.y = 0x41;
+        let cycles = run_instruction(&mut cpu, "INY", 0x0100)?;
+        assert_eq!(cpu.registers.y, 0x42, "INY should increment Y");
+        assert_eq!(cycles, 2, "INY should take 2 cycles");
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+
+        cpu.registers.y = 0x43;
+        run_instruction(&mut cpu, "DEY", 0x0100)?;
+        assert_eq!(cpu.registers.y, 0x42, "DEY should decrement Y");
+
+        // Wrapping, and the flags it produces.
+        cpu.registers.y = 0xFF;
+        run_instruction(&mut cpu, "INY", 0x0100)?;
+        assert_eq!(cpu.registers.y, 0x00, "INY should wrap $FF to $00");
+        assert!(cpu.is_flag_set(CpuFlag::Zero), "wrapping to zero should set Zero");
+
+        cpu.registers.y = 0x00;
+        run_instruction(&mut cpu, "DEY", 0x0100)?;
+        assert_eq!(cpu.registers.y, 0xFF, "DEY should wrap $00 to $FF");
+        assert!(cpu.is_flag_set(CpuFlag::Negative), "bit 7 set should set Negative");
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_inc_dec_memory() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        cpu.write_byte(0x0042, 0x41)?;
+        let cycles = run_instruction(&mut cpu, "INC $42", 0x0100)?;
+        assert_eq!(cpu.read_byte(0x0042)?, 0x42, "INC should increment memory");
+        assert_eq!(cycles, 5, "INC ZeroPage should take 5 cycles");
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+        assert!(!cpu.is_flag_set(CpuFlag::Negative));
+
+        cpu.write_byte(0x0042, 0x43)?;
+        run_instruction(&mut cpu, "DEC $42", 0x0100)?;
+        assert_eq!(cpu.read_byte(0x0042)?, 0x42, "DEC should decrement memory");
+
+        // Wrapping and flags.
+        cpu.write_byte(0x0042, 0xFF)?;
+        run_instruction(&mut cpu, "INC $42", 0x0100)?;
+        assert_eq!(cpu.read_byte(0x0042)?, 0x00, "INC should wrap $FF to $00");
+        assert!(cpu.is_flag_set(CpuFlag::Zero));
+
+        cpu.write_byte(0x0042, 0x00)?;
+        run_instruction(&mut cpu, "DEC $42", 0x0100)?;
+        assert_eq!(cpu.read_byte(0x0042)?, 0xFF, "DEC should wrap $00 to $FF");
+        assert!(cpu.is_flag_set(CpuFlag::Negative));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_inc_does_not_touch_carry() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        // INC/DEC affect only Zero and Negative. Wrapping past $FF must leave Carry alone, unlike
+        // ADC, or arithmetic sequences around a counter would silently corrupt.
+        cpu.set_flag(CpuFlag::Carry, true);
+        cpu.write_byte(0x0042, 0xFF)?;
+        run_instruction(&mut cpu, "INC $42", 0x0100)?;
+        assert!(cpu.is_flag_set(CpuFlag::Carry), "INC must not clear Carry");
+
+        cpu.set_flag(CpuFlag::Carry, false);
+        cpu.write_byte(0x0042, 0xFF)?;
+        run_instruction(&mut cpu, "INC $42", 0x0100)?;
+        assert!(!cpu.is_flag_set(CpuFlag::Carry), "INC must not set Carry");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_inc_absolute_and_indexed() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        cpu.write_byte(0x0300, 0x10)?;
+        let cycles = run_instruction(&mut cpu, "INC $0300", 0x0100)?;
+        assert_eq!(cpu.read_byte(0x0300)?, 0x11, "INC Absolute should increment");
+        assert_eq!(cycles, 6, "INC Absolute should take 6 cycles");
+
+        cpu.registers.x = 0x05;
+        cpu.write_byte(0x0305, 0x20)?;
+        let cycles = run_instruction(&mut cpu, "INC $0300,X", 0x0100)?;
+        assert_eq!(cpu.read_byte(0x0305)?, 0x21, "INC Absolute,X should index by X");
+        assert_eq!(cycles, 7, "INC Absolute,X should take 7 cycles");
+
+        Ok(())
+    }
+
+
+    #[test]
+    fn test_eor() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        cpu.registers.a = 0b1010_1010;
+        let cycles = run_instruction(&mut cpu, "EOR #$FF", 0x0100)?;
+        assert_eq!(cpu.registers.a, 0b0101_0101, "EOR should flip every bit against $FF");
+        assert_eq!(cycles, 2, "EOR Immediate should take 2 cycles");
+        assert!(!cpu.is_flag_set(CpuFlag::Zero));
+
+        // A value XORed with itself is zero — the usual way a program clears the accumulator.
+        cpu.registers.a = 0x42;
+        run_instruction(&mut cpu, "EOR #$42", 0x0100)?;
+        assert_eq!(cpu.registers.a, 0x00);
+        assert!(cpu.is_flag_set(CpuFlag::Zero), "a zero result should set Zero");
+
+        cpu.registers.a = 0x00;
+        run_instruction(&mut cpu, "EOR #$80", 0x0100)?;
+        assert_eq!(cpu.registers.a, 0x80);
+        assert!(cpu.is_flag_set(CpuFlag::Negative), "bit 7 set should set Negative");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tax_txa() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        cpu.registers.a = 0x42;
+        cpu.registers.x = 0x00;
+        let cycles = run_instruction(&mut cpu, "TAX", 0x0100)?;
+        assert_eq!(cpu.registers.x, 0x42, "TAX should copy A into X");
+        assert_eq!(cpu.registers.a, 0x42, "TAX should leave A unchanged");
+        assert_eq!(cycles, 2);
+
+        cpu.registers.x = 0x99;
+        run_instruction(&mut cpu, "TXA", 0x0100)?;
+        assert_eq!(cpu.registers.a, 0x99, "TXA should copy X into A");
+
+        // Both set Zero/Negative from the transferred value.
+        cpu.registers.a = 0x00;
+        run_instruction(&mut cpu, "TAX", 0x0100)?;
+        assert!(cpu.is_flag_set(CpuFlag::Zero));
+
+        cpu.registers.x = 0x80;
+        run_instruction(&mut cpu, "TXA", 0x0100)?;
+        assert!(cpu.is_flag_set(CpuFlag::Negative));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sei_cli() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        cpu.set_flag(CpuFlag::InterruptDisable, false);
+        let cycles = run_instruction(&mut cpu, "SEI", 0x0100)?;
+        assert!(cpu.is_flag_set(CpuFlag::InterruptDisable), "SEI should set the flag");
+        assert_eq!(cycles, 2);
+
+        run_instruction(&mut cpu, "CLI", 0x0100)?;
+        assert!(!cpu.is_flag_set(CpuFlag::InterruptDisable), "CLI should clear the flag");
+
+        Ok(())
+    }
+
+
+    #[test]
+    fn test_new_branches_take_when_their_flag_matches() -> Result<()> {
+        // (mnemonic, opcode, flag, flag value that should cause the branch to be taken)
+        let cases = [
+            ("BMI", 0x30u8, CpuFlag::Negative, true),
+            ("BCC", 0x90, CpuFlag::Carry, false),
+            ("BCS", 0xB0, CpuFlag::Carry, true),
+            ("BVC", 0x50, CpuFlag::Overflow, false),
+            ("BVS", 0x70, CpuFlag::Overflow, true),
+        ];
+
+        for (mnemonic, opcode, flag, taken_when) in cases {
+            // Taken: PC jumps forward by the offset.
+            let mut cpu = setup_cpu();
+            cpu.registers.status = 0;
+            cpu.set_flag(flag, taken_when);
+            cpu.write_byte(0x0100, opcode)?;
+            cpu.write_byte(0x0101, 0x05)?; // +5 from the following instruction
+            cpu.registers.pc = 0x0100;
+            let cycles = cpu.step()?;
+            assert_eq!(cpu.registers.pc, 0x0107, "{mnemonic} should branch to $0107");
+            assert_eq!(cycles, 3, "{mnemonic} taken should cost 3 cycles");
+
+            // Not taken: PC just moves past the two-byte instruction.
+            let mut cpu = setup_cpu();
+            cpu.registers.status = 0;
+            cpu.set_flag(flag, !taken_when);
+            cpu.write_byte(0x0100, opcode)?;
+            cpu.write_byte(0x0101, 0x05)?;
+            cpu.registers.pc = 0x0100;
+            let cycles = cpu.step()?;
+            assert_eq!(cpu.registers.pc, 0x0102, "{mnemonic} not taken should fall through");
+            assert_eq!(cycles, 2, "{mnemonic} not taken should cost 2 cycles");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_branch_backwards() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.status = 0;
+        cpu.set_flag(CpuFlag::Carry, true);
+
+        cpu.write_byte(0x0100, 0xB0)?; // BCS
+        cpu.write_byte(0x0101, 0xFB)?; // -5 as a signed byte
+        cpu.registers.pc = 0x0100;
+        cpu.step()?;
+
+        assert_eq!(cpu.registers.pc, 0x00FD, "a negative offset should branch backwards");
+        Ok(())
+    }
+
+    #[test]
+    fn test_cld_sed() -> Result<()> {
+        let mut cpu = setup_cpu();
+
+        cpu.set_flag(CpuFlag::DecimalMode, true);
+        run_instruction(&mut cpu, "CLD", 0x0100)?;
+        assert!(!cpu.is_flag_set(CpuFlag::DecimalMode), "CLD should clear the flag");
+
+        run_instruction(&mut cpu, "SED", 0x0100)?;
+        assert!(cpu.is_flag_set(CpuFlag::DecimalMode), "SED should set the flag");
+
+        Ok(())
+    }
+
 }

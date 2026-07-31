@@ -255,8 +255,8 @@ impl Assembler {
         labels: &HashMap<String, u16>,
         line_index: &mut usize,
     ) -> AssembleResult<bool> {
-        if !label.is_empty() && next_line.is_some() {
-            if let Some(clean_next_line) = self.clean_line(next_line.unwrap()) {
+        if let (false, Some(next_line)) = (label.is_empty(), next_line) {
+            if let Some(clean_next_line) = self.clean_line(next_line) {
                 if clean_next_line.starts_with('.') {
                     if let Some(directive) = self.parse_directive(&clean_next_line, labels)? {
                         self.apply_directive(&directive)?;
@@ -356,6 +356,45 @@ impl Assembler {
         Ok(result)
     }
 
+    /// How many bytes a data directive emits, for address tracking during label collection.
+    ///
+    /// Label collection must advance the address by exactly what the assembly pass will emit.
+    /// Counting only instructions meant that every label following a `.byte` table was assigned
+    /// too low an address — and since several labels then landed on the same address, a `JSR` to
+    /// a routine defined after a table jumped into the table's data instead.
+    fn directive_size(&self, code: &str) -> AssembleResult<u16> {
+        let (name, args) = match code.split_once(char::is_whitespace) {
+            Some((name, args)) => (name.trim(), args.trim()),
+            None => (code.trim(), ""),
+        };
+
+        let count_values = || args.split(',').filter(|v| !v.trim().is_empty()).count() as u16;
+
+        Ok(match name {
+            // A quoted string in a `.byte` contributes one byte per character rather than one
+            // value, which is how iNES headers such as `.byte "NES", $1A` are written.
+            ".byte" | ".db" => args
+                .split(',')
+                .filter(|v| !v.trim().is_empty())
+                .map(|value| {
+                    let value = value.trim();
+                    if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
+                        (value.len() - 2) as u16
+                    } else {
+                        1
+                    }
+                })
+                .sum(),
+            ".word" | ".dw" => count_values() * 2,
+            ".res" => {
+                let size = args.split(',').next().unwrap_or("").trim();
+                parse_value::<u16>(size).unwrap_or(0)
+            },
+            // Directives that emit nothing, such as `.segment`.
+            _ => 0,
+        })
+    }
+
     /// Collects labels and their positions from a program
     fn collect_labels(&mut self, program: &str) -> AssembleResult<HashMap<String, u16>> {
         let mut labels = HashMap::new();
@@ -447,20 +486,16 @@ impl Assembler {
                             }
                         }
 
-                        // Update the address based on the code
-                        if code.starts_with(".res") {
-                            let parts: Vec<&str> = code.splitn(2, ' ').collect();
-                            if parts.len() > 1 {
-                                let params: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
-                                if !params.is_empty() {
-                                    if let Ok(size) = parse_value::<u16>(params[0]) {
-                                        current_address += size;
-                                    }
-                                }
-                            }
-                        } else if !code.starts_with('.') {
+                        // Update the address based on the code. Data directives emit bytes just
+                        // as instructions do, so both must advance the address.
+                        //
+                        // Wrapping, because the VECTORS segment sits at $FFFA and emitting its
+                        // words legitimately runs off the top of the 16-bit address space.
+                        if code.starts_with('.') {
+                            current_address = current_address.wrapping_add(self.directive_size(&code)?);
+                        } else {
                             let instruction_size = self.calculate_instruction_size(&code)?;
-                            current_address += instruction_size;
+                            current_address = current_address.wrapping_add(instruction_size);
                         }
                     }
                 }
@@ -539,16 +574,8 @@ impl Assembler {
                         }
 
                         // Update address based on the code
-                        if code.starts_with(".res") {
-                            let parts: Vec<&str> = code.splitn(2, ' ').collect();
-                            if parts.len() > 1 {
-                                let params: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
-                                if !params.is_empty() {
-                                    if let Ok(size) = parse_value::<u16>(params[0]) {
-                                        current_address += size;
-                                    }
-                                }
-                            }
+                        if code.starts_with('.') {
+                            current_address = current_address.wrapping_add(self.directive_size(&code)?);
                         } else if !code.starts_with('.') {
                             // For actual instructions, we need to consider the real instruction size
                             // using the labels we collected in the first pass
@@ -628,8 +655,9 @@ impl Assembler {
                                 }
                             }
 
-                            // Update the address with the real instruction size
-                            current_address += real_instruction_size;
+                            // Update the address with the real instruction size. Wrapping for the
+                            // same reason as above.
+                            current_address = current_address.wrapping_add(real_instruction_size);
                         }
                     }
                 }
@@ -648,9 +676,7 @@ impl Assembler {
 
         // Merge updated labels with any that weren't in the second pass
         for (label, addr) in initial_labels {
-            if !updated_labels.contains_key(&label) {
-                updated_labels.insert(label, addr);
-            }
+            updated_labels.entry(label).or_insert(addr);
         }
 
         // Debug all labels
@@ -827,8 +853,7 @@ impl Assembler {
             }
 
             // Parse the binary value
-            if token.starts_with('%') {
-                let binary_str = &token[1..];
+            if let Some(binary_str) = token.strip_prefix('%') {
                 match u8::from_str_radix(binary_str, 2) {
                     Ok(value) => pattern_data.push(value),
                     Err(_) => {
@@ -838,9 +863,8 @@ impl Assembler {
                         )))
                     },
                 }
-            } else if token.starts_with("$") {
+            } else if let Some(hex_str) = token.strip_prefix("$") {
                 // Handle hex values
-                let hex_str = &token[1..];
                 match u8::from_str_radix(hex_str, 16) {
                     Ok(value) => pattern_data.push(value),
                     Err(_) => return Err(AssembleError::DirectiveError(format!("Invalid hex value: {}", token))),
@@ -1062,7 +1086,7 @@ impl Assembler {
         let (label, addressing_mode) = if let Some(idx_pos) = operand.find(",X") {
             // X-indexed addressing
             let label = &operand[..idx_pos];
-            let addr_mode = if labels.get(label).map_or(false, |&addr| addr <= 0xFF) {
+            let addr_mode = if labels.get(label).is_some_and(|&addr| addr <= 0xFF) {
                 AddressingMode::ZeroPageX
             } else {
                 AddressingMode::AbsoluteX
@@ -1071,7 +1095,7 @@ impl Assembler {
         } else if let Some(idx_pos) = operand.find(",Y") {
             // Y-indexed addressing
             let label = &operand[..idx_pos];
-            let addr_mode = if labels.get(label).map_or(false, |&addr| addr <= 0xFF) {
+            let addr_mode = if labels.get(label).is_some_and(|&addr| addr <= 0xFF) {
                 AddressingMode::ZeroPageY
             } else {
                 AddressingMode::AbsoluteY
@@ -1083,7 +1107,7 @@ impl Assembler {
                 AddressingMode::Relative
             } else if instruction.is_jump() {
                 AddressingMode::Absolute
-            } else if labels.get(operand).map_or(false, |&addr| addr <= 0xFF) {
+            } else if labels.get(operand).is_some_and(|&addr| addr <= 0xFF) {
                 // Zero page addressing for addresses $00-$FF, unless the instruction requires absolute
                 AddressingMode::ZeroPage
             } else {
@@ -1151,8 +1175,7 @@ impl Assembler {
         }
 
         // Check for immediate addressing (#$00)
-        if operand.starts_with('#') {
-            let value_part = &operand[1..];
+        if let Some(value_part) = operand.strip_prefix('#') {
             let value = parse_value::<u16>(value_part)?;
             return Ok((AddressingMode::Immediate, value));
         }
@@ -1334,7 +1357,7 @@ fn process_line(line: &str) -> AssembleResult<(String, Option<String>)> {
     }
 
     // Debug logging for WaitForVBlank label or code
-    if label == "WaitForVBlank" || code.as_ref().map_or(false, |c| c.contains("WaitForVBlank")) {
+    if label == "WaitForVBlank" || code.as_ref().is_some_and(|c| c.contains("WaitForVBlank")) {
         log::debug!(
             "Processing line with WaitForVBlank - Label: '{}', Code: '{:?}'",
             label,
@@ -1414,7 +1437,7 @@ fn extract_string_literal<'a>(input: &'a str, captures: &regex::Captures) -> Ass
 }
 
 /// Extract a numeric byte value
-fn extract_numeric_byte_value<'a>(input: &'a str) -> AssembleResult<(u8, &'a str)> {
+fn extract_numeric_byte_value(input: &str) -> AssembleResult<(u8, &str)> {
     let comma_pos = input.find(',').unwrap_or(input.len());
     let value_str = input[..comma_pos].trim();
 
@@ -2381,4 +2404,187 @@ mod tests {
 
         Ok(())
     }
+
+    // ---------------------------------------------------------------------------------------
+    // Address tracking across data directives
+    //
+    // Regression tests for a bug where label collection advanced the address for instructions
+    // and `.res`, but not for `.byte` or `.word`. Data tables therefore occupied no space as far
+    // as the label pass was concerned, so every label defined after a table was assigned an
+    // address that was too low — and several distinct labels could collapse onto the same one.
+    //
+    // The symptom was severe and hard to attribute: `JSR SomeRoutine` assembled to the address of
+    // a data table, so the CPU executed the table's bytes as code and died on an invalid opcode.
+    // Nothing in the label map looked obviously wrong, because the addresses were self-consistent
+    // — just uniformly wrong after the first table.
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn labels_after_a_byte_table_get_correct_addresses() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        let labels = assembler.collect_labels(
+            r#"
+.segment "STARTUP"
+Start:
+  NOP
+Table:
+  .byte $01, $02, $03, $04
+After:
+  NOP
+"#,
+        )?;
+
+        assert_eq!(labels.get("Start"), Some(&0x8000), "Start should be at the load address");
+        assert_eq!(labels.get("Table"), Some(&0x8001), "Table follows a one-byte NOP");
+        assert_eq!(
+            labels.get("After"),
+            Some(&0x8005),
+            "After must clear all four table bytes, not sit on top of them"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn labels_after_a_word_table_get_correct_addresses() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        let labels = assembler.collect_labels(
+            r#"
+.segment "STARTUP"
+Table:
+  .word $1234, $5678
+After:
+  NOP
+"#,
+        )?;
+
+        // Each `.word` is two bytes, so two of them occupy four.
+        assert_eq!(labels.get("Table"), Some(&0x8000));
+        assert_eq!(labels.get("After"), Some(&0x8004), "a .word is two bytes, not one");
+        Ok(())
+    }
+
+    #[test]
+    fn byte_directive_counts_string_literals_by_character() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        let labels = assembler.collect_labels(
+            r#"
+.segment "STARTUP"
+Header:
+  .byte "NES", $1A
+After:
+  NOP
+"#,
+        )?;
+
+        // The iNES header is written this way: three characters plus one byte is four bytes,
+        // not the two values a naive comma count would give.
+        assert_eq!(
+            labels.get("After"),
+            Some(&0x8004),
+            "a quoted string is one byte per character"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn labels_after_a_res_directive_get_correct_addresses() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        let labels = assembler.collect_labels(
+            r#"
+.segment "STARTUP"
+Buffer:
+  .res 16
+After:
+  NOP
+"#,
+        )?;
+
+        assert_eq!(labels.get("After"), Some(&0x8010), ".res must reserve its full size");
+        Ok(())
+    }
+
+    #[test]
+    fn distinct_labels_never_collapse_onto_one_address() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        let labels = assembler.collect_labels(
+            r#"
+.segment "STARTUP"
+TableA:
+  .byte $01, $02
+TableB:
+  .byte $03, $04
+Routine:
+  NOP
+"#,
+        )?;
+
+        let a = labels.get("TableA").copied().unwrap_or_default();
+        let b = labels.get("TableB").copied().unwrap_or_default();
+        let routine = labels.get("Routine").copied().unwrap_or_default();
+
+        assert_ne!(a, b, "two tables must not share an address");
+        assert_ne!(b, routine, "a routine must not share an address with a table");
+        assert_eq!((a, b, routine), (0x8000, 0x8002, 0x8004));
+        Ok(())
+    }
+
+    /// The end-to-end shape of the original bug: a call to a routine defined *after* a data table.
+    #[test]
+    fn jsr_to_a_routine_after_a_table_targets_the_routine_not_the_data() -> AssembleResult<()> {
+        let source = r#"
+.segment "STARTUP"
+Start:
+  JSR Routine
+  NOP
+Table:
+  .byte $F9, $B0, $8F, $60
+Routine:
+  RTS
+"#;
+
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        let labels = assembler.collect_labels(source)?;
+        let routine = labels.get("Routine").copied().unwrap_or_default();
+
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        let code = assembler.assemble_program(source)?;
+        let startup = code.get("STARTUP").expect("STARTUP segment");
+
+        // JSR is opcode $20 followed by a little-endian target address.
+        assert_eq!(startup[0], 0x20, "first instruction should be JSR");
+        let target = u16::from_le_bytes([startup[1], startup[2]]);
+
+        assert_eq!(target, routine, "JSR should target the routine's real address");
+
+        // And the byte actually living there must be the routine's opcode (RTS, $60), not the
+        // first byte of the table.
+        let offset = (target - 0x8000) as usize;
+        assert_eq!(
+            startup[offset], 0x60,
+            "JSR landed on ${target:04X}, which holds ${:02X} rather than RTS — it points into data",
+            startup[offset]
+        );
+        Ok(())
+    }
+
+    /// The VECTORS segment sits at $FFFA, so emitting its three words runs off the top of the
+    /// 16-bit address space. That is normal for a NES ROM and must wrap rather than panic — an
+    /// earlier version overflowed here and aborted the whole application on startup.
+    #[test]
+    fn address_tracking_wraps_at_the_top_of_the_address_space() -> AssembleResult<()> {
+        let mut assembler = Assembler::new(0x8000).with_nes_segments();
+        let labels = assembler.collect_labels(
+            r#"
+.segment "STARTUP"
+Reset:
+  RTS
+.segment "VECTORS"
+  .word $0000, $8000, $0000
+"#,
+        )?;
+
+        assert_eq!(labels.get("Reset"), Some(&0x8000));
+        Ok(())
+    }
+
 }

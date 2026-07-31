@@ -210,11 +210,11 @@ impl Cpu {
         self.memory_mut()?.write_word(address, value)
     }
 
-    pub fn memory(&self) -> Result<Ref<dyn Addressable>, NesError> {
+    pub fn memory(&self) -> Result<Ref<'_, dyn Addressable>, NesError> {
         Ok(self.memory.as_ref().ok_or(NesError::MemoryNotConnected)?.borrow())
     }
 
-    pub fn memory_mut(&mut self) -> Result<RefMut<dyn Addressable>, NesError> {
+    pub fn memory_mut(&mut self) -> Result<RefMut<'_, dyn Addressable>, NesError> {
         Ok(self.memory.as_ref().ok_or(NesError::MemoryNotConnected)?.borrow_mut())
     }
 
@@ -301,6 +301,12 @@ impl Cpu {
         self.cycles += total_cycles as u64;
 
         Ok(total_cycles)
+    }
+}
+
+impl Default for Cpu {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
