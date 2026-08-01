@@ -425,7 +425,11 @@ impl Ppu {
             // Draw each visible scanline as it is reached, so it sees the register values in
             // effect at that point in the frame rather than one sample taken for all 240 lines.
             if (0..240).contains(&self.scanline) {
-                self.render_background_scanline(self.scanline as usize);
+                let y = self.scanline as usize;
+                self.render_background_scanline(y);
+                // Sprites go on top, and are evaluated for this line specifically — so OAM
+                // changes made partway down a frame take effect from that line on, as on hardware.
+                self.render_sprites_for_scanline(y);
             }
 
             // Start of VBlank occurs at the beginning of scanline 241
@@ -513,10 +517,6 @@ impl Ppu {
     /// Still whole-frame: sprites are not yet evaluated per scanline, so mid-frame OAM changes are
     /// not reflected. The background no longer has that limitation.
     fn end_frame(&mut self) {
-        if (self.mask & MASK_SHOW_SPRITES) != 0 {
-            self.render_sprites();
-        }
-
         self.present();
     }
 
@@ -599,28 +599,6 @@ impl Ppu {
         }
     }
 
-    /// Render sprites for the entire frame
-    fn render_sprites(&mut self) {
-        // Add debug logging for sprite rendering
-        // #[cfg(test)]
-        {
-            if (self.mask & MASK_SHOW_SPRITES) != 0 {
-                log::debug!("Rendering sprites with PPUMASK: {:02X}", self.mask);
-                log::debug!(
-                    "First OAM entry: Y={}, tile={}, attr={}, X={}",
-                    self.oam[0],
-                    self.oam[1],
-                    self.oam[2],
-                    self.oam[3]
-                );
-            }
-        }
-
-        // Render each scanline
-        for scanline in 0..240 {
-            self.render_sprites_for_scanline(scanline);
-        }
-    }
 
     /// Render sprites for a specific scanline
     fn render_sprites_for_scanline(&mut self, scanline: usize) {
@@ -757,10 +735,14 @@ impl Ppu {
             // Get sprite Y position (OAM byte 0)
             let y_pos = self.oam[oam_idx];
 
-            // Skip if sprite is not on this scanline
-            // Sprites are rendered if scanline >= y_pos && scanline < y_pos + height
-            let scanline_y = scanline as u8;
-            if scanline_y < y_pos || scanline_y >= y_pos.wrapping_add(sprite_height as u8) {
+            // OAM stores the scanline *before* the sprite's first row, so a sprite covers
+            // `y_pos + 1 ..= y_pos + height`. Treating y_pos as the first row draws everything one
+            // scanline too high — a whole-pixel error on every sprite in every game.
+            // Widened deliberately: a sprite at Y=255 starts at scanline 256, which is off-screen.
+            // Doing this in u8 would wrap it to 0 and make every "hidden" sprite visible at the top
+            // of the screen — and hiding sprites by parking them at Y=255 is exactly how games do it.
+            let first_row = y_pos as usize + 1;
+            if scanline < first_row || scanline >= first_row + sprite_height {
                 continue;
             }
 
@@ -770,7 +752,7 @@ impl Ppu {
             let x_pos = self.oam[oam_idx + 3];
 
             // Calculate the y offset within the sprite
-            let y_offset = scanline_y.wrapping_sub(y_pos);
+            let y_offset = (scanline - first_row) as u8;
 
             // Apply vertical flip if enabled (bit 7 of attributes)
             let pattern_y_offset = if (attributes & 0x80) != 0 {
@@ -785,8 +767,23 @@ impl Ppu {
 
             // If we have a cartridge connected, get the data from it
             if let Some(cart) = &self.cartridge {
-                // Calculate the tile address
-                let tile_addr = pattern_table_addr + (tile_idx as u16 * 16);
+                // In 8x16 mode the sprite pattern-table select in PPUCTRL is ignored: bit 0 of the
+                // tile index chooses the table instead, and the sprite spans that tile and the one
+                // after it. Using the PPUCTRL bit here would read the wrong half of CHR entirely.
+                let (tile_addr, row) = if sprite_height == 16 {
+                    let table = if (tile_idx & 0x01) != 0 { 0x1000 } else { 0x0000 };
+                    let top_tile = (tile_idx & 0xFE) as u16;
+                    // Rows 8-15 come from the next tile.
+                    let (tile_offset, row) = if pattern_y_offset >= 8 {
+                        (1, pattern_y_offset - 8)
+                    } else {
+                        (0, pattern_y_offset)
+                    };
+                    (table + (top_tile + tile_offset) * 16, row)
+                } else {
+                    (pattern_table_addr + (tile_idx as u16 * 16), pattern_y_offset)
+                };
+                let pattern_y_offset = row;
 
                 // Get the two bit planes for this row (pattern_y_offset)
                 // Each row takes 1 byte in each bit plane
@@ -1018,6 +1015,7 @@ impl Ppu {
         self.begin_frame();
         for y in 0..240 {
             self.render_background_scanline(y);
+            self.render_sprites_for_scanline(y);
         }
         self.end_frame();
     }
@@ -1976,11 +1974,12 @@ mod tests {
         // Enable sprites in PPUMASK
         ppu.mask = MASK_SHOW_SPRITES;
 
-        // Test sprite evaluation for scanline 64 (where our sprite is)
-        let sprites = ppu.evaluate_sprites_for_scanline(64);
+        // OAM Y is the scanline before the sprite's first row, so a sprite with Y=64 is drawn
+        // starting on scanline 65.
+        let sprites = ppu.evaluate_sprites_for_scanline(65);
 
         // We should have one sprite
-        assert_eq!(sprites.len(), 1, "Should have found 1 sprite on scanline 64");
+        assert_eq!(sprites.len(), 1, "Should have found 1 sprite on scanline 65");
 
         // Check sprite properties
         let sprite = &sprites[0];
@@ -2068,21 +2067,23 @@ mod tests {
             *pixel = 0;
         }
 
-        // DIRECT TEST: Instead of running the PPU for a full frame, directly render sprites for scanline 100
-        ppu.render_sprites_for_scanline(100);
+        // DIRECT TEST: render one scanline directly rather than running a whole frame.
+        // The sprite's OAM Y is 100, and OAM Y is the scanline before the first row, so it is
+        // drawn starting on scanline 101.
+        ppu.render_sprites_for_scanline(101);
         // Drawing straight into the working buffer bypasses end_frame, so publish it explicitly.
         ppu.present();
 
         // Get the frame buffer and check for sprite visibility
         let frame_buffer = ppu.frame_buffer();
-        let pixel_index = (100 * 256 + 100) * 3; // RGB format
+        let pixel_index = (101 * 256 + 100) * 3; // RGB format
 
         // Verify that the sprite is rendered at the expected position (100, 100)
         // Since we have a white sprite (palette value 0x30 = white),
         // all RGB values should be 255
         assert_eq!(
             frame_buffer[pixel_index], 255,
-            "Sprite R value should be 255 at (100,100)"
+            "Sprite R value should be 255 at (100,101)"
         );
         assert_eq!(
             frame_buffer[pixel_index + 1],
@@ -2159,9 +2160,9 @@ mod tests {
         ppu.oam[2] = 0x40; // Attributes - horizontal flip
         ppu.oam[3] = 10; // X position
 
-        // Evaluate sprites for scanline 5 - this should get us row 0 of the sprite
-        let h_flipped_sprites = ppu.evaluate_sprites_for_scanline(5);
-        assert_eq!(h_flipped_sprites.len(), 1, "Should find 1 sprite on scanline 5");
+        // Row 0 of a sprite with OAM Y=5 lands on scanline 6, since OAM Y is the line before.
+        let h_flipped_sprites = ppu.evaluate_sprites_for_scanline(6);
+        assert_eq!(h_flipped_sprites.len(), 1, "Should find 1 sprite on scanline 6");
 
         // The pattern is a diagonal line from top-left to bottom-right.
         // For row 0, there should be a pixel at position 0 in the original pattern.
@@ -2184,10 +2185,10 @@ mod tests {
         ppu.oam[2] = 0x80; // Attributes - vertical flip
         ppu.oam[3] = 10; // X position
 
-        // Evaluate sprites for scanline 5 - this should get row 0 of the sprite
-        // With vertical flip, it should load row 7 of the pattern
-        let v_flipped_sprites = ppu.evaluate_sprites_for_scanline(5);
-        assert_eq!(v_flipped_sprites.len(), 1, "Should find 1 sprite on scanline 5");
+        // Row 0 of a sprite with OAM Y=5 lands on scanline 6.
+        // With vertical flip, that row loads row 7 of the pattern.
+        let v_flipped_sprites = ppu.evaluate_sprites_for_scanline(6);
+        assert_eq!(v_flipped_sprites.len(), 1, "Should find 1 sprite on scanline 6");
 
         // The original pattern is a diagonal, with row 7 having a pixel at position 7.
         // When vertically flipped, row 0 should show the pattern from row 7.
@@ -2210,8 +2211,8 @@ mod tests {
         ppu.oam[3] = 10; // X position
 
         // Evaluate sprites for scanline 5
-        let hv_flipped_sprites = ppu.evaluate_sprites_for_scanline(5);
-        assert_eq!(hv_flipped_sprites.len(), 1, "Should find 1 sprite on scanline 5");
+        let hv_flipped_sprites = ppu.evaluate_sprites_for_scanline(6);
+        assert_eq!(hv_flipped_sprites.len(), 1, "Should find 1 sprite on scanline 6");
 
         // The original pattern is a diagonal.
         // Row 7 has a pixel at position 7.
@@ -2237,8 +2238,8 @@ mod tests {
 
         // Evaluate sprites for scanline 5 - with Y position 1, scanline 5 is the 4th row of the sprite
         // With vertical flip, it should load row (7-4) = 3 of the pattern
-        let v_flipped_middle_sprites = ppu.evaluate_sprites_for_scanline(5);
-        assert_eq!(v_flipped_middle_sprites.len(), 1, "Should find 1 sprite on scanline 5");
+        let v_flipped_middle_sprites = ppu.evaluate_sprites_for_scanline(6);
+        assert_eq!(v_flipped_middle_sprites.len(), 1, "Should find 1 sprite on scanline 6");
 
         // Row 4 of the original pattern has a pixel at position 4.
         // When vertically flipped, we should get this pattern.
@@ -2534,11 +2535,12 @@ mod tests {
         // Enable sprite rendering
         ppu.mask = MASK_SHOW_SPRITES;
 
-        // Evaluate and render sprites for our scanline
-        let sprites = ppu.evaluate_sprites_for_scanline(base_y);
+        // OAM Y is the scanline *before* the sprite's first row, so a sprite with Y=n is drawn
+        // starting on scanline n+1. These offsets follow that rather than assuming Y is the top.
+        let sprites = ppu.evaluate_sprites_for_scanline(base_y + 1);
         assert_eq!(sprites.len(), 2, "Should find 2 sprites on the first scanline");
 
-        let sprites = ppu.evaluate_sprites_for_scanline(base_y + 8);
+        let sprites = ppu.evaluate_sprites_for_scanline(base_y + 9);
         assert_eq!(sprites.len(), 2, "Should find 2 sprites on the second scanline");
 
         // Render the scanlines where our sprite should appear

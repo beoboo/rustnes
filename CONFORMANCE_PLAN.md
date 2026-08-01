@@ -179,8 +179,11 @@ anything that changes state mid-frame does not. `full_palette` displays all 64 c
 rewriting the palette every scanline; sampled once per frame it can only ever be flat — which is
 exactly what it produces.
 
-That makes scanline-based rendering, not any individual PPU bug, the next structural piece of work,
-and it is the same change the timing test ROMs below need.
+Scanline rendering has since landed, along with scrolling, cartridge-driven mirroring, and
+per-scanline sprite evaluation. `scanline.nes` renders where it was blank and `blargg_litewall`
+gained colours. `full_palette` and `240pee` are still blank: they rewrite the palette *within* a
+scanline, which needs cycle-level PPU address handling rather than per-scanline rendering — the
+same underlying limitation as the CPU polling interrupts only between instructions.
 
 ### Tier 2 — PPU
 

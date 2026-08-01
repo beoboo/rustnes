@@ -19,7 +19,7 @@ A book teaching how to build one is the eventual goal — in the spirit of *Craf
 | Memory / bus | Working — address decoding, component attachment, region map |
 | DMA | Working — OAM DMA controller with cycle stealing |
 | Input | Working — controllers, remappable key profiles |
-| PPU | Partial — renders whole frames, not scanlines, so mid-frame effects do not work |
+| PPU | Partial — scanline rendering, scrolling, mirroring and sprites; not cycle-accurate within a scanline |
 | Cartridge | Partial — `.nes` files load and boot from the reset vector; no mapper layer yet |
 | APU | Working — all five channels, hardware non-linear mixing, resampling, output filters |
 | Debugger UI | Working — dockable egui workspace with per-subsystem widgets |
