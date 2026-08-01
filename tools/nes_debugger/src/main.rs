@@ -30,6 +30,7 @@ use rn_ui::widgets::{
     KeyboardMappingsWidget,
     MemoryPixelAdapter,
     MemoryWidget,
+    NametableMapAdapter,
     PatternTableWidget,
     PixelDisplay,
     PpuPixelAdapter,
@@ -82,6 +83,8 @@ enum DisplayMode {
     #[default]
     Memory,
     Ppu,
+    /// All four nametables at once, with the viewport outlined.
+    Nametables,
 }
 
 
@@ -343,6 +346,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                     ui.label("Display Mode:");
                     ui.radio_value(&mut self.context.display_mode, DisplayMode::Memory, "Memory");
                     ui.radio_value(&mut self.context.display_mode, DisplayMode::Ppu, "PPU");
+                    ui.radio_value(&mut self.context.display_mode, DisplayMode::Nametables, "Nametables");
                 });
 
                 ui.add_space(8.0);
@@ -386,6 +390,50 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                         // Update zoom and show the PPU display
                         self.pixel_display.set_zoom(auto_zoom);
                         let _ = self.pixel_display.ui(ui, &ppu_adapter);
+                    },
+                    DisplayMode::Nametables => {
+                        let system = self.system.borrow();
+                        let ppu = system.ppu();
+
+                        // State first, so it is readable even before finding it in the picture.
+                        let (viewport_x, viewport_y) = ppu.viewport_origin();
+                        let active = ppu.active_nametable();
+
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Mirroring: {:?}", ppu.mirroring()));
+                            ui.separator();
+                            ui.label(format!("Viewport: ({viewport_x}, {viewport_y})"));
+                            ui.separator();
+                            ui.colored_label(
+                                egui::Color32::from_rgb(255, 96, 96),
+                                format!("Showing nametable {active}"),
+                            );
+                        });
+
+                        // Which of the four is aliased onto which, so a screen appearing twice is
+                        // explained rather than surprising.
+                        ui.label(match ppu.mirroring() {
+                            rn_core::ppu::Mirroring::Horizontal => {
+                                "Horizontal mirroring: 0/1 share memory, 2/3 share memory"
+                            },
+                            rn_core::ppu::Mirroring::Vertical => {
+                                "Vertical mirroring: 0/2 share memory, 1/3 share memory"
+                            },
+                        });
+                        ui.add_space(4.0);
+
+                        let available_width = ui.available_width();
+                        let auto_zoom = (available_width / 512.0).clamp(0.25, 4.0);
+
+                        let system_ref = self.system.clone();
+                        let map_adapter = NametableMapAdapter::new(move || {
+                            let system = system_ref.borrow();
+                            system.ppu().render_nametable_map()
+                        });
+
+                        drop(system);
+                        self.pixel_display.set_zoom(auto_zoom);
+                        let _ = self.pixel_display.ui(ui, &map_adapter);
                     },
                 }
             },

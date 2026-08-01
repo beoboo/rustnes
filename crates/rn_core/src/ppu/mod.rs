@@ -174,6 +174,26 @@ impl PpuWrapper {
         );
     }
 
+    /// All four nametables as one 512x480 RGB image, with the viewport outlined.
+    pub fn render_nametable_map(&self) -> Vec<u8> {
+        self.ppu.borrow().render_nametable_map()
+    }
+
+    /// Top-left corner of the visible viewport within the 512x480 nametable space.
+    pub fn viewport_origin(&self) -> (usize, usize) {
+        self.ppu.borrow().viewport_origin()
+    }
+
+    /// Which nametable the viewport's top-left corner sits in (0-3).
+    pub fn active_nametable(&self) -> usize {
+        self.ppu.borrow().active_nametable()
+    }
+
+    /// The cartridge's nametable mirroring.
+    pub fn mirroring(&self) -> Mirroring {
+        self.ppu.borrow().mirroring
+    }
+
     /// Set the nametable mirroring, from the cartridge header.
     pub fn set_mirroring(&self, mirroring: Mirroring) {
         self.ppu.borrow_mut().mirroring = mirroring;
@@ -887,6 +907,107 @@ impl Ppu {
     }
 
     /// Get the current frame buffer
+    /// Render all four logical nametables as one 512x480 RGB image.
+    ///
+    /// A debugging view, not something hardware produces: it shows the whole scrollable space at
+    /// once, so it is obvious which screens hold content, how mirroring has aliased them, and
+    /// where the visible viewport currently sits within them.
+    ///
+    /// The viewport is outlined in the image itself, wrapping at the edges the same way scrolling
+    /// does, so a viewport straddling two nametables reads correctly.
+    pub fn render_nametable_map(&self) -> Vec<u8> {
+        const MAP_WIDTH: usize = 512;
+        const MAP_HEIGHT: usize = 480;
+
+        let mut image = vec![0u8; MAP_WIDTH * MAP_HEIGHT * 3];
+        let backdrop = self.palette_to_rgb(self.read_palette(0x3F00));
+        for pixel in image.chunks_exact_mut(3) {
+            pixel.copy_from_slice(&backdrop);
+        }
+
+        let Some(cart) = &self.cartridge else {
+            return image;
+        };
+
+        let pattern_base: u16 = if (self.ctrl & CTRL_BACKGROUND_PATTERN) != 0 { 256 } else { 0 };
+
+        for table in 0..4usize {
+            let base = 0x2000 + table * 0x0400;
+            // Tables are laid out 2x2, matching how they tile the scrollable space.
+            let origin_x = (table % 2) * 256;
+            let origin_y = (table / 2) * 240;
+
+            for tile_row in 0..30usize {
+                for tile_column in 0..32usize {
+                    let tile_id = self.read_ppu_memory((base + tile_row * 32 + tile_column) as u16);
+
+                    let attribute_address = base + 0x03C0 + (tile_row / 4) * 8 + (tile_column / 4);
+                    let attribute = self.read_ppu_memory(attribute_address as u16);
+                    let quadrant_shift = ((tile_row & 2) << 1) | (tile_column & 2);
+                    let palette_index = (attribute >> quadrant_shift) & 0x03;
+
+                    let pixels = cart.get_tile_pixels(tile_id as u16 + pattern_base);
+
+                    for y in 0..8usize {
+                        for x in 0..8usize {
+                            let pixel_value = pixels[y * 8 + x];
+                            if pixel_value == 0 {
+                                continue;
+                            }
+
+                            let palette_address = 0x3F00 + (palette_index as u16 * 4) + pixel_value as u16;
+                            let rgb = self.palette_to_rgb(self.read_palette(palette_address));
+
+                            let px = origin_x + tile_column * 8 + x;
+                            let py = origin_y + tile_row * 8 + y;
+                            let offset = (py * MAP_WIDTH + px) * 3;
+                            image[offset..offset + 3].copy_from_slice(&rgb);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.outline_viewport(&mut image, MAP_WIDTH, MAP_HEIGHT);
+        image
+    }
+
+    /// Draw the visible viewport's outline onto the nametable map.
+    fn outline_viewport(&self, image: &mut [u8], map_width: usize, map_height: usize) {
+        const MARKER: [u8; 3] = [255, 32, 32];
+
+        let (left, top) = self.viewport_origin();
+
+        let mut plot = |x: usize, y: usize| {
+            let offset = ((y % map_height) * map_width + (x % map_width)) * 3;
+            image[offset..offset + 3].copy_from_slice(&MARKER);
+        };
+
+        // Wrapping with `%` is what makes a viewport spanning two nametables draw correctly
+        // rather than being clipped at the seam.
+        for x in 0..256 {
+            plot(left + x, top);
+            plot(left + x, top + 239);
+        }
+        for y in 0..240 {
+            plot(left, top + y);
+            plot(left + 255, top + y);
+        }
+    }
+
+    /// Top-left corner of the visible viewport within the 512x480 nametable space.
+    pub fn viewport_origin(&self) -> (usize, usize) {
+        let x = self.scroll_x as usize + if (self.ctrl & CTRL_NAMETABLE_X) != 0 { 256 } else { 0 };
+        let y = self.scroll_y as usize + if (self.ctrl & CTRL_NAMETABLE_Y) != 0 { 240 } else { 0 };
+        (x % 512, y % 480)
+    }
+
+    /// Which nametable the viewport's top-left corner currently sits in (0-3).
+    pub fn active_nametable(&self) -> usize {
+        let (x, y) = self.viewport_origin();
+        (y / 240) * 2 + (x / 256)
+    }
+
     /// Render an entire frame in one call.
     ///
     /// Rendering normally happens scanline by scanline as `tick` advances, which tests that want

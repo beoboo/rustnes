@@ -160,3 +160,50 @@ impl PixelDataProvider for PpuPixelAdapter {
         &self.description
     }
 }
+
+/// Displays all four nametables at once as a 512x480 image.
+///
+/// The NES has four logical nametables but only enough VRAM for two, so the other two are
+/// mirrors. Seeing all four together makes it obvious which hold content, how mirroring has
+/// aliased them, and where the visible viewport sits — which is the part that matters when a
+/// scroll goes wrong, and is invisible from the 256x240 output alone.
+pub struct NametableMapAdapter {
+    title: String,
+    description: String,
+    map_fn: Box<dyn Fn() -> Vec<u8>>,
+}
+
+impl NametableMapAdapter {
+    pub fn new<F>(map_fn: F) -> Self
+    where
+        F: Fn() -> Vec<u8> + 'static,
+    {
+        Self {
+            title: "Nametables".to_string(),
+            description: "All four nametables (512x480); the viewport is outlined in red".to_string(),
+            map_fn: Box::new(map_fn),
+        }
+    }
+}
+
+impl PixelDataProvider for NametableMapAdapter {
+    fn get_pixel_data(&self) -> Result<Vec<u8>> {
+        Ok((self.map_fn)())
+    }
+
+    fn width(&self) -> usize {
+        512
+    }
+
+    fn height(&self) -> usize {
+        480
+    }
+
+    fn title(&self) -> &str {
+        &self.title
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+}

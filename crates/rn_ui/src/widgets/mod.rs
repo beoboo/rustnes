@@ -33,6 +33,6 @@ pub use memory_viz::MemoryVisualizer;
 pub use memory_widget::MemoryWidget;
 pub use pattern_table_widget::PatternTableWidget;
 pub use pixel_display::PixelDisplay;
-pub use pixel_provider::{MemoryPixelAdapter, PixelDataProvider, PpuPixelAdapter};
+pub use pixel_provider::{MemoryPixelAdapter, NametableMapAdapter, PixelDataProvider, PpuPixelAdapter};
 pub use ppu_widget::PpuWidget;
 pub use waveform_widget::WaveformWidget;
