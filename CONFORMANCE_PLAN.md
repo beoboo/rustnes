@@ -120,6 +120,8 @@ directory.
 
 | ROM | Result |
 | --- | --- |
+| Donkey Kong (NROM) | **plays** |
+| Super Mario Bros 3 (MMC3) | **plays** |
 | `nestest` | **PASS** — 8991/8991 instructions, official *and* unofficial |
 | `instr_test-v5/official_only` | **PASS** — 16/16 |
 | `instr_test-v5/all_instrs` | **PASS** — 16/16 |

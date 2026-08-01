@@ -19,14 +19,19 @@ A book teaching how to build one is the eventual goal — in the spirit of *Craf
 | Memory / bus | Working — address decoding, component attachment, region map |
 | DMA | Working — OAM DMA controller with cycle stealing |
 | Input | Working — controllers, remappable key profiles |
-| PPU | Partial — scanline rendering, scrolling, mirroring and sprites; not cycle-accurate within a scanline |
+| PPU | Working — scanline rendering, scrolling, mirroring, sprites, sprite-zero hit, mask features; not cycle-accurate *within* a scanline |
 | Cartridge | Mappers 0, 1, 2, 4 and 7 (NROM, MMC1, UxROM, MMC3, AxROM), including MMC3's scanline IRQ |
 | APU | Working — all five channels, hardware non-linear mixing, resampling, output filters |
 | Debugger UI | Working — dockable egui workspace with per-subsystem widgets |
 
-Milestones 1–7 are reached. The next one is conformance rather than features: the emulator has
-never been checked against the community's test ROMs, and cannot yet load one — see
-[CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md).
+**Commercial games run.** Donkey Kong (NROM) and Super Mario Bros 3 (MMC3) both boot and are
+playable. `nestest` passes all 8991 instructions against its golden log, blargg's `instr_test-v5`
+passes 16/16 both official and unofficial, and `apu_test` passes 8/8.
+
+The one remaining structural gap is **cycle-level accuracy**: interrupts are serviced between
+instructions and the PPU renders whole scanlines, so anything measuring *when* something happens
+within an instruction or a scanline is approximated. See [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)
+for exactly which test ROMs that affects.
 
 ## Repository layout
 
