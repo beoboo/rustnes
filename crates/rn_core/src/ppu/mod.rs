@@ -722,6 +722,14 @@ impl Ppu {
                 continue;
             }
 
+            // The leftmost 8 pixels can be hidden independently ($2001 bit 1). Games use this to
+            // cover the partial tile that scrolling exposes at the screen edge — so ignoring the
+            // bit shows exactly the garbage the game was trying to hide.
+            if screen_x < 8 && (self.mask & MASK_SHOW_LEFT_BACKGROUND) == 0 {
+                // Still counts as background for sprite priority and sprite-zero purposes.
+                continue;
+            }
+
             let palette_address = 0x3F00 + (palette_index as u16 * 4) + pixel_value as u16;
             let rgb = self.palette_to_rgb(self.read_palette(palette_address));
 
@@ -780,6 +788,12 @@ impl Ppu {
 
                 // Skip transparent pixels (value 0)
                 if pixel_value == 0 {
+                    continue;
+                }
+
+                // Sprites have their own leftmost-8-pixels mask ($2001 bit 2), used for the same
+                // reason as the background's: hiding what scrolling exposes at the edge.
+                if x < 8 && (self.mask & MASK_SHOW_LEFT_SPRITES) == 0 {
                     continue;
                 }
 
@@ -979,6 +993,14 @@ impl Ppu {
 
     /// Convert a palette entry to RGB values
     fn palette_to_rgb(&self, palette_entry: u8) -> [u8; 3] {
+        // Greyscale mode ($2001 bit 0) forces every colour onto the palette's grey column. Games
+        // use it for fades and flashes, so ignoring it leaves those effects fully coloured.
+        let palette_entry = if (self.mask & MASK_GRAYSCALE) != 0 {
+            palette_entry & 0x30
+        } else {
+            palette_entry
+        };
+
         // Simple NES palette conversion
         // These are approximate RGB values for the NES palette
         match palette_entry & 0x3F {
@@ -2747,6 +2769,17 @@ mod tests {
         check_pixel(base_x + 11, base_y + 11, 0, 0, 255, "Tile 3 (bottom-right) pixel");
     }
 
+
+    /// The RGB of one pixel of the frame being drawn.
+    fn pixel_at(ppu: &Ppu, x: usize, y: usize) -> [u8; 3] {
+        let offset = (y * 256 + x) * 3;
+        [
+            ppu.working_frame[offset],
+            ppu.working_frame[offset + 1],
+            ppu.working_frame[offset + 2],
+        ]
+    }
+
     /// Build a PPU whose tile 1 is fully opaque, so overlap is easy to arrange.
     fn ppu_with_solid_tile() -> Ppu {
         let mut ppu = Ppu::new();
@@ -2767,7 +2800,11 @@ mod tests {
             ppu.write_palette(0x3F10 + entry, 0x30);
         }
 
-        ppu.mask = MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES;
+        // Include the left-column bits: these fixtures draw at x=0, which is clipped otherwise.
+        ppu.mask = MASK_SHOW_BACKGROUND
+            | MASK_SHOW_SPRITES
+            | MASK_SHOW_LEFT_BACKGROUND
+            | MASK_SHOW_LEFT_SPRITES;
         ppu
     }
 
@@ -2852,6 +2889,68 @@ mod tests {
             0,
             "a stale hit would make a game split at the wrong line"
         );
+    }
+
+
+    /// The leftmost 8 pixels can be hidden independently, which is how a game covers the partial
+    /// tile that scrolling exposes at the screen edge.
+    #[test]
+    fn the_left_column_mask_hides_background_pixels() {
+        let mut ppu = ppu_with_solid_tile();
+        // Opaque tiles in the first two columns, so pixel 8 has something to show as well.
+        ppu.write_ppu_memory(0x2000, 1);
+        ppu.write_ppu_memory(0x2001, 1);
+
+        // Rendering on, left column shown.
+        ppu.mask = MASK_SHOW_BACKGROUND | MASK_SHOW_LEFT_BACKGROUND;
+        ppu.begin_frame();
+        ppu.render_background_scanline(0);
+        let shown = pixel_at(&ppu, 0, 0);
+
+        // Same again with the left column hidden.
+        ppu.mask = MASK_SHOW_BACKGROUND;
+        ppu.begin_frame();
+        ppu.render_background_scanline(0);
+        let hidden = pixel_at(&ppu, 0, 0);
+
+        assert_ne!(shown, hidden, "hiding the left column should change pixel 0");
+
+        // Pixel 8 is outside the clipped region, so it renders either way.
+        assert_eq!(pixel_at(&ppu, 8, 0), shown, "only the first 8 pixels are clipped");
+    }
+
+    #[test]
+    fn the_left_column_mask_hides_sprite_pixels() {
+        let mut ppu = ppu_with_solid_tile();
+        ppu.oam[0] = 0; // Y, so the sprite starts on scanline 1
+        ppu.oam[1] = 1; // opaque tile
+        ppu.oam[2] = 0;
+        ppu.oam[3] = 0; // X = 0, entirely inside the clipped column
+
+        ppu.mask = MASK_SHOW_SPRITES;
+        ppu.begin_frame();
+        ppu.render_sprites_for_scanline(1);
+        let hidden = pixel_at(&ppu, 0, 1);
+
+        ppu.mask = MASK_SHOW_SPRITES | MASK_SHOW_LEFT_SPRITES;
+        ppu.begin_frame();
+        ppu.render_sprites_for_scanline(1);
+        let shown = pixel_at(&ppu, 0, 1);
+
+        assert_ne!(hidden, shown, "the sprite left-column mask should be honoured");
+    }
+
+    #[test]
+    fn greyscale_mode_forces_colours_onto_the_grey_column() {
+        let mut ppu = Ppu::new();
+
+        // $21 is a blue; in greyscale it becomes $20, the grey of the same brightness row.
+        let colour = ppu.palette_to_rgb(0x21);
+        ppu.mask = MASK_GRAYSCALE;
+        let grey = ppu.palette_to_rgb(0x21);
+
+        assert_eq!(grey, ppu.palette_to_rgb(0x20), "greyscale should select the grey column");
+        assert_ne!(colour, grey, "and should actually change the colour");
     }
 
 }
