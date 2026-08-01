@@ -455,9 +455,12 @@ impl Ppu {
             self.frame_count
         );
 
-        // Clear the frame buffer
-        for pixel in self.frame_buffer.iter_mut() {
-            *pixel = 0;
+        // Clear to the backdrop colour at $3F00, which is what the hardware shows wherever
+        // nothing else is drawn. Clearing to black instead makes every "empty" area the wrong
+        // colour on any game that sets a non-black backdrop.
+        let backdrop = self.palette_to_rgb(self.read_palette(0x3F00));
+        for pixel in self.frame_buffer.chunks_exact_mut(3) {
+            pixel.copy_from_slice(&backdrop);
         }
 
         // Clear the background pixel buffer
@@ -494,15 +497,25 @@ impl Ppu {
                 let nt_addr = 0x2000 + tile_y * 32 + tile_x;
                 let tile_id = self.read_ppu_memory(nt_addr as u16);
 
-                // Skip tile 0 (usually transparent/empty)
-                if tile_id == 0 {
-                    continue;
-                }
+                // Which half of CHR the background comes from is selected by PPUCTRL bit 4.
+                // Ignoring it reads every tile's graphics from the wrong half, which renders as
+                // uniform noise rather than the intended image.
+                let pattern_base: u16 = if (self.ctrl & CTRL_BACKGROUND_PATTERN) != 0 { 256 } else { 0 };
+
+                // Palette for this tile, from the attribute table.
+                //
+                // One attribute byte covers a 32x32 pixel area (4x4 tiles) and holds four 2-bit
+                // palette indices, one per 16x16 quadrant. Hardcoding palette 0 instead — as this
+                // renderer used to — makes every tile on screen the same four colours.
+                let attr_addr = 0x23C0 + (tile_y / 4) * 8 + (tile_x / 4);
+                let attr_byte = self.read_ppu_memory(attr_addr as u16);
+                let quadrant_shift = ((tile_y & 2) << 1) | (tile_x & 2);
+                let palette_index = (attr_byte >> quadrant_shift) & 0x03;
 
                 // Get the pixel data for this tile
                 if let Some(cart) = &self.cartridge {
                     // Get all the pixel data for this tile
-                    let pixels = cart.get_tile_pixels(tile_id as u16);
+                    let pixels = cart.get_tile_pixels(tile_id as u16 + pattern_base);
 
                     // Render each pixel in the tile
                     for y in 0..8 {
@@ -530,11 +543,8 @@ impl Ppu {
                                 self.background_pixels[bg_idx] = pixel_value;
                             }
 
-                            // For now, use attribute table 0 (first palette) for all tiles
-                            let palette_index = 0;
-
                             // Calculate palette address: $3F00 + (palette_index * 4) + pixel_value
-                            let palette_addr = 0x3F00 + (palette_index * 4) as u16 + pixel_value as u16;
+                            let palette_addr = 0x3F00 + (palette_index as u16 * 4) + pixel_value as u16;
 
                             // Read the color from the palette
                             let color_index = self.read_palette(palette_addr);
@@ -1302,9 +1312,12 @@ impl Ppu {
     /// Direct test method to write a visible pattern to the frame buffer
     /// This bypasses all PPU rendering logic and directly sets pixels
     pub fn write_test_pattern(&mut self) {
-        // Clear the frame buffer
-        for pixel in self.frame_buffer.iter_mut() {
-            *pixel = 0;
+        // Clear to the backdrop colour at $3F00, which is what the hardware shows wherever
+        // nothing else is drawn. Clearing to black instead makes every "empty" area the wrong
+        // colour on any game that sets a non-black backdrop.
+        let backdrop = self.palette_to_rgb(self.read_palette(0x3F00));
+        for pixel in self.frame_buffer.chunks_exact_mut(3) {
+            pixel.copy_from_slice(&backdrop);
         }
 
         // Draw a bright white cross in the center of the screen
@@ -1369,9 +1382,12 @@ impl Ppu {
     /// Direct test method to write a sprite to OAM and render it
     /// This bypasses most of the sprite rendering pipeline for testing
     pub fn write_test_sprite(&mut self) {
-        // Clear the frame buffer
-        for pixel in self.frame_buffer.iter_mut() {
-            *pixel = 0;
+        // Clear to the backdrop colour at $3F00, which is what the hardware shows wherever
+        // nothing else is drawn. Clearing to black instead makes every "empty" area the wrong
+        // colour on any game that sets a non-black backdrop.
+        let backdrop = self.palette_to_rgb(self.read_palette(0x3F00));
+        for pixel in self.frame_buffer.chunks_exact_mut(3) {
+            pixel.copy_from_slice(&backdrop);
         }
 
         // Set up a test sprite in OAM
