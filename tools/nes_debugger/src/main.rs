@@ -171,6 +171,13 @@ struct NesDebugger {
     emulated_fps: f32,
     repaint_fps: f32,
 
+    /// Repaints per emulated frame, when the display's rate is a clean multiple of 60.
+    ///
+    /// Zero means no lock has been established and the wall clock is used instead.
+    repaints_per_frame: u32,
+    /// Repaints since the last emulated frame, for the locked cadence.
+    repaints_since_frame: u32,
+
     /// When the next emulated frame is due.
     ///
     /// Emulation is paced by the wall clock rather than by repaints. A ProMotion display repaints
@@ -623,6 +630,8 @@ impl NesDebugger {
             audio_controls,
             audio_running: false,
             next_frame_at: std::time::Instant::now(),
+            repaints_per_frame: 0,
+            repaints_since_frame: 0,
             fps_window_start: std::time::Instant::now(),
             frames_in_window: 0,
             repaints_in_window: 0,
@@ -733,6 +742,22 @@ impl NesDebugger {
         self.emulated_fps = self.frames_in_window as f32 / seconds;
         self.repaint_fps = self.repaints_in_window as f32 / seconds;
 
+        // If the display refreshes at a clean multiple of the NES's rate, lock emulation to it.
+        //
+        // Pacing by the wall clock produces the right *average* rate, but the display refreshes on
+        // its own schedule: at 120 Hz a frame should occupy exactly two refreshes, and because
+        // 60.0988 is not exactly half of 120 it occasionally occupies one or three instead. That
+        // beat is visible as periodic judder even though the average is correct. Counting refreshes
+        // instead makes every frame occupy the same number of them.
+        let ratio = self.repaint_fps / 60.0;
+        let rounded = ratio.round();
+        self.repaints_per_frame = if (1.0..=4.0).contains(&rounded) && (ratio - rounded).abs() < 0.15 {
+            rounded as u32
+        } else {
+            // An unlocked or erratic repaint rate has no cadence to follow; fall back to time.
+            0
+        };
+
         self.fps_window_start = std::time::Instant::now();
         self.frames_in_window = 0;
         self.repaints_in_window = 0;
@@ -746,6 +771,24 @@ impl NesDebugger {
     /// visible as animation jumping ahead and freezing. Deciding by elapsed time instead makes the
     /// rate independent of the display.
     fn frames_due(&mut self) -> u32 {
+        // Prefer the display's cadence when it has one, so each frame occupies the same number of
+        // refreshes and there is no beat against the wall clock.
+        if self.repaints_per_frame > 0 {
+            self.repaints_since_frame += 1;
+            if self.repaints_since_frame < self.repaints_per_frame {
+                return 0;
+            }
+            self.repaints_since_frame = 0;
+
+            // Keep the wall clock aligned, so falling back mid-run does not produce a burst.
+            self.next_frame_at = std::time::Instant::now() + NTSC_FRAME_PERIOD;
+
+            if self.audio_ahead() {
+                return 0;
+            }
+            return 1;
+        }
+
         let now = std::time::Instant::now();
         if now < self.next_frame_at {
             return 0;
@@ -765,14 +808,20 @@ impl NesDebugger {
             self.next_frame_at = now + NTSC_FRAME_PERIOD;
         }
 
-        // The audio buffer is now only a safety valve: if it is nearly full the emulator is ahead
-        // of the sound card despite the clock, and another frame would just be dropped samples.
-        let capacity = self.audio_controls.capacity();
-        if self.audio_running && capacity > 0 && self.audio_controls.queued() > capacity * 9 / 10 {
+        if self.audio_ahead() {
             return 0;
         }
 
         frames
+    }
+
+    /// Whether the emulator is already ahead of the sound card.
+    ///
+    /// A safety valve only: at this point another frame's samples would be dropped rather than
+    /// played, so running it would gain nothing and cost accuracy.
+    fn audio_ahead(&self) -> bool {
+        let capacity = self.audio_controls.capacity();
+        self.audio_running && capacity > 0 && self.audio_controls.queued() > capacity * 9 / 10
     }
 
 }
