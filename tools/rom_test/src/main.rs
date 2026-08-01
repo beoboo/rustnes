@@ -16,6 +16,7 @@
 //! without ROMs stays green.
 
 mod blargg;
+mod frame;
 mod nestest;
 
 use std::path::{Path, PathBuf};
@@ -60,6 +61,24 @@ enum Command {
         budget: usize,
     },
 
+    /// Run a ROM and capture what the PPU drew
+    Frame {
+        /// Path to the .nes file
+        rom: PathBuf,
+
+        /// Video frames to run before capturing
+        #[arg(long, default_value_t = 60)]
+        frames: usize,
+
+        /// Write the captured frame as a PPM image
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+
+        /// Print the frame as ASCII, for judging it in a terminal
+        #[arg(long)]
+        ascii: bool,
+    },
+
     /// Run every .nes file under a directory and summarise
     Suite {
         /// Directory to search, recursively
@@ -77,6 +96,7 @@ fn main() -> Result<()> {
     match args.command {
         Command::Nestest { rom, log, limit } => run_nestest(&rom, &log, limit),
         Command::Run { rom, budget } => run_one(&rom, budget),
+        Command::Frame { rom, frames, out, ascii } => run_frame(&rom, frames, out.as_deref(), ascii),
         Command::Suite { directory, budget } => run_suite(&directory, budget),
     }
 }
@@ -130,6 +150,38 @@ fn run_one(rom: &Path, budget: usize) -> Result<()> {
     } else {
         std::process::exit(1);
     }
+}
+
+fn run_frame(rom: &Path, frames: usize, out: Option<&Path>, ascii: bool) -> Result<()> {
+    if missing(rom, "ROM") {
+        return Ok(());
+    }
+
+    println!("Running {} for {frames} frames\n", rom.display());
+    let capture = frame::capture(rom, frames)?;
+
+    if let Some(reason) = &capture.stopped {
+        println!("  WARNING  {reason}");
+    }
+
+    println!("  instructions      {}", capture.instructions);
+    println!("  distinct colours  {}", capture.distinct_colours);
+    println!("  coverage          {:.1}%", capture.coverage * 100.0);
+
+    if capture.distinct_colours <= 1 {
+        println!("  BLANK — the PPU drew a single flat colour, so nothing was rendered");
+    }
+
+    if ascii {
+        println!("\n{}", frame::to_ascii(&capture.pixels, 64, 30));
+    }
+
+    if let Some(path) = out {
+        frame::write_ppm(path, &capture.pixels)?;
+        println!("\nWrote {}", path.display());
+    }
+
+    Ok(())
 }
 
 fn run_suite(directory: &Path, budget: usize) -> Result<()> {

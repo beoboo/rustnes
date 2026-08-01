@@ -161,6 +161,27 @@ Bugs these found, none of which the unit tests could see:
 `nestest` is the right first target: it is self-contained, needs no PPU, and its golden log turns
 "something is wrong somewhere" into "line 4711, register X differs".
 
+### Where the PPU actually stands
+
+`rom_test frame` runs a ROM headlessly and reports what the PPU drew — distinct colours, coverage,
+and an optional ASCII or PPM rendering. Running it against real ROMs gives a clearer answer than
+the test suites do:
+
+| ROM | Result |
+| --- | --- |
+| `nestest` | renders its results screen — text is legible in the ASCII view |
+| `blargg_litewall` | 4 colours, 52% coverage — draws real content |
+| `full_palette`, `240pee`, `scanline` | **blank**, despite enabling rendering |
+
+The pattern is consistent with the architecture: **the PPU renders a whole frame at once**, at the
+frame boundary, rather than scanline by scanline. A static screen therefore comes out right, and
+anything that changes state mid-frame does not. `full_palette` displays all 64 colours by
+rewriting the palette every scanline; sampled once per frame it can only ever be flat — which is
+exactly what it produces.
+
+That makes scanline-based rendering, not any individual PPU bug, the next structural piece of work,
+and it is the same change the timing test ROMs below need.
+
 ### Tier 2 — PPU
 
 | ROM | What it proves |

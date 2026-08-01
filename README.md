@@ -15,11 +15,11 @@ A book teaching how to build one is the eventual goal — in the spirit of *Craf
 
 | Subsystem | State |
 | --- | --- |
-| 6502 CPU | Partial — **all 56** official instructions, 128 of 151 opcodes; no interrupts |
+| 6502 CPU | Working — **nestest passes 8991/8991**; 231 of 256 opcodes; NMI/IRQ at instruction granularity |
 | Memory / bus | Working — address decoding, component attachment, region map |
 | DMA | Working — OAM DMA controller with cycle stealing |
 | Input | Working — controllers, remappable key profiles |
-| PPU | Partial — pattern tables, palettes, background and sprite rendering |
+| PPU | Partial — renders whole frames, not scanlines, so mid-frame effects do not work |
 | Cartridge | Partial — `.nes` files load and boot from the reset vector; no mapper layer yet |
 | APU | Working — all five channels, hardware non-linear mixing, resampling, output filters |
 | Debugger UI | Working — dockable egui workspace with per-subsystem widgets |
@@ -38,7 +38,8 @@ crates/
   rn_ui/       egui widgets: cpu, ppu, memory, pattern table, disasm, audio, waveform, ...
 tools/
   apu_probe/        Headless audio harness — run a program, measure/save what the APU produced
-  rom_test/         Headless NES test-ROM runner (nestest log-diff, blargg $6000 protocol)
+  rom_test/         Headless NES test-ROM runner (nestest log-diff, blargg $6000 protocol,
+                    frame capture to PPM/ASCII)
   nes_asm/          Command-line 6502 assembler
   nes_debugger/     The main application — full dockable debugger workspace
   waveform_player/  Standalone oscillator + waveform-visualizer playground (no emulation)
@@ -68,6 +69,7 @@ cargo run -p apu_probe -- run pulse --out /tmp/a.wav     # capture one to a WAV
 
 cargo run -p rom_test -- nestest roms/nestest.nes roms/nestest.log
 cargo run -p rom_test -- suite roms/                     # every .nes under a directory
+cargo run -p rom_test -- frame game.nes --ascii          # what the PPU drew, in the terminal
 ```
 
 Test ROMs are not distributed here (see [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)); `rom_test`
