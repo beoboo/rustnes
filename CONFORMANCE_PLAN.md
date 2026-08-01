@@ -40,7 +40,7 @@ Measured, not estimated:
 | Interrupts (NMI / IRQ / RTI) | none | `RTI` exists; **no NMI or IRQ delivery** |
 | PRG-ROM loading from `.nes` | none — header parsed, PRG *skipped* | **loads and boots from the reset vector** |
 | Cartridge PRG-RAM (`$6000-$7FFF`) | unmapped | **mapped** |
-| Mappers | none | **0 (NROM), 2 (UxROM), 4 (MMC3)** with MMC3 scanline IRQ |
+| Mappers | none | **0, 1, 2, 4, 7** (NROM, MMC1, UxROM, MMC3, AxROM) with MMC3 scanline IRQ |
 | Test ROM harness | none | **`tools/rom_test`** |
 
 The remaining 23 opcodes are addressing-mode gaps on instructions that already exist, not missing

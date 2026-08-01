@@ -370,6 +370,13 @@ pub enum Mirroring {
     /// $2000/$2800 share, $2400/$2C00 share — used by games that scroll horizontally.
     #[default]
     Vertical,
+    /// All four map to the first physical table.
+    ///
+    /// Mappers that can switch mirroring at runtime offer this; a game with no scrolling uses it
+    /// to keep both tables free for other purposes.
+    SingleScreenLower,
+    /// All four map to the second physical table.
+    SingleScreenUpper,
 }
 
 /// Struct to hold processed sprite data for rendering
@@ -1414,6 +1421,8 @@ impl Ppu {
         let physical = match self.mirroring {
             Mirroring::Horizontal => table / 2,
             Mirroring::Vertical => table % 2,
+            Mirroring::SingleScreenLower => 0,
+            Mirroring::SingleScreenUpper => 1,
         };
 
         physical * 0x0400 + index

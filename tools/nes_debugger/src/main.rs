@@ -419,6 +419,12 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                             rn_core::ppu::Mirroring::Vertical => {
                                 "Vertical mirroring: 0/2 share memory, 1/3 share memory"
                             },
+                            rn_core::ppu::Mirroring::SingleScreenLower => {
+                                "Single-screen (lower): all four show the same table"
+                            },
+                            rn_core::ppu::Mirroring::SingleScreenUpper => {
+                                "Single-screen (upper): all four show the same table"
+                            },
                         });
                         ui.add_space(4.0);
 
