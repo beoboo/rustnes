@@ -13,6 +13,10 @@ use rn_core::{
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AudioStats {
     pub running: bool,
+    /// Emulated frames per second; should sit at ~60 for NTSC.
+    pub emulated_fps: f32,
+    /// UI repaints per second, which is the display's rate and unrelated to the above.
+    pub repaint_fps: f32,
     pub sample_rate: f32,
     pub queued: usize,
     pub capacity: usize,
@@ -51,6 +55,19 @@ impl AudioWidget {
                 ui.label("Stream paused");
                 return;
             }
+
+            // Emulation should hold ~60 regardless of the display's rate. A gap between these two
+            // is expected; emulation drifting from 60 is not.
+            ui.horizontal(|ui| {
+                let off_rate = (stats.emulated_fps - 60.0).abs() > 3.0;
+                ui.label("Emulated:");
+                ui.colored_label(
+                    if off_rate { egui::Color32::YELLOW } else { egui::Color32::GRAY },
+                    format!("{:.1} fps", stats.emulated_fps),
+                );
+                ui.separator();
+                ui.label(format!("Repaints: {:.0} fps", stats.repaint_fps));
+            });
 
             ui.label(format!("Device rate: {:.0} Hz", stats.sample_rate));
             ui.label(format!("Buffered: {} / {} samples", stats.queued, stats.capacity));

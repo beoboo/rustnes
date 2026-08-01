@@ -10,6 +10,14 @@ pub struct PixelDisplay {
     pixel_size: f32, // Size of each pixel
     zoom: f32,       // Zoom level
     show_grid: bool, // Whether to show grid lines
+
+    /// The frame, uploaded once per repaint and drawn as a single image.
+    ///
+    /// This used to emit one filled rectangle per pixel: 61,440 quads per repaint for a 256x240
+    /// screen, and over seven million a second on a 120 Hz display. That is far more than the UI
+    /// can sustain, so repaints became irregular and the picture stuttered no matter how precisely
+    /// emulation was paced. A texture makes it one quad.
+    texture: Option<egui::TextureHandle>,
 }
 
 impl PixelDisplay {
@@ -19,6 +27,7 @@ impl PixelDisplay {
             pixel_size: 2.0, // Smaller default for more practical display sizes
             zoom: 1.0,
             show_grid: true,
+            texture: None,
         }
     }
 
@@ -28,6 +37,7 @@ impl PixelDisplay {
             pixel_size,
             zoom,
             show_grid,
+            texture: None,
         }
     }
 
@@ -50,48 +60,48 @@ impl PixelDisplay {
         let (rect, response) = ui.allocate_exact_size(display_size, Sense::click_and_drag());
 
         if ui.is_rect_visible(rect) {
+            // Get pixel data - it's already in RGB format (3 bytes per pixel)
+            let pixel_data = provider.get_pixel_data()?;
+
+            let expected = width * height * 3;
+            if pixel_data.len() >= expected {
+                let image = egui::ColorImage::from_rgb([width, height], &pixel_data[..expected]);
+
+                // Nearest-neighbour, so scaling keeps the hard pixel edges the NES actually has
+                // rather than blurring them.
+                let options = egui::TextureOptions::NEAREST;
+
+                match &mut self.texture {
+                    Some(texture) => texture.set(image, options),
+                    None => {
+                        self.texture = Some(ui.ctx().load_texture("pixel_display", image, options));
+                    },
+                }
+            }
+
             let painter = ui.painter();
 
             // Draw background
             painter.rect_filled(rect, 0.0, egui::Color32::BLACK);
 
-            // Get pixel data - it's already in RGB format (3 bytes per pixel)
-            let pixel_data = provider.get_pixel_data()?;
-
-            // Draw pixels
-            for y in 0..height {
-                for x in 0..width {
-                    let idx = (y * width + x) * 3;
-                    if idx + 2 < pixel_data.len() {
-                        // Create color from RGB values
-                        let color = egui::Color32::from_rgb(pixel_data[idx], pixel_data[idx + 1], pixel_data[idx + 2]);
-
-                        // Calculate pixel rectangle
-                        let pixel_rect = Rect::from_min_size(
-                            rect.min
-                                + Vec2::new(
-                                    x as f32 * self.pixel_size * self.zoom,
-                                    y as f32 * self.pixel_size * self.zoom,
-                                ),
-                            Vec2::splat(self.pixel_size * self.zoom),
-                        );
-
-                        // Draw the pixel
-                        painter.rect_filled(pixel_rect, 0.0, color);
-                    }
-                }
+            if let Some(texture) = &self.texture {
+                painter.image(
+                    texture.id(),
+                    rect,
+                    Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
             }
 
-            // Draw grid lines if enabled and pixels are large enough
+            // Grid lines are a debugging aid, and only legible when pixels are large. They are
+            // drawn over the image rather than between pixels.
             if self.show_grid && self.pixel_size * self.zoom > 4.0 {
-                // Vertical grid lines
                 for x in 0..=width {
                     let start = rect.min + Vec2::new(x as f32 * self.pixel_size * self.zoom, 0.0);
                     let end = start + Vec2::new(0.0, display_size.y);
                     painter.line_segment([start, end], (1.0, egui::Color32::DARK_GRAY));
                 }
 
-                // Horizontal grid lines
                 for y in 0..=height {
                     let start = rect.min + Vec2::new(0.0, y as f32 * self.pixel_size * self.zoom);
                     let end = start + Vec2::new(display_size.x, 0.0);

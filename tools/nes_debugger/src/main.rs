@@ -161,6 +161,16 @@ struct NesDebugger {
     /// Whether the audio stream is running; emulation paces itself against it when it is.
     audio_running: bool,
 
+    /// Emulated and repaint rates, measured over the last second.
+    ///
+    /// If emulation reads ~60 and the picture still stutters, the problem is in presentation
+    /// rather than pacing — which is a different place to look, and worth knowing before guessing.
+    fps_window_start: std::time::Instant,
+    frames_in_window: u32,
+    repaints_in_window: u32,
+    emulated_fps: f32,
+    repaint_fps: f32,
+
     /// When the next emulated frame is due.
     ///
     /// Emulation is paced by the wall clock rather than by repaints. A ProMotion display repaints
@@ -613,6 +623,11 @@ impl NesDebugger {
             audio_controls,
             audio_running: false,
             next_frame_at: std::time::Instant::now(),
+            fps_window_start: std::time::Instant::now(),
+            frames_in_window: 0,
+            repaints_in_window: 0,
+            emulated_fps: 0.0,
+            repaint_fps: 0.0,
             waveform_visualizer: waveform,
             system,
             key_mapping_manager,
@@ -696,6 +711,8 @@ impl NesDebugger {
     fn audio_stats(&self) -> AudioStats {
         AudioStats {
             running: self.audio_running,
+            emulated_fps: self.emulated_fps,
+            repaint_fps: self.repaint_fps,
             sample_rate: self.audio_output.sample_rate(),
             queued: self.audio_controls.queued(),
             capacity: self.audio_controls.capacity(),
@@ -703,6 +720,24 @@ impl NesDebugger {
             underruns: self.audio_controls.underruns(),
             dropped: self.audio_controls.dropped(),
         }
+    }
+
+    /// Update the emulated and repaint rates once a second.
+    fn measure_rates(&mut self) {
+        self.repaints_in_window += 1;
+
+        let elapsed = self.fps_window_start.elapsed();
+        if elapsed < std::time::Duration::from_secs(1) {
+            return;
+        }
+
+        let seconds = elapsed.as_secs_f32();
+        self.emulated_fps = self.frames_in_window as f32 / seconds;
+        self.repaint_fps = self.repaints_in_window as f32 / seconds;
+
+        self.fps_window_start = std::time::Instant::now();
+        self.frames_in_window = 0;
+        self.repaints_in_window = 0;
     }
 
     /// How many emulated frames are due, by the wall clock.
@@ -805,6 +840,8 @@ impl App for NesDebugger {
             self.disasm_widget.set_program_info(0x8000, 0);
         }
 
+        self.measure_rates();
+
         // Keep the audio stream in step with whether the emulator is actually running.
         //
         // This used to be toggled inside the Run button's handler, which meant any other route
@@ -825,6 +862,7 @@ impl App for NesDebugger {
                         break;
                     }
                 }
+                self.frames_in_window += frames;
             }
 
             // Ask to be woken when the next frame is due, rather than spinning at the display's
