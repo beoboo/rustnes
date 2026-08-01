@@ -449,6 +449,61 @@ impl AsmWidget {
         self.run_continuous_with_budget(system, None)
     }
 
+    /// Run until the PPU finishes exactly one frame.
+    ///
+    /// Emulation used to advance by a cycle budget sized from the audio buffer, which has no
+    /// relationship to frame boundaries: one call could cover two frames, so a completed frame was
+    /// published and replaced before the UI ever drew it — an animation visibly skipping — or
+    /// cover none, redisplaying the same frame. Advancing a whole frame per repaint keeps frames
+    /// and redraws one to one.
+    ///
+    /// Returns true if the emulator should keep running.
+    pub fn run_one_frame(&mut self, system: &mut NesSystem) -> bool {
+        if !self.continuous_run {
+            return false;
+        }
+
+        if system.state() == SystemState::Finished {
+            return self.run_continuous_with_budget(system, Some(0));
+        }
+
+        let start_frame = system.ppu().frame_count();
+
+        // Cap the work in case a frame never completes — a program that disables rendering still
+        // advances the PPU, but a wedged one should not hang the UI.
+        let cap = self.cycles_per_frame.max(29_780) * 3;
+        let mut cycles = 0usize;
+
+        while cycles < cap {
+            match system.step() {
+                Ok(step_cycles) => cycles += step_cycles.max(1) as usize,
+                Err(e) => {
+                    self.error_message = Some(format!("Error during continuous run: {}", e));
+                    self.continuous_run = false;
+                    return false;
+                },
+            }
+
+            if system.ppu().frame_count() != start_frame {
+                break;
+            }
+
+            if system.state() == SystemState::Finished {
+                break;
+            }
+        }
+
+        self.total_cycles_run += cycles;
+        if !self.no_cycle_limit && self.total_cycles_run >= self.max_cycles {
+            log::info!("Reached cycle limit of {} cycles", self.max_cycles);
+            self.continuous_run = false;
+            self.total_cycles_run = 0;
+            return false;
+        }
+
+        true
+    }
+
     /// Run a batch of cycles in continuous mode.
     ///
     /// `cycle_budget` is how many CPU cycles to execute this call. When `Some`, the caller is

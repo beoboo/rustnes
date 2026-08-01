@@ -701,45 +701,28 @@ impl NesDebugger {
         }
     }
 
-    /// How far the audio buffer has to be refilled, expressed in CPU cycles.
+    /// Whether to advance another frame this repaint.
     ///
-    /// This is what makes the sound card the master clock. The buffer drains at exactly the
-    /// device's sample rate, so topping it back up to a target level runs the emulator at exactly
-    /// the right speed — no drift, however irregularly the UI happens to repaint.
-    ///
-    /// Returns `None` when audio is not running, in which case the widget falls back to its own
-    /// wall-clock pacing so stepping and frame-advance still work.
-    fn audio_cycle_budget(&self) -> Option<usize> {
+    /// The sound card is still the clock: the buffer drains at exactly the device's rate, so
+    /// holding it near half full runs the emulator at the right speed. The difference is that it
+    /// now gates *whether* a frame runs rather than sizing an arbitrary slice of one, which is
+    /// what keeps frames and redraws aligned.
+    fn should_run_frame(&self) -> bool {
         if !self.audio_running {
-            return None;
+            // Without audio there is nothing to pace against, so follow the repaint rate.
+            return true;
         }
 
         let capacity = self.audio_controls.capacity();
         if capacity == 0 {
-            return None;
+            return true;
         }
 
-        // Aim to keep the buffer half full: enough slack to absorb a slow repaint without adding
-        // more latency than necessary.
-        let target = capacity / 2;
-        let queued = self.audio_controls.queued();
-        let deficit = target.saturating_sub(queued);
-        if deficit == 0 {
-            return Some(0);
-        }
-
-        let sample_rate = self.audio_output.sample_rate() as f64;
-        if sample_rate <= 0.0 {
-            return None;
-        }
-
-        let cycles = deficit as f64 * (rn_core::apu::CPU_CLOCK_RATE / sample_rate);
-
-        // Cap the batch so a long stall cannot turn into one enormous catch-up run that freezes
-        // the UI. Dropping the excess costs a glitch; blocking the event loop costs the app.
-        let max_batch = (rn_core::apu::CPU_CLOCK_RATE / 20.0) as usize; // ~50 ms of emulation
-        Some((cycles as usize).min(max_batch))
+        // Run unless the buffer is already comfortably ahead. A frame's worth of samples is about
+        // 1/60th of a second, so leaving that much headroom avoids overshooting into drops.
+        self.audio_controls.queued() < capacity * 3 / 4
     }
+
 }
 
 impl App for NesDebugger {
@@ -810,16 +793,18 @@ impl App for NesDebugger {
         // silence looked like an audio bug rather than a missing call.
         self.sync_audio_to_run_state();
 
-        // Run cycles if continuous mode is enabled in the AsmWidget
+        // Advance the emulator a whole frame at a time, so every frame the PPU completes is drawn
+        // exactly once. Sizing the work from the audio buffer instead meant a call could span two
+        // frames — publishing one that was replaced before it was ever displayed, which shows up
+        // as an animation skipping — or none, redisplaying the previous frame.
         if self.asm_widget.is_continuous_run() {
-            let budget = self.audio_cycle_budget();
-            let mut system = self.system.borrow_mut();
-
-            // Run a batch of cycles via the AsmWidget
-            if self.asm_widget.run_continuous_with_budget(&mut system, budget) {
-                // If still running, request a redraw for the next frame
-                ctx.request_repaint();
+            if self.should_run_frame() {
+                let mut system = self.system.borrow_mut();
+                self.asm_widget.run_one_frame(&mut system);
             }
+
+            // Keep redrawing while running, whether or not this repaint advanced a frame.
+            ctx.request_repaint();
         }
 
         // Top menu bar for show/hide controls
