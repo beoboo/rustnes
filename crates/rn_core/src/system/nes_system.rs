@@ -6,14 +6,38 @@ use super::{dma::DmaControllerWrapper, DmaController};
 use crate::{
     apu::{Apu, ApuWrapper},
     audio::SampleProducer,
-    cartridge::{Cartridge, Rom},
+    cartridge::{create_mapper, Cartridge, Mapper, Mirroring, Rom},
     cpu::{Cpu, CpuWrapper},
     errors::NesError,
     input::{ControllerHandlerWrapper, ControllerState},
     memory::{Addressable, Ram},
-    ppu::{Mirroring, Ppu, PpuWrapper},
+    ppu::{Ppu, PpuWrapper},
     system::Bus,
 };
+
+/// Cartridge space on the bus, backed by the ROM's mapper.
+///
+/// Replaces the RAM that used to stand in for `$8000..=$FFFF`. Writes there are not discarded
+/// stores to read-only memory — they are how a game drives its mapper, so they must reach it.
+#[derive(Debug)]
+struct CartridgeSpace {
+    mapper: Rc<RefCell<Box<dyn Mapper>>>,
+}
+
+impl Addressable for CartridgeSpace {
+    fn handles_address(&self, address: u16) -> bool {
+        address >= 0x8000
+    }
+
+    fn read_byte(&self, address: u16) -> Result<u8, NesError> {
+        Ok(self.mapper.borrow().read_prg(address))
+    }
+
+    fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
+        self.mapper.borrow_mut().write_prg(address, value);
+        Ok(())
+    }
+}
 
 /// The possible states of the NES system
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +71,12 @@ pub struct NesSystem {
 
     /// Error message if in Error state
     error_message: Option<String>,
+
+    /// The loaded cartridge's mapper, shared with the bus component that serves it.
+    mapper: Option<Rc<RefCell<Box<dyn Mapper>>>>,
+
+    /// The memory bus, retained so a cartridge can be attached after construction.
+    bus: Rc<RefCell<Bus>>,
 }
 
 impl NesSystem {
@@ -112,6 +142,8 @@ impl NesSystem {
             controller_handler,
             state: SystemState::Ready,
             error_message: None,
+            mapper: None,
+            bus,
         }
     }
 
@@ -170,23 +202,33 @@ impl NesSystem {
             return Err(NesError::MemoryAccessError(0x8000));
         }
 
-        for address in 0x8000..=0xFFFFu32 {
-            let address = address as u16;
-            self.cpu.write_byte(address, rom.read_prg(address))?;
-        }
-
-        if !rom.chr_rom.is_empty() {
-            self.load_chr_rom(&rom.chr_rom)?;
-        }
-
-        // The cartridge wires nametable mirroring, and it decides how a scrolled background wraps.
-        self.ppu.set_mirroring(if rom.header.mirroring {
+        let mirroring = if rom.header.mirroring {
             Mirroring::Vertical
         } else {
             Mirroring::Horizontal
-        });
+        };
 
-        let reset = rom.reset_vector();
+        // An unsupported mapper is reported rather than approximated: running a game with the
+        // wrong banking produces confusing nonsense instead of an obvious failure.
+        let mapper = create_mapper(rom.header.mapper, rom.prg_rom.clone(), rom.chr_rom.clone(), mirroring)
+            .ok_or_else(|| {
+                error!("Mapper {} is not implemented", rom.header.mapper);
+                NesError::MemoryAccessError(0x8000)
+            })?;
+
+        let mapper = Rc::new(RefCell::new(mapper));
+        self.mapper = Some(mapper.clone());
+
+        // Serve cartridge space from the mapper. Attached first so it takes precedence over the
+        // RAM region that previously stood in for it.
+        self.bus
+            .borrow_mut()
+            .attach_component_first(Box::new(CartridgeSpace { mapper: mapper.clone() }));
+
+        self.ppu.connect_mapper(mapper.clone());
+        self.ppu.set_mirroring(mapper.borrow().mirroring());
+
+        let reset = u16::from_le_bytes([mapper.borrow().read_prg(0xFFFC), mapper.borrow().read_prg(0xFFFD)]);
         self.cpu.set_pc(reset);
 
         let old_state = self.state;
@@ -294,9 +336,25 @@ impl NesSystem {
             self.apu.tick();
         }
 
-        // IRQ is level-triggered: the APU holds it for as long as its frame IRQ is pending, and
-        // reading $4015 is what clears it.
-        self.cpu.set_irq_line(self.apu.irq_pending());
+        // Scanline-counting mappers need to know how far down the frame we are. MMC3 uses this
+        // to fire partway through a frame, which is how a game keeps a status bar fixed while the
+        // playfield scrolls beneath it.
+        if let Some(mapper) = &self.mapper {
+            let scanlines = self.ppu.take_scanlines();
+            let mut mapper = mapper.borrow_mut();
+            for _ in 0..scanlines {
+                mapper.on_scanline();
+            }
+        }
+
+        // IRQ is level-triggered and shared: either the APU's frame counter or the cartridge's
+        // mapper can hold the line, and the CPU sees only the combination.
+        let mapper_irq = self
+            .mapper
+            .as_ref()
+            .map(|mapper| mapper.borrow().irq_pending())
+            .unwrap_or(false);
+        self.cpu.set_irq_line(self.apu.irq_pending() || mapper_irq);
 
         // Only check for BRK if CPU is active (not during DMA)
         if !dma_active {

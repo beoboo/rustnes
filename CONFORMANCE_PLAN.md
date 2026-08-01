@@ -40,14 +40,15 @@ Measured, not estimated:
 | Interrupts (NMI / IRQ / RTI) | none | `RTI` exists; **no NMI or IRQ delivery** |
 | PRG-ROM loading from `.nes` | none — header parsed, PRG *skipped* | **loads and boots from the reset vector** |
 | Cartridge PRG-RAM (`$6000-$7FFF`) | unmapped | **mapped** |
-| Mappers | none | none (header's mapper field parsed and ignored) |
+| Mappers | none | **0 (NROM), 2 (UxROM), 4 (MMC3)** with MMC3 scanline IRQ |
 | Test ROM harness | none | **`tools/rom_test`** |
 
 The remaining 23 opcodes are addressing-mode gaps on instructions that already exist, not missing
 instructions.
 
-**What still blocks a full pass:** interrupts (P3), and the mapper layer — cartridge space is
-currently backed by RAM, so writes there are accepted where hardware ignores them.
+**What still blocks a full pass:** cycle-level accuracy. Interrupts are polled between
+instructions and the PPU renders per scanline, so tests measuring exactly *when* something happens
+within an instruction or a scanline cannot pass.
 
 ## 2. The blocking prerequisites
 

@@ -33,6 +33,14 @@ impl Bus {
     ///
     /// Components are checked in the order they are attached, so the first
     /// component that claims an address will handle it.
+    /// Attach a component ahead of everything already attached.
+    ///
+    /// Lookup takes the first component claiming an address, so this is how a later arrival —
+    /// cartridge space, once a ROM is loaded — takes precedence over a placeholder.
+    pub fn attach_component_first(&mut self, component: Box<dyn Addressable>) {
+        self.components.insert(0, component);
+    }
+
     pub fn attach_component(&mut self, component: Box<dyn Addressable>) {
         self.components.push(component);
     }

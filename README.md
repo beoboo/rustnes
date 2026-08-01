@@ -20,7 +20,7 @@ A book teaching how to build one is the eventual goal — in the spirit of *Craf
 | DMA | Working — OAM DMA controller with cycle stealing |
 | Input | Working — controllers, remappable key profiles |
 | PPU | Partial — scanline rendering, scrolling, mirroring and sprites; not cycle-accurate within a scanline |
-| Cartridge | Partial — `.nes` files load and boot from the reset vector; no mapper layer yet |
+| Cartridge | Partial — mappers 0 (NROM), 2 (UxROM) and 4 (MMC3), including MMC3's scanline IRQ |
 | APU | Working — all five channels, hardware non-linear mixing, resampling, output filters |
 | Debugger UI | Working — dockable egui workspace with per-subsystem widgets |
 

@@ -4,7 +4,11 @@ use std::{
     rc::Rc,
 };
 
-use crate::{cartridge::Cartridge, errors::NesError, memory::Addressable};
+use crate::{
+    cartridge::{Cartridge, Mapper},
+    errors::NesError,
+    memory::Addressable,
+};
 
 // PPUCTRL ($2000) bits
 pub const CTRL_NAMETABLE_X: u8 = 0x01; // 0: Select nametable at $2000; 1: Select nametable at $2400
@@ -194,9 +198,20 @@ impl PpuWrapper {
         self.ppu.borrow().mirroring
     }
 
+    /// Connect the cartridge's mapper, so pattern-table reads follow CHR banking.
+    pub fn connect_mapper(&self, mapper: Rc<RefCell<Box<dyn Mapper>>>) {
+        self.ppu.borrow_mut().mapper = Some(mapper);
+    }
+
     /// Set the nametable mirroring, from the cartridge header.
     pub fn set_mirroring(&self, mirroring: Mirroring) {
         self.ppu.borrow_mut().mirroring = mirroring;
+    }
+
+    /// Take the count of visible scanlines finished since the last call.
+    pub fn take_scanlines(&self) -> u8 {
+        let mut ppu = self.ppu.borrow_mut();
+        std::mem::take(&mut ppu.scanlines_completed)
     }
 
     /// Take a pending vblank NMI, if one was raised since the last call.
@@ -310,8 +325,20 @@ pub struct Ppu {
     /// Set when vblank begins with NMI enabled; cleared when the system collects it.
     nmi_raised: bool,
 
+    /// Visible scanlines finished since the system last collected them.
+    ///
+    /// Scanline-counting mappers such as MMC3 drive their IRQ from this, which is how a game
+    /// splits the screen — SMB3's status bar is exactly that.
+    scanlines_completed: u8,
+
     /// Nametable layout, set from the cartridge header.
     mirroring: Mirroring,
+
+    /// The cartridge's mapper, when a ROM is loaded.
+    ///
+    /// CHR reads go through it so bank switching is visible to rendering; without this the PPU
+    /// would keep drawing whichever bank happened to be loaded first.
+    mapper: Option<Rc<RefCell<Box<dyn Mapper>>>>,
 
     scanline: i16,            // Current scanline (-1 to 261)
     cycle: u16,               // Current cycle (0 to 340)
@@ -383,7 +410,9 @@ impl Ppu {
             write_toggle: Cell::new(false),
             frame_count: 0,
             nmi_raised: false,
+            scanlines_completed: 0,
             mirroring: Mirroring::default(),
+            mapper: None,
             scanline: -1, // Start at pre-render scanline
             cycle: 0,
 
@@ -426,6 +455,7 @@ impl Ppu {
             // effect at that point in the frame rather than one sample taken for all 240 lines.
             if (0..240).contains(&self.scanline) {
                 let y = self.scanline as usize;
+                self.scanlines_completed = self.scanlines_completed.saturating_add(1);
                 self.render_background_scanline(y);
                 // Sprites go on top, and are evaluated for this line specifically — so OAM
                 // changes made partway down a frame take effect from that line on, as on hardware.
@@ -529,6 +559,23 @@ impl Ppu {
         self.frame_buffer.copy_from_slice(&self.working_frame);
     }
 
+    /// One row of a tile's pixels, fetched through PPU memory.
+    ///
+    /// Goes through `read_ppu_memory` rather than the cartridge directly, so CHR bank switching is
+    /// reflected: reading the cartridge would always return whichever bank was loaded first.
+    fn tile_row_pixels(&self, tile_index: u16, row: usize) -> [u8; 8] {
+        let address = tile_index * 16 + row as u16;
+        let plane0 = self.read_ppu_memory(address);
+        let plane1 = self.read_ppu_memory(address + 8);
+
+        let mut pixels = [0u8; 8];
+        for (bit, pixel) in pixels.iter_mut().enumerate() {
+            let shift = 7 - bit;
+            *pixel = ((plane0 >> shift) & 0x01) | (((plane1 >> shift) & 0x01) << 1);
+        }
+        pixels
+    }
+
     /// Render one visible scanline of the background.
     ///
     /// Per scanline rather than per frame, because the registers this reads — scroll position,
@@ -541,10 +588,7 @@ impl Ppu {
             return;
         }
 
-        let Some(cart) = self.cartridge.clone() else {
-            return;
-        };
-
+        // Rendering reads through PPU memory, so no cartridge handle is needed here.
         // Scroll is in pixels, and the nametable select supplies the high bit of each axis — so
         // the full coordinate space is 512x480 across the four logical nametables.
         let scroll_x = self.scroll_x as usize + if (self.ctrl & CTRL_NAMETABLE_X) != 0 { 256 } else { 0 };
@@ -575,8 +619,8 @@ impl Ppu {
             let quadrant_shift = ((tile_row & 2) << 1) | (tile_column & 2);
             let palette_index = (attribute >> quadrant_shift) & 0x03;
 
-            let pixels = cart.get_tile_pixels(tile_id as u16 + pattern_base);
-            let pixel_value = pixels[pixel_row * 8 + pixel_column];
+            let pixels = self.tile_row_pixels(tile_id as u16 + pattern_base, pixel_row);
+            let pixel_value = pixels[pixel_column];
 
             let index = screen_y * 256 + screen_x;
             if index < self.background_pixels.len() {
@@ -765,8 +809,9 @@ impl Ppu {
             // Get the tile data for this scanline
             let mut tile_data = [0u8; 8];
 
-            // If we have a cartridge connected, get the data from it
-            if let Some(cart) = &self.cartridge {
+            // Fetch the sprite's row for this scanline through PPU memory, which follows CHR
+            // banking. Guarded because a bare PPU with no graphics source has nothing to draw.
+            if self.mapper.is_some() || self.cartridge.is_some() {
                 // In 8x16 mode the sprite pattern-table select in PPUCTRL is ignored: bit 0 of the
                 // tile index chooses the table instead, and the sprite spans that tile and the one
                 // after it. Using the PPUCTRL bit here would read the wrong half of CHR entirely.
@@ -787,8 +832,8 @@ impl Ppu {
 
                 // Get the two bit planes for this row (pattern_y_offset)
                 // Each row takes 1 byte in each bit plane
-                let plane0 = cart.read_pattern_table(tile_addr + pattern_y_offset as u16);
-                let plane1 = cart.read_pattern_table(tile_addr + pattern_y_offset as u16 + 8);
+                let plane0 = self.read_ppu_memory(tile_addr + pattern_y_offset as u16);
+                let plane1 = self.read_ppu_memory(tile_addr + pattern_y_offset as u16 + 8);
 
                 // Process each bit in the row
                 for bit in 0..8 {
@@ -922,10 +967,6 @@ impl Ppu {
             pixel.copy_from_slice(&backdrop);
         }
 
-        let Some(cart) = &self.cartridge else {
-            return image;
-        };
-
         let pattern_base: u16 = if (self.ctrl & CTRL_BACKGROUND_PATTERN) != 0 { 256 } else { 0 };
 
         for table in 0..4usize {
@@ -943,11 +984,9 @@ impl Ppu {
                     let quadrant_shift = ((tile_row & 2) << 1) | (tile_column & 2);
                     let palette_index = (attribute >> quadrant_shift) & 0x03;
 
-                    let pixels = cart.get_tile_pixels(tile_id as u16 + pattern_base);
-
                     for y in 0..8usize {
-                        for x in 0..8usize {
-                            let pixel_value = pixels[y * 8 + x];
+                        let pixels = self.tile_row_pixels(tile_id as u16 + pattern_base, y);
+                        for (x, &pixel_value) in pixels.iter().enumerate() {
                             if pixel_value == 0 {
                                 continue;
                             }
@@ -1286,7 +1325,12 @@ impl Ppu {
 
         match addr {
             0x0000..=0x1FFF => {
-                // Pattern tables (CHR ROM/RAM) - External
+                // Pattern tables. Through the mapper when a cartridge is loaded, so CHR bank
+                // switching is reflected; the Cartridge path remains for assembled test programs.
+                if let Some(mapper) = &self.mapper {
+                    return mapper.borrow().read_chr(addr);
+                }
+
                 if let Some(cart) = &self.cartridge {
                     // Get the data from the cartridge
                     cart.read_pattern_table(addr)

@@ -112,6 +112,77 @@ fn system_boots_from_the_reset_vector_and_executes_the_program() {
     );
 }
 
+/// A banked mapper's reset vector lives in the *last* PRG bank, which hardware fixes at $E000.
+///
+/// Mirroring the image from the start instead — as a mapperless loader does — reads the vector
+/// from the wrong bank entirely. Super Mario Bros 3 computed $FFFF that way and executed garbage.
+#[test]
+fn a_banked_rom_boots_from_the_last_bank() {
+    const BANKS: usize = 16; // 256 KB, as SMB3 has
+    let mut prg = vec![0u8; BANKS * 16 * 1024];
+
+    // A recognisable program at the start of the final bank, entered via the vector.
+    let entry = 0xC000u16;
+    let last_bank_start = prg.len() - 16 * 1024;
+    prg[last_bank_start..last_bank_start + 5].copy_from_slice(&[
+        0xA9, 0x37, // LDA #$37
+        0x8D, 0x00, 0x02, // STA $0200
+    ]);
+    let vector = prg.len() - 4;
+    prg[vector..vector + 2].copy_from_slice(&entry.to_le_bytes());
+
+    // Byte 0 of the *first* bank differs, so reading the vector from the wrong place is visible.
+    prg[0] = 0xFF;
+
+    let mut image = Vec::new();
+    image.extend_from_slice(b"NES\x1A");
+    image.push(BANKS as u8);
+    image.push(1);
+    image.extend_from_slice(&[0x40, 0x00]); // mapper 4 (MMC3), horizontal mirroring
+    image.extend_from_slice(&[0; 8]);
+    image.extend_from_slice(&prg);
+    image.extend_from_slice(&vec![0u8; 8 * 1024]);
+
+    let path = write_temp_rom("rn_mmc3_boot.nes", &image);
+    let rom = load_rom(&path).expect("loading the ROM");
+    assert_eq!(rom.header.mapper, 4);
+
+    let mut system = NesSystem::new();
+    system.load_rom(&rom).expect("loading into the system");
+
+    assert_eq!(
+        system.cpu().pc(),
+        entry,
+        "the reset vector must come from the last bank, which MMC3 fixes at $E000"
+    );
+
+    for _ in 0..10 {
+        system.step().expect("stepping");
+    }
+    assert_eq!(
+        system.cpu().read_byte(0x0200).expect("reading RAM"),
+        0x37,
+        "the program in the last bank should have run"
+    );
+}
+
+/// Cartridge space is not RAM: writes there drive the mapper, and must not corrupt the program.
+#[test]
+fn writes_to_cartridge_space_do_not_overwrite_the_program() {
+    let image = synthesise_rom(&[0xEA, 0xEA, 0xEA], 0x8000, 1);
+    let path = write_temp_rom("rn_rom_write.nes", &image);
+    let rom = load_rom(&path).expect("loading the ROM");
+
+    let mut system = NesSystem::new();
+    system.load_rom(&rom).expect("loading into the system");
+
+    let before = system.cpu().read_byte(0x8000).expect("reading");
+    system.cpu().write_byte(0x8000, 0x00).ok();
+    let after = system.cpu().read_byte(0x8000).expect("reading");
+
+    assert_eq!(before, after, "a write to cartridge space must not modify ROM contents");
+}
+
 #[test]
 fn rejects_a_file_that_is_not_an_ines_image() {
     let path = write_temp_rom("rn_not_a_rom.nes", b"this is not a ROM at all, not even close");

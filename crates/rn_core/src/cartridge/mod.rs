@@ -1,10 +1,15 @@
 mod loader;
+mod mapper;
 mod pattern_table;
 
 use std::path::Path;
 
 pub use loader::{load_chr_rom, load_rom, INesHeader, Rom, RomLoadError};
+pub use mapper::{create as create_mapper, Mapper};
 pub use pattern_table::PatternTable;
+
+// Re-exported so the mapper layer and the PPU agree on one Mirroring type.
+pub use crate::ppu::Mirroring;
 
 /// Basic NES cartridge implementation
 ///
