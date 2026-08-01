@@ -90,6 +90,11 @@ impl CpuWrapper {
         self.cpu.borrow_mut().set_irq_line(asserted);
     }
 
+    /// Whether the IRQ line is currently asserted.
+    pub fn irq_line(&self) -> bool {
+        self.cpu.borrow().irq_line()
+    }
+
     pub fn registers(&self) -> CpuRegisters {
         self.cpu.borrow().registers
     }

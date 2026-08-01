@@ -209,6 +209,9 @@ impl PpuWrapper {
     }
 
     /// Take the count of visible scanlines finished since the last call.
+    ///
+    /// Only counts while rendering is enabled, matching the pattern fetches a scanline-counting
+    /// mapper actually observes.
     pub fn take_scanlines(&self) -> u8 {
         let mut ppu = self.ppu.borrow_mut();
         std::mem::take(&mut ppu.scanlines_completed)
@@ -462,7 +465,16 @@ impl Ppu {
             // effect at that point in the frame rather than one sample taken for all 240 lines.
             if (0..240).contains(&self.scanline) {
                 let y = self.scanline as usize;
-                self.scanlines_completed = self.scanlines_completed.saturating_add(1);
+
+                // Only count a scanline while rendering is actually on.
+                //
+                // A scanline-counting mapper is really counting PPU pattern fetches, which stop
+                // when rendering is disabled. Counting regardless makes its IRQ fire during the
+                // rendering-off window a game uses to rewrite nametables — so the handler runs at
+                // a moment the game never planned for, with its banks in an unexpected state.
+                if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
+                    self.scanlines_completed = self.scanlines_completed.saturating_add(1);
+                }
                 self.render_background_scanline(y);
                 // Sprites go on top, and are evaluated for this line specifically — so OAM
                 // changes made partway down a frame take effect from that line on, as on hardware.
