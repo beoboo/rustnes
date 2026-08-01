@@ -188,6 +188,45 @@ impl NesSystem {
         Ok(())
     }
 
+    /// Advance every component other than the CPU by one CPU cycle.
+    ///
+    /// The PPU runs at three times the CPU's rate and the APU at the same rate, so one CPU cycle
+    /// is three PPU ticks and one APU tick. Interrupts and the mapper's scanline counter are
+    /// serviced here too, so they are noticed at cycle granularity rather than only between
+    /// instructions.
+    fn tick_cycle(&mut self) {
+        for _ in 0..3 {
+            self.ppu.tick();
+        }
+        self.apu.tick();
+
+        // The PPU's vblank NMI is edge-triggered: latched by the PPU, collected exactly once.
+        if self.ppu.take_nmi() {
+            self.cpu.request_nmi();
+        }
+
+        // Scanline-counting mappers count PPU pattern fetches, which is why the PPU reports only
+        // the scanlines it actually rendered.
+        if let Some(mapper) = &self.mapper {
+            let scanlines = self.ppu.take_scanlines();
+            if scanlines > 0 {
+                let mut mapper = mapper.borrow_mut();
+                for _ in 0..scanlines {
+                    mapper.on_scanline();
+                }
+            }
+        }
+
+        // IRQ is level-triggered and shared: the APU's frame counter and the cartridge's mapper
+        // can each hold it, and the CPU sees only the combination.
+        let mapper_irq = self
+            .mapper
+            .as_ref()
+            .map(|mapper| mapper.borrow().irq_pending())
+            .unwrap_or(false);
+        self.cpu.set_irq_line(self.apu.irq_pending() || mapper_irq);
+    }
+
     /// Load a complete iNES ROM and start execution at its reset vector.
     ///
     /// The PRG image is mirrored across `$8000..=$FFFF`, so a 16 KB NROM-128 cartridge appears at
@@ -315,46 +354,16 @@ impl NesSystem {
             return Err(NesError::MemoryAccessError(self.cpu.pc()));
         }
 
-        // Log PPU operation
-        debug!("Running PPU for {} cycles ({}×3)", cpu_cycles * 3, cpu_cycles);
-
-        // Run the PPU at 3x the CPU speed
-        for _ in 0..cpu_cycles * 3 {
-            self.ppu.tick();
-        }
-
-        // Deliver interrupts raised by this step's work.
+        // Advance the rest of the system in lockstep with the CPU, one CPU cycle at a time.
         //
-        // The PPU's vblank NMI and the APU's frame IRQ are both maintained by their components;
-        // the system owns the wiring to the CPU, which is what makes them actually fire.
-        if self.ppu.take_nmi() {
-            self.cpu.request_nmi();
-        }
-
-        // Run the APU for each CPU cycle
+        // Previously the PPU was run in a single batch after the whole instruction, then the APU,
+        // then the mapper. Everything therefore observed the instruction as having happened at one
+        // instant, and interrupts could only be noticed at instruction boundaries. Stepping cycle
+        // by cycle keeps the components in the same relative positions they occupy on hardware,
+        // which is what timing-sensitive effects depend on.
         for _ in 0..cpu_cycles {
-            self.apu.tick();
+            self.tick_cycle();
         }
-
-        // Scanline-counting mappers need to know how far down the frame we are. MMC3 uses this
-        // to fire partway through a frame, which is how a game keeps a status bar fixed while the
-        // playfield scrolls beneath it.
-        if let Some(mapper) = &self.mapper {
-            let scanlines = self.ppu.take_scanlines();
-            let mut mapper = mapper.borrow_mut();
-            for _ in 0..scanlines {
-                mapper.on_scanline();
-            }
-        }
-
-        // IRQ is level-triggered and shared: either the APU's frame counter or the cartridge's
-        // mapper can hold the line, and the CPU sees only the combination.
-        let mapper_irq = self
-            .mapper
-            .as_ref()
-            .map(|mapper| mapper.borrow().irq_pending())
-            .unwrap_or(false);
-        self.cpu.set_irq_line(self.apu.irq_pending() || mapper_irq);
 
         // Only check for BRK if CPU is active (not during DMA)
         if !dma_active {

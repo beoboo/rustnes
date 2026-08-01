@@ -384,6 +384,9 @@ pub enum Mirroring {
 
 /// Struct to hold processed sprite data for rendering
 struct SpriteData {
+    /// Whether this is sprite 0, the one whose overlap sets the sprite-zero hit flag.
+    is_sprite_zero: bool,
+
     /// Y position (top of sprite).
     ///
     /// Only rendering-relevant during evaluation — by the time this struct exists, the scanline's
@@ -551,6 +554,11 @@ impl Ppu {
     /// Background is drawn scanline by scanline as the frame progresses; this only clears to the
     /// backdrop colour, which is what hardware shows wherever nothing else is drawn.
     fn begin_frame(&mut self) {
+        // Sprite-zero hit and overflow are per-frame results, cleared as the next frame begins.
+        // Leaving them set would make a game see last frame's hit and split at the wrong line.
+        self.status
+            .set(self.status.get() & !(STATUS_SPRITE_ZERO_HIT | STATUS_SPRITE_OVERFLOW));
+
         let backdrop = self.palette_to_rgb(self.read_palette(0x3F00));
         for pixel in self.working_frame.chunks_exact_mut(3) {
             pixel.copy_from_slice(&backdrop);
@@ -721,6 +729,18 @@ impl Ppu {
                     0 // No background pixel
                 };
 
+                // Sprite-zero hit: set when a non-transparent pixel of sprite 0 overlaps a
+                // non-transparent background pixel. It is not a rendering effect at all — games
+                // poll $2002 bit 6 to learn *when* the beam has reached a known point, and use it
+                // to split the screen. A game waiting on a hit that never arrives waits forever,
+                // so leaving this unimplemented hangs anything that relies on it.
+                //
+                // The flag is never cleared here; the PPU clears it at the start of each frame.
+                // The rightmost pixel never triggers it on hardware.
+                if sprite.is_sprite_zero && bg_pixel != 0 && x < 255 {
+                    self.status.set(self.status.get() | STATUS_SPRITE_ZERO_HIT);
+                }
+
                 // Check priority
                 // If sprite is behind background (bit 5 set) and the background pixel is non-zero,
                 // then don't render the sprite pixel
@@ -872,6 +892,7 @@ impl Ppu {
 
             // Add this sprite to the visible sprites
             visible_sprites.push(SpriteData {
+                is_sprite_zero: sprite_idx == 0,
                 #[cfg(test)]
                 y_position: y_pos,
                 tile_index: tile_idx,
@@ -2663,4 +2684,112 @@ mod tests {
         // Bottom-right quadrant - Tile 3 (vertical line)
         check_pixel(base_x + 11, base_y + 11, 0, 0, 255, "Tile 3 (bottom-right) pixel");
     }
+
+    /// Build a PPU whose tile 1 is fully opaque, so overlap is easy to arrange.
+    fn ppu_with_solid_tile() -> Ppu {
+        let mut ppu = Ppu::new();
+        let mut cart = Cartridge::new();
+
+        // Tile 1: both bit planes set, i.e. every pixel colour 3.
+        let mut chr = vec![0u8; 8 * 1024];
+        for byte in chr.iter_mut().skip(16).take(16) {
+            *byte = 0xFF;
+        }
+        cart.load_chr_rom(&chr);
+        ppu.connect_cartridge(cart);
+
+        // Palettes: anything non-zero so pixels are visible.
+        ppu.write_palette(0x3F00, 0x0F);
+        for entry in 1..4 {
+            ppu.write_palette(0x3F00 + entry, 0x30);
+            ppu.write_palette(0x3F10 + entry, 0x30);
+        }
+
+        ppu.mask = MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES;
+        ppu
+    }
+
+    /// Sprite-zero hit is how a game learns the beam has reached a known point, which it uses to
+    /// split the screen. Without it, a game polling $2002 bit 6 waits forever.
+    #[test]
+    fn sprite_zero_hit_is_set_when_sprite_zero_overlaps_the_background() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // Fill the top-left of the nametable with the opaque tile.
+        ppu.write_ppu_memory(0x2000, 1);
+
+        // Sprite 0 at the same place. OAM Y is the line before the first row.
+        ppu.oam[0] = 0; // Y
+        ppu.oam[1] = 1; // tile
+        ppu.oam[2] = 0; // attributes
+        ppu.oam[3] = 0; // X
+
+        assert_eq!(ppu.status.get() & STATUS_SPRITE_ZERO_HIT, 0, "not set before rendering");
+
+        ppu.render_background_scanline(1);
+        ppu.render_sprites_for_scanline(1);
+
+        assert_ne!(
+            ppu.status.get() & STATUS_SPRITE_ZERO_HIT,
+            0,
+            "overlap of sprite 0 with opaque background should set the hit flag"
+        );
+    }
+
+    #[test]
+    fn sprite_zero_hit_needs_an_opaque_background_pixel() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // Nametable left as tile 0, which is transparent here, so there is nothing to hit.
+        ppu.oam[0] = 0;
+        ppu.oam[1] = 1;
+        ppu.oam[2] = 0;
+        ppu.oam[3] = 0;
+
+        ppu.render_background_scanline(1);
+        ppu.render_sprites_for_scanline(1);
+
+        assert_eq!(
+            ppu.status.get() & STATUS_SPRITE_ZERO_HIT,
+            0,
+            "a transparent background pixel must not register a hit"
+        );
+    }
+
+    #[test]
+    fn only_sprite_zero_sets_the_hit_flag() {
+        let mut ppu = ppu_with_solid_tile();
+        ppu.write_ppu_memory(0x2000, 1);
+
+        // Park sprite 0 off-screen and put a different sprite over the background.
+        ppu.oam[0] = 0xFF;
+        ppu.oam[4] = 0; // sprite 1's Y
+        ppu.oam[5] = 1;
+        ppu.oam[6] = 0;
+        ppu.oam[7] = 0;
+
+        ppu.render_background_scanline(1);
+        ppu.render_sprites_for_scanline(1);
+
+        assert_eq!(
+            ppu.status.get() & STATUS_SPRITE_ZERO_HIT,
+            0,
+            "the flag is specific to sprite 0, not any overlapping sprite"
+        );
+    }
+
+    #[test]
+    fn sprite_zero_hit_clears_at_the_start_of_a_frame() {
+        let mut ppu = ppu_with_solid_tile();
+        ppu.status.set(ppu.status.get() | STATUS_SPRITE_ZERO_HIT);
+
+        ppu.begin_frame();
+
+        assert_eq!(
+            ppu.status.get() & STATUS_SPRITE_ZERO_HIT,
+            0,
+            "a stale hit would make a game split at the wrong line"
+        );
+    }
+
 }
