@@ -463,6 +463,11 @@ impl KeyMappingManager {
     }
 
     /// Get a profile by name
+    /// The profile currently driving controller 1, if one is selected.
+    pub fn controller1_profile(&self) -> &ControllerProfile {
+        &self.controller1_mapping.profile
+    }
+
     pub fn get_profile(&self, name: &str) -> Option<ControllerProfile> {
         self.available_profiles.iter().find(|p| p.name == name).cloned()
     }

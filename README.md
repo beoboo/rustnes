@@ -78,7 +78,17 @@ skips cleanly with a message when they are absent, so a fresh checkout stays gre
 
 In the debugger: **Assemble** builds the source in the Assembly tab into system memory, **Run**
 starts continuous execution (and starts the audio stream), **Step** advances one instruction,
-**Next Frame** advances one video frame. The dock can be rearranged freely; tabs cover CPU, PPU,
+**Next Frame** advances one video frame.
+
+Controller 1 accepts both common layouts at once, and the Controller tab lists the live mapping:
+
+| Button | Keys |
+| --- | --- |
+| D-pad | Arrow keys, or `W` `A` `S` `D` |
+| A | `Z` or `K` |
+| B | `X` or `L` |
+| Start | `Enter` or `Space` |
+| Select | `Tab` or `Right Shift` | The dock can be rearranged freely; tabs cover CPU, PPU,
 memory, pattern tables, DMA, controller, disassembly, audio controls and the output waveform.
 
 ## Test programs

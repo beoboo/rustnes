@@ -106,6 +106,20 @@ pub enum ControllerButton {
     Right = 0b10000000,
 }
 
+impl ControllerButton {
+    /// Every button, in the order a player thinks about them.
+    pub const ALL: [ControllerButton; 8] = [
+        ControllerButton::Up,
+        ControllerButton::Down,
+        ControllerButton::Left,
+        ControllerButton::Right,
+        ControllerButton::A,
+        ControllerButton::B,
+        ControllerButton::Start,
+        ControllerButton::Select,
+    ];
+}
+
 /// Controller port numbers
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControllerPort {

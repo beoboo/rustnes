@@ -17,6 +17,7 @@ use rn_core::{
     memory::Addressable,
     system::{NesSystem, SystemState},
 };
+use rn_core::input::ControllerButton;
 use rn_input::{controller_profile::ControllerProfile, key_mapping::KeyMappingManager};
 use rn_ui::widgets::{
     convert_egui_key,
@@ -183,6 +184,8 @@ struct NesTabViewer<'a> {
     pattern_table_widget: &'a mut PatternTableWidget,
     audio_widget: &'a mut AudioWidget,
     audio_stats: AudioStats,
+    /// The active controller mapping, so the Controller tab can show what is bound.
+    controller_profile: &'a ControllerProfile,
     waveform_visualizer: &'a mut WaveformWidget,
     system: Rc<RefCell<NesSystem>>,
     context: &'a mut AppContext,
@@ -337,6 +340,28 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                 // Controller Tab content
                 let system = self.system.borrow();
                 self.controller_widget.ui(ui, &system.controller_handler());
+
+                // Show what is actually bound. Without this the only way to find out is to press
+                // keys until something happens.
+                ui.separator();
+                {
+                    let profile = self.controller_profile;
+                    ui.label(format!("Key mapping: {}", profile.name()));
+                    ui.add_space(2.0);
+
+                    egui::Grid::new("controller_key_mapping").striped(true).show(ui, |ui| {
+                        for button in ControllerButton::ALL {
+                            let keys = profile.keys_for(button);
+                            ui.label(format!("{button:?}"));
+                            ui.label(if keys.is_empty() {
+                                "— not bound —".to_string()
+                            } else {
+                                keys.iter().map(|key: &rn_input::key_mapping::KeyCode| key.to_str()).collect::<Vec<_>>().join("  or  ")
+                            });
+                            ui.end_row();
+                        }
+                    });
+                }
             },
             DockTab::Display => {
                 // Display Tab content
@@ -502,9 +527,13 @@ impl NesDebugger {
         let mut key_mapping_manager = KeyMappingManager::new();
         key_mapping_manager.add_profile(ControllerProfile::create_default_profile("Default"));
         key_mapping_manager.add_profile(ControllerProfile::create_wasd_profile());
-        key_mapping_manager
-            .set_controller1_profile("WASD Layout")
-            .expect("Failed to set WASD profile");
+        key_mapping_manager.add_profile(ControllerProfile::create_combined_profile());
+
+        // Accept both layouts by default. Activating WASD alone meant the arrow keys silently did
+        // nothing, which reads as broken input rather than as a profile choice.
+        if let Err(error) = key_mapping_manager.set_controller1_profile("Arrows + WASD") {
+            warn!("Could not select the default controller profile: {error}");
+        }
 
         // Create initial dock state with all our tabs
         let mut dock_state = DockState::new(vec![
@@ -1009,6 +1038,7 @@ impl App for NesDebugger {
                 pattern_table_widget: &mut self.pattern_table_widget,
                 audio_widget: &mut self.audio_widget,
                 audio_stats,
+                controller_profile: self.key_mapping_manager.controller1_profile(),
                 waveform_visualizer: &mut self.waveform_visualizer,
                 system: self.system.clone(),
                 context: &mut self.context,

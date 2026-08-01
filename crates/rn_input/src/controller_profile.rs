@@ -44,6 +44,30 @@ impl ControllerProfile {
         profile
     }
 
+    /// A profile binding both common layouts at once.
+    ///
+    /// Arrow keys *and* WASD for the d-pad, Z/X *and* K/L for A/B. A player should not have to
+    /// discover which of two conventions a build happens to use — binding both means whichever
+    /// they reach for works, and nothing is lost by accepting the other.
+    pub fn create_combined_profile() -> Self {
+        let mut profile = Self::create_default_profile("Arrows + WASD");
+
+        profile.key_to_button.insert(KeyCode::W, ControllerButton::Up);
+        profile.key_to_button.insert(KeyCode::A, ControllerButton::Left);
+        profile.key_to_button.insert(KeyCode::S, ControllerButton::Down);
+        profile.key_to_button.insert(KeyCode::D, ControllerButton::Right);
+
+        profile.key_to_button.insert(KeyCode::K, ControllerButton::A);
+        profile.key_to_button.insert(KeyCode::L, ControllerButton::B);
+
+        // Shift is a common alternative for Select, which Tab alone makes awkward in a windowed
+        // application where Tab may move focus.
+        profile.key_to_button.insert(KeyCode::ShiftRight, ControllerButton::Select);
+        profile.key_to_button.insert(KeyCode::Space, ControllerButton::Start);
+
+        profile
+    }
+
     /// Create an alternative keyboard layout
     pub fn create_wasd_profile() -> Self {
         let mut profile = Self {
@@ -64,6 +88,25 @@ impl ControllerProfile {
         profile.key_to_button.insert(KeyCode::Enter, ControllerButton::Start);
 
         profile
+    }
+
+    /// Every key bound to `button`, sorted so the listing is stable between frames.
+    ///
+    /// Used to show the player what is actually bound rather than making them guess.
+    pub fn keys_for(&self, button: ControllerButton) -> Vec<KeyCode> {
+        let mut keys: Vec<KeyCode> = self
+            .key_to_button
+            .iter()
+            .filter(|(_, mapped)| **mapped == button)
+            .map(|(key, _)| *key)
+            .collect();
+        keys.sort_by_key(|key| key.to_str());
+        keys
+    }
+
+    /// This profile's name.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Map a key to a controller button
@@ -148,4 +191,67 @@ mod tests {
         assert_eq!(cloned.name, "Cloned");
         assert_eq!(cloned.get_button_for_key(KeyCode::Space), Some(ControllerButton::A));
     }
+
+    /// Every button must be reachable, or a game becomes unplayable in a way that looks like an
+    /// emulation bug rather than a missing binding.
+    #[test]
+    fn the_combined_profile_binds_every_button() {
+        let profile = ControllerProfile::create_combined_profile();
+
+        for button in [
+            ControllerButton::Up,
+            ControllerButton::Down,
+            ControllerButton::Left,
+            ControllerButton::Right,
+            ControllerButton::A,
+            ControllerButton::B,
+            ControllerButton::Start,
+            ControllerButton::Select,
+        ] {
+            assert!(
+                !profile.keys_for(button).is_empty(),
+                "{button:?} has no key bound to it"
+            );
+        }
+    }
+
+    /// The point of the combined profile: a player should not have to discover which of two
+    /// conventions this build uses.
+    #[test]
+    fn the_combined_profile_accepts_arrows_and_wasd() {
+        let profile = ControllerProfile::create_combined_profile();
+
+        let up = profile.keys_for(ControllerButton::Up);
+        assert!(up.contains(&KeyCode::ArrowUp), "arrow keys should work");
+        assert!(up.contains(&KeyCode::W), "WASD should work too");
+
+        let a = profile.keys_for(ControllerButton::A);
+        assert!(a.contains(&KeyCode::Z) && a.contains(&KeyCode::K));
+    }
+
+    #[test]
+    fn both_stock_profiles_bind_every_button() {
+        for profile in [
+            ControllerProfile::create_default_profile("Default"),
+            ControllerProfile::create_wasd_profile(),
+        ] {
+            for button in [
+                ControllerButton::Up,
+                ControllerButton::Down,
+                ControllerButton::Left,
+                ControllerButton::Right,
+                ControllerButton::A,
+                ControllerButton::B,
+                ControllerButton::Start,
+                ControllerButton::Select,
+            ] {
+                assert!(
+                    !profile.keys_for(button).is_empty(),
+                    "{} leaves {button:?} unbound",
+                    profile.name()
+                );
+            }
+        }
+    }
+
 }
