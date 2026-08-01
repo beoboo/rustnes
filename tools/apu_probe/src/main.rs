@@ -50,6 +50,10 @@ enum Command {
         #[arg(long, value_name = "FILE")]
         asm: Option<PathBuf>,
 
+        /// Run an iNES ROM instead of a preset
+        #[arg(long, value_name = "FILE")]
+        rom: Option<PathBuf>,
+
         /// Seconds of emulated time to run
         #[arg(long, default_value_t = 2.0)]
         seconds: f64,
@@ -135,6 +139,45 @@ fn capture(source: &str, seconds: f64, sample_rate: f64) -> Result<Vec<f32>> {
     Ok(receiver.try_iter().collect())
 }
 
+/// Run an iNES ROM and capture what the APU produced.
+///
+/// The same measurement as for assembly, but entered through the reset vector — which is how a
+/// real game starts, and the only way to answer "why is this game silent?".
+fn capture_rom(path: &std::path::Path, seconds: f64, sample_rate: f64) -> Result<Vec<f32>> {
+    let rom = rn_core::cartridge::load_rom(path)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .with_context(|| format!("loading {}", path.display()))?;
+
+    if rom.header.mapper != 0 {
+        eprintln!(
+            "warning: mapper {} is not implemented; this ROM will not run correctly",
+            rom.header.mapper
+        );
+    }
+
+    let mut system = NesSystem::new();
+    let (sender, receiver) = channel();
+    system.connect_audio_output(Box::new(Capture(sender)), sample_rate);
+    system
+        .load_rom(&rom)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .context("loading the ROM into the system")?;
+
+    let target = (CPU_CLOCK_RATE * seconds) as u64;
+    let mut cycles = 0u64;
+    while cycles < target {
+        match system.step() {
+            Ok(step_cycles) => cycles += step_cycles.max(1) as u64,
+            Err(error) => {
+                eprintln!("warning: stopped at PC ${:04X}: {error}", system.cpu().pc());
+                break;
+            },
+        }
+    }
+
+    Ok(receiver.try_iter().collect())
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -153,16 +196,31 @@ fn main() -> Result<()> {
         Command::Run {
             preset,
             asm,
+            rom,
             seconds,
             rate,
             out,
             dump,
             segments,
         } => {
-            let (label, source, expected_hz) = resolve(preset, asm)?;
+            let samples;
+            let label;
+            let mut expected_hz = None;
 
-            println!("Running {label} for {seconds}s at {rate:.0} Hz\n");
-            let samples = capture(&source, seconds, rate)?;
+            if let Some(path) = rom {
+                if preset.is_some() || asm.is_some() {
+                    bail!("give only one of a preset name, --asm or --rom");
+                }
+                label = format!("{}", path.display());
+                println!("Running {label} for {seconds}s at {rate:.0} Hz\n");
+                samples = capture_rom(&path, seconds, rate)?;
+            } else {
+                let (resolved_label, source, hz) = resolve(preset, asm)?;
+                label = resolved_label;
+                expected_hz = hz;
+                println!("Running {label} for {seconds}s at {rate:.0} Hz\n");
+                samples = capture(&source, seconds, rate)?;
+            }
 
             let result = analysis::analyse(&samples, rate, seconds);
             result.report();

@@ -581,6 +581,30 @@ impl NesDebugger {
         Ok(())
     }
 
+    /// Start or stop the audio stream to match whether the emulator is running.
+    ///
+    /// Idempotent, so it is safe to call every frame: it only acts on a transition.
+    fn sync_audio_to_run_state(&mut self) {
+        let running = self.asm_widget.is_continuous_run();
+        if running == self.audio_running {
+            return;
+        }
+
+        if running {
+            // Reset telemetry so the counters describe this run, not the last one.
+            self.audio_controls.reset_stats();
+            if let Err(error) = self.audio_output.play() {
+                warn!("Could not start the audio stream: {error}");
+                return;
+            }
+        } else if let Err(error) = self.audio_output.pause() {
+            warn!("Could not pause the audio stream: {error}");
+            return;
+        }
+
+        self.audio_running = running;
+    }
+
     /// Current audio pipeline health, for display in the audio widget.
     fn audio_stats(&self) -> AudioStats {
         AudioStats {
@@ -695,6 +719,13 @@ impl App for NesDebugger {
             // When program is not loaded (including after reset), show empty region
             self.disasm_widget.set_program_info(0x8000, 0);
         }
+
+        // Keep the audio stream in step with whether the emulator is actually running.
+        //
+        // This used to be toggled inside the Run button's handler, which meant any other route
+        // into continuous execution left the stream paused and the emulator silent — and the
+        // silence looked like an audio bug rather than a missing call.
+        self.sync_audio_to_run_state();
 
         // Run cycles if continuous mode is enabled in the AsmWidget
         if self.asm_widget.is_continuous_run() {
@@ -816,8 +847,7 @@ impl App for NesDebugger {
                         // Toggle continuous run mode off
                         let mut system = self.system.borrow_mut();
                         let _ = self.asm_widget.run_program(&mut system);
-                        let _ = self.audio_output.pause();
-                        self.audio_running = false;
+
                     }
                 } else {
                     // Only enable Run when loaded, running, or finished
@@ -829,10 +859,7 @@ impl App for NesDebugger {
                         // Start continuous execution
                         let mut system = self.system.borrow_mut();
                         let _ = self.asm_widget.run_program(&mut system);
-                        // Reset telemetry so the counters describe this run, not the last one.
-                        self.audio_controls.reset_stats();
-                        let _ = self.audio_output.play();
-                        self.audio_running = true;
+
                     }
                 }
 
