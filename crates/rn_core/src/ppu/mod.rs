@@ -75,8 +75,13 @@ impl PpuWrapper {
         // Force enable sprites and background
         ppu.mask |= MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES;
 
-        // Render the frame
-        ppu.render_frame();
+        // Render a whole frame explicitly: background is normally drawn scanline by scanline as
+        // the frame advances, which a one-shot debug helper does not go through.
+        ppu.begin_frame();
+        for y in 0..240 {
+            ppu.render_background_scanline(y);
+        }
+        ppu.end_frame(); // also publishes the completed frame
 
         // Restore original mask
         ppu.mask = original_mask;
@@ -167,6 +172,11 @@ impl PpuWrapper {
             (value & MASK_SHOW_SPRITES) != 0,
             (value & MASK_SHOW_BACKGROUND) != 0
         );
+    }
+
+    /// Set the nametable mirroring, from the cartridge header.
+    pub fn set_mirroring(&self, mirroring: Mirroring) {
+        self.ppu.borrow_mut().mirroring = mirroring;
     }
 
     /// Take a pending vblank NMI, if one was raised since the last call.
@@ -280,15 +290,39 @@ pub struct Ppu {
     /// Set when vblank begins with NMI enabled; cleared when the system collects it.
     nmi_raised: bool,
 
+    /// Nametable layout, set from the cartridge header.
+    mirroring: Mirroring,
+
     scanline: i16,            // Current scanline (-1 to 261)
     cycle: u16,               // Current cycle (0 to 340)
 
     // Rendering output
-    frame_buffer: Vec<u8>,      // RGB data for the current frame
+    /// RGB data for the frame currently being drawn, filled scanline by scanline.
+    ///
+    /// Not what callers see: reading a frame mid-draw returns a half-finished image, since the
+    /// scanlines below the current one still hold the backdrop from `begin_frame`. The debugger
+    /// would tear and a headless capture would silently truncate.
+    working_frame: Vec<u8>,
+
+    /// The last *completed* frame, which is what everything outside the PPU reads.
+    frame_buffer: Vec<u8>,
     background_pixels: Vec<u8>, // Stores the background pixel values (0-3) for priority handling
 
     // Cartridge reference (optional)
     cartridge: Option<Cartridge>,
+}
+
+/// How the two physical nametables are mapped into the four logical ones.
+///
+/// The cartridge wires this, and it decides how a scrolled background wraps. Assuming one layout
+/// makes every game with the other scroll into the wrong screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mirroring {
+    /// $2000/$2400 share, $2800/$2C00 share — used by games that scroll vertically.
+    Horizontal,
+    /// $2000/$2800 share, $2400/$2C00 share — used by games that scroll horizontally.
+    #[default]
+    Vertical,
 }
 
 /// Struct to hold processed sprite data for rendering
@@ -329,10 +363,12 @@ impl Ppu {
             write_toggle: Cell::new(false),
             frame_count: 0,
             nmi_raised: false,
+            mirroring: Mirroring::default(),
             scanline: -1, // Start at pre-render scanline
             cycle: 0,
 
             // Initialize frame buffer (256x240 pixels, 3 bytes per pixel for RGB)
+            working_frame: vec![0; 256 * 240 * 3],
             frame_buffer: vec![0; 256 * 240 * 3],
             background_pixels: vec![0; 256 * 240],
             cartridge: None,
@@ -363,19 +399,13 @@ impl Ppu {
             if self.scanline > 261 {
                 self.scanline = 0;
                 self.frame_count += 1;
+                self.begin_frame();
+            }
 
-                log::debug!("Start of new frame {} (scanline reset to 0, mask=${:02X}, status=${:02X}, bg_enabled={}, sprites_enabled={})",
-                    self.frame_count,
-                    self.mask,
-                    self.status.get(),
-                    (self.mask & MASK_SHOW_BACKGROUND) != 0,
-                    (self.mask & MASK_SHOW_SPRITES) != 0);
-
-                // Only render if background or sprites are enabled
-                if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
-                    log::debug!("Calling render_frame at start of new frame with rendering enabled");
-                    self.render_frame();
-                }
+            // Draw each visible scanline as it is reached, so it sees the register values in
+            // effect at that point in the frame rather than one sample taken for all 240 lines.
+            if (0..240).contains(&self.scanline) {
+                self.render_background_scanline(self.scanline as usize);
             }
 
             // Start of VBlank occurs at the beginning of scanline 241
@@ -392,10 +422,11 @@ impl Ppu {
 
                 // Vblank with NMI enabled raises the interrupt. Latched here and collected by
                 // the system, which owns the connection to the CPU.
+                // The visible portion is finished, so composite sprites over it.
+                self.end_frame();
+
                 if (self.ctrl & CTRL_NMI_ENABLE) != 0 {
                     self.nmi_raised = true;
-                    log::debug!("Calling render_frame at VBlank with NMI enabled");
-                    self.render_frame();
                 }
             }
             // End of VBlank period, reset VBlank flag at the start of pre-render scanline (261)
@@ -416,13 +447,8 @@ impl Ppu {
                     (self.mask & MASK_SHOW_BACKGROUND) != 0
                 );
 
-                // Make sure we always render the frame, even if NMI isn't enabled
-                if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
-                    log::debug!("Calling render_frame at frame end with rendering enabled");
-                    self.render_frame();
-                } else {
-                    log::debug!("Not rendering frame: neither sprites nor background enabled");
-                }
+                // Nothing to render here: the frame wrap is handled above, and the visible
+                // scanlines draw themselves as they are reached.
             }
         }
 
@@ -447,139 +473,108 @@ impl Ppu {
     }
 
     /// Render the current frame using pattern table data
-    fn render_frame(&mut self) {
-        log::debug!(
-            "Rendering frame at cycle={}, scanline={}, frame_count={}",
-            self.cycle,
-            self.scanline,
-            self.frame_count
-        );
-
-        // Clear to the backdrop colour at $3F00, which is what the hardware shows wherever
-        // nothing else is drawn. Clearing to black instead makes every "empty" area the wrong
-        // colour on any game that sets a non-black backdrop.
+    /// Prepare the frame buffer for a new frame.
+    ///
+    /// Background is drawn scanline by scanline as the frame progresses; this only clears to the
+    /// backdrop colour, which is what hardware shows wherever nothing else is drawn.
+    fn begin_frame(&mut self) {
         let backdrop = self.palette_to_rgb(self.read_palette(0x3F00));
-        for pixel in self.frame_buffer.chunks_exact_mut(3) {
+        for pixel in self.working_frame.chunks_exact_mut(3) {
             pixel.copy_from_slice(&backdrop);
         }
 
-        // Clear the background pixel buffer
         for pixel in self.background_pixels.iter_mut() {
             *pixel = 0;
         }
+    }
 
-        // Render background first (if enabled)
-        if (self.mask & MASK_SHOW_BACKGROUND) != 0 {
-            self.render_background();
-        }
-
-        // Then render sprites (if enabled)
+    /// Finish a frame by compositing sprites over the background.
+    ///
+    /// Still whole-frame: sprites are not yet evaluated per scanline, so mid-frame OAM changes are
+    /// not reflected. The background no longer has that limitation.
+    fn end_frame(&mut self) {
         if (self.mask & MASK_SHOW_SPRITES) != 0 {
             self.render_sprites();
         }
+
+        self.present();
     }
 
-    /// Render the background layer
-    fn render_background(&mut self) {
-        // Skip if background rendering is disabled
+    /// Publish the working buffer as the completed frame.
+    ///
+    /// Everything outside the PPU reads the published copy, so it never observes a partially
+    /// drawn image. Anything that draws directly into `frame_buffer` — the debug helpers below —
+    /// must call this, or its output is invisible.
+    fn present(&mut self) {
+        self.frame_buffer.copy_from_slice(&self.working_frame);
+    }
+
+    /// Render one visible scanline of the background.
+    ///
+    /// Per scanline rather than per frame, because the registers this reads — scroll position,
+    /// nametable select, pattern table select, palette — are routinely rewritten *during* a frame.
+    /// A status bar that stays put while the world scrolls under it is exactly that trick, and a
+    /// once-per-frame renderer cannot express it: it can only sample one set of values and apply
+    /// them to all 240 lines.
+    fn render_background_scanline(&mut self, screen_y: usize) {
         if (self.mask & MASK_SHOW_BACKGROUND) == 0 {
-            // Clear background_pixels array when background is disabled
-            for i in 0..self.background_pixels.len() {
-                self.background_pixels[i] = 0;
-            }
             return;
         }
 
-        // Simple implementation for T3 track - render full tiles from the pattern table
-        for tile_y in 0..30 {
-            for tile_x in 0..32 {
-                // Calculate nametable address for this tile
-                let nt_addr = 0x2000 + tile_y * 32 + tile_x;
-                let tile_id = self.read_ppu_memory(nt_addr as u16);
+        let Some(cart) = self.cartridge.clone() else {
+            return;
+        };
 
-                // Which half of CHR the background comes from is selected by PPUCTRL bit 4.
-                // Ignoring it reads every tile's graphics from the wrong half, which renders as
-                // uniform noise rather than the intended image.
-                let pattern_base: u16 = if (self.ctrl & CTRL_BACKGROUND_PATTERN) != 0 { 256 } else { 0 };
+        // Scroll is in pixels, and the nametable select supplies the high bit of each axis — so
+        // the full coordinate space is 512x480 across the four logical nametables.
+        let scroll_x = self.scroll_x as usize + if (self.ctrl & CTRL_NAMETABLE_X) != 0 { 256 } else { 0 };
+        let scroll_y = self.scroll_y as usize + if (self.ctrl & CTRL_NAMETABLE_Y) != 0 { 240 } else { 0 };
 
-                // Palette for this tile, from the attribute table.
-                //
-                // One attribute byte covers a 32x32 pixel area (4x4 tiles) and holds four 2-bit
-                // palette indices, one per 16x16 quadrant. Hardcoding palette 0 instead — as this
-                // renderer used to — makes every tile on screen the same four colours.
-                let attr_addr = 0x23C0 + (tile_y / 4) * 8 + (tile_x / 4);
-                let attr_byte = self.read_ppu_memory(attr_addr as u16);
-                let quadrant_shift = ((tile_y & 2) << 1) | (tile_x & 2);
-                let palette_index = (attr_byte >> quadrant_shift) & 0x03;
+        let pattern_base: u16 = if (self.ctrl & CTRL_BACKGROUND_PATTERN) != 0 { 256 } else { 0 };
 
-                // Get the pixel data for this tile
-                if let Some(cart) = &self.cartridge {
-                    // Get all the pixel data for this tile
-                    let pixels = cart.get_tile_pixels(tile_id as u16 + pattern_base);
+        // The row being fetched, wrapped into the 480-pixel vertical space.
+        let world_y = (screen_y + scroll_y) % 480;
+        let tile_row = (world_y / 8) % 30;
+        let pixel_row = world_y % 8;
+        // Crossing 240 vertically moves to the lower pair of nametables.
+        let nametable_y = if world_y >= 240 { 2 } else { 0 };
 
-                    // Render each pixel in the tile
-                    for y in 0..8 {
-                        for x in 0..8 {
-                            // Calculate the position in the frame buffer
-                            let screen_x = tile_x * 8 + x;
-                            let screen_y = tile_y * 8 + y;
+        for screen_x in 0..256usize {
+            let world_x = (screen_x + scroll_x) % 512;
+            let tile_column = (world_x / 8) % 32;
+            let pixel_column = world_x % 8;
+            let nametable_x = if world_x >= 256 { 1 } else { 0 };
 
-                            // Skip if out of bounds
-                            if screen_x >= 256 || screen_y >= 240 {
-                                continue;
-                            }
+            let nametable = 0x2000 + (nametable_y + nametable_x) * 0x0400;
+            let tile_id = self.read_ppu_memory((nametable + tile_row * 32 + tile_column) as u16);
 
-                            // Get the pixel value (0-3) from the pattern table
-                            let pixel_value = pixels[y * 8 + x];
+            // One attribute byte covers 4x4 tiles, holding four 2-bit palette indices — one per
+            // 16x16 pixel quadrant.
+            let attribute_address = nametable + 0x03C0 + (tile_row / 4) * 8 + (tile_column / 4);
+            let attribute = self.read_ppu_memory(attribute_address as u16);
+            let quadrant_shift = ((tile_row & 2) << 1) | (tile_column & 2);
+            let palette_index = (attribute >> quadrant_shift) & 0x03;
 
-                            // Skip transparent pixels (value 0)
-                            if pixel_value == 0 {
-                                continue;
-                            }
+            let pixels = cart.get_tile_pixels(tile_id as u16 + pattern_base);
+            let pixel_value = pixels[pixel_row * 8 + pixel_column];
 
-                            // Store the pixel value for priority handling
-                            let bg_idx = screen_y * 256 + screen_x;
-                            if bg_idx < self.background_pixels.len() {
-                                self.background_pixels[bg_idx] = pixel_value;
-                            }
+            let index = screen_y * 256 + screen_x;
+            if index < self.background_pixels.len() {
+                self.background_pixels[index] = pixel_value;
+            }
 
-                            // Calculate palette address: $3F00 + (palette_index * 4) + pixel_value
-                            let palette_addr = 0x3F00 + (palette_index as u16 * 4) + pixel_value as u16;
+            // Colour 0 of any palette is transparent and shows the backdrop, which the frame was
+            // already cleared to.
+            if pixel_value == 0 {
+                continue;
+            }
 
-                            // Read the color from the palette
-                            let color_index = self.read_palette(palette_addr);
+            let palette_address = 0x3F00 + (palette_index as u16 * 4) + pixel_value as u16;
+            let rgb = self.palette_to_rgb(self.read_palette(palette_address));
 
-                            // Convert palette entry to RGB
-                            let rgb = self.palette_to_rgb(color_index);
-
-                            // Calculate the position in the frame buffer
-                            let idx = (screen_y * 256 + screen_x) * 3;
-                            if idx < self.frame_buffer.len() - 2 {
-                                self.frame_buffer[idx] = rgb[0]; // R
-                                self.frame_buffer[idx + 1] = rgb[1]; // G
-                                self.frame_buffer[idx + 2] = rgb[2]; // B
-                            }
-                        }
-                    }
-                } else {
-                    // Fallback if no cartridge is connected - simplified rendering
-                    // Just show a single pixel in the middle of the tile
-                    let px = tile_x * 8 + 3; // 4th pixel from the left
-                    let py = tile_y * 8 + 3; // 4th pixel from the top
-
-                    // Store the pixel value for priority handling
-                    let bg_idx = py * 256 + px;
-                    if bg_idx < self.background_pixels.len() {
-                        self.background_pixels[bg_idx] = 1; // Use pixel value 1
-                    }
-
-                    let idx = (py * 256 + px) * 3;
-                    if idx < self.frame_buffer.len() - 2 {
-                        self.frame_buffer[idx] = 0xFF; // R
-                        self.frame_buffer[idx + 1] = 0xFF; // G
-                        self.frame_buffer[idx + 2] = 0xFF; // B
-                    }
-                }
+            let offset = index * 3;
+            if offset + 2 < self.working_frame.len() {
+                self.working_frame[offset..offset + 3].copy_from_slice(&rgb);
             }
         }
     }
@@ -696,14 +691,14 @@ impl Ppu {
                 let buffer_index = (scanline * 256 + x) * 3;
 
                 // Only if we're in bounds of the buffer
-                if buffer_index + 2 < self.frame_buffer.len() {
+                if buffer_index + 2 < self.working_frame.len() {
                     // Convert palette color to RGB
                     let rgb = self.palette_to_rgb(color_index);
 
                     // Write to frame buffer
-                    self.frame_buffer[buffer_index] = rgb[0];
-                    self.frame_buffer[buffer_index + 1] = rgb[1];
-                    self.frame_buffer[buffer_index + 2] = rgb[2];
+                    self.working_frame[buffer_index] = rgb[0];
+                    self.working_frame[buffer_index + 1] = rgb[1];
+                    self.working_frame[buffer_index + 2] = rgb[2];
 
                     log::debug!(
                         "Wrote sprite pixel at ({},{}) with RGB ({},{},{})",
@@ -892,6 +887,23 @@ impl Ppu {
     }
 
     /// Get the current frame buffer
+    /// Render an entire frame in one call.
+    ///
+    /// Rendering normally happens scanline by scanline as `tick` advances, which tests that want
+    /// a finished picture from a known state cannot easily drive. This runs the same path start
+    /// to finish.
+    #[cfg(test)]
+    fn render_whole_frame(&mut self) {
+        self.begin_frame();
+        for y in 0..240 {
+            self.render_background_scanline(y);
+        }
+        self.end_frame();
+    }
+
+    /// The last completed frame.
+    ///
+    /// Deliberately not the in-progress buffer: reading that mid-frame yields a half-drawn image.
     pub fn frame_buffer(&self) -> &[u8] {
         &self.frame_buffer
     }
@@ -911,10 +923,10 @@ impl Ppu {
             let mut line = String::new();
             for x in start_x..(start_x + width) {
                 let idx = (y * 256 + x) * 3;
-                if idx < self.frame_buffer.len() - 2 {
-                    let r = self.frame_buffer[idx];
-                    let g = self.frame_buffer[idx + 1];
-                    let b = self.frame_buffer[idx + 2];
+                if idx < self.working_frame.len() - 2 {
+                    let r = self.working_frame[idx];
+                    let g = self.working_frame[idx + 1];
+                    let b = self.working_frame[idx + 2];
 
                     // Check if pixel is not black
                     if r > 0 || g > 0 || b > 0 {
@@ -1222,18 +1234,32 @@ impl Ppu {
 
     /// Read from nametable memory (including mirrors)
     fn read_nametable(&self, address: u16) -> u8 {
-        // Map the address to the internal VRAM
-        // Currently just implemented with a single nametable mirrored
-        let addr = (address & 0x0FFF) % 0x0800;
-        self.vram[addr as usize]
+        self.vram[self.mirror_nametable(address)]
+    }
+
+    /// Map a nametable address onto one of the two physical tables, honouring the cartridge's
+    /// mirroring.
+    ///
+    /// There are four logical nametables but only 2 KB of VRAM, so two pairs always alias. Which
+    /// pair depends on how the cartridge is wired, and getting it wrong sends a scrolling
+    /// background into the wrong screen.
+    fn mirror_nametable(&self, address: u16) -> usize {
+        let offset = (address & 0x0FFF) as usize;
+        let table = offset / 0x0400;
+        let index = offset % 0x0400;
+
+        let physical = match self.mirroring {
+            Mirroring::Horizontal => table / 2,
+            Mirroring::Vertical => table % 2,
+        };
+
+        physical * 0x0400 + index
     }
 
     /// Write to nametable memory (including mirrors)
     fn write_nametable(&mut self, address: u16, value: u8) {
-        // Map the address to the internal VRAM
-        // Currently just implemented with a single nametable mirrored
-        let addr = (address & 0x0FFF) % 0x0800;
-        self.vram[addr as usize] = value;
+        let index = self.mirror_nametable(address);
+        self.vram[index] = value;
     }
 
     /// Read from palette memory (including mirrors)
@@ -1316,7 +1342,7 @@ impl Ppu {
         // nothing else is drawn. Clearing to black instead makes every "empty" area the wrong
         // colour on any game that sets a non-black backdrop.
         let backdrop = self.palette_to_rgb(self.read_palette(0x3F00));
-        for pixel in self.frame_buffer.chunks_exact_mut(3) {
+        for pixel in self.working_frame.chunks_exact_mut(3) {
             pixel.copy_from_slice(&backdrop);
         }
 
@@ -1324,17 +1350,17 @@ impl Ppu {
         // Horizontal line
         for x in 100..156 {
             let idx = (120 * 256 + x) * 3;
-            self.frame_buffer[idx] = 255; // R
-            self.frame_buffer[idx + 1] = 255; // G
-            self.frame_buffer[idx + 2] = 255; // B
+            self.working_frame[idx] = 255; // R
+            self.working_frame[idx + 1] = 255; // G
+            self.working_frame[idx + 2] = 255; // B
         }
 
         // Vertical line
         for y in 100..140 {
             let idx = (y * 256 + 128) * 3;
-            self.frame_buffer[idx] = 255; // R
-            self.frame_buffer[idx + 1] = 255; // G
-            self.frame_buffer[idx + 2] = 255; // B
+            self.working_frame[idx] = 255; // R
+            self.working_frame[idx + 1] = 255; // G
+            self.working_frame[idx + 2] = 255; // B
         }
 
         // Draw colored squares in each corner (10x10 pixels)
@@ -1342,9 +1368,9 @@ impl Ppu {
         for y in 10..20 {
             for x in 10..20 {
                 let idx = (y * 256 + x) * 3;
-                self.frame_buffer[idx] = 255; // R
-                self.frame_buffer[idx + 1] = 0; // G
-                self.frame_buffer[idx + 2] = 0; // B
+                self.working_frame[idx] = 255; // R
+                self.working_frame[idx + 1] = 0; // G
+                self.working_frame[idx + 2] = 0; // B
             }
         }
 
@@ -1352,9 +1378,9 @@ impl Ppu {
         for y in 10..20 {
             for x in 236..246 {
                 let idx = (y * 256 + x) * 3;
-                self.frame_buffer[idx] = 0; // R
-                self.frame_buffer[idx + 1] = 255; // G
-                self.frame_buffer[idx + 2] = 0; // B
+                self.working_frame[idx] = 0; // R
+                self.working_frame[idx + 1] = 255; // G
+                self.working_frame[idx + 2] = 0; // B
             }
         }
 
@@ -1362,9 +1388,9 @@ impl Ppu {
         for y in 220..230 {
             for x in 10..20 {
                 let idx = (y * 256 + x) * 3;
-                self.frame_buffer[idx] = 0; // R
-                self.frame_buffer[idx + 1] = 0; // G
-                self.frame_buffer[idx + 2] = 255; // B
+                self.working_frame[idx] = 0; // R
+                self.working_frame[idx + 1] = 0; // G
+                self.working_frame[idx + 2] = 255; // B
             }
         }
 
@@ -1372,11 +1398,13 @@ impl Ppu {
         for y in 220..230 {
             for x in 236..246 {
                 let idx = (y * 256 + x) * 3;
-                self.frame_buffer[idx] = 255; // R
-                self.frame_buffer[idx + 1] = 255; // G
-                self.frame_buffer[idx + 2] = 0; // B
+                self.working_frame[idx] = 255; // R
+                self.working_frame[idx + 1] = 255; // G
+                self.working_frame[idx + 2] = 0; // B
             }
         }
+    
+        self.present();
     }
 
     /// Direct test method to write a sprite to OAM and render it
@@ -1386,7 +1414,7 @@ impl Ppu {
         // nothing else is drawn. Clearing to black instead makes every "empty" area the wrong
         // colour on any game that sets a non-black backdrop.
         let backdrop = self.palette_to_rgb(self.read_palette(0x3F00));
-        for pixel in self.frame_buffer.chunks_exact_mut(3) {
+        for pixel in self.working_frame.chunks_exact_mut(3) {
             pixel.copy_from_slice(&backdrop);
         }
 
@@ -1427,24 +1455,26 @@ impl Ppu {
         // Also draw a marker at the expected sprite position
         // This helps us verify if the sprite should be visible
         let idx = (100 * 256 + 100) * 3;
-        self.frame_buffer[idx] = 255; // R
-        self.frame_buffer[idx + 1] = 0; // G
-        self.frame_buffer[idx + 2] = 0; // B
+        self.working_frame[idx] = 255; // R
+        self.working_frame[idx + 1] = 0; // G
+        self.working_frame[idx + 2] = 0; // B
 
         // Draw a small red cross to mark where the sprite should be
         for x in 98..103 {
             let idx = (100 * 256 + x) * 3;
-            self.frame_buffer[idx] = 255; // R
-            self.frame_buffer[idx + 1] = 0; // G
-            self.frame_buffer[idx + 2] = 0; // B
+            self.working_frame[idx] = 255; // R
+            self.working_frame[idx + 1] = 0; // G
+            self.working_frame[idx + 2] = 0; // B
         }
 
         for y in 98..103 {
             let idx = (y * 256 + 100) * 3;
-            self.frame_buffer[idx] = 255; // R
-            self.frame_buffer[idx + 1] = 0; // G
-            self.frame_buffer[idx + 2] = 0; // B
+            self.working_frame[idx] = 255; // R
+            self.working_frame[idx + 1] = 0; // G
+            self.working_frame[idx + 2] = 0; // B
         }
+    
+        self.present();
     }
 }
 
@@ -1507,7 +1537,7 @@ impl Addressable for Ppu {
         self.vram = [0; 2048];
         self.palette = [0; 32];
         self.oam = [0; 256];
-        self.frame_buffer = vec![0; 256 * 240 * 3];
+        self.working_frame = vec![0; 256 * 240 * 3];
         self.background_pixels = vec![0; 256 * 240];
     }
 }
@@ -1858,7 +1888,7 @@ mod tests {
         assert_eq!(sprites.len(), 0, "Should not find sprites on scanline 100");
 
         // Render a full frame with sprites
-        ppu.render_frame();
+        ppu.render_whole_frame();
 
         // Verify that some pixels got set in the frame buffer
         // For scanline 64, at X positions 82-83, we should have non-zero pixels
@@ -1919,6 +1949,8 @@ mod tests {
 
         // DIRECT TEST: Instead of running the PPU for a full frame, directly render sprites for scanline 100
         ppu.render_sprites_for_scanline(100);
+        // Drawing straight into the working buffer bypasses end_frame, so publish it explicitly.
+        ppu.present();
 
         // Get the frame buffer and check for sprite visibility
         let frame_buffer = ppu.frame_buffer();
@@ -2177,7 +2209,7 @@ mod tests {
         ppu.mask = MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES;
 
         // Render background first
-        ppu.render_background();
+        ppu.render_whole_frame();
 
         // Render sprites for scanline 100
         ppu.render_sprites_for_scanline(100);
@@ -2204,7 +2236,7 @@ mod tests {
         // STEP 2: Test sprite behind background (priority bit = 1)
 
         // First render background again (setting it to white)
-        ppu.render_background();
+        ppu.render_whole_frame();
 
         // Directly write the background pixel to white for testing
         ppu.frame_buffer[pixel_idx] = 255; // R
@@ -2287,7 +2319,7 @@ mod tests {
         }
 
         // Check if we can directly render the frame
-        ppu.render_frame();
+        ppu.render_whole_frame();
 
         // Should be white
         let pixel_idx = (100 * 256 + 100) * 3;

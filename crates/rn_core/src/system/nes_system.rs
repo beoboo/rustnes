@@ -11,7 +11,7 @@ use crate::{
     errors::NesError,
     input::{ControllerHandlerWrapper, ControllerState},
     memory::{Addressable, Ram},
-    ppu::{Ppu, PpuWrapper},
+    ppu::{Mirroring, Ppu, PpuWrapper},
     system::Bus,
 };
 
@@ -178,6 +178,13 @@ impl NesSystem {
         if !rom.chr_rom.is_empty() {
             self.load_chr_rom(&rom.chr_rom)?;
         }
+
+        // The cartridge wires nametable mirroring, and it decides how a scrolled background wraps.
+        self.ppu.set_mirroring(if rom.header.mirroring {
+            Mirroring::Vertical
+        } else {
+            Mirroring::Horizontal
+        });
 
         let reset = rom.reset_vector();
         self.cpu.set_pc(reset);
