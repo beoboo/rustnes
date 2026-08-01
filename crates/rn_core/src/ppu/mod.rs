@@ -178,6 +178,11 @@ impl PpuWrapper {
         );
     }
 
+    /// Rendering statistics for the most recent frames.
+    pub fn diagnostics(&self) -> FrameDiagnostics {
+        self.ppu.borrow().diagnostics
+    }
+
     /// All four nametables as one 512x480 RGB image, with the viewport outlined.
     pub fn render_nametable_map(&self) -> Vec<u8> {
         self.ppu.borrow().render_nametable_map()
@@ -337,6 +342,15 @@ pub struct Ppu {
     /// Nametable layout, set from the cartridge header.
     mirroring: Mirroring,
 
+    /// Rendering statistics, for diagnosing what a picture alone cannot explain.
+    diagnostics: FrameDiagnostics,
+    /// Rendering state at the previous visible scanline, to detect a toggle within a frame.
+    rendering_was_enabled: bool,
+    /// Scanlines rendered so far in the frame being drawn.
+    scanlines_this_frame: u16,
+    /// Toggles seen so far in the frame being drawn.
+    toggles_this_frame: u32,
+
     /// The cartridge's mapper, when a ROM is loaded.
     ///
     /// CHR reads go through it so bank switching is visible to rendering; without this the PPU
@@ -382,6 +396,25 @@ pub enum Mirroring {
     SingleScreenUpper,
 }
 
+/// What the PPU actually did over recent frames.
+///
+/// Answers the questions that a still image cannot: whether a frame was blank because the game
+/// disabled rendering, and whether rendering was toggled *within* a frame — which is how a game
+/// splits the screen, and the usual explanation for a band of the picture flickering.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FrameDiagnostics {
+    /// Frames completed since power-on.
+    pub frames: u64,
+    /// Frames where no scanline was rendered at all, so only the backdrop was shown.
+    pub blank_frames: u64,
+    /// Times rendering was switched on or off partway down the most recent frame.
+    pub mid_frame_toggles: u32,
+    /// The scanline of the last such toggle, or -1 if there has not been one.
+    pub last_toggle_scanline: i16,
+    /// Scanlines rendered in the most recent frame, out of 240.
+    pub scanlines_rendered: u16,
+}
+
 /// Struct to hold processed sprite data for rendering
 struct SpriteData {
     /// Whether this is sprite 0, the one whose overlap sets the sprite-zero hit flag.
@@ -425,6 +458,13 @@ impl Ppu {
             nmi_raised: false,
             scanlines_completed: 0,
             mirroring: Mirroring::default(),
+            diagnostics: FrameDiagnostics {
+                last_toggle_scanline: -1,
+                ..FrameDiagnostics::default()
+            },
+            rendering_was_enabled: false,
+            scanlines_this_frame: 0,
+            toggles_this_frame: 0,
             mapper: None,
             scanline: -1, // Start at pre-render scanline
             cycle: 0,
@@ -468,6 +508,19 @@ impl Ppu {
             // effect at that point in the frame rather than one sample taken for all 240 lines.
             if (0..240).contains(&self.scanline) {
                 let y = self.scanline as usize;
+
+                // Track whether rendering was switched during the visible part of the frame.
+                // A game doing this deliberately is splitting the screen; seeing it here is what
+                // distinguishes "the game blanked a band" from "the emulator lost one".
+                let rendering_enabled = (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0;
+                if y > 0 && rendering_enabled != self.rendering_was_enabled {
+                    self.toggles_this_frame += 1;
+                    self.diagnostics.last_toggle_scanline = self.scanline;
+                }
+                self.rendering_was_enabled = rendering_enabled;
+                if rendering_enabled {
+                    self.scanlines_this_frame += 1;
+                }
 
                 // Only count a scanline while rendering is actually on.
                 //
@@ -574,6 +627,15 @@ impl Ppu {
     /// Still whole-frame: sprites are not yet evaluated per scanline, so mid-frame OAM changes are
     /// not reflected. The background no longer has that limitation.
     fn end_frame(&mut self) {
+        self.diagnostics.frames += 1;
+        self.diagnostics.scanlines_rendered = self.scanlines_this_frame;
+        self.diagnostics.mid_frame_toggles = self.toggles_this_frame;
+        if self.scanlines_this_frame == 0 {
+            self.diagnostics.blank_frames += 1;
+        }
+        self.scanlines_this_frame = 0;
+        self.toggles_this_frame = 0;
+
         self.present();
     }
 

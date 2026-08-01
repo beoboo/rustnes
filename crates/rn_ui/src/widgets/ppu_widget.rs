@@ -28,6 +28,8 @@ impl PpuWidget {
 
     /// Render the PPU widget using the given UI and PPU
     pub fn ui(&mut self, ui: &mut Ui, ppu: PpuWrapper) {
+        self.diagnostics_ui(ui, &ppu);
+
         ui.heading("PPU State");
 
         // Add debug button to show current register values
@@ -331,6 +333,67 @@ impl PpuWidget {
 
             // Restore original spacing
             *ui.spacing_mut() = original_spacing;
+        });
+    }
+}
+
+impl PpuWidget {
+    /// Show what the PPU actually did, which a still frame cannot reveal.
+    ///
+    /// `scanlines rendered` below 240 with a non-zero toggle count means the game switched
+    /// rendering off partway down the frame — a deliberate screen split, and the usual reason a
+    /// band of the picture appears to flicker. All 240 with no toggles means the emulator is
+    /// drawing every line, so flicker seen on screen comes from somewhere else.
+    fn diagnostics_ui(&mut self, ui: &mut Ui, ppu: &PpuWrapper) {
+        let diagnostics = ppu.diagnostics();
+
+        ui.collapsing("Frame diagnostics", |ui| {
+            egui::Grid::new("ppu_frame_diagnostics").striped(true).show(ui, |ui| {
+                ui.label("Frames");
+                ui.label(diagnostics.frames.to_string());
+                ui.end_row();
+
+                ui.label("Scanlines rendered");
+                let complete = diagnostics.scanlines_rendered == 240;
+                ui.colored_label(
+                    if complete { egui::Color32::GRAY } else { egui::Color32::YELLOW },
+                    format!("{} / 240", diagnostics.scanlines_rendered),
+                );
+                ui.end_row();
+
+                ui.label("Mid-frame toggles");
+                ui.colored_label(
+                    if diagnostics.mid_frame_toggles == 0 {
+                        egui::Color32::GRAY
+                    } else {
+                        egui::Color32::LIGHT_BLUE
+                    },
+                    diagnostics.mid_frame_toggles.to_string(),
+                );
+                ui.end_row();
+
+                ui.label("Last toggle at scanline");
+                ui.label(if diagnostics.last_toggle_scanline < 0 {
+                    "never".to_string()
+                } else {
+                    diagnostics.last_toggle_scanline.to_string()
+                });
+                ui.end_row();
+
+                ui.label("Blank frames");
+                ui.label(diagnostics.blank_frames.to_string());
+                ui.end_row();
+            });
+
+            if diagnostics.mid_frame_toggles > 0 {
+                ui.small(format!(
+                    "Rendering is being switched during the frame (last at scanline {}). That is a \
+                     deliberate screen split, and explains a band of the picture changing.",
+                    diagnostics.last_toggle_scanline
+                ));
+            } else if diagnostics.scanlines_rendered < 240 && diagnostics.scanlines_rendered > 0 {
+                ui.small("Rendering is off for part of every frame, without a mid-frame toggle.");
+            }
         });
     }
 }

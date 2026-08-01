@@ -165,6 +165,22 @@ fn run_frame(rom: &Path, frames: usize, out: Option<&Path>, ascii: bool) -> Resu
     }
 
     println!("  instructions      {}", capture.instructions);
+    println!("  frames            {}", capture.diagnostics.frames);
+    println!(
+        "  scanlines drawn   {} / 240{}",
+        capture.diagnostics.scanlines_rendered,
+        if capture.diagnostics.scanlines_rendered == 240 { "" } else { "   <-- partial frame" }
+    );
+    println!(
+        "  mid-frame toggles {}{}",
+        capture.diagnostics.mid_frame_toggles,
+        if capture.diagnostics.mid_frame_toggles > 0 {
+            format!("   (last at scanline {})", capture.diagnostics.last_toggle_scanline)
+        } else {
+            String::new()
+        }
+    );
+    println!("  blank frames      {}", capture.diagnostics.blank_frames);
     println!("  distinct colours  {}", capture.distinct_colours);
     println!("  coverage          {:.1}%", capture.coverage * 100.0);
 

@@ -27,6 +27,8 @@ pub struct Capture {
     pub coverage: f32,
     /// Whether emulation stopped early, and why.
     pub stopped: Option<String>,
+    /// What the PPU did while producing the capture.
+    pub diagnostics: rn_core::ppu::FrameDiagnostics,
 }
 
 /// Run `rom` for `frames` video frames and capture the final framebuffer.
@@ -67,6 +69,7 @@ pub fn capture(rom_path: &Path, frames: usize) -> Result<Capture> {
     }
 
     let (distinct_colours, coverage) = analyse(&pixels);
+    let diagnostics = system.ppu().diagnostics();
 
     Ok(Capture {
         pixels,
@@ -74,6 +77,7 @@ pub fn capture(rom_path: &Path, frames: usize) -> Result<Capture> {
         distinct_colours,
         coverage,
         stopped,
+        diagnostics,
     })
 }
 
