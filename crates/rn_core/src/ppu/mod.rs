@@ -180,7 +180,7 @@ impl PpuWrapper {
 
     /// Rendering statistics for the most recent frames.
     pub fn diagnostics(&self) -> FrameDiagnostics {
-        self.ppu.borrow().diagnostics
+        self.ppu.borrow().diagnostics.clone()
     }
 
     /// All four nametables as one 512x480 RGB image, with the viewport outlined.
@@ -324,7 +324,17 @@ pub struct Ppu {
     oam_addr: u8,        // OAMADDR $2003
     scroll_x: u8,        // First write to PPUSCROLL $2005
     scroll_y: u8,        // Second write to PPUSCROLL $2005
-    ppu_addr: Cell<u16>, // PPUADDR $2006 (16-bit address)
+    /// The PPU's current VRAM address, `v` — which is also the scroll position while rendering.
+    ///
+    /// $2006 and $2005 are not two separate registers on hardware: both write into this pair, and
+    /// which bits they touch is what makes $2006 scroll the picture and $2005 take effect only
+    /// from the next frame. Modelling scroll as two independent bytes cannot express either.
+    ppu_addr: Cell<u16>,
+    /// The staging copy, `t`, loaded into `v` at the points below.
+    temp_addr: u16,
+    /// Fine horizontal scroll, the sub-tile part of the first $2005 write. Held apart from `t`
+    /// because there is nowhere in a 15-bit address to put it.
+    fine_x: u8,
 
     // Internal state
     read_buffer: Cell<u8>,    // Internal read buffer for PPUDATA reads
@@ -367,6 +377,7 @@ pub struct Ppu {
     /// scanlines below the current one still hold the backdrop from `begin_frame`. The debugger
     /// would tear and a headless capture would silently truncate.
     working_frame: Vec<u8>,
+    scroll_changes_this_frame: Vec<(u16, u8, u8, u8)>,
     vram_writes_this_frame: u32,
     vram_writes_during_render_this_frame: u32,
 
@@ -403,7 +414,7 @@ pub enum Mirroring {
 /// Answers the questions that a still image cannot: whether a frame was blank because the game
 /// disabled rendering, and whether rendering was toggled *within* a frame — which is how a game
 /// splits the screen, and the usual explanation for a band of the picture flickering.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FrameDiagnostics {
     /// Frames completed since power-on.
     pub frames: u64,
@@ -415,6 +426,13 @@ pub struct FrameDiagnostics {
     pub last_toggle_scanline: i16,
     /// Scanlines rendered in the most recent frame, out of 240.
     pub scanlines_rendered: u16,
+    /// Scroll and nametable select as each visible scanline was drawn, recorded only where they
+    /// changed: `(scanline, scroll_x, scroll_y, ctrl)`.
+    ///
+    /// Games rewrite these partway down a frame to split the screen. Sampling once at the end of a
+    /// frame shows only the last value written, which is how a mid-frame split can look like the
+    /// whole frame having moved.
+    pub scroll_changes: Vec<(u16, u8, u8, u8)>,
     /// PPUDATA ($2007) writes in the most recent frame.
     pub vram_writes: u32,
     /// How many of those landed while the visible picture was being drawn.
@@ -462,6 +480,8 @@ impl Ppu {
             scroll_x: 0,
             scroll_y: 0,
             ppu_addr: Cell::new(0),
+            temp_addr: 0,
+            fine_x: 0,
 
             // Initialize internal state
             read_buffer: Cell::new(0),
@@ -483,6 +503,7 @@ impl Ppu {
 
             // Initialize frame buffer (256x240 pixels, 3 bytes per pixel for RGB)
             working_frame: vec![0; 256 * 240 * 3],
+            scroll_changes_this_frame: Vec::new(),
             vram_writes_this_frame: 0,
             vram_writes_during_render_this_frame: 0,
             frame_buffer: vec![0; 256 * 240 * 3],
@@ -545,10 +566,20 @@ impl Ppu {
                 if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
                     self.scanlines_completed = self.scanlines_completed.saturating_add(1);
                 }
+                // Hardware restores the horizontal scroll at the end of every rendered line and
+                // advances the vertical one, both only while rendering is on. A $2006 write made
+                // partway down the frame survives the horizontal restore, because that write set
+                // `t` as well as `v` — which is what makes it a mid-frame scroll change.
+                if rendering_enabled {
+                    self.reload_horizontal_scroll();
+                }
                 self.render_background_scanline(y);
                 // Sprites go on top, and are evaluated for this line specifically — so OAM
                 // changes made partway down a frame take effect from that line on, as on hardware.
                 self.render_sprites_for_scanline(y);
+                if rendering_enabled {
+                    self.increment_vertical_scroll();
+                }
             }
 
             // Start of VBlank occurs at the beginning of scanline 241
@@ -577,6 +608,11 @@ impl Ppu {
                 let old_status = self.status.get();
                 let new_status = old_status & !STATUS_VBLANK;
                 self.status.set(new_status);
+
+                // The pre-render line is where the vertical scroll for the coming frame is loaded.
+                if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
+                    self.reload_vertical_scroll();
+                }
             }
             // Start of next frame
             else if self.scanline > 261 {
@@ -643,6 +679,7 @@ impl Ppu {
     fn end_frame(&mut self) {
         self.diagnostics.frames += 1;
         self.diagnostics.scanlines_rendered = self.scanlines_this_frame;
+        self.diagnostics.scroll_changes = std::mem::take(&mut self.scroll_changes_this_frame);
         self.diagnostics.vram_writes = self.vram_writes_this_frame;
         self.diagnostics.vram_writes_during_render = self.vram_writes_during_render_this_frame;
         self.vram_writes_this_frame = 0;
@@ -683,6 +720,47 @@ impl Ppu {
         pixels
     }
 
+    /// Copy the horizontal scroll from `t` into `v`, as hardware does at the end of every
+    /// rendered scanline. Without it every line would inherit the previous line's X advance.
+    fn reload_horizontal_scroll(&mut self) {
+        let v = self.ppu_addr.get();
+        self.ppu_addr.set((v & !0x041F) | (self.temp_addr & 0x041F));
+    }
+
+    /// Copy the vertical scroll from `t` into `v`, which hardware does only during the pre-render
+    /// line. This is the one moment a $2005 Y write reaches the picture, and therefore the reason
+    /// such a write applies to the *next* frame rather than the one it was made in.
+    fn reload_vertical_scroll(&mut self) {
+        let v = self.ppu_addr.get();
+        self.ppu_addr.set((v & !0x7BE0) | (self.temp_addr & 0x7BE0));
+    }
+
+    /// Advance `v` by one scanline.
+    ///
+    /// Coarse Y is five bits but a nametable has only 30 rows. Counting past row 29 wraps to 0 and
+    /// switches to the vertically adjacent nametable; counting past 31 — reachable only by writing
+    /// an out-of-range scroll — wraps without switching, and rows 30 and 31 read from the
+    /// attribute table, which is the garbage hardware shows there.
+    fn increment_vertical_scroll(&mut self) {
+        let mut v = self.ppu_addr.get();
+        if (v & 0x7000) != 0x7000 {
+            v += 0x1000; // fine Y
+        } else {
+            v &= !0x7000;
+            let mut coarse_y = (v & 0x03E0) >> 5;
+            if coarse_y == 29 {
+                coarse_y = 0;
+                v ^= 0x0800; // the vertical nametable
+            } else if coarse_y == 31 {
+                coarse_y = 0;
+            } else {
+                coarse_y += 1;
+            }
+            v = (v & !0x03E0) | (coarse_y << 5);
+        }
+        self.ppu_addr.set(v);
+    }
+
     /// Render one visible scanline of the background.
     ///
     /// Per scanline rather than per frame, because the registers this reads — scroll position,
@@ -695,28 +773,42 @@ impl Ppu {
             return;
         }
 
+        let sample = (screen_y as u16, self.scroll_x, self.scroll_y, self.ctrl);
+        if self.scroll_changes_this_frame.last().map(|l: &(u16, u8, u8, u8)| (l.1, l.2, l.3))
+            != Some((sample.1, sample.2, sample.3))
+        {
+            self.scroll_changes_this_frame.push(sample);
+        }
+
         // Rendering reads through PPU memory, so no cartridge handle is needed here.
         // Scroll is in pixels, and the nametable select supplies the high bit of each axis — so
         // the full coordinate space is 512x480 across the four logical nametables.
-        let scroll_x = self.scroll_x as usize + if (self.ctrl & CTRL_NAMETABLE_X) != 0 { 256 } else { 0 };
-        let scroll_y = self.scroll_y as usize + if (self.ctrl & CTRL_NAMETABLE_Y) != 0 { 240 } else { 0 };
-
         let pattern_base: u16 = if (self.ctrl & CTRL_BACKGROUND_PATTERN) != 0 { 256 } else { 0 };
 
-        // The row being fetched, wrapped into the 480-pixel vertical space.
-        let world_y = (screen_y + scroll_y) % 480;
-        let tile_row = (world_y / 8) % 30;
-        let pixel_row = world_y % 8;
-        // Crossing 240 vertically moves to the lower pair of nametables.
-        let nametable_y = if world_y >= 240 { 2 } else { 0 };
+        // Everything about where this line reads from is in `v`: the nametable, the tile within
+        // it, and the row within the tile. Deriving it from separate scroll bytes is what made
+        // Super Mario Bros 3's title screen flicker — the game scrolls it with $2006, which those
+        // bytes never saw, and alternates a $2005 Y of 0 and 254 whose effect is deferred a frame.
+        let v = self.ppu_addr.get() as usize;
+        let coarse_x_start = v & 0x1F;
+        let tile_row = (v >> 5) & 0x1F;
+        let nametable_x_start = (v >> 10) & 1;
+        let nametable_y = (v >> 11) & 1;
+        let pixel_row = (v >> 12) & 0x07;
+        let fine_x = self.fine_x as usize;
 
         for screen_x in 0..256usize {
-            let world_x = (screen_x + scroll_x) % 512;
-            let tile_column = (world_x / 8) % 32;
-            let pixel_column = world_x % 8;
-            let nametable_x = if world_x >= 256 { 1 } else { 0 };
+            let x = screen_x + fine_x;
+            let mut tile_column = coarse_x_start + x / 8;
+            let pixel_column = x % 8;
+            // Running off the right edge of a nametable continues in its horizontal neighbour.
+            let mut nametable_x = nametable_x_start;
+            if tile_column >= 32 {
+                tile_column -= 32;
+                nametable_x ^= 1;
+            }
 
-            let nametable = 0x2000 + (nametable_y + nametable_x) * 0x0400;
+            let nametable = 0x2000 + (nametable_y * 2 + nametable_x) * 0x0400;
             let tile_id = self.read_ppu_memory((nametable + tile_row * 32 + tile_column) as u16);
 
             // One attribute byte covers 4x4 tiles, holding four 2-bit palette indices — one per
@@ -1357,6 +1449,8 @@ impl Ppu {
 
     /// Write to PPUCTRL ($2000)
     fn write_control(&mut self, value: u8) {
+        // The nametable select lives in t, so $2000 is also a scroll write.
+        self.temp_addr = (self.temp_addr & 0x73FF) | ((value as u16 & 0x03) << 10);
         log::debug!("PPU write_control: ${:02X}", value);
         self.ctrl = value;
     }
@@ -1415,11 +1509,17 @@ impl Ppu {
     /// Write to PPUSCROLL ($2005)
     fn write_scroll(&mut self, value: u8) {
         if !self.write_toggle.get() {
-            // First write: X scroll
+            // Coarse X into t, fine X into its own latch.
             self.scroll_x = value;
+            self.temp_addr = (self.temp_addr & 0x7FE0) | (value as u16 >> 3);
+            self.fine_x = value & 0x07;
         } else {
-            // Second write: Y scroll
+            // Coarse Y and fine Y into t. Note this only reaches the picture at the pre-render
+            // line, which is why a scroll written during one frame first shows in the next.
             self.scroll_y = value;
+            self.temp_addr = (self.temp_addr & 0x0C1F)
+                | ((value as u16 & 0x07) << 12)
+                | ((value as u16 & 0xF8) << 2);
         }
 
         self.write_toggle.set(!self.write_toggle.get());
@@ -1428,25 +1528,14 @@ impl Ppu {
     /// Write to PPUADDR ($2006)
     fn write_address(&mut self, value: u8) {
         if !self.write_toggle.get() {
-            // First write: high byte
-            let high_byte = (value as u16) << 8;
-            let low_byte = self.ppu_addr.get() & 0x00FF;
-            self.ppu_addr.set(high_byte | low_byte);
-            log::debug!(
-                "PPU write_address: High byte ${:02X}, new address ${:04X}",
-                value,
-                self.ppu_addr.get()
-            );
+            // High six bits into t; bit 14 is cleared, as hardware does.
+            self.temp_addr = (self.temp_addr & 0x00FF) | ((value as u16 & 0x3F) << 8);
         } else {
-            // Second write: low byte
-            let high_byte = self.ppu_addr.get() & 0xFF00;
-            let low_byte = value as u16;
-            self.ppu_addr.set(high_byte | low_byte);
-            log::debug!(
-                "PPU write_address: Low byte ${:02X}, new address ${:04X}",
-                value,
-                self.ppu_addr.get()
-            );
+            // The low byte completes t, which is then copied wholesale into v. Doing this partway
+            // down a frame is how a game splits the screen: it moves the scroll immediately,
+            // rather than waiting for the next frame as a $2005 write would.
+            self.temp_addr = (self.temp_addr & 0x7F00) | value as u16;
+            self.ppu_addr.set(self.temp_addr);
         }
 
         self.write_toggle.set(!self.write_toggle.get());
@@ -1861,6 +1950,79 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// $2005 and $2006 are one address pair, not two scroll bytes.
+    ///
+    /// Super Mario Bros 3's title screen showed why this matters: it scrolls with $2006, which a
+    /// separate scroll_x/scroll_y pair never observes, and writes a $2005 Y whose effect hardware
+    /// defers to the following frame. Reading the two as independent values put half the screen on
+    /// the wrong nametable and made the picture flicker.
+    #[test]
+    fn a_scroll_write_reaches_the_picture_only_at_the_pre_render_line() {
+        let mut ppu = Ppu::new();
+        ppu.write_register(0x2001, MASK_SHOW_BACKGROUND);
+        ppu.write_register(0x2002, 0); // ignored, but resets the write toggle
+        let _ = ppu.read_register(0x2002);
+
+        ppu.write_register(0x2005, 0); // X
+        ppu.write_register(0x2005, 64); // Y
+
+        let before = ppu.ppu_addr.get();
+        assert_eq!(before & 0x7BE0, 0, "a $2005 write must not move v on its own");
+
+        ppu.reload_vertical_scroll();
+        assert_eq!((ppu.ppu_addr.get() >> 5) & 0x1F, 8, "coarse Y 64/8 should arrive at pre-render");
+    }
+
+    #[test]
+    fn the_second_address_write_moves_the_scroll_immediately() {
+        let mut ppu = Ppu::new();
+        let _ = ppu.read_register(0x2002);
+
+        ppu.write_register(0x2006, 0x0B);
+        assert_eq!(ppu.ppu_addr.get(), 0, "the first write only stages the high byte");
+
+        ppu.write_register(0x2006, 0x00);
+        assert_eq!(ppu.ppu_addr.get(), 0x0B00, "the second write takes effect at once");
+        // $0B00 is nametable 2, coarse Y 24 — a mid-frame split, not a next-frame scroll.
+        assert_eq!((ppu.ppu_addr.get() >> 10) & 3, 2);
+        assert_eq!((ppu.ppu_addr.get() >> 5) & 0x1F, 24);
+    }
+
+    /// Coarse Y counts to 31 but a nametable holds 30 rows, and the two cases wrap differently.
+    #[test]
+    fn coarse_y_switches_nametable_at_29_but_not_at_31() {
+        let mut ppu = Ppu::new();
+
+        // Row 29 is the last real one: wrapping moves to the nametable below.
+        ppu.ppu_addr.set(0x7000 | (29 << 5));
+        ppu.increment_vertical_scroll();
+        assert_eq!((ppu.ppu_addr.get() >> 5) & 0x1F, 0);
+        assert_eq!(ppu.ppu_addr.get() & 0x0800, 0x0800, "row 29 wraps into the next nametable");
+
+        // Row 31 is only reachable by writing an out-of-range scroll, and wraps in place. A game
+        // writing a Y of 254 means "two rows above the top", not "switch nametable".
+        ppu.ppu_addr.set(0x7000 | (31 << 5));
+        ppu.increment_vertical_scroll();
+        assert_eq!((ppu.ppu_addr.get() >> 5) & 0x1F, 0);
+        assert_eq!(ppu.ppu_addr.get() & 0x0800, 0, "row 31 must wrap without switching");
+    }
+
+    #[test]
+    fn the_nametable_select_in_control_is_part_of_the_scroll() {
+        let mut ppu = Ppu::new();
+        ppu.write_register(0x2000, 0x02); // nametable 2
+        assert_eq!((ppu.temp_addr >> 10) & 3, 2, "$2000 writes the nametable bits of t");
+    }
+
+    #[test]
+    fn fine_x_is_the_sub_tile_part_of_the_first_scroll_write() {
+        let mut ppu = Ppu::new();
+        let _ = ppu.read_register(0x2002);
+        ppu.write_register(0x2005, 0x1D); // coarse 3, fine 5
+        assert_eq!(ppu.temp_addr & 0x1F, 3);
+        assert_eq!(ppu.fine_x, 5);
+    }
+
     /// A game updates video memory during vblank, when the PPU is not reading it. Writing while
     /// the picture is being drawn means it ran out of vblank — the signature of a PAL game on
     /// NTSC timing, which gets 20 scanlines of vblank instead of about 70. Counting it separates
