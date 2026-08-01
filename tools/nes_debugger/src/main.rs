@@ -40,6 +40,12 @@ use rn_ui::widgets::{
 };
 use anyhow::{Context, Result};
 
+/// One NTSC frame: the NES runs at 60.0988 Hz, not exactly 60.
+const NTSC_FRAME_PERIOD: std::time::Duration = std::time::Duration::from_nanos(16_639_267);
+
+/// Most frames to run in one repaint while catching up.
+const MAX_CATCH_UP_FRAMES: u32 = 2;
+
 /// Command line arguments for the NesDebugger
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -154,6 +160,13 @@ struct NesDebugger {
     audio_controls: AudioControls,
     /// Whether the audio stream is running; emulation paces itself against it when it is.
     audio_running: bool,
+
+    /// When the next emulated frame is due.
+    ///
+    /// Emulation is paced by the wall clock rather than by repaints. A ProMotion display repaints
+    /// at 120 Hz, and running a frame per repaint made the emulator sprint at double speed until
+    /// the audio buffer filled, then stall — which is seen as animation jumping and freezing.
+    next_frame_at: std::time::Instant,
 
     // Emulation state
     system: Rc<RefCell<NesSystem>>,
@@ -599,6 +612,7 @@ impl NesDebugger {
             audio_output: audio_consumer,
             audio_controls,
             audio_running: false,
+            next_frame_at: std::time::Instant::now(),
             waveform_visualizer: waveform,
             system,
             key_mapping_manager,
@@ -691,26 +705,41 @@ impl NesDebugger {
         }
     }
 
-    /// Whether to advance another frame this repaint.
+    /// How many emulated frames are due, by the wall clock.
     ///
-    /// The sound card is still the clock: the buffer drains at exactly the device's rate, so
-    /// holding it near half full runs the emulator at the right speed. The difference is that it
-    /// now gates *whether* a frame runs rather than sizing an arbitrary slice of one, which is
-    /// what keeps frames and redraws aligned.
-    fn should_run_frame(&self) -> bool {
-        if !self.audio_running {
-            // Without audio there is nothing to pace against, so follow the repaint rate.
-            return true;
+    /// The NES runs at 60.0988 Hz, which is unrelated to how often the UI repaints — a ProMotion
+    /// display does so at 120 Hz. Running a frame per repaint therefore ran the emulator at double
+    /// speed until the audio buffer filled and the gate closed, then stalled until it drained:
+    /// visible as animation jumping ahead and freezing. Deciding by elapsed time instead makes the
+    /// rate independent of the display.
+    fn frames_due(&mut self) -> u32 {
+        let now = std::time::Instant::now();
+        if now < self.next_frame_at {
+            return 0;
         }
 
+        // Cap the catch-up. Falling behind is normal on a slow repaint; sprinting to make it up
+        // is exactly the behaviour being fixed.
+        let mut frames = 0;
+        while self.next_frame_at <= now && frames < MAX_CATCH_UP_FRAMES {
+            self.next_frame_at += NTSC_FRAME_PERIOD;
+            frames += 1;
+        }
+
+        // If the deficit is large — the window was hidden, or the machine stalled — resynchronise
+        // rather than trying to replay the missing seconds.
+        if now > self.next_frame_at + NTSC_FRAME_PERIOD * 8 {
+            self.next_frame_at = now + NTSC_FRAME_PERIOD;
+        }
+
+        // The audio buffer is now only a safety valve: if it is nearly full the emulator is ahead
+        // of the sound card despite the clock, and another frame would just be dropped samples.
         let capacity = self.audio_controls.capacity();
-        if capacity == 0 {
-            return true;
+        if self.audio_running && capacity > 0 && self.audio_controls.queued() > capacity * 9 / 10 {
+            return 0;
         }
 
-        // Run unless the buffer is already comfortably ahead. A frame's worth of samples is about
-        // 1/60th of a second, so leaving that much headroom avoids overshooting into drops.
-        self.audio_controls.queued() < capacity * 3 / 4
+        frames
     }
 
 }
@@ -788,13 +817,20 @@ impl App for NesDebugger {
         // frames — publishing one that was replaced before it was ever displayed, which shows up
         // as an animation skipping — or none, redisplaying the previous frame.
         if self.asm_widget.is_continuous_run() {
-            if self.should_run_frame() {
+            let frames = self.frames_due();
+            if frames > 0 {
                 let mut system = self.system.borrow_mut();
-                self.asm_widget.run_one_frame(&mut system);
+                for _ in 0..frames {
+                    if !self.asm_widget.run_one_frame(&mut system) {
+                        break;
+                    }
+                }
             }
 
-            // Keep redrawing while running, whether or not this repaint advanced a frame.
-            ctx.request_repaint();
+            // Ask to be woken when the next frame is due, rather than spinning at the display's
+            // refresh rate and deciding to do nothing.
+            let now = std::time::Instant::now();
+            ctx.request_repaint_after(self.next_frame_at.saturating_duration_since(now));
         }
 
         // Top menu bar for show/hide controls
