@@ -1,4 +1,8 @@
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::{
+    cell::RefCell,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use clap::Parser;
 use eframe::{egui, App, Frame};
@@ -7,6 +11,7 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 extern crate log;
 use rn_audio::{AudioControls, ChannelBuilder, CpalAudioBuilder, CpalAudioConsumer, Multiplexer};
 use rn_core::{
+    cartridge::load_rom,
     cpu::CpuWrapper,
     errors::NesError,
     memory::Addressable,
@@ -31,15 +36,17 @@ use rn_ui::widgets::{
     PpuWidget,
     WaveformWidget,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 /// Command line arguments for the NesDebugger
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Optional assembly file to load on startup
+    /// File to load on startup: either an iNES ROM (.nes) or 6502 assembly.
+    ///
+    /// Detected by content, not extension.
     #[arg(value_name = "FILE")]
-    asm_file: Option<PathBuf>,
+    file: Option<PathBuf>,
 }
 
 /// Adapter to use CPU's memory with the memory editor
@@ -522,14 +529,58 @@ impl NesDebugger {
 }
 
 impl NesDebugger {
-    /// How far the audio buffer has to be refilled, expressed in CPU cycles.
+    /// Load the file given on the command line, which may be a `.nes` ROM or 6502 assembly.
     ///
-    /// This is what makes the sound card the master clock. The buffer drains at exactly the
-    /// device's sample rate, so topping it back up to a target level runs the emulator at exactly
-    /// the right speed — no drift, however irregularly the UI happens to repaint.
-    ///
-    /// Returns `None` when audio is not running, in which case the widget falls back to its own
-    /// wall-clock pacing so stepping and frame-advance still work.
+    /// Detected by content rather than by extension: an iNES image starts with the four bytes
+    /// `NES\x1A`. Reading a ROM as text fails with "stream did not contain valid UTF-8", which
+    /// says nothing useful about what the user actually passed.
+    fn load_initial_file(&mut self, path: &Path) -> Result<()> {
+        let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+
+        if bytes.starts_with(b"NES\x1A") {
+            info!("Loading iNES ROM: {}", path.display());
+            let rom = load_rom(path).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+            self.system
+                .borrow_mut()
+                .load_rom(&rom)
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+
+            info!(
+                "ROM loaded: {} KB PRG, {} KB CHR, mapper {}",
+                rom.prg_rom.len() / 1024,
+                rom.chr_rom.len() / 1024,
+                rom.header.mapper
+            );
+
+            if rom.header.mapper != 0 {
+                warn!(
+                    "Mapper {} is not implemented — only NROM (mapper 0) runs correctly, so this \
+                     ROM will not behave",
+                    rom.header.mapper
+                );
+            }
+
+            // A ROM has graphics to show, so open on the PPU view.
+            self.context.display_mode = DisplayMode::Ppu;
+            return Ok(());
+        }
+
+        let source = String::from_utf8(bytes)
+            .with_context(|| format!("{} is neither an iNES ROM nor valid UTF-8 assembly", path.display()))?;
+
+        info!("Loading assembly: {}", path.display());
+        self.asm_widget = AsmWidget::with_code(&source);
+
+        let mut system = self.system.borrow_mut();
+        self.asm_widget
+            .assemble_code(&mut system)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        self.context.display_mode = DisplayMode::Ppu;
+        Ok(())
+    }
+
     /// Current audio pipeline health, for display in the audio widget.
     fn audio_stats(&self) -> AudioStats {
         AudioStats {
@@ -543,6 +594,14 @@ impl NesDebugger {
         }
     }
 
+    /// How far the audio buffer has to be refilled, expressed in CPU cycles.
+    ///
+    /// This is what makes the sound card the master clock. The buffer drains at exactly the
+    /// device's sample rate, so topping it back up to a target level runs the emulator at exactly
+    /// the right speed — no drift, however irregularly the UI happens to repaint.
+    ///
+    /// Returns `None` when audio is not running, in which case the widget falls back to its own
+    /// wall-clock pacing so stepping and frame-advance still work.
     fn audio_cycle_budget(&self) -> Option<usize> {
         if !self.audio_running {
             return None;
@@ -618,29 +677,9 @@ impl App for NesDebugger {
 
         // Load the initial file if specified and not yet loaded
         if !self.initial_file_loaded {
-            if let Some(file_path) = &self.args.asm_file {
-                debug!("Attempting to load assembly file: {}", file_path.display());
-                match std::fs::read_to_string(file_path) {
-                    Ok(file_content) => {
-                        debug!("Successfully read file contents, creating assembly widget");
-                        self.asm_widget = AsmWidget::with_code(&file_content);
-
-                        // Assemble and load the code
-                        let mut system_borrow = self.system.borrow_mut();
-                        match self.asm_widget.assemble_code(&mut system_borrow) {
-                            Ok(_) => {
-                                info!("Successfully assembled and loaded code from: {}", file_path.display());
-                                // Switch to PPU view by default for test files
-                                self.context.display_mode = DisplayMode::Ppu;
-                            },
-                            Err(err) => {
-                                error!("Failed to assemble code from {}: {}", file_path.display(), err);
-                            },
-                        }
-                    },
-                    Err(err) => {
-                        error!("Error reading file {}: {}", file_path.display(), err);
-                    },
+            if let Some(file_path) = self.args.file.clone() {
+                if let Err(err) = self.load_initial_file(&file_path) {
+                    error!("Failed to load {}: {err:#}", file_path.display());
                 }
                 self.initial_file_loaded = true;
             }
@@ -915,8 +954,8 @@ fn main() -> anyhow::Result<()> {
     // Parse command line arguments
     let args = Args::parse();
 
-    if let Some(path) = &args.asm_file {
-        info!("Assembly file specified: {}", path.display());
+    if let Some(path) = &args.file {
+        info!("File specified: {}", path.display());
     }
 
     // Set up the native options with a maximized window

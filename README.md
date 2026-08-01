@@ -59,7 +59,8 @@ cargo build --workspace
 cargo test  --workspace
 
 cargo run -p nes_debugger                                # main debugger
-cargo run -p nes_debugger -- asm/simple_tone_test.asm    # load a program on startup
+cargo run -p nes_debugger -- asm/simple_tone_test.asm    # load assembly on startup
+cargo run -p nes_debugger -- game.nes                    # or an iNES ROM
 cargo run -p nes_asm -- asm/basic_tone_test.asm          # assemble from the command line
 cargo run -p waveform_player                             # audio playground, no emulator involved
 

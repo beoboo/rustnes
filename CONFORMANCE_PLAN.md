@@ -61,8 +61,8 @@ skip past it to the CHR data, discarding the program.
 - [x] Return PRG-ROM alongside CHR-ROM from the loader (`Rom`, `load_rom`)
 - [x] Map PRG-ROM into `$8000-$FFFF`, mirroring a 16 KB image at both `$8000` and `$C000`
 - [x] Load the reset vector from `$FFFC` and start execution there
-- [ ] Add `--rom file.nes` to the debugger (rom_test takes ROMs directly; the debugger still
-      only loads assembly)
+- [x] The debugger loads `.nes` ROMs as well as assembly, detected by the iNES magic rather than
+      by extension, and warns when a ROM needs an unimplemented mapper
 
 ### P2 — Complete the official instruction set ✅
 
