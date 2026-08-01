@@ -115,6 +115,41 @@ impl PixelDisplay {
 
     // Getters and setters
 
+    /// Largest zoom at which a `width` x `height` image fits the space available, with a margin.
+    ///
+    /// The margin is the point of this. Sizing an image to exactly the available width puts it on
+    /// the scrollbar threshold: filling the width makes a scrollbar appear, which shrinks the
+    /// available width, which hides the scrollbar again — so the picture resizes by a few pixels
+    /// on every repaint. That oscillation reads as a persistent flicker that no amount of work on
+    /// emulation timing can fix, because the emulator is not involved in it.
+    ///
+    /// Quantising to whole steps matters for the same reason: a zoom that drifts by a fraction of
+    /// a percent each repaint shimmers under nearest-neighbour sampling, as pixel boundaries land
+    /// on different sides of a screen pixel from one frame to the next.
+    pub fn fit_zoom(&self, ui: &Ui, width: usize, height: usize) -> f32 {
+        let vertical = Self::quantise(self.fit(ui.available_height(), height));
+        self.fit_zoom_width(ui, width).min(vertical)
+    }
+
+    /// As [`fit_zoom`](Self::fit_zoom), but constrained only by width.
+    ///
+    /// For displays that are meant to scroll vertically, where fitting the height would shrink
+    /// them to nothing.
+    pub fn fit_zoom_width(&self, ui: &Ui, width: usize) -> f32 {
+        Self::quantise(self.fit(ui.available_width(), width))
+    }
+
+    fn fit(&self, space: f32, pixels: usize) -> f32 {
+        /// Enough clearance that filling the space cannot itself summon a scrollbar.
+        const MARGIN: f32 = 16.0;
+        (space - MARGIN).max(0.0) / (pixels as f32 * self.pixel_size)
+    }
+
+    fn quantise(zoom: f32) -> f32 {
+        const STEP: f32 = 0.25;
+        ((zoom / STEP).floor() * STEP).max(STEP)
+    }
+
     /// Set the pixel size
     pub fn set_pixel_size(&mut self, size: f32) {
         if size > 1.0 && size < 32.0 {
@@ -173,5 +208,45 @@ impl PixelDisplay {
 impl Default for PixelDisplay {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bug this guards against: an image sized to exactly the space available fills its
+    /// container, which makes a scrollbar appear, which shrinks the space, which hides the
+    /// scrollbar — resizing the picture on every repaint. It looks exactly like a flickering
+    /// emulator, and no measurement of the emulator can find it.
+    #[test]
+    fn a_fitted_image_never_fills_the_space_it_was_measured_against() {
+        let display = PixelDisplay::new();
+
+        for space in [200.0, 512.0, 513.0, 777.0, 1024.0, 1920.0] {
+            let zoom = PixelDisplay::quantise(display.fit(space, 256));
+            let width = 256.0 * display.pixel_size * zoom;
+            assert!(
+                width < space,
+                "at {space}px available the image is {width}px, which can summon a scrollbar"
+            );
+        }
+    }
+
+    /// Sub-pixel drift shimmers under nearest-neighbour sampling, as pixel boundaries land on
+    /// different sides of a screen pixel between repaints.
+    #[test]
+    fn zoom_moves_in_whole_steps() {
+        let display = PixelDisplay::new();
+        for space in [600.0, 601.0, 602.0, 603.0] {
+            let zoom = PixelDisplay::quantise(display.fit(space, 256));
+            assert_eq!(zoom % 0.25, 0.0, "{zoom} is not a whole step");
+        }
+    }
+
+    #[test]
+    fn a_space_too_small_to_fit_still_yields_a_usable_zoom() {
+        let display = PixelDisplay::new();
+        assert!(PixelDisplay::quantise(display.fit(0.0, 256)) > 0.0);
     }
 }

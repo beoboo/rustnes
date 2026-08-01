@@ -409,10 +409,8 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                 // Display content based on mode
                 match self.context.display_mode {
                     DisplayMode::Memory => {
-                        // Calculate auto-zoom based on panel width
-                        let available_width = ui.available_width();
-                        let memory_width = 32; // Width of the memory display in pixels
-                        let auto_zoom = (available_width / (memory_width as f32 * 2.0)).max(1.0);
+                        // Width only: the memory view scrolls vertically.
+                        let auto_zoom = self.pixel_display.fit_zoom_width(ui, 32);
 
                         // Create a memory pixel adapter using the system's CPU
                         let system_ref = self.system.clone();
@@ -428,10 +426,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                         let _ = self.pixel_display.ui(ui, &memory_adapter);
                     },
                     DisplayMode::Ppu => {
-                        // Calculate auto-zoom based on panel width
-                        let available_width = ui.available_width();
-                        let ppu_width = 256; // Width of the PPU display in pixels
-                        let auto_zoom = (available_width / (ppu_width as f32 * 2.0)).max(0.5);
+                        let auto_zoom = self.pixel_display.fit_zoom(ui, 256, 240);
 
                         // Create a PPU pixel adapter using the system's PPU
                         let system_ref = self.system.clone();
@@ -483,8 +478,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                         });
                         ui.add_space(4.0);
 
-                        let available_width = ui.available_width();
-                        let auto_zoom = (available_width / 512.0).clamp(0.25, 4.0);
+                        let auto_zoom = self.pixel_display.fit_zoom(ui, 512, 480);
 
                         let system_ref = self.system.clone();
                         let map_adapter = NametableMapAdapter::new(move || {

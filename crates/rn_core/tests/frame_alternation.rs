@@ -61,6 +61,23 @@ fn gameplay_frames_do_not_alternate() {
         advance_frames(&mut sys, 1);
     }
 
+    // Jitter shows up as content moving rather than alternating in place: a row matches its
+    // neighbour's position in the next frame. Animation almost never does that for many rows at
+    // once, so a high proportion here means scanlines are being drawn a line off, intermittently.
+    let (mut moved, mut shifted) = (0usize, 0usize);
+    for pair in rows.windows(2) {
+        for y in 1..239 {
+            if pair[0][y] == pair[1][y] {
+                continue;
+            }
+            moved += 1;
+            if pair[0][y] == pair[1][y - 1] || pair[0][y] == pair[1][y + 1] {
+                shifted += 1;
+            }
+        }
+    }
+    println!("row changes: {moved}, of which shifted by exactly one scanline: {shifted}");
+
     let mut alternating = 0;
     let mut changing = 0;
     let mut static_rows = 0;
