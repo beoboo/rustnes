@@ -377,7 +377,8 @@ pub struct Ppu {
     /// scanlines below the current one still hold the backdrop from `begin_frame`. The debugger
     /// would tear and a headless capture would silently truncate.
     working_frame: Vec<u8>,
-    scroll_changes_this_frame: Vec<(u16, u8, u8, u8)>,
+    scroll_changes_this_frame: Vec<(u16, u16, u8)>,
+    sprite_zero_hit_this_frame: i16,
     vram_writes_this_frame: u32,
     vram_writes_during_render_this_frame: u32,
 
@@ -426,13 +427,20 @@ pub struct FrameDiagnostics {
     pub last_toggle_scanline: i16,
     /// Scanlines rendered in the most recent frame, out of 240.
     pub scanlines_rendered: u16,
-    /// Scroll and nametable select as each visible scanline was drawn, recorded only where they
-    /// changed: `(scanline, scroll_x, scroll_y, ctrl)`.
+    /// The VRAM address each visible scanline was drawn from, recorded only where it changed:
+    /// `(scanline, v, fine_x)`.
     ///
-    /// Games rewrite these partway down a frame to split the screen. Sampling once at the end of a
-    /// frame shows only the last value written, which is how a mid-frame split can look like the
-    /// whole frame having moved.
-    pub scroll_changes: Vec<(u16, u8, u8, u8)>,
+    /// `v` is the real scroll position, so this shows mid-frame splits as they happen. Recording
+    /// the $2005 shadow bytes instead would show the value a game *wrote* rather than the one in
+    /// effect — and those differ by design, since a $2005 write does not reach `v` until the
+    /// pre-render line while a $2006 write reaches it at once.
+    pub scroll_changes: Vec<(u16, u16, u8)>,
+    /// Scanline where sprite zero overlapped the background, or -1 if it did not.
+    ///
+    /// Games use this to find a known point partway down the picture and change the scroll there.
+    /// A hit on the wrong line, or one that appears on some frames and not others, makes the game
+    /// split in the wrong place — and the game's own scroll then oscillates.
+    pub sprite_zero_hit_scanline: i16,
     /// PPUDATA ($2007) writes in the most recent frame.
     pub vram_writes: u32,
     /// How many of those landed while the visible picture was being drawn.
@@ -504,6 +512,7 @@ impl Ppu {
             // Initialize frame buffer (256x240 pixels, 3 bytes per pixel for RGB)
             working_frame: vec![0; 256 * 240 * 3],
             scroll_changes_this_frame: Vec::new(),
+            sprite_zero_hit_this_frame: -1,
             vram_writes_this_frame: 0,
             vram_writes_during_render_this_frame: 0,
             frame_buffer: vec![0; 256 * 240 * 3],
@@ -680,6 +689,8 @@ impl Ppu {
         self.diagnostics.frames += 1;
         self.diagnostics.scanlines_rendered = self.scanlines_this_frame;
         self.diagnostics.scroll_changes = std::mem::take(&mut self.scroll_changes_this_frame);
+        self.diagnostics.sprite_zero_hit_scanline = self.sprite_zero_hit_this_frame;
+        self.sprite_zero_hit_this_frame = -1;
         self.diagnostics.vram_writes = self.vram_writes_this_frame;
         self.diagnostics.vram_writes_during_render = self.vram_writes_during_render_this_frame;
         self.vram_writes_this_frame = 0;
@@ -773,10 +784,8 @@ impl Ppu {
             return;
         }
 
-        let sample = (screen_y as u16, self.scroll_x, self.scroll_y, self.ctrl);
-        if self.scroll_changes_this_frame.last().map(|l: &(u16, u8, u8, u8)| (l.1, l.2, l.3))
-            != Some((sample.1, sample.2, sample.3))
-        {
+        let sample = (screen_y as u16, self.ppu_addr.get(), self.fine_x);
+        if self.scroll_changes_this_frame.last().map(|l: &(u16, u16, u8)| (l.1, l.2)) != Some((sample.1, sample.2)) {
             self.scroll_changes_this_frame.push(sample);
         }
 
@@ -925,6 +934,9 @@ impl Ppu {
                 // The rightmost pixel never triggers it on hardware.
                 if sprite.is_sprite_zero && bg_pixel != 0 && x < 255 {
                     self.status.set(self.status.get() | STATUS_SPRITE_ZERO_HIT);
+                    if self.sprite_zero_hit_this_frame < 0 {
+                        self.sprite_zero_hit_this_frame = self.scanline;
+                    }
                 }
 
                 // Check priority
