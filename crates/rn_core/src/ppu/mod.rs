@@ -367,6 +367,8 @@ pub struct Ppu {
     /// scanlines below the current one still hold the backdrop from `begin_frame`. The debugger
     /// would tear and a headless capture would silently truncate.
     working_frame: Vec<u8>,
+    vram_writes_this_frame: u32,
+    vram_writes_during_render_this_frame: u32,
 
     /// The last *completed* frame, which is what everything outside the PPU reads.
     frame_buffer: Vec<u8>,
@@ -413,6 +415,16 @@ pub struct FrameDiagnostics {
     pub last_toggle_scanline: i16,
     /// Scanlines rendered in the most recent frame, out of 240.
     pub scanlines_rendered: u16,
+    /// PPUDATA ($2007) writes in the most recent frame.
+    pub vram_writes: u32,
+    /// How many of those landed while the visible picture was being drawn.
+    ///
+    /// Games update video memory during vblank, when the PPU is not reading it. A write during
+    /// the visible portion is either a deliberate mid-frame effect or a game that ran out of
+    /// vblank — the latter being what a PAL game does on NTSC timing, since PAL gives it about 70
+    /// scanlines of vblank and NTSC only 20. The overrun is visible as the picture being rewritten
+    /// underneath itself, which looks like the background flickering.
+    pub vram_writes_during_render: u32,
 }
 
 /// Struct to hold processed sprite data for rendering
@@ -471,6 +483,8 @@ impl Ppu {
 
             // Initialize frame buffer (256x240 pixels, 3 bytes per pixel for RGB)
             working_frame: vec![0; 256 * 240 * 3],
+            vram_writes_this_frame: 0,
+            vram_writes_during_render_this_frame: 0,
             frame_buffer: vec![0; 256 * 240 * 3],
             background_pixels: vec![0; 256 * 240],
             cartridge: None,
@@ -629,6 +643,10 @@ impl Ppu {
     fn end_frame(&mut self) {
         self.diagnostics.frames += 1;
         self.diagnostics.scanlines_rendered = self.scanlines_this_frame;
+        self.diagnostics.vram_writes = self.vram_writes_this_frame;
+        self.diagnostics.vram_writes_during_render = self.vram_writes_during_render_this_frame;
+        self.vram_writes_this_frame = 0;
+        self.vram_writes_during_render_this_frame = 0;
         self.diagnostics.mid_frame_toggles = self.toggles_this_frame;
         if self.scanlines_this_frame == 0 {
             self.diagnostics.blank_frames += 1;
@@ -1264,7 +1282,17 @@ impl Ppu {
             0x4 => self.write_oam_data(value),
             0x5 => self.write_scroll(value),
             0x6 => self.write_address(value),
-            0x7 => self.write_data(value),
+            0x7 => {
+                self.vram_writes_this_frame += 1;
+                // Only while rendering is actually on. A game that disables rendering to load a
+                // level writes freely during what would be the visible portion, and counting that
+                // as an overrun reports hundreds of writes for entirely correct behaviour.
+                let rendering = (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0;
+                if rendering && (0..240).contains(&self.scanline) {
+                    self.vram_writes_during_render_this_frame += 1;
+                }
+                self.write_data(value)
+            },
             _ => {},
         }
     }
@@ -1833,6 +1861,33 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// A game updates video memory during vblank, when the PPU is not reading it. Writing while
+    /// the picture is being drawn means it ran out of vblank — the signature of a PAL game on
+    /// NTSC timing, which gets 20 scanlines of vblank instead of about 70. Counting it separates
+    /// "the game is overrunning" from "the emulator is drawing wrongly", which otherwise look the
+    /// same on screen.
+    #[test]
+    fn vram_writes_are_counted_as_overruns_only_while_rendering() {
+        let mut ppu = Ppu::new();
+        ppu.write_register(0x2001, MASK_SHOW_BACKGROUND); // rendering on
+
+        ppu.scanline = 100; // visible
+        ppu.write_register(0x2007, 0x00);
+        assert_eq!(ppu.vram_writes_during_render_this_frame, 1, "an overrun should count");
+
+        ppu.scanline = 250; // vblank
+        ppu.write_register(0x2007, 0x00);
+        assert_eq!(ppu.vram_writes_during_render_this_frame, 1, "vblank writes are how it is done");
+
+        // Disabling rendering makes the whole frame available, so writes then are not overruns.
+        ppu.write_register(0x2001, 0);
+        ppu.scanline = 100;
+        ppu.write_register(0x2007, 0x00);
+        assert_eq!(ppu.vram_writes_during_render_this_frame, 1, "rendering was off");
+
+        assert_eq!(ppu.vram_writes_this_frame, 3, "every write counts towards the total");
+    }
+
     use super::*;
     use crate::cartridge::Cartridge;
 
