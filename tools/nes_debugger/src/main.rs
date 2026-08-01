@@ -711,8 +711,6 @@ impl NesDebugger {
     fn audio_stats(&self) -> AudioStats {
         AudioStats {
             running: self.audio_running,
-            emulated_fps: self.emulated_fps,
-            repaint_fps: self.repaint_fps,
             sample_rate: self.audio_output.sample_rate(),
             queued: self.audio_controls.queued(),
             capacity: self.audio_controls.capacity(),
@@ -1040,6 +1038,23 @@ impl App for NesDebugger {
 
                 let system = self.system.borrow();
                 let pc = system.cpu().pc();
+
+                // Emulation rate, beside the other run-state indicators. Kept always visible
+                // rather than inside a panel: it is the first thing to check when the picture
+                // looks wrong, and a metric you cannot find is a metric you do not have.
+                if self.emulated_fps > 0.0 {
+                    let off_rate = (self.emulated_fps - 60.0).abs() > 3.0;
+                    ui.colored_label(
+                        if off_rate { egui::Color32::YELLOW } else { egui::Color32::GRAY },
+                        format!("{:.1} fps", self.emulated_fps),
+                    )
+                    .on_hover_text(format!(
+                        "Emulated frames per second; NTSC runs at 60.1.\nUI repaints: {:.0} fps \
+                         (the display's rate, unrelated).",
+                        self.repaint_fps
+                    ));
+                    ui.separator();
+                }
 
                 // Display current position
                 ui.label(format!("PC: ${:04X}", pc));
