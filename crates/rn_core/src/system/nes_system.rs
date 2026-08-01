@@ -6,7 +6,7 @@ use super::{dma::DmaControllerWrapper, DmaController};
 use crate::{
     apu::{Apu, ApuWrapper},
     audio::SampleProducer,
-    cartridge::{create_mapper, Cartridge, Mapper, Mirroring, Rom},
+    cartridge::{create_mapper, mapper_name, supported_mappers, Cartridge, Mapper, Mirroring, Rom},
     cpu::{Cpu, CpuWrapper},
     errors::NesError,
     input::{ControllerHandlerWrapper, ControllerState},
@@ -250,10 +250,7 @@ impl NesSystem {
         // An unsupported mapper is reported rather than approximated: running a game with the
         // wrong banking produces confusing nonsense instead of an obvious failure.
         let mapper = create_mapper(rom.header.mapper, rom.prg_rom.clone(), rom.chr_rom.clone(), mirroring)
-            .ok_or_else(|| {
-                error!("Mapper {} is not implemented", rom.header.mapper);
-                NesError::MemoryAccessError(0x8000)
-            })?;
+            .ok_or_else(|| NesError::UnsupportedMapper(rom.header.mapper, supported_mappers()))?;
 
         let mapper = Rc::new(RefCell::new(mapper));
         self.mapper = Some(mapper.clone());
@@ -275,10 +272,11 @@ impl NesSystem {
         debug!("System state transition: {:?} -> {:?}", old_state, self.state);
         self.error_message = None;
         info!(
-            "ROM loaded: {} KB PRG, {} KB CHR, mapper {}, reset vector ${:04X}",
+            "ROM loaded: {} KB PRG, {} KB CHR, mapper {} ({}), reset vector ${:04X}",
             rom.prg_rom.len() / 1024,
             rom.chr_rom.len() / 1024,
             rom.header.mapper,
+            mapper_name(rom.header.mapper).unwrap_or("unknown"),
             reset
         );
 

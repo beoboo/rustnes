@@ -34,13 +34,13 @@ pub struct Capture {
 /// Run `rom` for `frames` video frames and capture the final framebuffer.
 pub fn capture(rom_path: &Path, frames: usize) -> Result<Capture> {
     let rom = load_rom(rom_path)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .map_err(|e| anyhow::anyhow!("{e}"))
         .with_context(|| format!("loading {}", rom_path.display()))?;
 
     let mut system = NesSystem::new();
     system
         .load_rom(&rom)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .map_err(|e| anyhow::anyhow!("{e}"))
         .context("loading the ROM into the system")?;
 
     let target = (CYCLES_PER_FRAME * frames as f64) as u64;

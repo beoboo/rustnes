@@ -532,6 +532,35 @@ impl Mapper for Mmc3 {
 ///
 /// Returns `None` for schemes that are not implemented, so the caller can say so plainly rather
 /// than running the game with silently wrong banking.
+/// The mappers this emulator implements, as `(number, name)`.
+///
+/// Kept beside `create` so the two cannot disagree — a list that claims support the factory does
+/// not provide is worse than no list.
+pub const SUPPORTED: [(u8, &str); 5] = [
+    (0, "NROM"),
+    (1, "MMC1"),
+    (2, "UxROM"),
+    (4, "MMC3"),
+    (7, "AxROM"),
+];
+
+/// The name of a mapper, if it is implemented.
+pub fn name(number: u8) -> Option<&'static str> {
+    SUPPORTED
+        .iter()
+        .find(|(supported, _)| *supported == number)
+        .map(|(_, name)| *name)
+}
+
+/// A human-readable list of what is supported, for error messages.
+pub fn supported_list() -> String {
+    SUPPORTED
+        .iter()
+        .map(|(number, name)| format!("{number} ({name})"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub fn create(number: u8, prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> Option<Box<dyn Mapper>> {
     match number {
         0 => Some(Box::new(Nrom::new(prg, chr, mirroring))),
@@ -765,6 +794,20 @@ mod tests {
         assert_eq!(mapper.read_prg(0x8000), 2);
         assert_eq!(mapper.read_prg(0xFFFF), 2, "a 32 KB bank covers the whole window");
         assert_eq!(mapper.mirroring(), Mirroring::SingleScreenUpper);
+    }
+
+    /// The advertised list and the factory must agree, or one of them is lying.
+    #[test]
+    fn every_advertised_mapper_can_actually_be_created() {
+        for (number, mapper_name) in SUPPORTED {
+            assert!(
+                create(number, vec![0; 32 * 1024], vec![], Mirroring::Horizontal).is_some(),
+                "mapper {number} ({mapper_name}) is advertised but cannot be created"
+            );
+            assert_eq!(name(number), Some(mapper_name));
+        }
+
+        assert_eq!(name(99), None, "an unimplemented mapper must not be named");
     }
 
     #[test]

@@ -26,6 +26,13 @@ pub enum NesError {
     #[error("Cartridge not connected")]
     CartridgeNotConnected,
 
+    /// The ROM needs a mapper this emulator does not implement.
+    ///
+    /// Reported rather than approximated: running a game with the wrong banking produces
+    /// confusing nonsense instead of an obvious failure.
+    #[error("Mapper {0} is not implemented (supported: {1})")]
+    UnsupportedMapper(u8, String),
+
     /// Error for input-related issues
     #[error("Input error: {0}")]
     InputError(String),

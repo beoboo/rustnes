@@ -622,27 +622,17 @@ impl NesDebugger {
 
         if bytes.starts_with(b"NES\x1A") {
             info!("Loading iNES ROM: {}", path.display());
-            let rom = load_rom(path).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            let rom = load_rom(path).map_err(|e| anyhow::anyhow!("{e}"))?;
 
             self.system
                 .borrow_mut()
                 .load_rom(&rom)
-                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-            info!(
-                "ROM loaded: {} KB PRG, {} KB CHR, mapper {}",
-                rom.prg_rom.len() / 1024,
-                rom.chr_rom.len() / 1024,
-                rom.header.mapper
-            );
-
-            if rom.header.mapper != 0 {
-                warn!(
-                    "Mapper {} is not implemented — only NROM (mapper 0) runs correctly, so this \
-                     ROM will not behave",
-                    rom.header.mapper
-                );
-            }
+            // No mapper warning here: `load_rom` refuses a ROM whose mapper is not implemented,
+            // with a message naming what is supported. Warning separately meant maintaining a
+            // second, independent idea of what works — which is exactly how it came to claim that
+            // MMC3 was unsupported long after it was implemented.
 
             // A ROM has graphics to show, so open on the PPU view.
             self.context.display_mode = DisplayMode::Ppu;

@@ -15,6 +15,24 @@ pub enum RomLoadError {
     InvalidFormat(&'static str),
 }
 
+impl std::fmt::Display for RomLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IoError(error) => write!(f, "{error}"),
+            Self::InvalidFormat(reason) => write!(f, "{reason}"),
+        }
+    }
+}
+
+impl std::error::Error for RomLoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IoError(error) => Some(error),
+            Self::InvalidFormat(_) => None,
+        }
+    }
+}
+
 impl From<io::Error> for RomLoadError {
     fn from(error: io::Error) -> Self {
         RomLoadError::IoError(error)
@@ -69,11 +87,20 @@ impl Rom {
 pub fn load_rom(path: &Path) -> Result<Rom, RomLoadError> {
     let mut file = File::open(path)?;
 
+    // Read the header only if the file is long enough to have one. Letting `read_exact` fail
+    // instead reports "failed to fill whole buffer", which says nothing about the file not being
+    // a ROM.
     let mut header = [0u8; INES_HEADER_SIZE];
-    file.read_exact(&mut header)?;
+    if file.read(&mut header)? < INES_HEADER_SIZE {
+        return Err(RomLoadError::InvalidFormat(
+            "file is too small to be an iNES ROM (under 16 bytes)",
+        ));
+    }
 
     if header[0..4] != INES_MAGIC {
-        return Err(RomLoadError::InvalidFormat("Not a valid iNES ROM file"));
+        return Err(RomLoadError::InvalidFormat(
+            "not an iNES ROM (missing the \"NES\\x1A\" signature)",
+        ));
     }
 
     let parsed = parse_ines_header(&header)?;

@@ -116,7 +116,7 @@ pub struct Divergence {
 /// Stopping at the first difference is deliberate: once the CPU state is wrong, every subsequent
 /// line is wrong too, and a thousand cascading failures hide the one that matters.
 pub fn run(rom_path: &Path, log_path: &Path, max_instructions: usize) -> Result<Outcome> {
-    let rom = load_rom(rom_path).map_err(|e| anyhow::anyhow!("{e:?}")).context("loading nestest.nes")?;
+    let rom = load_rom(rom_path).map_err(|e| anyhow::anyhow!("{e}")).context("loading nestest.nes")?;
 
     let log = std::fs::read_to_string(log_path).context("reading nestest.log")?;
     let expected: Vec<(usize, State)> = log
@@ -132,7 +132,7 @@ pub fn run(rom_path: &Path, log_path: &Path, max_instructions: usize) -> Result<
     let mut system = NesSystem::new();
     system
         .load_rom(&rom)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .map_err(|e| anyhow::anyhow!("{e}"))
         .context("loading the ROM into the system")?;
 
     // Automated mode, and the documented initial state the log was captured with.

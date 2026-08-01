@@ -5,7 +5,7 @@ mod pattern_table;
 use std::path::Path;
 
 pub use loader::{load_chr_rom, load_rom, INesHeader, Rom, RomLoadError};
-pub use mapper::{create as create_mapper, Mapper};
+pub use mapper::{create as create_mapper, name as mapper_name, supported_list as supported_mappers, Mapper};
 pub use pattern_table::PatternTable;
 
 // Re-exported so the mapper layer and the PPU agree on one Mirroring type.

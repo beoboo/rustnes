@@ -47,13 +47,13 @@ pub struct Outcome {
 /// Run a blargg-style ROM until it reports a result or the budget runs out.
 pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
     let rom = load_rom(rom_path)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .map_err(|e| anyhow::anyhow!("{e}"))
         .with_context(|| format!("loading {}", rom_path.display()))?;
 
     let mut system = NesSystem::new();
     system
         .load_rom(&rom)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .map_err(|e| anyhow::anyhow!("{e}"))
         .context("loading the ROM into the system")?;
 
     let mut signature_seen = false;

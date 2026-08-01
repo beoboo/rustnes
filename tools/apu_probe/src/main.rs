@@ -145,7 +145,7 @@ fn capture(source: &str, seconds: f64, sample_rate: f64) -> Result<Vec<f32>> {
 /// real game starts, and the only way to answer "why is this game silent?".
 fn capture_rom(path: &std::path::Path, seconds: f64, sample_rate: f64) -> Result<Vec<f32>> {
     let rom = rn_core::cartridge::load_rom(path)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .map_err(|e| anyhow::anyhow!("{e}"))
         .with_context(|| format!("loading {}", path.display()))?;
 
     if rom.header.mapper != 0 {
@@ -160,7 +160,7 @@ fn capture_rom(path: &std::path::Path, seconds: f64, sample_rate: f64) -> Result
     system.connect_audio_output(Box::new(Capture(sender)), sample_rate);
     system
         .load_rom(&rom)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .map_err(|e| anyhow::anyhow!("{e}"))
         .context("loading the ROM into the system")?;
 
     let target = (CPU_CLOCK_RATE * seconds) as u64;
