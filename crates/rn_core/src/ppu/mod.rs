@@ -1497,7 +1497,18 @@ impl Ppu {
 
     /// Read from OAMDATA ($2004)
     fn read_oam_data(&self) -> u8 {
-        self.oam[self.oam_addr as usize]
+        // Three bits of a sprite's attribute byte do not exist in OAM. Nothing is wired to them,
+        // so they always read back as zero however they were written — the byte is stored as given
+        // and masked here, which is what hardware does and what oam_read checks for all 256 bytes.
+        //
+        // Unlike a write, a read does not advance the address: a program reading OAM has to set
+        // $2003 for each byte it wants.
+        let value = self.oam[self.oam_addr as usize];
+        if self.oam_addr % 4 == 2 {
+            value & 0xE3
+        } else {
+            value
+        }
     }
 
     /// Read from PPUDATA ($2007)
@@ -2047,6 +2058,48 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// Writing OAM through $2004 advances the address; reading it does not.
+    ///
+    /// The asymmetry is the point: a program filling OAM writes 256 times after one $2003, but a
+    /// program reading it must set $2003 for every byte. Advancing on read makes a read-back loop
+    /// return every other byte, which looks like scrambled data rather than a addressing fault.
+    #[test]
+    fn oam_reads_do_not_advance_the_address_but_writes_do() {
+        let mut ppu = Ppu::new();
+
+        ppu.write_register(0x2003, 0x00);
+        ppu.write_register(0x2004, 0x11);
+        ppu.write_register(0x2004, 0x22);
+        assert_eq!(ppu.oam_addr, 2, "each write advances the address");
+
+        ppu.write_register(0x2003, 0x00);
+        assert_eq!(ppu.read_register(0x2004), 0x11);
+        assert_eq!(ppu.read_register(0x2004), 0x11, "a read must not advance the address");
+
+        ppu.write_register(0x2003, 0x01);
+        assert_eq!(ppu.read_register(0x2004), 0x22);
+    }
+
+    /// Three bits of a sprite's attribute byte are not wired to anything and read back as zero.
+    #[test]
+    fn the_unimplemented_attribute_bits_read_as_zero() {
+        let mut ppu = Ppu::new();
+
+        ppu.write_register(0x2003, 0x02); // the attribute byte of sprite 0
+        ppu.write_register(0x2004, 0xFF);
+
+        ppu.write_register(0x2003, 0x02);
+        assert_eq!(ppu.read_register(0x2004), 0xE3, "bits 2, 3 and 4 do not exist");
+
+        // Every other byte of a sprite keeps what it was given.
+        for offset in [0u8, 1, 3] {
+            ppu.write_register(0x2003, offset);
+            ppu.write_register(0x2004, 0xFF);
+            ppu.write_register(0x2003, offset);
+            assert_eq!(ppu.read_register(0x2004), 0xFF, "byte {offset} should be unmasked");
+        }
+    }
+
     /// Eight sprites on a line is normal; nine is overflow.
     ///
     /// Reporting overflow on the eighth flags any line holding exactly eight — something games
