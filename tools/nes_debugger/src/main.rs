@@ -57,6 +57,10 @@ struct Args {
     /// Detected by content, not extension.
     #[arg(value_name = "FILE")]
     file: Option<PathBuf>,
+
+    /// Start running as soon as the file is loaded, instead of waiting for Run to be pressed.
+    #[arg(long, short = 'p')]
+    play: bool,
 }
 
 /// Adapter to use CPU's memory with the memory editor
@@ -180,6 +184,9 @@ struct NesDebugger {
     /// Repaints per emulated frame, when the display's rate is a clean multiple of 60.
     ///
     /// Zero means no lock has been established and the wall clock is used instead.
+    /// Whether the window is filling the screen. Held here rather than asked of the windowing
+    /// system, which reports it only after the change has taken effect.
+    fullscreen: bool,
     /// Result of the most recent frame dump, shown beside the button.
     last_dump: Option<String>,
     repaints_per_frame: u32,
@@ -638,6 +645,7 @@ impl NesDebugger {
             audio_controls,
             audio_running: false,
             next_frame_at: std::time::Instant::now(),
+            fullscreen: false,
             last_dump: None,
             repaints_per_frame: 0,
             repaints_since_frame: 0,
@@ -660,12 +668,12 @@ impl NesDebugger {
 }
 
 impl NesDebugger {
-    /// Load the file given on the command line, which may be a `.nes` ROM or 6502 assembly.
+    /// Load a `.nes` ROM or 6502 assembly, from the command line or the File menu.
     ///
     /// Detected by content rather than by extension: an iNES image starts with the four bytes
     /// `NES\x1A`. Reading a ROM as text fails with "stream did not contain valid UTF-8", which
     /// says nothing useful about what the user actually passed.
-    fn load_initial_file(&mut self, path: &Path) -> Result<()> {
+    fn load_file(&mut self, path: &Path) -> Result<()> {
         let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
 
         if bytes.starts_with(b"NES\x1A") {
@@ -871,16 +879,33 @@ impl App for NesDebugger {
                     }
                 }
 
-                // Consume key events to avoid them being processed multiple times
+                // Consume key events to avoid them being processed multiple times.
+                //
+                // Anything wanting a keyboard shortcut has to look before this point, or the
+                // event is gone by the time it runs.
                 input.events.clear();
             });
         }
 
+        // Fullscreen, checked before the block above consumes the event queue.
+        if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
+            self.fullscreen = !self.fullscreen;
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
+
         // Load the initial file if specified and not yet loaded
         if !self.initial_file_loaded {
             if let Some(file_path) = self.args.file.clone() {
-                if let Err(err) = self.load_initial_file(&file_path) {
-                    error!("Failed to load {}: {err:#}", file_path.display());
+                match self.load_file(&file_path) {
+                    Ok(()) => {
+                        if self.args.play {
+                            let mut system = self.system.borrow_mut();
+                            if let Err(error) = self.asm_widget.run_program(&mut system) {
+                                error!("starting playback: {error}");
+                            }
+                        }
+                    },
+                    Err(err) => error!("Failed to load {}: {err:#}", file_path.display()),
                 }
                 self.initial_file_loaded = true;
             }
@@ -933,9 +958,23 @@ impl App for NesDebugger {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open...").clicked() {
-                        // File open code would go here - can be added later
-                        info!("File Open clicked - functionality not yet implemented");
                         ui.close_menu();
+                        // The same loader the command line uses, so a file behaves identically
+                        // whichever way it arrives — including the content sniffing that tells a
+                        // ROM from assembly.
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("NES ROM or 6502 assembly", &["nes", "asm", "s", "txt"])
+                            .add_filter("All files", &["*"])
+                            .pick_file()
+                        {
+                            match self.load_file(&path) {
+                                Ok(()) => self.last_dump = Some(format!("loaded {}", path.display())),
+                                Err(error) => {
+                                    error!("loading {}: {error:#}", path.display());
+                                    self.last_dump = Some(format!("failed to load: {error}"));
+                                },
+                            }
+                        }
                     }
 
                     if ui.button("Save As...").clicked() {
@@ -1032,6 +1071,13 @@ impl App for NesDebugger {
 
                 // Capturing the picture together with the registers that produced it, so a fault
                 // seen while playing can be diagnosed afterwards instead of described.
+                let fullscreen_label = if self.fullscreen { "🗗 Windowed" } else { "⛶ Fullscreen" };
+                if ui.button(fullscreen_label).on_hover_text("F11").clicked() {
+                    self.fullscreen = !self.fullscreen;
+                }
+
+                ui.add_space(4.0);
+
                 if ui.button("📷 Dump frame").clicked() {
                     let system = self.system.borrow();
                     match frame_dump::dump(&system, std::path::Path::new("frame-dumps")) {

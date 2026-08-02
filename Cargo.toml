@@ -61,6 +61,9 @@ lazy_static = "1.4.0"
 log = "0.4"
 parse-display = "0.10"
 regex = "1.10.2"
+# Native file dialogs. egui has none of its own, and the alternative is asking the user to type a
+# path into a text box, which is not a file picker.
+rfd = "0.15"
 ringbuf = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
