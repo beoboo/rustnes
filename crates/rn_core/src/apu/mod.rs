@@ -494,7 +494,8 @@ impl Addressable for Apu {
                 if self.noise.is_length_counter_active() {
                     status |= 0x08;
                 }
-                if self.dmc.is_length_counter_active() {
+                // The DMC reports bytes left to fetch, not a length counter — it has none.
+                if self.dmc.has_bytes_remaining() {
                     status |= 0x10;
                 }
                 Ok(status)
@@ -570,6 +571,30 @@ impl Default for Apu {
 
 #[cfg(test)]
 mod tests {
+    /// Bit 4 of $4015 reports the DMC's remaining sample bytes, not a length counter.
+    ///
+    /// The DMC has no length counter. Reporting one made the bit describe something the hardware
+    /// does not have: it read as silent while a sample was still playing, and as playing after one
+    /// had finished — and a game polling it to know when to queue the next sample would act on
+    /// both mistakes.
+    #[test]
+    fn dmc_status_follows_the_bytes_left_to_fetch() -> Result<()> {
+        let mut apu = Apu::new();
+
+        assert_eq!(apu.read_byte(0x4015)? & 0x10, 0, "nothing to fetch before it is enabled");
+
+        // Enabling starts a fetch. Even a sample length of zero is one byte, since the register
+        // counts in units of sixteen bytes plus one — there is no way to ask for none.
+        apu.write_byte(0x4013, 0x01)?;
+        apu.write_byte(0x4015, 0x10)?;
+        assert_ne!(apu.read_byte(0x4015)? & 0x10, 0, "an enabled sample should show as active");
+
+        apu.write_byte(0x4015, 0x00)?; // disabling clears the remaining bytes
+        assert_eq!(apu.read_byte(0x4015)? & 0x10, 0, "disabling should stop it reporting");
+
+        Ok(())
+    }
+
     use anyhow::Result;
 
     use super::*;

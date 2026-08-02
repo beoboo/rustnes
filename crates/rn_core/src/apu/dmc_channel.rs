@@ -197,9 +197,17 @@ impl DmcChannel {
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
 
-        // If enabling the channel and no bytes remaining, restart
-        if enabled && self.bytes_remaining == 0 {
-            self.restart();
+        if enabled {
+            // Enabling starts a fetch, unless one is already under way — which is how a game loops
+            // a sample without restarting it.
+            if self.bytes_remaining == 0 {
+                self.restart();
+            }
+        } else {
+            // Disabling stops the sample immediately rather than letting it finish. Leaving the
+            // count standing kept the channel reporting itself as busy through $4015 forever, so a
+            // game waiting for a sample to end before queueing the next one would wait for good.
+            self.bytes_remaining = 0;
         }
 
         // Update length counter enabled state
@@ -211,9 +219,14 @@ impl DmcChannel {
         self.enabled
     }
 
-    /// Check if the length counter is active (non-zero)
-    pub fn is_length_counter_active(&self) -> bool {
-        self.length_counter.is_active()
+    /// Whether the channel still has sample bytes to fetch.
+    ///
+    /// This is what bit 4 of `$4015` reports for the DMC. The other four channels report a length
+    /// counter; the DMC has none, and reporting one meant the bit described something the hardware
+    /// does not have — it would read as silent while a sample was still playing, and as playing
+    /// after one had finished.
+    pub fn has_bytes_remaining(&self) -> bool {
+        self.bytes_remaining > 0
     }
 
     /// Write to a channel register
