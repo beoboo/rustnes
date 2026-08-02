@@ -385,6 +385,15 @@ pub struct Ppu {
     scanline: i16,            // Current scanline (-1 to 261)
     cycle: u16,               // Current cycle (0 to 340)
 
+    /// The background fetch pipeline: what the current eight-dot group has read so far, and the
+    /// shift registers the finished group is loaded into.
+    ///
+    /// Hardware fetches a tile's nametable byte, its attribute byte and its two pattern bitplanes
+    /// over eight dots, then loads them into shift registers which supply pixels while the *next*
+    /// tile is being fetched. That is why a scroll change partway along a line takes effect a tile
+    /// later than the write: the pixels being drawn were fetched before it.
+    fetch: TileFetch,
+
     /// Set when a read of $2002 landed just before vblank began, which stops the flag being set
     /// at all for that frame. Cleared once the moment has passed.
     suppress_vblank: Cell<bool>,
@@ -527,6 +536,25 @@ pub struct PpuState {
     mirroring: Mirroring,
 }
 
+/// The background fetch pipeline.
+///
+/// `latch_*` holds what the eight-dot group in progress has read. `shift_*` holds what is being
+/// drawn: the pattern registers are sixteen bits so they carry the current tile in their low half
+/// and the one just fetched in their high half, and fine X selects which bit within them is the
+/// pixel. The attribute registers work the same way, one bit of the palette index each.
+#[derive(Debug, Default, Clone, Copy)]
+struct TileFetch {
+    latch_nametable: u8,
+    latch_attribute: u8,
+    latch_pattern_low: u8,
+    latch_pattern_high: u8,
+
+    shift_pattern_low: u16,
+    shift_pattern_high: u16,
+    shift_attribute_low: u16,
+    shift_attribute_high: u16,
+}
+
 /// Struct to hold processed sprite data for rendering
 struct SpriteData {
     /// Whether this is sprite 0, the one whose overlap sets the sprite-zero hit flag.
@@ -553,6 +581,7 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             odd_frame: false,
+            fetch: TileFetch::default(),
             suppress_vblank: Cell::new(false),
 
             // Initialize memory components
@@ -628,6 +657,8 @@ impl Ppu {
         let on_a_rendered_line = (0..240).contains(&self.scanline) || self.scanline == 261;
 
         if rendering_now && on_a_rendered_line {
+            self.advance_background_fetch();
+
             match self.cycle {
                 // The fetch groups: dots 8 through 256, and 328 and 336 for the first two tiles of
                 // the next line.
@@ -933,6 +964,87 @@ impl Ppu {
     fn reload_vertical_scroll(&mut self) {
         let v = self.ppu_addr.get();
         self.ppu_addr.set((v & !0x7BE0) | (self.temp_addr & 0x7BE0));
+    }
+
+    /// Run this dot's share of the background fetch and shift the registers along.
+    ///
+    /// The four reads take two dots each. Only the address is meaningful on the first of each
+    /// pair; the second repeats it. At the start of every group the finished tile is loaded into
+    /// the shift registers, which is what makes it available a tile after it was fetched.
+    fn advance_background_fetch(&mut self) {
+        let fetching = (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle);
+        if !fetching {
+            return;
+        }
+
+        // The registers advance one pixel per dot while pixels are being produced.
+        self.fetch.shift_pattern_low <<= 1;
+        self.fetch.shift_pattern_high <<= 1;
+        self.fetch.shift_attribute_low <<= 1;
+        self.fetch.shift_attribute_high <<= 1;
+
+        let v = self.ppu_addr.get();
+        match self.cycle % 8 {
+            1 => {
+                // A new group begins: the tile fetched by the last one starts being drawn.
+                self.load_shift_registers();
+                self.fetch.latch_nametable = self.read_ppu_memory(0x2000 | (v & 0x0FFF));
+            },
+            3 => {
+                let address =
+                    0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
+                let attribute = self.read_ppu_memory(address);
+
+                // One attribute byte covers four tiles by four; which two bits apply is decided by
+                // bit 1 of coarse X and of coarse Y.
+                let quadrant = (((v >> 4) & 4) | (v & 2)) as u8;
+                self.fetch.latch_attribute = (attribute >> quadrant) & 0x03;
+            },
+            5 | 7 => {
+                let table =
+                    if (self.ctrl & CTRL_BACKGROUND_PATTERN) != 0 { 0x1000 } else { 0x0000 };
+                let fine_y = (v >> 12) & 7;
+                let base = table + (self.fetch.latch_nametable as u16 * 16) + fine_y;
+
+                if self.cycle % 8 == 5 {
+                    self.fetch.latch_pattern_low = self.read_ppu_memory(base);
+                } else {
+                    self.fetch.latch_pattern_high = self.read_ppu_memory(base + 8);
+                }
+            },
+            _ => {},
+        }
+    }
+
+    /// Load the finished tile into the low half of the shift registers.
+    ///
+    /// The attribute is two bits for the whole tile, so each is spread across all eight pixels —
+    /// a palette applies to a tile, not to a pixel.
+    fn load_shift_registers(&mut self) {
+        let f = &mut self.fetch;
+
+        f.shift_pattern_low = (f.shift_pattern_low & 0xFF00) | f.latch_pattern_low as u16;
+        f.shift_pattern_high = (f.shift_pattern_high & 0xFF00) | f.latch_pattern_high as u16;
+
+        let spread = |bit: u8| if bit != 0 { 0x00FF } else { 0x0000 };
+        f.shift_attribute_low = (f.shift_attribute_low & 0xFF00) | spread(f.latch_attribute & 1);
+        f.shift_attribute_high = (f.shift_attribute_high & 0xFF00) | spread(f.latch_attribute & 2);
+    }
+
+    /// The background pixel the shift registers are currently presenting, as (value, palette).
+    ///
+    /// Fine X chooses the bit, which is what makes a sub-tile scroll possible at all: the eight
+    /// pixels of a tile are in the register together and the scroll picks between them.
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn shifted_background_pixel(&self) -> (u8, u8) {
+        let select = 15 - self.fine_x as u16;
+        let bit = |register: u16| ((register >> select) & 1) as u8;
+
+        let value = bit(self.fetch.shift_pattern_low) | (bit(self.fetch.shift_pattern_high) << 1);
+        let palette =
+            bit(self.fetch.shift_attribute_low) | (bit(self.fetch.shift_attribute_high) << 1);
+
+        (value, palette)
     }
 
     /// Advance `v` by one tile horizontally, as each eight-dot fetch group does.
@@ -2155,6 +2267,68 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// The fetch pipeline should be presenting the tile the nametable names.
+    ///
+    /// The registers are loaded a tile *after* the fetch, which is the behaviour worth pinning:
+    /// pixels being drawn now were fetched during the previous eight dots, so a scroll change
+    /// partway along a line takes effect a tile later than the write that made it.
+    #[test]
+    fn the_fetch_pipeline_presents_the_tile_the_nametable_names() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // Every tile on the first row is the opaque one.
+        for column in 0..32u16 {
+            ppu.write_ppu_memory(0x2000 + column, 1);
+        }
+
+        run_to(&mut ppu, 0, 0);
+        ppu.ppu_addr.set(0x2000);
+
+        // Far enough in that the pipeline has been primed by earlier groups.
+        run_to(&mut ppu, 0, 40);
+
+        let (value, _) = ppu.shifted_background_pixel();
+        assert_eq!(value, 3, "the opaque tile's pixels should be coming out of the shifters");
+    }
+
+    /// A nametable of blank tiles presents nothing, which is the other half of the same claim: the
+    /// pipeline is reading the nametable rather than producing a constant.
+    #[test]
+    fn the_fetch_pipeline_presents_nothing_for_a_blank_tile() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // Tile 0 has no pattern data in this fixture.
+        for column in 0..32u16 {
+            ppu.write_ppu_memory(0x2000 + column, 0);
+        }
+
+        run_to(&mut ppu, 0, 0);
+        ppu.ppu_addr.set(0x2000);
+        run_to(&mut ppu, 0, 40);
+
+        let (value, _) = ppu.shifted_background_pixel();
+        assert_eq!(value, 0, "a blank tile should present transparent pixels");
+    }
+
+    /// The attribute byte selects a palette per tile, and every pixel of that tile shares it.
+    #[test]
+    fn the_attribute_applies_to_the_whole_tile() {
+        let mut ppu = ppu_with_solid_tile();
+
+        for column in 0..32u16 {
+            ppu.write_ppu_memory(0x2000 + column, 1);
+        }
+        // Palette 3 in every quadrant of the first attribute byte.
+        ppu.write_ppu_memory(0x23C0, 0xFF);
+
+        run_to(&mut ppu, 0, 0);
+        ppu.ppu_addr.set(0x2000);
+        run_to(&mut ppu, 0, 40);
+
+        let (_, palette) = ppu.shifted_background_pixel();
+        assert_eq!(palette, 3, "the attribute byte should reach the pixel");
+    }
+
     /// The scroll address advances on a fixed schedule of dots while rendering.
     ///
     /// Doing it all at the scanline boundary produces the same picture — the 32 horizontal
