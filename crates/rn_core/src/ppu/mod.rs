@@ -385,6 +385,14 @@ pub struct Ppu {
     scanline: i16,            // Current scanline (-1 to 261)
     cycle: u16,               // Current cycle (0 to 340)
 
+    /// Whether the frame being drawn is an odd one.
+    ///
+    /// Odd frames are one dot shorter when rendering is on: the pre-render line skips its last.
+    /// The NTSC colour carrier is not a whole multiple of the dot rate, and dropping a dot every
+    /// other frame keeps the picture's colour phase from drifting. Games do not care why, but
+    /// anything counting cycles across frames does.
+    odd_frame: bool,
+
     // Rendering output
     /// RGB data for the frame currently being drawn, filled scanline by scanline.
     ///
@@ -540,6 +548,8 @@ impl Ppu {
     /// Create a new PPU instance
     pub fn new() -> Self {
         Self {
+            odd_frame: false,
+
             // Initialize memory components
             vram: [0; 2048],
             palette: [0; 32],
@@ -638,8 +648,16 @@ impl Ppu {
             }
         }
 
-        // One scanline is 341 cycles
-        if self.cycle > 340 {
+        // A scanline is 341 dots, except the pre-render line of an odd frame with rendering
+        // enabled, which is 340: its last dot is skipped.
+        let rendering = (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0;
+        let last_dot = if self.scanline == 261 && self.odd_frame && rendering {
+            339
+        } else {
+            340
+        };
+
+        if self.cycle > last_dot {
             self.cycle = 0;
             self.scanline += 1;
 
@@ -647,6 +665,7 @@ impl Ppu {
             if self.scanline > 261 {
                 self.scanline = 0;
                 self.frame_count += 1;
+                self.odd_frame = !self.odd_frame;
                 self.begin_frame();
             }
 
