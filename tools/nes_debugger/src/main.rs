@@ -137,6 +137,10 @@ impl DockTab {
 #[derive(Default)]
 struct AppContext {
     display_mode: DisplayMode,
+    /// Whether to hide the scanlines a television kept behind the bezel. On by default, because
+    /// that margin is where games park what nobody was meant to see — including the attribute
+    /// garbage an out-of-range vertical scroll produces.
+    overscan: bool,
 }
 
 /// Main debugger application
@@ -430,7 +434,13 @@ impl<'a> TabViewer for NesTabViewer<'a> {
                         let _ = self.pixel_display.ui(ui, &memory_adapter);
                     },
                     DisplayMode::Ppu => {
-                        let auto_zoom = self.pixel_display.fit_zoom(ui, 256, 240);
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut self.context.overscan, "Overscan");
+                            ui.label("hides the 8 scanlines a television kept behind the bezel");
+                        });
+
+                        let overscan = if self.context.overscan { 8 } else { 0 };
+                        let auto_zoom = self.pixel_display.fit_zoom(ui, 256, 240 - overscan * 2);
 
                         // Create a PPU pixel adapter using the system's PPU
                         let system_ref = self.system.clone();
@@ -443,7 +453,7 @@ impl<'a> TabViewer for NesTabViewer<'a> {
 
                         // Update zoom and show the PPU display
                         self.pixel_display.set_zoom(auto_zoom);
-                        let _ = self.pixel_display.ui(ui, &ppu_adapter);
+                        let _ = self.pixel_display.ui(ui, &ppu_adapter.with_overscan(overscan));
                     },
                     DisplayMode::Nametables => {
                         let system = self.system.borrow();
@@ -642,6 +652,7 @@ impl NesDebugger {
             dock_state,
             context: AppContext {
                 display_mode: DisplayMode::Memory,
+                overscan: true,
             },
             initial_file_loaded: false,
         })

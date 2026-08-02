@@ -117,10 +117,22 @@ impl PixelDataProvider for MemoryPixelAdapter {
 }
 
 /// PPU pixel adapter for displaying the PPU frame buffer
+/// The PPU's full output, before any overscan is hidden.
+const NES_WIDTH: usize = 256;
+const NES_HEIGHT: usize = 240;
+
 pub struct PpuPixelAdapter {
     title: String,
     description: String,
     frame_buffer_fn: Box<dyn Fn() -> Vec<u8>>,
+    /// Scanlines hidden at the top and bottom, as a television's overscan hid them.
+    ///
+    /// A CRT never showed the whole 240 lines: the outermost rows fell behind the bezel, so games
+    /// treated them as a margin and put nothing there that mattered. They are not always blank
+    /// though — a vertical scroll of 240 or more makes the PPU read attribute data as tiles, and
+    /// the resulting garbage rows land exactly in that hidden margin. Showing every line renders
+    /// them faithfully and makes the picture look broken in a way no player ever saw.
+    overscan: usize,
 }
 
 impl PpuPixelAdapter {
@@ -133,23 +145,37 @@ impl PpuPixelAdapter {
             title: "PPU Display".to_string(),
             description: "NES screen output (256x240)".to_string(),
             frame_buffer_fn: Box::new(frame_buffer_fn),
+            overscan: 0,
         }
+    }
+
+    /// Hide `lines` scanlines at the top and bottom. Eight is what a television typically hid.
+    pub fn with_overscan(mut self, lines: usize) -> Self {
+        self.overscan = lines.min(NES_HEIGHT / 2);
+        self.description = format!("NES screen output ({}x{})", NES_WIDTH, self.height());
+        self
     }
 }
 
 impl PixelDataProvider for PpuPixelAdapter {
     fn get_pixel_data(&self) -> Result<Vec<u8>> {
-        let frame_buffer_fn = &self.frame_buffer_fn;
+        let frame = (self.frame_buffer_fn)();
+        if self.overscan == 0 {
+            return Ok(frame);
+        }
 
-        Ok(frame_buffer_fn())
+        let row = NES_WIDTH * 3;
+        let start = self.overscan * row;
+        let end = (NES_HEIGHT - self.overscan) * row;
+        Ok(frame.get(start..end).map(<[u8]>::to_vec).unwrap_or(frame))
     }
 
     fn width(&self) -> usize {
-        256 // NES native resolution width
+        NES_WIDTH
     }
 
     fn height(&self) -> usize {
-        240 // NES native resolution height
+        NES_HEIGHT - self.overscan * 2
     }
 
     fn title(&self) -> &str {
@@ -205,5 +231,45 @@ impl PixelDataProvider for NametableMapAdapter {
 
     fn description(&self) -> &str {
         &self.description
+    }
+}
+
+#[cfg(test)]
+mod overscan_tests {
+    use super::*;
+
+    fn numbered_frame() -> Vec<u8> {
+        // Every pixel of row y holds y, so a cropped frame says which rows survived.
+        (0..NES_HEIGHT).flat_map(|y| std::iter::repeat_n(y as u8, NES_WIDTH * 3)).collect()
+    }
+
+    #[test]
+    fn without_overscan_the_whole_picture_is_shown() {
+        let adapter = PpuPixelAdapter::new(numbered_frame);
+        assert_eq!(adapter.height(), 240);
+        assert_eq!(adapter.get_pixel_data().unwrap().len(), NES_WIDTH * NES_HEIGHT * 3);
+    }
+
+    /// A television hid the outermost scanlines, and games relied on that: an out-of-range
+    /// vertical scroll puts attribute data on screen as tiles, and those garbage rows land in
+    /// exactly the margin no player could see.
+    #[test]
+    fn overscan_removes_equal_numbers_of_rows_from_each_end() {
+        let adapter = PpuPixelAdapter::new(numbered_frame).with_overscan(8);
+
+        assert_eq!(adapter.height(), 224, "eight hidden at the top and eight at the bottom");
+        assert_eq!(adapter.width(), 256, "overscan here does not touch the sides");
+
+        let data = adapter.get_pixel_data().unwrap();
+        assert_eq!(data.len(), NES_WIDTH * 224 * 3);
+        assert_eq!(data[0], 8, "the first visible row should be row 8");
+        assert_eq!(*data.last().unwrap(), 231, "the last should be row 231");
+    }
+
+    #[test]
+    fn overscan_cannot_crop_away_the_entire_picture() {
+        let adapter = PpuPixelAdapter::new(numbered_frame).with_overscan(1000);
+        assert_eq!(adapter.height(), 0);
+        assert!(adapter.get_pixel_data().is_ok(), "an absurd request must not panic");
     }
 }
