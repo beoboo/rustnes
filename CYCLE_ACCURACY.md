@@ -104,6 +104,26 @@ fires on short instructions and the whole thing behaves like the crude latch it 
 
 **Steps 2 and 3 should land together.**
 
+They were then tried together, and the two hangs survived. NMI hijacking of BRK was implemented —
+both sequences are identical until the vector fetch, so whichever line is asserted by then decides
+where the processor goes — and it changed nothing. So the hijack was not the cause, or not the only
+one.
+
+What the hang actually is, measured rather than guessed: `2-nmi_and_brk` spins in a tight loop
+around `$E340` with its status still reading "running", waiting for an interrupt that never
+arrives. The NMI path itself is not broken — Super Mario Bros 3 depends on it and still renders —
+so an NMI is being *lost* somewhere specific to this test's use of BRK.
+
+Two candidates, both introduced by steps 2 and 3 and both worth checking first next time:
+
+- `take_nmi_for_hijack` consumes the pending NMI on *every* BRK, whether or not one was meant to be
+  taken over. A test that raises an NMI around a BRK would have it eaten.
+- servicing an NMI discards the IRQ sample as well, to stop two interrupts being taken with no
+  instruction between them. That is right for the IRQ line, which is level-triggered and will be
+  sampled again — but it is worth confirming nothing else depends on the discarded sample.
+
+The attempt is preserved in `scratchpad/step2and3/`.
+
 ### 3. The special cases
 
 Each is a documented exception rather than a consequence of the model, so each needs its own code
