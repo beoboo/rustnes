@@ -470,7 +470,10 @@ struct SpriteData {
     /// were selected for a scanline.
     #[cfg(test)]
     y_position: u8,
-    tile_index: u8,     // Tile index in pattern table
+    /// Retained for tests that check which tile a sprite resolved to; the row's pixels are
+    /// already decoded into `tile_data` by the time rendering runs.
+    #[cfg(test)]
+    tile_index: u8,
     attributes: u8,     // Sprite attributes (palette, flip, priority)
     x_position: u8,     // X position (left of sprite)
     tile_data: [u8; 8], // Processed pixel data for a single row
@@ -867,51 +870,26 @@ impl Ppu {
 
     /// Render sprites for a specific scanline
     fn render_sprites_for_scanline(&mut self, scanline: usize) {
-        // Check if sprite rendering is enabled
         if (self.mask & MASK_SHOW_SPRITES) == 0 {
-            log::debug!("Sprite rendering disabled (mask = ${:02X})", self.mask);
             return;
         }
 
-        // Get all sprite data for this scanline
         let sprites = self.evaluate_sprites_for_scanline(scanline);
-        log::debug!("Found {} sprites for scanline {}", sprites.len(), scanline);
 
-        for sprite in sprites {
-            // Skip if sprite transparent or invisible
-            if sprite.tile_data.iter().all(|&x| x == 0) {
-                log::debug!("Skipping empty sprite at scanline {}", scanline);
-                continue;
-            }
+        // Overlapping sprites are resolved per pixel, and the lowest-numbered sprite wins.
+        //
+        // Drawing each sprite in turn and letting the next overwrite it gives exactly the opposite
+        // order — whichever sprite comes last in OAM ends up in front. Priority against the
+        // background is then decided by the winning sprite alone: a sprite that lost the pixel has
+        // no say, even if it would have been drawn in front.
+        let mut chosen: [Option<(u8, u8)>; 256] = [None; 256];
 
-            // Calculate the index in the screen buffer
+        for sprite in &sprites {
             let x_screen = sprite.x_position as usize;
 
-            log::debug!(
-                "Processing sprite at ({},{}), tile_idx={}, attr={:02X}",
-                x_screen,
-                scanline,
-                sprite.tile_index,
-                sprite.attributes
-            );
-
-            // Check if sprite has priority behind background (bit 5 set)
-            let behind_background = (sprite.attributes & 0x20) != 0;
-
-            // Render the 8 pixels of this sprite row
-            for i in 0..8 {
+            for (i, &pixel_value) in sprite.tile_data.iter().enumerate() {
                 let x = x_screen + i;
-
-                // Skip if off-screen
-                if x >= 256 {
-                    continue;
-                }
-
-                // Get the pixel value (0-3) for this position in the sprite
-                let pixel_value = sprite.tile_data[i];
-
-                // Skip transparent pixels (value 0)
-                if pixel_value == 0 {
+                if x >= 256 || pixel_value == 0 {
                     continue;
                 }
 
@@ -921,80 +899,51 @@ impl Ppu {
                     continue;
                 }
 
-                // Get the background pixel at this position
-                let bg_idx = scanline * 256 + x;
-                let bg_pixel = if bg_idx < self.background_pixels.len() {
-                    self.background_pixels[bg_idx]
-                } else {
-                    0 // No background pixel
-                };
-
                 // Sprite-zero hit: set when a non-transparent pixel of sprite 0 overlaps a
                 // non-transparent background pixel. It is not a rendering effect at all — games
                 // poll $2002 bit 6 to learn *when* the beam has reached a known point, and use it
-                // to split the screen. A game waiting on a hit that never arrives waits forever,
-                // so leaving this unimplemented hangs anything that relies on it.
+                // to split the screen. It is judged before the arbitration above, because hardware
+                // reports the overlap whether or not sprite zero is the one displayed there.
                 //
                 // The flag is never cleared here; the PPU clears it at the start of each frame.
                 // The rightmost pixel never triggers it on hardware.
-                if sprite.is_sprite_zero && bg_pixel != 0 && x < 255 {
+                if sprite.is_sprite_zero && self.background_pixel(scanline, x) != 0 && x < 255 {
                     self.status.set(self.status.get() | STATUS_SPRITE_ZERO_HIT);
                     if self.sprite_zero_hit_this_frame < 0 {
                         self.sprite_zero_hit_this_frame = self.scanline;
                     }
                 }
 
-                // Check priority
-                // If sprite is behind background (bit 5 set) and the background pixel is non-zero,
-                // then don't render the sprite pixel
-                if behind_background && bg_pixel != 0 {
-                    log::debug!(
-                        "Skipping sprite pixel at ({},{}) due to priority (behind background)",
-                        x,
-                        scanline
-                    );
-                    continue;
-                }
-
-                // Calculate palette offset based on the sprite's attribute bits 0-1
-                let palette_idx = sprite.attributes & 0x03;
-                let palette_addr = 0x3F10 + (palette_idx as u16 * 4) + pixel_value as u16;
-
-                // Get the color from the sprite palette
-                let color_index = self.read_palette(palette_addr);
-                log::debug!(
-                    "Sprite pixel at ({},{}) has value {} -> color_index {} (palette {})",
-                    x,
-                    scanline,
-                    pixel_value,
-                    color_index,
-                    palette_idx
-                );
-
-                // Calculate final screen buffer index (RGB triplet)
-                let buffer_index = (scanline * 256 + x) * 3;
-
-                // Only if we're in bounds of the buffer
-                if buffer_index + 2 < self.working_frame.len() {
-                    // Convert palette color to RGB
-                    let rgb = self.palette_to_rgb(color_index);
-
-                    // Write to frame buffer
-                    self.working_frame[buffer_index] = rgb[0];
-                    self.working_frame[buffer_index + 1] = rgb[1];
-                    self.working_frame[buffer_index + 2] = rgb[2];
-
-                    log::debug!(
-                        "Wrote sprite pixel at ({},{}) with RGB ({},{},{})",
-                        x,
-                        scanline,
-                        rgb[0],
-                        rgb[1],
-                        rgb[2]
-                    );
+                if chosen[x].is_none() {
+                    chosen[x] = Some((pixel_value, sprite.attributes));
                 }
             }
         }
+
+        for (x, winner) in chosen.iter().enumerate() {
+            let Some((pixel_value, attributes)) = *winner else {
+                continue;
+            };
+
+            // Attribute bit 5 puts the sprite behind the background, so it shows only where the
+            // background is transparent. This is how a game hides something inside scenery.
+            if (attributes & 0x20) != 0 && self.background_pixel(scanline, x) != 0 {
+                continue;
+            }
+
+            let palette_addr = 0x3F10 + ((attributes & 0x03) as u16 * 4) + pixel_value as u16;
+            let rgb = self.palette_to_rgb(self.read_palette(palette_addr));
+
+            let buffer_index = (scanline * 256 + x) * 3;
+            if buffer_index + 2 < self.working_frame.len() {
+                self.working_frame[buffer_index..buffer_index + 3].copy_from_slice(&rgb);
+            }
+        }
+    }
+
+    /// The background's palette index at a pixel, 0 meaning transparent.
+    fn background_pixel(&self, scanline: usize, x: usize) -> u8 {
+        self.background_pixels.get(scanline * 256 + x).copied().unwrap_or(0)
     }
 
     /// Evaluate which sprites are visible on the current scanline and prepare their data
@@ -1030,6 +979,14 @@ impl Ppu {
             let first_row = y_pos as usize + 1;
             if scanline < first_row || scanline >= first_row + sprite_height {
                 continue;
+            }
+
+            // Overflow means a *ninth* sprite was found on this line, not that eight were.
+            // Setting it on the eighth reports overflow for any line holding exactly eight, which
+            // is a perfectly ordinary thing for a game to draw — and games poll this flag.
+            if sprites_on_scanline == 8 {
+                self.status.set(self.status.get() | STATUS_SPRITE_OVERFLOW);
+                break;
             }
 
             // Get the rest of the sprite data
@@ -1098,21 +1055,14 @@ impl Ppu {
                 is_sprite_zero: sprite_idx == 0,
                 #[cfg(test)]
                 y_position: y_pos,
+                #[cfg(test)]
                 tile_index: tile_idx,
                 attributes,
                 x_position: x_pos,
                 tile_data,
             });
 
-            // Count the sprites on this scanline
             sprites_on_scanline += 1;
-
-            // Hardware limit: only 8 sprites per scanline
-            if sprites_on_scanline >= 8 {
-                // Set the sprite overflow flag (bit 5 of PPUSTATUS)
-                self.status.set(self.status.get() | STATUS_SPRITE_OVERFLOW);
-                break;
-            }
         }
 
         visible_sprites
@@ -1967,6 +1917,94 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// Eight sprites on a line is normal; nine is overflow.
+    ///
+    /// Reporting overflow on the eighth flags any line holding exactly eight — something games
+    /// draw constantly — and they poll this flag.
+    #[test]
+    fn sprite_overflow_needs_a_ninth_sprite_on_the_line() {
+        let mut ppu = ppu_with_solid_tile();
+
+        for index in 0..8 {
+            ppu.oam[index * 4..index * 4 + 4].copy_from_slice(&[99, 1, 0, (index * 8) as u8]);
+        }
+        ppu.evaluate_sprites_for_scanline(100);
+        assert_eq!(
+            ppu.status.get() & STATUS_SPRITE_OVERFLOW,
+            0,
+            "eight sprites on a line is within the hardware limit"
+        );
+
+        ppu.oam[32..36].copy_from_slice(&[99, 1, 0, 64]);
+        ppu.evaluate_sprites_for_scanline(100);
+        assert_ne!(ppu.status.get() & STATUS_SPRITE_OVERFLOW, 0, "the ninth overflows");
+    }
+
+    /// Where two sprites overlap, the lower-numbered one is displayed.
+    ///
+    /// Drawing sprites in turn and letting each overwrite the last inverts this — whichever comes
+    /// last in OAM ends up in front — which is wrong for every game that layers sprites.
+    #[test]
+    fn the_lower_numbered_sprite_wins_an_overlapping_pixel() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // A second sprite palette in a different colour, so which sprite won is visible.
+        for entry in 1..4 {
+            ppu.write_palette(0x3F14 + entry, 0x16);
+        }
+
+        // Sprite 0 uses palette 0, sprite 1 palette 1, both covering the same eight pixels.
+        ppu.oam[0..4].copy_from_slice(&[99, 1, 0x00, 100]);
+        ppu.oam[4..8].copy_from_slice(&[99, 1, 0x01, 100]);
+
+        ppu.render_sprites_for_scanline(100);
+
+        let expected = ppu.palette_to_rgb(ppu.read_palette(0x3F11));
+        assert_eq!(pixel_at(&ppu, 100, 100), expected, "sprite 0 should be in front of sprite 1");
+    }
+
+    /// A sprite that lost the pixel has no say in whether the background covers it.
+    ///
+    /// The winner's priority bit decides alone. Resolving this per sprite instead lets a
+    /// higher-numbered sprite show through one that is hidden behind scenery — which is how a
+    /// character concealed inside a pipe ends up drawn on top of it.
+    #[test]
+    fn a_hidden_lower_sprite_still_suppresses_the_one_behind_it() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // Sprite 0 is behind the background; sprite 1, in front, sits at the same place.
+        ppu.oam[0..4].copy_from_slice(&[99, 1, 0x20, 100]);
+        ppu.oam[4..8].copy_from_slice(&[99, 1, 0x01, 100]);
+
+        // Opaque background there, so sprite 0 is covered.
+        ppu.background_pixels[100 * 256 + 100] = 1;
+
+        let before = pixel_at(&ppu, 100, 100);
+        ppu.render_sprites_for_scanline(100);
+
+        assert_eq!(
+            pixel_at(&ppu, 100, 100),
+            before,
+            "sprite 0 won the pixel and is behind the background, so nothing should be drawn"
+        );
+    }
+
+    /// Sprite zero reports its overlap whether or not it is the sprite displayed there.
+    #[test]
+    fn sprite_zero_hit_is_reported_even_when_another_sprite_covers_it() {
+        let mut ppu = ppu_with_solid_tile();
+        ppu.oam[0..4].copy_from_slice(&[99, 1, 0x20, 100]); // behind the background
+        ppu.background_pixels[100 * 256 + 100] = 1;
+
+        ppu.render_sprites_for_scanline(100);
+
+        assert_ne!(
+            ppu.status.get() & STATUS_SPRITE_ZERO_HIT,
+            0,
+            "the hit depends on the overlap, not on what ends up visible"
+        );
+    }
+
     /// $2005 and $2006 are one address pair, not two scroll bytes.
     ///
     /// Super Mario Bros 3's title screen showed why this matters: it scrolls with $2006, which a
