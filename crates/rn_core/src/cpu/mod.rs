@@ -179,7 +179,6 @@ impl InterruptLines {
 }
 
 /// MOS 6502 CPU implementation
-#[derive(Debug)]
 pub struct Cpu {
     // Registers
     pub registers: CpuRegisters,
@@ -192,6 +191,27 @@ pub struct Cpu {
 
     // Instruction decoder
     decoder: InstructionDecoder,
+
+    /// Advances the rest of the system by one CPU cycle.
+    ///
+    /// Every 6502 cycle is a bus access, so calling this before each read and write puts the PPU
+    /// and APU where they actually stand when the access happens — rather than running the whole
+    /// instruction and catching them up afterwards, which makes every access in an instruction
+    /// appear simultaneous.
+    ///
+    /// Deliberately unable to touch the CPU: it is called while the CPU is borrowed. Interrupts
+    /// reach it through the shared lines instead.
+    #[allow(clippy::type_complexity)]
+    clock: Option<Rc<dyn Fn()>>,
+
+    /// Whether an instruction is being executed, so the clock runs only for its accesses.
+    ///
+    /// Without this, a debugger reading memory to display it would advance the emulator, and
+    /// merely looking at the machine would change it.
+    executing: Cell<bool>,
+
+    /// Cycles the clock has been run for during the current instruction.
+    clocked_cycles: Cell<u8>,
 
     /// Latched NMI request.
     ///
@@ -211,6 +231,19 @@ pub struct Cpu {
     irq_line: Rc<Cell<bool>>,
 }
 
+impl Debug for Cpu {
+    /// Hand-written because the clock callback is a closure, which cannot be derived. Nothing is
+    /// lost: what matters when inspecting a CPU is its registers and how far it has run.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cpu")
+            .field("registers", &self.registers)
+            .field("cycles", &self.cycles)
+            .field("nmi_pending", &self.nmi_pending.get())
+            .field("irq_line", &self.irq_line.get())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Cpu {
     /// Create a new CPU instance initialized to power-up state with the provided memory
     pub fn new() -> Self {
@@ -221,6 +254,9 @@ impl Cpu {
             cycles: 0,
             memory: None,
             decoder: InstructionDecoder::new(),
+            clock: None,
+            executing: Cell::new(false),
+            clocked_cycles: Cell::new(0),
             nmi_pending: Rc::new(Cell::new(false)),
             irq_line: Rc::new(Cell::new(false)),
         }
@@ -261,11 +297,13 @@ impl Cpu {
 
     /// Read a byte from memory
     pub fn read_byte(&self, address: u16) -> Result<u8, NesError> {
+        self.tick_bus();
         self.memory()?.read_byte(address)
     }
 
     /// Write a byte to memory
     pub fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
+        self.tick_bus();
         self.memory_mut()?.write_byte(address, value)
     }
 
@@ -365,6 +403,38 @@ impl Cpu {
 
     pub fn irq_line(&self) -> bool {
         self.irq_line.get()
+    }
+
+    /// Install the callback that advances the rest of the system by one CPU cycle.
+    pub fn set_clock(&mut self, clock: Rc<dyn Fn()>) {
+        self.clock = Some(clock);
+    }
+
+    /// Advance the rest of the system by one cycle, for one bus access.
+    ///
+    /// Counted so the caller can make up whatever the instruction's cycle count exceeds its bus
+    /// accesses. Not every 6502 cycle is modelled as an access here — the internal ones are not —
+    /// so the remainder still has to be run, just after the accesses rather than instead of them.
+    fn tick_bus(&self) {
+        if !self.executing.get() {
+            return;
+        }
+
+        if let Some(clock) = &self.clock {
+            self.clocked_cycles.set(self.clocked_cycles.get().saturating_add(1));
+            clock();
+        }
+    }
+
+    /// Cycles already run for the current instruction's bus accesses.
+    pub fn take_clocked_cycles(&self) -> u8 {
+        self.clocked_cycles.replace(0)
+    }
+
+    /// Whether the clock runs on bus accesses. Off outside instruction execution, so inspecting
+    /// memory does not advance the machine.
+    pub fn set_executing(&self, executing: bool) {
+        self.executing.set(executing);
     }
 
     /// Handles to the interrupt lines, for the parts of the system that assert them.
