@@ -674,10 +674,9 @@ impl Cpu {
 
     /// Helper method for store instructions (STA, STX, STY)
     fn store_register(&mut self, addressing_mode: AddressingMode, value: u8) -> Result<(), NesError> {
-        // Use the addressing mode to get the target address
-        let addr = addressing_mode.get_operand_address(self)?;
+        // A store always performs the dummy read, whether or not the index carried.
+        let addr = addressing_mode.get_write_address(self)?;
 
-        // Store the value to memory
         self.write_byte(addr, value)?;
 
         // Note: Store instructions do not affect any flags
@@ -954,7 +953,7 @@ impl Cpu {
     where
         F: FnOnce(&mut Self, u8) -> u8,
     {
-        let address = addressing_mode.get_operand_address(self)?;
+        let address = addressing_mode.get_write_address(self)?;
         let value = self.read_byte(address)?;
         let result = modify(self, value);
         self.write_byte(address, result)?;
@@ -1316,7 +1315,7 @@ impl Cpu {
         if matches!(addressing_mode, AddressingMode::Accumulator) {
             Ok((self.registers.a, None))
         } else {
-            let address = addressing_mode.get_operand_address(self)?;
+            let address = addressing_mode.get_write_address(self)?;
             Ok((self.read_byte(address)?, Some(address)))
         }
     }

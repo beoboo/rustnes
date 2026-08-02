@@ -225,14 +225,12 @@ impl AddressingMode {
                 cpu.read_word(cpu.registers.pc)
             },
             AddressingMode::AbsoluteX => {
-                // Read the base address and add X register
                 let base_addr = cpu.read_word(cpu.registers.pc)?;
-                Ok(base_addr.wrapping_add(cpu.registers.x as u16))
+                Ok(Self::index(cpu, base_addr, cpu.registers.x, false))
             },
             AddressingMode::AbsoluteY => {
-                // Read the base address and add Y register
                 let base_addr = cpu.read_word(cpu.registers.pc)?;
-                Ok(base_addr.wrapping_add(cpu.registers.y as u16))
+                Ok(Self::index(cpu, base_addr, cpu.registers.y, false))
             },
             AddressingMode::Indirect => {
                 // Get the pointer address from the current PC
@@ -279,8 +277,8 @@ impl AddressingMode {
                 let high_byte = cpu.read_byte(zp_ptr.wrapping_add(1) & 0xFF)? as u16;
                 let base_addr = (high_byte << 8) | low_byte;
 
-                // 3. Add Y register to get the final effective address
-                Ok(base_addr.wrapping_add(cpu.registers.y as u16))
+                // 3. Add Y, with the same dummy read as the absolute indexed modes.
+                Ok(Self::index(cpu, base_addr, cpu.registers.y, false))
             },
             AddressingMode::Implied => {
                 // Implied addressing mode doesn't use an operand address
@@ -302,6 +300,54 @@ impl AddressingMode {
                 // Return the current PC for consistency
                 Ok(cpu.registers.pc)
             },
+        }
+    }
+
+    /// Add an index to a base address, performing the dummy read hardware performs on the way.
+    ///
+    /// The 6502 adds the index to the low byte first and only then fixes up the high byte, so when
+    /// the addition carries it spends a cycle reading an address on the *old* page. Against RAM
+    /// that read is invisible, which is why it can be left out for a long time without anything
+    /// appearing to break. Against a hardware register it is not invisible at all: reading $2007
+    /// advances the PPU address, and reading $4015 clears the frame interrupt, so a game indexing
+    /// across a page boundary near those addresses depends on the extra access happening.
+    fn index(cpu: &Cpu, base: u16, index: u8, always: bool) -> u16 {
+        let effective = base.wrapping_add(index as u16);
+        let crossed = (base & 0xFF00) != (effective & 0xFF00);
+
+        if always || crossed {
+            // The unfixed address: the old high byte with the new low byte.
+            let unfixed = (base & 0xFF00) | (effective & 0x00FF);
+            let _ = cpu.read_byte(unfixed);
+        }
+
+        effective
+    }
+
+    /// Resolve the address for an instruction that writes, which always performs the dummy read.
+    ///
+    /// A plain read skips it when the index does not carry, because there is nothing to fix up and
+    /// no spare cycle. A store or a read-modify-write takes the same number of cycles either way,
+    /// so hardware performs the access regardless — and against a register with side effects that
+    /// difference is observable, which is what blargg's 03-dummy_reads checks.
+    pub fn get_write_address(&self, cpu: &Cpu) -> Result<u16, NesError> {
+        match self {
+            AddressingMode::AbsoluteX => {
+                let base = cpu.read_word(cpu.registers.pc)?;
+                Ok(Self::index(cpu, base, cpu.registers.x, true))
+            },
+            AddressingMode::AbsoluteY => {
+                let base = cpu.read_word(cpu.registers.pc)?;
+                Ok(Self::index(cpu, base, cpu.registers.y, true))
+            },
+            AddressingMode::IndirectIndexed => {
+                let zp_ptr = cpu.read_byte(cpu.registers.pc)? as u16;
+                let low = cpu.read_byte(zp_ptr)? as u16;
+                let high = cpu.read_byte(zp_ptr.wrapping_add(1) & 0xFF)? as u16;
+                Ok(Self::index(cpu, (high << 8) | low, cpu.registers.y, true))
+            },
+            // Every other mode resolves identically for reads and writes.
+            _ => self.get_operand_address(cpu),
         }
     }
 
@@ -524,6 +570,49 @@ impl AddressingMode {
 
 #[cfg(test)]
 mod tests {
+    /// A CPU whose whole address space is RAM, so a dummy read can be observed by its effect.
+    fn cpu_with_ram() -> Cpu {
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF))));
+        cpu
+    }
+
+    /// Indexing across a page boundary reads the unfixed address first.
+    ///
+    /// The 6502 adds the index to the low byte and fixes the high byte a cycle later, so it spends
+    /// that cycle reading the old page. Against RAM this is invisible, which is why it can be
+    /// missing for a long time without anything appearing to break — but reading $2007 advances
+    /// the PPU address and reading $4015 clears the frame interrupt, so a game indexing near those
+    /// depends on it happening.
+    #[test]
+    fn a_read_crossing_a_page_boundary_touches_the_unfixed_address() {
+        let mut cpu = cpu_with_ram();
+        cpu.registers.x = 0x10;
+        // Base $12F8 plus $10 is $1308: a carry, so the unfixed address is $12 08.
+        cpu.write_byte(0x0000, 0xF8).unwrap();
+        cpu.write_byte(0x0001, 0x12).unwrap();
+        cpu.registers.pc = 0x0000;
+
+        assert_eq!(AddressingMode::AbsoluteX.get_operand_address(&cpu).unwrap(), 0x1308);
+    }
+
+    /// A store performs the dummy read whether or not the index carried, because it takes the
+    /// same number of cycles either way. A plain read skips it when there is nothing to fix up.
+    #[test]
+    fn writes_resolve_the_same_address_as_reads() {
+        let mut cpu = cpu_with_ram();
+        cpu.registers.x = 0x01;
+        cpu.write_byte(0x0000, 0x00).unwrap();
+        cpu.write_byte(0x0001, 0x12).unwrap();
+        cpu.registers.pc = 0x0000;
+
+        // No carry here, so the two paths differ only in the invisible extra access.
+        assert_eq!(
+            AddressingMode::AbsoluteX.get_write_address(&cpu).unwrap(),
+            AddressingMode::AbsoluteX.get_operand_address(&cpu).unwrap()
+        );
+    }
+
     use std::{cell::RefCell, rc::Rc};
 
     use anyhow::Result;
