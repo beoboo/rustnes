@@ -21,8 +21,14 @@ use crate::{
 /// stores to read-only memory — they are how a game drives its mapper, so they must reach it.
 #[derive(Debug)]
 struct CartridgeSpace {
-    mapper: Rc<RefCell<Box<dyn Mapper>>>,
+    mapper: MapperHandle,
 }
+
+/// A mapper, shared between the parts of the system that reach it.
+type MapperHandle = Rc<RefCell<Box<dyn Mapper>>>;
+
+/// Somewhere to put a mapper once a ROM supplies one, shareable before that happens.
+type MapperSlot = Rc<RefCell<Option<MapperHandle>>>;
 
 impl Addressable for CartridgeSpace {
     fn handles_address(&self, address: u16) -> bool {
@@ -79,7 +85,12 @@ pub struct NesSystem {
     error_message: Option<String>,
 
     /// The loaded cartridge's mapper, shared with the bus component that serves it.
-    mapper: Option<Rc<RefCell<Box<dyn Mapper>>>>,
+    /// The cartridge's mapper, in a slot rather than an `Option` field.
+    ///
+    /// A ROM arrives long after the system is built, so anything wanting the mapper cannot capture
+    /// it at construction — it has to hold the slot and look inside when it runs. The clock that
+    /// advances the system on each bus access is exactly such a thing.
+    mapper: MapperSlot,
 
     /// The memory bus, retained so a cartridge can be attached after construction.
     bus: Rc<RefCell<Bus>>,
@@ -150,7 +161,7 @@ impl NesSystem {
             controller_handler,
             state: SystemState::Ready,
             error_message: None,
-            mapper: None,
+            mapper: Rc::new(RefCell::new(None)),
             bus,
         }
     }
@@ -217,7 +228,7 @@ impl NesSystem {
 
         // Scanline-counting mappers count PPU pattern fetches, which is why the PPU reports only
         // the scanlines it actually rendered.
-        if let Some(mapper) = &self.mapper {
+        if let Some(mapper) = self.mapper.borrow().as_ref() {
             let scanlines = self.ppu.take_scanlines();
             if scanlines > 0 {
                 let mut mapper = mapper.borrow_mut();
@@ -231,9 +242,9 @@ impl NesSystem {
         // can each hold it, and the CPU sees only the combination.
         let mapper_irq = self
             .mapper
+            .borrow()
             .as_ref()
-            .map(|mapper| mapper.borrow().irq_pending())
-            .unwrap_or(false);
+            .is_some_and(|mapper| mapper.borrow().irq_pending());
         self.interrupts.set_irq(self.apu.irq_pending() || mapper_irq);
     }
 
@@ -263,7 +274,7 @@ impl NesSystem {
             .ok_or_else(|| NesError::UnsupportedMapper(rom.header.mapper, supported_mappers()))?;
 
         let mapper = Rc::new(RefCell::new(mapper));
-        self.mapper = Some(mapper.clone());
+        *self.mapper.borrow_mut() = Some(mapper.clone());
 
         // Serve cartridge space from the mapper. Attached first so it takes precedence over the
         // RAM region that previously stood in for it.
