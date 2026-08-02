@@ -80,12 +80,29 @@ test rather than a tool, and any future instruction that forgets a cycle fails i
 
 ### 2. Move the sample to the right cycle
 
-With the counts equal, sampling before the last cycle is a position that exists. The latch already
-written in attempt 3 works unchanged once `poll_at` refers to a real cycle — it is preserved in
-`scratchpad/cycle-sampling/`.
+Step 1 is done: the gap is 78 of 8991, from 6463.
 
-Expected to fix `1-cli_latency` and `instr_timing`, whose cycle counts stop being a table and start
-emerging from the work done.
+Sampling was then tried, and **it works** — `cpu_interrupts_v2/1-cli_latency` passes, the first test
+in that suite ever to. That is the proof the mechanism is right, because that test measures the
+sampling rule directly. The attempt is preserved in `scratchpad/step2-sampling/`.
+
+It was reverted anyway, because on its own it is not finishable:
+
+- `2-nmi_and_brk` and the combined `cpu_interrupts` go from failing to **hanging**. Both need NMI
+  hijacking of BRK, which is step 3. A hang is worse than a failure: in a game it is a freeze.
+- Six interrupt unit tests break, and they are not wrong so much as written against the old model.
+  They assert a line raised between instructions is serviced by the very next `step`. Under the
+  sampling rule an instruction must first run to take the sample, so each needs an instruction
+  placed in between — and since their RAM is zeroed, the instruction that would otherwise run is
+  BRK. Their program-counter assertions shift accordingly.
+
+One detail worth keeping, because it cost a wrong measurement: the opcode fetch is cycle one and it
+happens *before* the opcode is known, so `poll_at` cannot be set until after it. A two-cycle
+instruction samples at the end of cycle one, which is therefore already past by the time the target
+is set, and has to be taken immediately rather than waited for. Without that, the sample never
+fires on short instructions and the whole thing behaves like the crude latch it replaced.
+
+**Steps 2 and 3 should land together.**
 
 ### 3. The special cases
 
