@@ -601,6 +601,43 @@ impl Ppu {
         // Increment cycle count
         self.cycle += 1;
 
+        // Vblank begins and ends on the *second* dot of their scanlines, not the first.
+        //
+        // A single dot sounds too small to matter and is the whole subject of several test ROMs:
+        // a program can read $2002 on the exact cycle the flag is set, and whether it sees the
+        // flag — and whether reading it suppresses the NMI — depends on which side of that dot the
+        // read falls. Setting the flag when the scanline advanced put it one dot early, so every
+        // such program saw the previous answer.
+        if self.cycle == 1 {
+            if self.scanline == 241 {
+                self.status.set(self.status.get() | STATUS_VBLANK);
+
+                // The visible portion is finished, so composite sprites over it.
+                self.end_frame();
+
+                // Vblank with NMI enabled raises the interrupt. Latched here and collected by the
+                // system, which owns the connection to the CPU.
+                if (self.ctrl & CTRL_NMI_ENABLE) != 0 {
+                    self.nmi_raised = true;
+                }
+            } else if self.scanline == 261 {
+                // The pre-render line clears vblank, along with the two flags that are per-frame
+                // results rather than running state.
+                self.status.set(
+                    self.status.get() & !(STATUS_VBLANK | STATUS_SPRITE_ZERO_HIT | STATUS_SPRITE_OVERFLOW),
+                );
+
+                if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
+                    // Where the vertical scroll for the coming frame is loaded.
+                    self.reload_vertical_scroll();
+
+                    // It also performs the same pattern fetches as a visible line, so it clocks a
+                    // scanline-counting mapper: a frame clocks it 241 times, not 240.
+                    self.scanlines_completed = self.scanlines_completed.saturating_add(1);
+                }
+            }
+        }
+
         // One scanline is 341 cycles
         if self.cycle > 340 {
             self.cycle = 0;
@@ -656,45 +693,8 @@ impl Ppu {
                 }
             }
 
-            // Start of VBlank occurs at the beginning of scanline 241
-            if self.scanline == 241 {
-                // Set VBlank flag
-                let old_status = self.status.get();
-                let new_status = old_status | STATUS_VBLANK;
-                self.status.set(new_status);
-                log::debug!(
-                    "VBlank start (scanline 241) - Status changed from ${:02X} to ${:02X} - VBLANK flag now SET",
-                    old_status,
-                    new_status
-                );
-
-                // Vblank with NMI enabled raises the interrupt. Latched here and collected by
-                // the system, which owns the connection to the CPU.
-                // The visible portion is finished, so composite sprites over it.
-                self.end_frame();
-
-                if (self.ctrl & CTRL_NMI_ENABLE) != 0 {
-                    self.nmi_raised = true;
-                }
-            }
-            // End of VBlank period, reset VBlank flag at the start of pre-render scanline (261)
-            else if self.scanline == 261 {
-                let old_status = self.status.get();
-                let new_status = old_status & !STATUS_VBLANK;
-                self.status.set(new_status);
-
-                if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
-                    // The pre-render line is where the vertical scroll for the coming frame is
-                    // loaded.
-                    self.reload_vertical_scroll();
-
-                    // It also performs the same pattern fetches as a visible line, so it clocks a
-                    // scanline-counting mapper: a frame clocks it 241 times, not 240.
-                    self.scanlines_completed = self.scanlines_completed.saturating_add(1);
-                }
-            }
             // Start of next frame
-            else if self.scanline > 261 {
+            if self.scanline > 261 {
                 self.scanline = 0;
                 self.frame_count += 1;
                 log::debug!("New frame start (frame_count={})", self.frame_count);
@@ -1554,6 +1554,16 @@ impl Ppu {
     fn write_control(&mut self, value: u8) {
         // The nametable select lives in t, so $2000 is also a scroll write.
         self.temp_addr = (self.temp_addr & 0x73FF) | ((value as u16 & 0x03) << 10);
+
+        // Enabling the NMI while the vblank flag is already set raises one immediately. The
+        // interrupt is not an event that happened at the start of vblank and was missed — the PPU
+        // asserts the line for as long as both the flag and the enable bit are set, so turning the
+        // bit on part way through vblank asserts it there and then. A program that enables it late
+        // and waits would otherwise wait a whole frame.
+        let enabling = (value & CTRL_NMI_ENABLE) != 0 && (self.ctrl & CTRL_NMI_ENABLE) == 0;
+        if enabling && (self.status.get() & STATUS_VBLANK) != 0 {
+            self.nmi_raised = true;
+        }
         log::debug!("PPU write_control: ${:02X}", value);
         self.ctrl = value;
     }
