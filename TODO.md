@@ -470,11 +470,14 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Add proper channel mixing
 
 ### [APU] Outstanding Accuracy Work [T7]
-- [ ] Implement the frame counter's 5-step mode ($4017 bit 7)
-- [ ] Implement the frame IRQ: $4015 bit 6, the $4017 inhibit flag, and the CPU IRQ line
+- [x] Implement the frame counter's 5-step mode ($4017 bit 7)
+- [x] Implement the frame IRQ: $4015 bit 6, the $4017 inhibit flag, and the CPU IRQ line
+- [x] Fix the PPU vblank flag so the `asm/` audio demos reach their APU init
+- [x] Report the DMC's remaining bytes in $4015 bit 4, and clear them when the channel is disabled
 - [ ] Give the DMC bus access so `load_next_byte` reads real memory, including CPU stall cycles
-- [ ] Fix the PPU vblank flag so the `asm/` audio demos reach their APU init instead of spinning
-      in `WaitForVBlank` (blocks every demo ROM, not just audio)
+- [ ] $4017 write timing: the delay before an effective write takes effect (`apu_reset/4017_timing`)
+- [ ] Power-on and reset state of the frame counter (`apu_reset/4017_written`, `works_immediately`)
+- [ ] Which length counters a reset leaves enabled (`apu_reset/len_ctrs_enabled`)
 - [ ] Drop the `objc2` `relax-sign-encoding` workaround in the root Cargo.toml once eframe/winit
       move to objc2 0.6+ (see AUDIO_PLAN.md section 4)
 
@@ -500,102 +503,82 @@ This document provides a detailed task breakdown for developing the RustNES emul
 
 ## MILESTONE 8: Conformance & Test ROMs [T8]
 
-The community's test ROMs are the independent check on everything built so far. None can run yet:
-the iNES loader parses the header then *skips* the PRG data, so there is no way to get a ROM's
-program into memory. Full rationale, ROM list and ordering in [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md).
+The community's test ROMs are the independent check on everything built so far. Commercial and test
+ROMs cannot be committed here, so `tools/rom_test` skips cleanly without them and the unit tests
+synthesise their own iNES images. Full rationale and ROM list in
+[CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md).
 
 ### [Cartridge] PRG-ROM loading [T8]
-- [ ] Return PRG-ROM from the loader instead of skipping past it to the CHR data
-- [ ] Map PRG-ROM into $8000-$FFFF, mirroring a 16KB image at both $8000 and $C000
-- [ ] Start execution from the reset vector at $FFFC rather than a fixed load address
-- [ ] Add `--rom file.nes` to nes_debugger and the probe tools
+- [x] Return PRG-ROM from the loader instead of skipping past it to the CHR data
+- [x] Map PRG-ROM into $8000-$FFFF, mirroring a 16KB image at both $8000 and $C000
+- [x] Start execution from the reset vector at $FFFC rather than a fixed load address
+- [x] Load a ROM by path in nes_debugger and the probe tools, detected by content not extension
 
 ### [CPU] Complete the official instruction set [T8]
-Missing 10 of 56 instructions, and 43 of 151 official opcodes. The missing set is every stack
-operation, both rotates, and the interrupt return — so nothing that pushes or pulls the stack runs.
-- [ ] PHA, PHP, PLA, PLP (including the B flag's behaviour in the pushed status byte)
-- [ ] ROL, ROR (accumulator and memory forms)
-- [ ] CPY, CLV, TSX
-- [ ] RTI (also unblocks asm/full_sprite_test.asm)
-- [ ] Fill in missing addressing modes on existing instructions until all 151 official opcodes decode
-- [ ] Decide the policy on unofficial opcodes: nestest exercises them and some games rely on them
+All 151 official opcodes decode. Of the 256, eighteen remain undecoded: twelve are JAM, which
+correctly halt, and six are the unstable stores. `report_undecoded_opcodes` prints the list.
+- [x] PHA, PHP, PLA, PLP (including the B flag's behaviour in the pushed status byte)
+- [x] ROL, ROR (accumulator and memory forms)
+- [x] CPY, CLV, TSX
+- [x] RTI
+- [x] Fill in missing addressing modes until all 151 official opcodes decode
+- [x] Unofficial opcodes: implemented, including the immediate-mode set nestest and 03-immediate need
+- [ ] The six unstable stores (SHA, SHX, SHY, TAS, LAS), whose behaviour varies with the chip
 
 ### [CPU] Interrupts [T8]
-The InterruptDisable flag exists and nothing reads it. The APU already maintains a frame IRQ flag
-correctly, with no line to assert it.
-- [ ] NMI: 7-cycle sequence, vector at $FFFA, triggered by PPU vblank when $2000 bit 7 is set
-- [ ] IRQ: vector at $FFFE, gated on InterruptDisable, asserted by the APU frame counter
-- [ ] BRK pushing the correct status byte, RTI restoring it
-- [ ] Connect `Apu::irq_pending()` to the CPU IRQ line
+- [x] NMI: vector at $FFFA, triggered by PPU vblank when $2000 bit 7 is set
+- [x] IRQ: vector at $FFFE, gated on InterruptDisable, shared by the APU frame counter and the mapper
+- [x] BRK pushing the correct status byte, RTI restoring it
+- [x] Interrupt lines shared, so a device can assert one while the CPU is mid-instruction
+- [ ] Sample the lines at the cycle hardware samples them, so CLI and SEI take effect one
+      instruction late (`cpu_interrupts_v2`). Needs the per-cycle CPU below.
 
 ### [Testing] Headless test-ROM runner [T8]
 Blargg's ROMs write a status byte to $6000 and a message at $6004, so no screen is needed.
-- [ ] `tools/rom_test`: load a .nes, run to completion or timeout, report $6000 and $6004
-- [ ] nestest log-diff mode: run from $C000 and diff the CPU trace against nestest.log
+- [x] `tools/rom_test`: load a .nes, run to completion or timeout, report $6000 and $6004
+- [x] nestest log-diff mode: run from $C000 and diff the CPU trace against nestest.log
+- [x] `suite` mode over a directory, and `frame` mode to capture what the PPU drew
+- [x] Press reset when a ROM asks for it, which several apu_reset ROMs wait on forever otherwise
+- [x] Skip cleanly with a clear message when no ROMs are present
 - [ ] Machine-readable output suitable for CI
-- [ ] Skip cleanly with a clear message when no ROMs are present (they cannot be committed here)
-- [ ] Document in the README where to obtain the ROMs
 
-### [Testing] Pass the suites, in order [T8]
-- [ ] nestest.nes (official opcodes, then unofficial)
-- [ ] blargg instr_test-v5
-- [ ] blargg instr_timing
-- [ ] blargg cpu_interrupts_v2
-- [ ] blargg ppu_vbl_nmi
-- [ ] blargg sprite_hit_tests, sprite_overflow_tests, oam_read
-- [ ] blargg apu_test, apu_mixer, dmc_dma
+### [Testing] Pass the suites [T8]
+Standing as of the last run. Most of what remains is blocked on the two rewrites at the end of this
+file rather than on anything specific to the suite.
+- [x] nestest.nes — 8991/8991
+- [ ] instr_test-v5 — 13/18
+- [ ] instr_misc — 3/5
+- [ ] mmc3_test — 3/6
+- [ ] apu_test — 3/9
+- [ ] apu_reset — 2/6
+- [ ] ppu_vbl_nmi — 2/11
+- [ ] instr_timing — 1/3
+- [ ] cpu_interrupts_v2, branch_timing_tests, blargg_ppu_tests, cpu_dummy_writes, cpu_exec_space,
+      oam_read, oam_stress — none yet
 
 
 ## MILESTONE 9: Mappers & Cartridges [T9]
-- [ ] Implement support for different ROM formats
-- [ ] Test with various commercial ROMs
-- [ ] Support bank switching and expanded memory
-- [ ] Document the implementation
+Five mappers are implemented: NROM (0), MMC1 (1), UxROM (2), MMC3 (4) and AxROM (7). A ROM asking
+for anything else is refused by name at load time rather than run with silently wrong banking.
 
-### [Cartridge] Mapper Architecture [T8]
-- [ ] Design flexible mapper trait
-- [ ] Implement mapper detection from ROM header
-- [ ] Create configurable address translation system
-- [ ] Add memory bank switching utilities
-- [ ] Test mapper architecture
-
-### [Cartridge] NROM (Mapper 0) [T8]
-- [ ] Implement NROM mapper (simplest mapper)
-- [ ] Support small (16KB) and large (32KB) ROMs
-- [ ] Test with NROM games (e.g., Super Mario Bros, Donkey Kong)
-- [ ] Document NROM implementation
-
-### [Cartridge] UxROM (Mapper 2) [T8]
-- [ ] Implement UxROM mapper
-- [ ] Support bank switching
-- [ ] Test with UxROM games (e.g., Mega Man, Duck Tales)
-- [ ] Document UxROM implementation
-
-### [Cartridge] MMC1 (Mapper 1) [T8]
-- [ ] Implement MMC1 mapper
-- [ ] Support configurable mirroring
-- [ ] Support PRG-ROM and CHR-ROM bank switching
-- [ ] Test with MMC1 games (e.g., Legend of Zelda, Metroid)
-- [ ] Document MMC1 implementation
-
-### [Memory] ROM Banking [T8]
-- [ ] Implement ROM banking infrastructure
-- [ ] Support runtime bank switching
-- [ ] Optimize memory access for banked ROMs
-- [ ] Test bank switching performance
-
-### [System] ROM Loading [T8]
-- [ ] Enhance ROM loading to support different mappers
-- [ ] Add header validation and sanity checks
-- [ ] Implement battery-backed save support (if needed)
-- [ ] Test ROM loading with various games
+- [x] Mapper trait, with detection from the iNES header
+- [x] NROM (0), including a 16KB image mirrored at both $8000 and $C000
+- [x] UxROM (2)
+- [x] MMC1 (1), including the serial shift register and switchable mirroring
+- [x] MMC3 (4), including CHR banking and the scanline IRQ
+- [x] AxROM (7)
+- [x] Refuse an unimplemented mapper by name instead of running it wrongly
+- [x] Save and restore mapper state, so a snapshot resumes with the right banks
+- [ ] CNROM (3), MMC2 (9), Color Dreams (11) — each small, none needed by anything tried so far
+- [ ] MMC3's remaining A12 timing, which needs the per-dot PPU below
 
 ## MILESTONE 10: Full Desktop System [T10]
-- [ ] Create a fully playable NES emulator application
-- [ ] Support loading and playing commercial ROMs
-- [ ] Implement save states and game management
-- [ ] Create a user-friendly interface
-- [ ] Test with variety of games
+- [x] Load and play commercial ROMs
+- [x] Save states, with tests that assert a restored machine continues identically
+- [x] Fullscreen display, overscan cropping, frame dump with the PPU state that produced it
+- [ ] Controller 2 surfaced in the key mapping (wired in the core already)
+- [ ] Audio: verify against real game music now that the pipeline works
+- [ ] Test with a wider variety of games
 
 ### [CPU] Advanced Instructions [T9]
 - [ ] Implement remaining status flag changes (CLD, CLI, CLV, SED, SEI)
@@ -928,3 +911,45 @@ Blargg's ROMs write a status byte to $6000 and a message at $6004, so no screen 
 - [ ] Add comprehensive comments to all example code
 - [ ] Create tutorial videos explaining demo code
 - [ ] Document assembly techniques for efficient NES programming 
+## The two rewrites everything else is waiting on
+
+Most of what still fails in the community suites fails for one of two reasons, not for reasons of
+its own. Both are substantial and each deserves its own sitting; the groundwork for the first is
+already in place.
+
+### [CPU] Per-cycle state machine
+Today an instruction is one indivisible step: it runs to completion and the rest of the system is
+advanced afterwards. The bus clock now advances the system on each memory access, which places most
+cycles correctly, but the instruction still cannot be interrupted or observed partway through.
+
+What that costs: interrupt sampling happens at the wrong moment, so CLI and SEI do not take effect
+one instruction late as they must; and cycle counts come from a table rather than emerging from the
+work, so nothing measuring them can pass.
+
+- [x] Shared interrupt lines, so a device can assert one while the CPU is borrowed
+- [x] Mapper in a shared slot, so the clock can reach it
+- [x] Bus clock advancing the system on each access
+- [ ] Each instruction as an explicit sequence of cycles, each with its own bus operation
+- [ ] Interrupts sampled at the cycle hardware samples them
+- Acceptance: `cpu_interrupts_v2`, `instr_timing`, `branch_timing_tests`, `cpu_dummy_writes`,
+  `cpu_exec_space`
+
+An earlier attempt at this was abandoned; a second, narrower attempt at the interrupt sampling alone
+moved `cli_latency` from its first sub-test to its tenth but hung `nmi_and_brk`, and was reverted. A
+latch approximating "before the instruction" is not the same as sampling at a defined cycle, and the
+difference is exactly what those tests measure.
+
+### [PPU] Per-dot fetch pipeline
+The PPU draws a whole scanline at once, sampling its registers as the line begins. Hardware fetches
+tiles and sprites throughout the line, and several things depend on *where* in the line a fetch
+falls — including which pattern table is being read, which is what drives MMC3's counter.
+
+- [ ] Background and sprite fetches issued per dot, in hardware's order
+- [ ] Sprite evaluation per dot, so $2004 reads during rendering return what it holds
+- [ ] Vblank flag set and cleared at the exact dot
+- Acceptance: `ppu_vbl_nmi`, `blargg_ppu_tests`, `oam_read`, `oam_stress`,
+  `mmc3_test/3-A12_clocking`, `mmc3_test/4-scanline_timing`
+
+### Housekeeping
+- [ ] CI: the workspace has a clean clippy gate and a full test suite, and nothing runs them
+- [ ] `crates/rn_core/tests/frame_alternation.rs` depends on a local ROM path and skips silently
