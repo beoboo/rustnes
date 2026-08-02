@@ -188,3 +188,41 @@ fn rejects_a_file_that_is_not_an_ines_image() {
     let path = write_temp_rom("rn_not_a_rom.nes", b"this is not a ROM at all, not even close");
     assert!(load_rom(&path).is_err(), "a non-iNES file must be rejected");
 }
+
+/// Most of an instruction's cycles should be run from its bus accesses, not after it finishes.
+///
+/// This is the whole point of clocking the system from inside the CPU: an access that reads $2002
+/// should see the PPU where it stands at that cycle, not where it will be once the instruction
+/// ends. The assertion is loose because not every 6502 cycle is modelled as an access — the
+/// internal ones are not — so a majority is what success looks like, not all of them.
+///
+/// Worth pinning because the obvious way to check this from outside reads zero: `step` consumes
+/// the per-instruction counter itself, so asking afterwards always says none, and the mechanism
+/// looks dead when it is working.
+#[test]
+fn most_cycles_are_run_from_bus_accesses() {
+    let program = [
+        0xA9, 0x42, // LDA #$42
+        0x8D, 0x00, 0x02, // STA $0200
+        0x4C, 0x00, 0xC0, // JMP $C000
+    ];
+    let image = synthesise_rom(&program, 0xC000, 1);
+    let path = write_temp_rom("rn_bus_clock.nes", &image);
+
+    let rom = load_rom(&path).expect("loading the ROM");
+    let mut system = NesSystem::new();
+    system.load_rom(&rom).expect("loading into the system");
+
+    let mut total = 0u64;
+    for _ in 0..500 {
+        total += system.step().expect("stepping") as u64;
+    }
+
+    let clocked = system.cpu().total_clocked_cycles();
+    assert!(total > 0, "the program should have run");
+    assert!(
+        clocked * 2 > total,
+        "only {clocked} of {total} cycles ran from bus accesses; the clock is not driving them"
+    );
+    assert!(clocked <= total, "a bus access cannot run more cycles than the instruction took");
+}

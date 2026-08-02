@@ -152,6 +152,44 @@ impl NesSystem {
         dma.connect_ppu(ppu.clone());
         cpu.connect_memory(bus.clone());
 
+        let mapper: MapperSlot = Rc::new(RefCell::new(None));
+
+        // Advance everything except the CPU by one CPU cycle, installed into the CPU so that each
+        // of an instruction's bus accesses sees the rest of the system where it actually stands.
+        //
+        // It captures shared handles only, never the CPU, because the CPU is borrowed while this
+        // runs — interrupts reach it through the shared lines instead. The mapper comes from the
+        // slot rather than being captured, since no ROM has been loaded yet.
+        {
+            let ppu = ppu.clone();
+            let apu = apu.clone();
+            let mapper_slot = Rc::clone(&mapper);
+            let lines = interrupts.clone();
+
+            cpu.set_clock(Rc::new(move || {
+                for _ in 0..3 {
+                    ppu.tick();
+                }
+                apu.tick();
+
+                if ppu.take_nmi() {
+                    lines.raise_nmi();
+                }
+
+                let mut mapper_irq = false;
+                if let Some(mapper) = mapper_slot.borrow().as_ref() {
+                    let scanlines = ppu.take_scanlines();
+                    let mut mapper = mapper.borrow_mut();
+                    for _ in 0..scanlines {
+                        mapper.on_scanline();
+                    }
+                    mapper_irq = mapper.irq_pending();
+                }
+
+                lines.set_irq(apu.irq_pending() || mapper_irq);
+            }));
+        }
+
         Self {
             cpu,
             interrupts,
@@ -161,7 +199,7 @@ impl NesSystem {
             controller_handler,
             state: SystemState::Ready,
             error_message: None,
-            mapper: Rc::new(RefCell::new(None)),
+            mapper,
             bus,
         }
     }
@@ -342,6 +380,9 @@ impl NesSystem {
         } else {
             // Either Completed or Inactive, run the CPU
             dma_active = false;
+            // The clock runs only while an instruction is executing, so that reading memory to
+            // display it does not advance the machine.
+            self.cpu.set_executing(true);
             cpu_cycles = match self.cpu.step() {
                 Ok(cycles) => cycles,
                 Err(err) => {
@@ -373,14 +414,17 @@ impl NesSystem {
             return Err(NesError::MemoryAccessError(self.cpu.pc()));
         }
 
-        // Advance the rest of the system in lockstep with the CPU, one CPU cycle at a time.
+        // Most of the instruction's cycles have already been run, one per bus access, from inside
+        // the CPU — so each access saw the rest of the system where it actually stood rather than
+        // where it would be once the instruction finished.
         //
-        // Previously the PPU was run in a single batch after the whole instruction, then the APU,
-        // then the mapper. Everything therefore observed the instruction as having happened at one
-        // instant, and interrupts could only be noticed at instruction boundaries. Stepping cycle
-        // by cycle keeps the components in the same relative positions they occupy on hardware,
-        // which is what timing-sensitive effects depend on.
-        for _ in 0..cpu_cycles {
+        // What remains are the cycles that are not bus accesses. A real 6502 accesses memory on
+        // every cycle, including the ones it spends on internal work, but those accesses are not
+        // modelled here; running the difference afterwards keeps the total exact even though the
+        // last few cycles land slightly late.
+        self.cpu.set_executing(false);
+        let already_run = self.cpu.take_clocked_cycles();
+        for _ in already_run..cpu_cycles {
             self.tick_cycle();
         }
 

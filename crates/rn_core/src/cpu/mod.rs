@@ -100,6 +100,26 @@ impl CpuWrapper {
         self.cpu.borrow().interrupt_lines()
     }
 
+    /// Install the callback that advances the rest of the system by one CPU cycle.
+    pub fn set_clock(&self, clock: Rc<dyn Fn()>) {
+        self.cpu.borrow_mut().set_clock(clock);
+    }
+
+    /// Whether bus accesses should drive the clock. Off outside instruction execution.
+    pub fn set_executing(&self, executing: bool) {
+        self.cpu.borrow().set_executing(executing);
+    }
+
+    /// Cycles already run for the last instruction's bus accesses.
+    pub fn take_clocked_cycles(&self) -> u8 {
+        self.cpu.borrow().take_clocked_cycles()
+    }
+
+    /// Every cycle ever run from a bus access.
+    pub fn total_clocked_cycles(&self) -> u64 {
+        self.cpu.borrow().total_clocked_cycles()
+    }
+
     pub fn registers(&self) -> CpuRegisters {
         self.cpu.borrow().registers
     }
@@ -213,6 +233,9 @@ pub struct Cpu {
     /// Cycles the clock has been run for during the current instruction.
     clocked_cycles: Cell<u8>,
 
+    /// Every cycle ever run from a bus access, never reset. Diagnostic only.
+    total_clocked: Cell<u64>,
+
     /// Latched NMI request.
     ///
     /// NMI is edge-triggered: the PPU asserts it once when vblank begins, and it stays latched
@@ -257,6 +280,7 @@ impl Cpu {
             clock: None,
             executing: Cell::new(false),
             clocked_cycles: Cell::new(0),
+            total_clocked: Cell::new(0),
             nmi_pending: Rc::new(Cell::new(false)),
             irq_line: Rc::new(Cell::new(false)),
         }
@@ -422,8 +446,14 @@ impl Cpu {
 
         if let Some(clock) = &self.clock {
             self.clocked_cycles.set(self.clocked_cycles.get().saturating_add(1));
+            self.total_clocked.set(self.total_clocked.get() + 1);
             clock();
         }
+    }
+
+    /// Every cycle ever run from a bus access.
+    pub fn total_clocked_cycles(&self) -> u64 {
+        self.total_clocked.get()
     }
 
     /// Cycles already run for the current instruction's bus accesses.
