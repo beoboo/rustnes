@@ -91,6 +91,12 @@ pub enum Instruction {
     DCP, // DEC memory, then CMP
     ISB, // INC memory, then SBC
     CPX, // Compare Memory with X Register
+    ANC, // AND, then copy bit 7 into carry
+    ALR, // AND, then LSR
+    ARR, // AND, then ROR, with its own carry and overflow rules
+    SBX, // (A AND X) minus an immediate, into X
+    LXA, // AND an immediate into both A and X — unstable on hardware
+    ANE, // A OR magic, AND X, AND an immediate — unstable on hardware
 }
 
 impl Instruction {
@@ -324,6 +330,15 @@ impl InstructionDecoder {
         self.add_instruction(0x97, Instruction::SAX, AddressingMode::ZeroPageY, 2, 4);
         self.add_instruction(0x8F, Instruction::SAX, AddressingMode::Absolute, 3, 4);
         self.add_instruction(0x83, Instruction::SAX, AddressingMode::IndexedIndirect, 2, 6);
+        // Immediate-mode unofficial instructions. Blargg's 03-immediate exercises exactly these,
+        // and a missing one stops the CPU dead rather than failing a check.
+        self.add_instruction(0x0B, Instruction::ANC, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x2B, Instruction::ANC, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x4B, Instruction::ALR, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x6B, Instruction::ARR, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0x8B, Instruction::ANE, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0xAB, Instruction::LXA, AddressingMode::Immediate, 2, 2);
+        self.add_instruction(0xCB, Instruction::SBX, AddressingMode::Immediate, 2, 2);
         self.add_instruction(0xA7, Instruction::LAX, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0xB7, Instruction::LAX, AddressingMode::ZeroPageY, 2, 4);
         self.add_instruction(0xAF, Instruction::LAX, AddressingMode::Absolute, 3, 4);
@@ -576,6 +591,12 @@ impl Cpu {
             Instruction::RRA => self.rra(addressing_mode)?,
             Instruction::SAX => self.sax(addressing_mode)?,
             Instruction::LAX => self.lax(addressing_mode)?,
+            Instruction::ANC => self.anc(addressing_mode)?,
+            Instruction::ALR => self.alr(addressing_mode)?,
+            Instruction::ARR => self.arr(addressing_mode)?,
+            Instruction::SBX => self.sbx(addressing_mode)?,
+            Instruction::LXA => self.lxa(addressing_mode)?,
+            Instruction::ANE => self.ane(addressing_mode)?,
             Instruction::DCP => self.dcp(addressing_mode)?,
             Instruction::ISB => self.isb(addressing_mode)?,
             Instruction::CPY => self.cpy(addressing_mode)?,
@@ -802,6 +823,93 @@ impl Cpu {
         self.registers.a = value;
         self.registers.x = value;
         self.set_zero_negative(value);
+        Ok(())
+    }
+
+    /// Read an operand without touching any flag, for the instructions that set their own.
+    fn operand(&mut self, addressing_mode: AddressingMode) -> Result<u8, NesError> {
+        let address = addressing_mode.get_operand_address(self)?;
+        self.read_byte(address)
+    }
+
+    /// ANC - AND, then copy bit 7 of the result into carry.
+    ///
+    /// The carry ends up matching the negative flag, which is what makes this useful: it produces
+    /// an arithmetic shift right of a 16-bit value in fewer instructions than the official set.
+    pub fn anc(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.operand(addressing_mode)?;
+        self.registers.a &= value;
+        self.set_zero_negative(self.registers.a);
+        self.set_flag(CpuFlag::Carry, (self.registers.a & 0x80) != 0);
+        Ok(())
+    }
+
+    /// ALR - AND, then shift the accumulator right.
+    pub fn alr(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.operand(addressing_mode)?;
+        let masked = self.registers.a & value;
+        self.set_flag(CpuFlag::Carry, (masked & 0x01) != 0);
+        self.registers.a = masked >> 1;
+        self.set_zero_negative(self.registers.a);
+        Ok(())
+    }
+
+    /// ARR - AND, then rotate the accumulator right, with flags all its own.
+    ///
+    /// Carry comes from bit 6 of the result rather than the bit shifted out, and overflow from bit
+    /// 6 exclusive-or bit 5. The rotate is an ordinary ROR; only the flags are unusual, and they
+    /// are what the instruction exists for — they let a routine test two bits in one step.
+    pub fn arr(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.operand(addressing_mode)?;
+        let carry_in = u8::from(self.get_flag(CpuFlag::Carry));
+
+        let result = ((self.registers.a & value) >> 1) | (carry_in << 7);
+        self.registers.a = result;
+
+        self.set_zero_negative(result);
+        self.set_flag(CpuFlag::Carry, (result & 0x40) != 0);
+        self.set_flag(CpuFlag::Overflow, ((result >> 6) ^ (result >> 5)) & 0x01 != 0);
+        Ok(())
+    }
+
+    /// SBX - subtract an immediate from (A AND X), into X, without borrowing.
+    ///
+    /// The carry is set as a comparison would set it, not as SBC would: this is a compare of
+    /// (A AND X) against the operand that also keeps the difference.
+    pub fn sbx(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.operand(addressing_mode)?;
+        let base = self.registers.a & self.registers.x;
+
+        self.set_flag(CpuFlag::Carry, base >= value);
+        self.registers.x = base.wrapping_sub(value);
+        self.set_zero_negative(self.registers.x);
+        Ok(())
+    }
+
+    /// LXA - AND an immediate into both A and X. Unstable on hardware.
+    ///
+    /// The accumulator is first OR'd with a constant that depends on the individual chip, its
+    /// temperature and supply voltage. $FF is what blargg's 03-immediate expects and what the
+    /// common NES chips exhibit, making this equivalent to loading the operand into both
+    /// registers. $EE is also reported in the wild, and would fail that test.
+    pub fn lxa(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        const MAGIC: u8 = 0xFF;
+
+        let value = self.operand(addressing_mode)?;
+        let result = (self.registers.a | MAGIC) & value;
+        self.registers.a = result;
+        self.registers.x = result;
+        self.set_zero_negative(result);
+        Ok(())
+    }
+
+    /// ANE - A OR magic, AND X, AND an immediate. Unstable for the same reason as [`lxa`].
+    pub fn ane(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        const MAGIC: u8 = 0xEE;
+
+        let value = self.operand(addressing_mode)?;
+        self.registers.a = (self.registers.a | MAGIC) & self.registers.x & value;
+        self.set_zero_negative(self.registers.a);
         Ok(())
     }
 
@@ -1330,6 +1438,72 @@ impl Default for InstructionDecoder {
 
 #[cfg(test)]
 mod tests {
+    /// ANC leaves carry matching the negative flag, which is the whole point of it: together they
+    /// give an arithmetic shift right of a 16-bit value in fewer instructions than the official set.
+    #[test]
+    fn anc_copies_bit_seven_into_carry() {
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF))));
+        cpu.registers.a = 0xF0;
+        cpu.write_byte(0x0000, 0x0B).unwrap();
+        cpu.write_byte(0x0001, 0x80).unwrap();
+        cpu.registers.pc = 0x0000;
+        cpu.step().unwrap();
+
+        assert_eq!(cpu.registers.a, 0x80);
+        assert!(cpu.get_flag(CpuFlag::Carry), "carry follows bit 7");
+        assert!(cpu.get_flag(CpuFlag::Negative), "and so matches negative");
+    }
+
+    /// ARR takes carry from bit 6 of the result rather than the bit shifted out, and overflow from
+    /// bit 6 exclusive-or bit 5 — unlike every official rotate.
+    #[test]
+    fn arr_sets_carry_and_overflow_from_the_result() {
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF))));
+        cpu.registers.a = 0xFF;
+        cpu.set_flag(CpuFlag::Carry, false);
+        cpu.write_byte(0x0000, 0x6B).unwrap();
+        cpu.write_byte(0x0001, 0xFF).unwrap();
+        cpu.registers.pc = 0x0000;
+        cpu.step().unwrap();
+
+        assert_eq!(cpu.registers.a, 0x7F);
+        assert!(cpu.get_flag(CpuFlag::Carry), "bit 6 of $7F is set");
+        assert!(!cpu.get_flag(CpuFlag::Overflow), "bits 6 and 5 of $7F agree");
+    }
+
+    /// SBX sets carry as a comparison would, not as a subtraction with borrow would.
+    #[test]
+    fn sbx_compares_rather_than_borrowing() {
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(Rc::new(RefCell::new(Ram::with_range(0x0000, 0xFFFF))));
+        cpu.registers.a = 0xF0;
+        cpu.registers.x = 0x0F;
+        cpu.write_byte(0x0000, 0xCB).unwrap();
+        cpu.write_byte(0x0001, 0x01).unwrap();
+        cpu.registers.pc = 0x0000;
+        cpu.step().unwrap();
+
+        // (A AND X) is 0, so subtracting 1 wraps and the comparison fails.
+        assert_eq!(cpu.registers.x, 0xFF);
+        assert!(!cpu.get_flag(CpuFlag::Carry), "0 is not >= 1");
+    }
+
+    /// Which opcodes the decoder still does not know.
+    ///
+    /// Not every one of the 256 is a real instruction, but the gap is what makes a test ROM stop
+    /// dead, so it is worth being able to see it rather than infer it from a crash.
+    #[test]
+    fn report_undecoded_opcodes() {
+        let decoder = InstructionDecoder::new();
+        let missing: Vec<String> = (0..=255u8)
+            .filter(|&opcode| decoder.decode(opcode).is_err())
+            .map(|opcode| format!("{opcode:02X}"))
+            .collect();
+        println!("{} undecoded: {}", missing.len(), missing.join(" "));
+    }
+
     use std::{cell::RefCell, rc::Rc};
 
     use anyhow::Result;
