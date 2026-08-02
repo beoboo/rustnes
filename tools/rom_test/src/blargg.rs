@@ -25,7 +25,18 @@ const MESSAGE: u16 = 0x6004;
 const SIGNATURE_BYTES: [u8; 3] = [0xDE, 0xB0, 0x61];
 
 const STATUS_RUNNING: u8 = 0x80;
+/// The ROM is asking to be reset, having first held the status long enough to be seen.
+///
+/// Part of the protocol rather than a failure: several tests exist precisely to check what
+/// survives a reset and what does not, and cannot run at all unless something presses the button.
 const STATUS_NEEDS_RESET: u8 = 0x81;
+
+/// How long to wait before resetting, in CPU cycles — roughly 100ms.
+///
+/// The delay is required, not politeness. A reset that arrives immediately can land before the ROM
+/// has finished recording what it expects to survive, and the test then measures the harness
+/// rather than the emulator.
+const RESET_DELAY_CYCLES: u64 = 180_000;
 const STATUS_PASSED: u8 = 0x00;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -57,6 +68,8 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
         .context("loading the ROM into the system")?;
 
     let mut signature_seen = false;
+    // When the ROM asked to be reset, so the wait can be measured from that moment.
+    let mut reset_requested_at: Option<u64> = None;
 
     for instruction in 0..max_instructions {
         if let Err(error) = system.step() {
@@ -74,7 +87,22 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
         }
 
         match read(&system, STATUS) {
-            STATUS_RUNNING | STATUS_NEEDS_RESET => continue,
+            STATUS_RUNNING => {
+                reset_requested_at = None;
+                continue;
+            },
+            STATUS_NEEDS_RESET => {
+                let now = system.cpu().cycles();
+                match reset_requested_at {
+                    None => reset_requested_at = Some(now),
+                    Some(asked) if now.saturating_sub(asked) >= RESET_DELAY_CYCLES => {
+                        system.reset().map_err(|e| anyhow::anyhow!("{e}")).context("resetting")?;
+                        reset_requested_at = None;
+                    },
+                    Some(_) => {},
+                }
+                continue;
+            },
             STATUS_PASSED => {
                 return Ok(Outcome {
                     status: Status::Passed,
