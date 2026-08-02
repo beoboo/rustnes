@@ -2004,32 +2004,28 @@ impl Addressable for Ppu {
     }
 
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
-        // Handle PPU registers
+        // The whole of $2000-$3FFF is registers: only three address lines reach the chip, so they
+        // repeat every eight bytes. `read_register` does the mirroring and the dispatch.
+        //
+        // Going through it matters beyond tidiness. Answering every register but $2002 with the
+        // read buffer meant $2004 never returned OAM and $2007 never advanced the address or
+        // refilled the buffer — the two registers whose reads do the most work were the two that
+        // did none.
         if (0x2000..0x4000).contains(&address) {
-            // Map $2000-$3FFF to $2000-$2007 (mirroring)
-            let register = address & 0x7 ;
-
-            // For status register at $2002
-            if register == 2 {
-                let result = self.read_status();
-                log::debug!("Ppu read_byte: Read from status register: ${:02X}", result);
-                return Ok(result);
-            }
-
-            // For other registers, return read buffer
-            return Ok(self.read_buffer.get());
+            return Ok(self.read_register(address));
         }
 
-        // For other addresses, use read_ppu_memory
         Ok(self.read_ppu_memory(address))
     }
 
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
-        // Check if this is a write to a PPU register ($2000-$2007)
-        if (0x2000..=0x2007).contains(&address) {
+        // Likewise the whole range, not just the first eight bytes. Treating the mirrors as PPU
+        // memory meant a write to $2008 did not set PPUCTRL but scribbled over a nametable, so a
+        // program using an index that ran past $2007 corrupted the picture instead of writing a
+        // register.
+        if (0x2000..0x4000).contains(&address) {
             self.write_register(address, value);
         } else {
-            // Otherwise, treat it as a write to PPU memory space
             self.write_ppu_memory(address, value);
         }
         Ok(())
@@ -2058,6 +2054,25 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// The PPU's eight registers repeat every eight bytes up to $3FFF.
+    ///
+    /// Only three address lines reach the chip, so $2000, $2008 and $3FF8 are the same register.
+    /// Games rely on it, sometimes by accident — an indexed write that runs past $2007 still lands
+    /// somewhere meaningful rather than nowhere.
+    #[test]
+    fn the_registers_repeat_every_eight_bytes() {
+        let mut ppu = Ppu::new();
+
+        ppu.write_byte(0x2008, 0x80).expect("writing the mirror of $2000");
+        assert_eq!(ppu.ctrl, 0x80, "$2008 is $2000");
+
+        ppu.write_byte(0x3FF8, 0x00).expect("writing the last mirror of $2000");
+        assert_eq!(ppu.ctrl, 0x00, "$3FF8 is $2000 too");
+
+        ppu.write_byte(0x2009, 0x1E).expect("writing the mirror of $2001");
+        assert_eq!(ppu.mask, 0x1E, "$2009 is $2001");
+    }
+
     /// Writing OAM through $2004 advances the address; reading it does not.
     ///
     /// The asymmetry is the point: a program filling OAM writes 256 times after one $2003, but a
