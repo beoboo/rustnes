@@ -644,6 +644,17 @@ impl Ppu {
                 self.reload_horizontal_scroll();
             }
 
+            // Clock a scanline-counting mapper here rather than at the scanline boundary.
+            //
+            // MMC3's counter is really driven by bit 12 of the PPU address rising, which during
+            // rendering happens as the sprite pattern fetches begin — around this dot, not at the
+            // start of the line. The count per frame is the same either way, 241 including the
+            // pre-render line, but a game splitting the screen positions its write relative to
+            // when the interrupt arrives, so a clock at the wrong dot moves the split.
+            if self.cycle == 260 {
+                self.scanlines_completed = self.scanlines_completed.saturating_add(1);
+            }
+
             // The pre-render line reloads the vertical position across a range of dots, not one.
             if self.scanline == 261 && (280..=304).contains(&self.cycle) {
                 self.reload_vertical_scroll();
@@ -682,12 +693,6 @@ impl Ppu {
                     self.status.get() & !(STATUS_VBLANK | STATUS_SPRITE_ZERO_HIT | STATUS_SPRITE_OVERFLOW),
                 );
 
-                if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
-                    // The pre-render line performs the same pattern fetches as a visible one, so
-                    // it clocks a scanline-counting mapper: a frame clocks it 241 times, not 240.
-                    // Its vertical scroll reload happens across dots 280 to 304, above.
-                    self.scanlines_completed = self.scanlines_completed.saturating_add(1);
-                }
             }
         }
 
@@ -733,12 +738,7 @@ impl Ppu {
                 // Only count a scanline while rendering is actually on.
                 //
                 // A scanline-counting mapper is really counting PPU pattern fetches, which stop
-                // when rendering is disabled. Counting regardless makes its IRQ fire during the
-                // rendering-off window a game uses to rewrite nametables — so the handler runs at
-                // a moment the game never planned for, with its banks in an unexpected state.
-                if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
-                    self.scanlines_completed = self.scanlines_completed.saturating_add(1);
-                }
+                // when rendering is disabled. That is handled on the dot schedule above.
                 // The line is drawn from `v` as it stands here, which the dot schedule above has
                 // already restored from `t` at dot 257 of the previous line. A $2006 write made
                 // partway down the frame survives that restore, because such a write sets `t` as
