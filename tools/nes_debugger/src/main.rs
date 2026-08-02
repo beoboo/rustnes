@@ -935,6 +935,11 @@ impl App for NesDebugger {
         if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
             self.fullscreen = !self.fullscreen;
         }
+        // Escape only leaves, never enters: a key that toggles is a key that can strand someone
+        // in a mode they cannot see the way out of.
+        if self.fullscreen && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.fullscreen = false;
+        }
         if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
             self.save_state();
         }
@@ -1003,7 +1008,10 @@ impl App for NesDebugger {
             ctx.request_repaint_after(self.next_frame_at.saturating_duration_since(now));
         }
 
-        // Top menu bar for show/hide controls
+        // The menu and toolbar are part of the furniture fullscreen is meant to remove, so they
+        // are skipped rather than merely made smaller. F11 and Escape still work: both are read
+        // from the input queue before any panel draws.
+        if !self.fullscreen {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -1270,12 +1278,37 @@ impl App for NesDebugger {
 
             ui.add_space(4.0);
         });
+        }
 
         // Snapshot the audio pipeline's health for this frame's UI.
         let audio_stats = self.audio_stats();
 
         // Main central panel with dock area
         egui::CentralPanel::default().show(ctx, |ui| {
+            // Fullscreen shows the picture and nothing else.
+            //
+            // Making the window fill the screen while the debugger's panels still surround the
+            // display just enlarges the furniture. What is wanted is the game at the size of the
+            // screen, so the docked layout is set aside entirely and the display drawn on its own.
+            if self.fullscreen {
+                let overscan = if self.context.overscan { 8 } else { 0 };
+                let zoom = self.pixel_display.fit_zoom(ui, 256, 240 - overscan * 2);
+                self.pixel_display.set_zoom(zoom);
+                self.pixel_display.set_show_grid(false);
+
+                let system_ref = self.system.clone();
+                let adapter = PpuPixelAdapter::new(move || {
+                    system_ref.borrow().ppu().frame_buffer()
+                })
+                .with_overscan(overscan);
+
+                ui.vertical_centered(|ui| {
+                    ui.add_space((ui.available_height() - 240.0 * zoom).max(0.0) / 2.0);
+                    let _ = self.pixel_display.ui(ui, &adapter);
+                });
+                return;
+            }
+
             // Create a tab viewer with references to all components
             let mut tab_viewer = NesTabViewer {
                 pixel_display: &mut self.pixel_display,
