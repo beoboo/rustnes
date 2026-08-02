@@ -1,5 +1,5 @@
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     fmt::Debug,
     rc::Rc,
 };
@@ -95,6 +95,11 @@ impl CpuWrapper {
         self.cpu.borrow().irq_line()
     }
 
+    /// Handles to the interrupt lines, for the devices that assert them.
+    pub fn interrupt_lines(&self) -> InterruptLines {
+        self.cpu.borrow().interrupt_lines()
+    }
+
     pub fn registers(&self) -> CpuRegisters {
         self.cpu.borrow().registers
     }
@@ -151,6 +156,28 @@ impl Default for CpuRegisters {
     }
 }
 
+/// The two interrupt lines, shared between the CPU and the devices that assert them.
+///
+/// NMI is edge-triggered and latches until serviced; IRQ is level-triggered and reflects whatever
+/// its holders are asserting right now.
+#[derive(Clone, Debug)]
+pub struct InterruptLines {
+    pub nmi: Rc<Cell<bool>>,
+    pub irq: Rc<Cell<bool>>,
+}
+
+impl InterruptLines {
+    /// Latch an NMI. Edge-triggered, so asserting twice before it is serviced is one interrupt.
+    pub fn raise_nmi(&self) {
+        self.nmi.set(true);
+    }
+
+    /// Set the IRQ line to whatever its holders currently assert.
+    pub fn set_irq(&self, asserted: bool) {
+        self.irq.set(asserted);
+    }
+}
+
 /// MOS 6502 CPU implementation
 #[derive(Debug)]
 pub struct Cpu {
@@ -171,14 +198,17 @@ pub struct Cpu {
     /// NMI is edge-triggered: the PPU asserts it once when vblank begins, and it stays latched
     /// until the CPU services it. It cannot be masked — that is what "non-maskable" means, and why
     /// this is separate from the IRQ line below.
-    nmi_pending: bool,
+    /// Shared with whoever asserts it, so the rest of the system can raise an interrupt without
+    /// borrowing the CPU. That matters once the system is clocked from inside an instruction: the
+    /// CPU is already mutably borrowed then, and reaching back into it would panic.
+    nmi_pending: Rc<Cell<bool>>,
 
     /// State of the IRQ line.
     ///
     /// IRQ is level-triggered: a device holds the line low for as long as its condition persists,
     /// so this is set and cleared by whoever asserts it (the APU frame counter, today) rather than
     /// consumed by the CPU. It only takes effect while the InterruptDisable flag is clear.
-    irq_line: bool,
+    irq_line: Rc<Cell<bool>>,
 }
 
 impl Cpu {
@@ -191,8 +221,8 @@ impl Cpu {
             cycles: 0,
             memory: None,
             decoder: InstructionDecoder::new(),
-            nmi_pending: false,
-            irq_line: false,
+            nmi_pending: Rc::new(Cell::new(false)),
+            irq_line: Rc::new(Cell::new(false)),
         }
     }
 
@@ -325,16 +355,27 @@ impl Cpu {
     /// Execute a single CPU instruction and return the number of cycles used
     /// Assert the NMI line. Edge-triggered, so this latches until serviced.
     pub fn request_nmi(&mut self) {
-        self.nmi_pending = true;
+        self.nmi_pending.set(true);
     }
 
     /// Set the state of the IRQ line. Level-triggered: the asserting device holds it.
     pub fn set_irq_line(&mut self, asserted: bool) {
-        self.irq_line = asserted;
+        self.irq_line.set(asserted);
     }
 
     pub fn irq_line(&self) -> bool {
-        self.irq_line
+        self.irq_line.get()
+    }
+
+    /// Handles to the interrupt lines, for the parts of the system that assert them.
+    ///
+    /// Returned as shared cells rather than served through methods on the CPU so that a device can
+    /// raise an interrupt while the CPU is mid-instruction, which is when they actually happen.
+    pub fn interrupt_lines(&self) -> InterruptLines {
+        InterruptLines {
+            nmi: Rc::clone(&self.nmi_pending),
+            irq: Rc::clone(&self.irq_line),
+        }
     }
 
     /// Enter an interrupt handler: push the return address and status, then jump through `vector`.
@@ -360,13 +401,13 @@ impl Cpu {
     /// Checked before each instruction rather than mid-instruction: the 6502 finishes the current
     /// instruction before honouring an interrupt, and this emulator steps whole instructions.
     fn poll_interrupts(&mut self) -> Result<Option<u8>, NesError> {
-        if self.nmi_pending {
-            self.nmi_pending = false;
+        if self.nmi_pending.get() {
+            self.nmi_pending.set(false);
             return Ok(Some(self.service_interrupt(NMI_VECTOR)?));
         }
 
         // IRQ is ignored entirely while the InterruptDisable flag is set.
-        if self.irq_line && !self.get_flag(CpuFlag::InterruptDisable) {
+        if self.irq_line.get() && !self.get_flag(CpuFlag::InterruptDisable) {
             return Ok(Some(self.service_interrupt(IRQ_VECTOR)?));
         }
 

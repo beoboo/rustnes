@@ -54,6 +54,12 @@ pub struct NesSystem {
     /// The CPU component
     cpu: CpuWrapper,
 
+    /// Handles to the CPU's interrupt lines.
+    ///
+    /// Held separately so a device can raise an interrupt without borrowing the CPU, which is
+    /// necessary once the system is clocked from inside an instruction rather than after one.
+    interrupts: crate::cpu::InterruptLines,
+
     /// The PPU component
     ppu: PpuWrapper,
 
@@ -103,6 +109,7 @@ impl NesSystem {
 
         // Create the CPU with its bus
         let cpu = CpuWrapper::new(Cpu::new());
+        let interrupts = cpu.interrupt_lines();
 
         // Create a bus with basic memory mapping
         let bus = Rc::new(RefCell::new(Bus::new()));
@@ -136,6 +143,7 @@ impl NesSystem {
 
         Self {
             cpu,
+            interrupts,
             ppu,
             apu,
             dma,
@@ -201,8 +209,10 @@ impl NesSystem {
         self.apu.tick();
 
         // The PPU's vblank NMI is edge-triggered: latched by the PPU, collected exactly once.
+        // Asserted through the shared line rather than by calling into the CPU, so this can run
+        // while the CPU is mid-instruction — which is when interrupts actually arrive.
         if self.ppu.take_nmi() {
-            self.cpu.request_nmi();
+            self.interrupts.raise_nmi();
         }
 
         // Scanline-counting mappers count PPU pattern fetches, which is why the PPU reports only
@@ -224,7 +234,7 @@ impl NesSystem {
             .as_ref()
             .map(|mapper| mapper.borrow().irq_pending())
             .unwrap_or(false);
-        self.cpu.set_irq_line(self.apu.irq_pending() || mapper_irq);
+        self.interrupts.set_irq(self.apu.irq_pending() || mapper_irq);
     }
 
     /// Load a complete iNES ROM and start execution at its reset vector.
