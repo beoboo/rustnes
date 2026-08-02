@@ -238,6 +238,16 @@ impl PpuWrapper {
     }
 
     /// Get the OAM address register value
+    /// Capture everything about the PPU that cannot be recomputed.
+    pub fn save_state(&self) -> PpuState {
+        self.ppu.borrow().save_state()
+    }
+
+    /// Restore a captured PPU, leaving the rendered output to be redrawn.
+    pub fn load_state(&self, state: &PpuState) {
+        self.ppu.borrow_mut().load_state(state);
+    }
+
     /// A copy of object attribute memory: 64 sprites of (y, tile, attributes, x).
     pub fn oam(&self) -> Vec<u8> {
         self.ppu.borrow().oam.to_vec()
@@ -399,7 +409,7 @@ pub struct Ppu {
 ///
 /// The cartridge wires this, and it decides how a scrolled background wraps. Assuming one layout
 /// makes every game with the other scroll into the wrong screen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Mirroring {
     /// $2000/$2400 share, $2800/$2C00 share — used by games that scroll vertically.
     Horizontal,
@@ -413,6 +423,23 @@ pub enum Mirroring {
     SingleScreenLower,
     /// All four map to the second physical table.
     SingleScreenUpper,
+}
+
+impl Mirroring {
+    /// Recover a mirroring from the index a mapper saved, defaulting rather than failing.
+    ///
+    /// A snapshot is data from outside this program's control, so an unrecognised value has to
+    /// mean something. Horizontal is the safest choice: a wrong-but-valid arrangement shows the
+    /// wrong screen, where panicking would lose the save entirely.
+    pub fn from_index(index: u8) -> Self {
+        match index {
+            0 => Self::Horizontal,
+            1 => Self::Vertical,
+            2 => Self::SingleScreenLower,
+            3 => Self::SingleScreenUpper,
+            _ => Self::Horizontal,
+        }
+    }
 }
 
 /// What the PPU actually did over recent frames.
@@ -456,6 +483,36 @@ pub struct FrameDiagnostics {
     /// scanlines of vblank and NTSC only 20. The overrun is visible as the picture being rewritten
     /// underneath itself, which looks like the background flickering.
     pub vram_writes_during_render: u32,
+}
+
+/// Everything about a PPU that cannot be recomputed.
+///
+/// Deliberately excludes the frame buffers, the per-pixel background record and the diagnostics.
+/// All of those are produced by rendering, so saving them would both bloat a snapshot and let a
+/// restored machine briefly disagree with itself — showing pixels from one moment while its
+/// registers describe another. Restoring only the causes and letting the next frame redraw is both
+/// smaller and impossible to make inconsistent.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PpuState {
+    vram: Vec<u8>,
+    palette: Vec<u8>,
+    oam: Vec<u8>,
+    ctrl: u8,
+    mask: u8,
+    status: u8,
+    oam_addr: u8,
+    scroll_x: u8,
+    scroll_y: u8,
+    vram_addr: u16,
+    temp_addr: u16,
+    fine_x: u8,
+    read_buffer: u8,
+    write_toggle: bool,
+    frame_count: u64,
+    nmi_raised: bool,
+    scanline: i16,
+    cycle: u16,
+    mirroring: Mirroring,
 }
 
 /// Struct to hold processed sprite data for rendering
@@ -742,6 +799,61 @@ impl Ppu {
             *pixel = ((plane0 >> shift) & 0x01) | (((plane1 >> shift) & 0x01) << 1);
         }
         pixels
+    }
+
+    /// Capture everything that cannot be recomputed.
+    pub fn save_state(&self) -> PpuState {
+        PpuState {
+            vram: self.vram.to_vec(),
+            palette: self.palette.to_vec(),
+            oam: self.oam.to_vec(),
+            ctrl: self.ctrl,
+            mask: self.mask,
+            status: self.status.get(),
+            oam_addr: self.oam_addr,
+            scroll_x: self.scroll_x,
+            scroll_y: self.scroll_y,
+            vram_addr: self.ppu_addr.get(),
+            temp_addr: self.temp_addr,
+            fine_x: self.fine_x,
+            read_buffer: self.read_buffer.get(),
+            write_toggle: self.write_toggle.get(),
+            frame_count: self.frame_count,
+            nmi_raised: self.nmi_raised,
+            scanline: self.scanline,
+            cycle: self.cycle,
+            mirroring: self.mirroring,
+        }
+    }
+
+    /// Restore a captured state, leaving the rendered output to be redrawn.
+    pub fn load_state(&mut self, state: &PpuState) {
+        // Copied by length rather than assigned, so a snapshot written by a different version
+        // cannot silently resize memory that is a fixed size in hardware.
+        let copy = |destination: &mut [u8], source: &[u8]| {
+            let n = destination.len().min(source.len());
+            destination[..n].copy_from_slice(&source[..n]);
+        };
+        copy(&mut self.vram, &state.vram);
+        copy(&mut self.palette, &state.palette);
+        copy(&mut self.oam, &state.oam);
+
+        self.ctrl = state.ctrl;
+        self.mask = state.mask;
+        self.status.set(state.status);
+        self.oam_addr = state.oam_addr;
+        self.scroll_x = state.scroll_x;
+        self.scroll_y = state.scroll_y;
+        self.ppu_addr.set(state.vram_addr);
+        self.temp_addr = state.temp_addr;
+        self.fine_x = state.fine_x;
+        self.read_buffer.set(state.read_buffer);
+        self.write_toggle.set(state.write_toggle);
+        self.frame_count = state.frame_count;
+        self.nmi_raised = state.nmi_raised;
+        self.scanline = state.scanline;
+        self.cycle = state.cycle;
+        self.mirroring = state.mirroring;
     }
 
     /// Tell a scanline-counting mapper what address is on the PPU's bus.

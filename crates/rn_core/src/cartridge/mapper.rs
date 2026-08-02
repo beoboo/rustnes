@@ -44,6 +44,26 @@ pub trait Mapper: std::fmt::Debug {
     /// Notify the mapper that a scanline has been rendered, for those that count them.
     fn on_scanline(&mut self) {}
 
+    /// The mapper's mutable state, for a save state.
+    ///
+    /// Bytes rather than a structured value because a mapper is used through a trait object, and
+    /// what needs saving differs entirely between schemes — MMC1 has a serial shift register part
+    /// way through a transfer, MMC3 has eight bank registers and a scanline counter. Each supplies
+    /// its own; the default is empty, which is correct for the mappers that have no state at all.
+    ///
+    /// The ROM itself is deliberately not included. It cannot change, and copying hundreds of
+    /// kilobytes into every snapshot to restore bytes identical to the ones already loaded would
+    /// make saving slow for no benefit.
+    fn save_state(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    /// Restore state previously returned by [`save_state`](Self::save_state).
+    ///
+    /// Ignores anything it does not recognise rather than failing, so a snapshot taken before a
+    /// mapper learned to save something extra still loads.
+    fn load_state(&mut self, _state: &[u8]) {}
+
     /// Notify the mapper of an address placed on the PPU's bus.
     ///
     /// MMC3's counter is not really counting scanlines: it counts bit 12 of the PPU address rising
@@ -257,6 +277,32 @@ impl Mmc1 {
 }
 
 impl Mapper for Mmc1 {
+    fn save_state(&self) -> Vec<u8> {
+        // The shift register and its count matter as much as the banks: a snapshot taken partway
+        // through MMC1's five-write transfer must resume mid-transfer, not from the start.
+        vec![
+            self.shift,
+            self.shift_count,
+            self.control,
+            self.chr_bank_0,
+            self.chr_bank_1,
+            self.prg_bank,
+        ]
+    }
+
+    fn load_state(&mut self, state: &[u8]) {
+        if state.len() < 6 {
+            return;
+        }
+
+        self.shift = state[0];
+        self.shift_count = state[1];
+        self.control = state[2];
+        self.chr_bank_0 = state[3];
+        self.chr_bank_1 = state[4];
+        self.prg_bank = state[5];
+    }
+
     fn read_prg(&self, address: u16) -> u8 {
         banked(&self.prg, self.prg_bank_for(address), 16 * 1024, address as usize & 0x3FFF)
     }
@@ -527,6 +573,37 @@ impl Mapper for Mmc3 {
     ///
     /// This is what a game uses to know it has reached a particular line — the mechanism behind
     /// a status bar that stays put while the playfield scrolls.
+    fn save_state(&self) -> Vec<u8> {
+        let mut state = vec![self.bank_select];
+        state.extend_from_slice(&self.banks);
+        state.extend_from_slice(&[
+            self.irq_latch,
+            self.irq_counter,
+            u8::from(self.irq_enabled),
+            u8::from(self.irq_pending),
+            u8::from(self.irq_reload),
+            u8::from(self.a12_high),
+            self.mirroring as u8,
+        ]);
+        state
+    }
+
+    fn load_state(&mut self, state: &[u8]) {
+        if state.len() < 16 {
+            return;
+        }
+
+        self.bank_select = state[0];
+        self.banks.copy_from_slice(&state[1..9]);
+        self.irq_latch = state[9];
+        self.irq_counter = state[10];
+        self.irq_enabled = state[11] != 0;
+        self.irq_pending = state[12] != 0;
+        self.irq_reload = state[13] != 0;
+        self.a12_high = state[14] != 0;
+        self.mirroring = Mirroring::from_index(state[15]);
+    }
+
     fn on_ppu_address(&mut self, address: u16) {
         let high = (address & 0x1000) != 0;
         // Only the transition counts. A run of fetches from the upper half of pattern memory is
@@ -610,6 +687,48 @@ pub fn create(number: u8, prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> O
 
 #[cfg(test)]
 mod tests {
+    /// A mapper's banking is machine state: restoring without it leaves the game reading code and
+    /// graphics from whichever banks happened to be selected, which looks like corruption rather
+    /// than like a failed load.
+    #[test]
+    fn mmc3_banking_and_irq_survive_a_round_trip() {
+        let mut mapper = Mmc3::new(vec![0; 128 * 1024], vec![0; 32 * 1024], Mirroring::Horizontal);
+
+        mapper.write_prg(0x8000, 0x06); // select PRG bank register 6
+        mapper.write_prg(0x8001, 0x0A);
+        mapper.write_prg(0x8000, 0x01); // select CHR bank register 1
+        mapper.write_prg(0x8001, 0x14);
+        mapper.write_prg(0xC000, 0x20); // IRQ latch
+        mapper.write_prg(0xE001, 0x00); // enable
+        mapper.on_ppu_address(0x0000);
+        mapper.on_ppu_address(0x1000); // clock it once, so the counter is mid-count
+
+        let saved = mapper.save_state();
+        let expected: Vec<u8> = (0..0x2000u16).step_by(0x37).map(|a| mapper.read_chr(a)).collect();
+
+        // Disturb everything, then restore.
+        let mut other = Mmc3::new(vec![0; 128 * 1024], vec![0; 32 * 1024], Mirroring::Vertical);
+        other.write_prg(0x8000, 0x01);
+        other.write_prg(0x8001, 0x00);
+        other.load_state(&saved);
+
+        let restored: Vec<u8> = (0..0x2000u16).step_by(0x37).map(|a| other.read_chr(a)).collect();
+        assert_eq!(restored, expected, "CHR banking differs after restoring");
+        assert_eq!(other.save_state(), saved, "the state did not survive a round trip");
+    }
+
+    /// A snapshot from a build that saved less must not be read as though it saved more.
+    #[test]
+    fn a_truncated_state_is_ignored_rather_than_misread() {
+        let mut mapper = Mmc3::new(vec![0; 32 * 1024], vec![0; 8 * 1024], Mirroring::Horizontal);
+        mapper.write_prg(0x8000, 0x05);
+        let before = mapper.save_state();
+
+        mapper.load_state(&[0x01, 0x02]); // far too short to be a real state
+
+        assert_eq!(mapper.save_state(), before, "a partial state should change nothing");
+    }
+
     /// MMC3's counter follows bit 12 of the PPU address, not scanlines.
     ///
     /// Scanlines are only where that bit usually rises, because background and sprite fetches come

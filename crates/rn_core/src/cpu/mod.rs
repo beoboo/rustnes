@@ -132,6 +132,11 @@ impl CpuWrapper {
         self.cpu.borrow_mut().reset()
     }
 
+    /// Restore the cycle counter, for a save state.
+    pub fn set_cycles(&self, cycles: u64) {
+        self.cpu.borrow_mut().cycles = cycles;
+    }
+
     pub fn cycles(&self) -> u64 {
         self.cpu.borrow().cycles
     }
@@ -153,7 +158,7 @@ impl Addressable for CpuWrapper {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct CpuRegisters {
     pub a: u8,
     pub x: u8,

@@ -7,11 +7,11 @@ use crate::{
     apu::{Apu, ApuWrapper},
     audio::SampleProducer,
     cartridge::{create_mapper, mapper_name, supported_mappers, Cartridge, Mapper, Mirroring, Rom},
-    cpu::{Cpu, CpuWrapper},
+    cpu::{Cpu, CpuRegisters, CpuWrapper},
     errors::NesError,
     input::{ControllerHandlerWrapper, ControllerState},
     memory::{Addressable, Ram},
-    ppu::{Ppu, PpuWrapper},
+    ppu::{Ppu, PpuState, PpuWrapper},
     system::Bus,
 };
 
@@ -94,6 +94,97 @@ pub struct NesSystem {
 
     /// The memory bus, retained so a cartridge can be attached after construction.
     bus: Rc<RefCell<Bus>>,
+}
+
+/// A complete machine state, enough to resume exactly where it was left.
+///
+/// What is *not* here is as deliberate as what is. The cartridge ROM is omitted because it cannot
+/// change, and copying hundreds of kilobytes to restore bytes identical to those already loaded
+/// would make every save slow for no benefit — a snapshot is therefore only meaningful alongside
+/// the ROM it was taken from. The rendered frame is omitted because it is redrawn from the state
+/// that produced it.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SaveState {
+    /// Rejected rather than misread if it does not match. A snapshot whose layout has changed
+    /// would otherwise load as plausible nonsense, which is far harder to diagnose than a refusal.
+    version: u32,
+    registers: CpuRegisters,
+    cpu_cycles: u64,
+    irq_line: bool,
+    nmi_pending: bool,
+    /// The 2 KB of work RAM, and the cartridge's own RAM at $6000 — which is where a game keeps
+    /// its saved progress, so leaving it out would lose exactly what a player cares about.
+    ram: Vec<u8>,
+    prg_ram: Vec<u8>,
+    ppu: PpuState,
+    mapper: Vec<u8>,
+}
+
+/// Bumped whenever the layout changes, so old snapshots are refused rather than misread.
+const SAVE_STATE_VERSION: u32 = 1;
+
+impl NesSystem {
+    /// Capture the whole machine.
+    pub fn save_state(&self) -> SaveState {
+        let read_range = |start: u16, len: usize| -> Vec<u8> {
+            // Through the CPU's own bus, so this sees memory exactly as the program does. Safe to
+            // do here because the clock only advances the system while an instruction is
+            // executing — inspecting the machine does not move it.
+            (0..len)
+                .map(|offset| self.cpu.read_byte(start + offset as u16).unwrap_or(0))
+                .collect()
+        };
+
+        SaveState {
+            version: SAVE_STATE_VERSION,
+            registers: self.cpu.registers(),
+            cpu_cycles: self.cpu.cycles(),
+            irq_line: self.interrupts.irq.get(),
+            nmi_pending: self.interrupts.nmi.get(),
+            ram: read_range(0x0000, 0x0800),
+            prg_ram: read_range(0x6000, 0x2000),
+            ppu: self.ppu.save_state(),
+            mapper: self
+                .mapper
+                .borrow()
+                .as_ref()
+                .map(|mapper| mapper.borrow().save_state())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Restore a machine captured by [`save_state`](Self::save_state).
+    ///
+    /// Fails on a version mismatch rather than loading something that would run subtly wrongly.
+    pub fn load_state(&mut self, state: &SaveState) -> Result<(), NesError> {
+        if state.version != SAVE_STATE_VERSION {
+            return Err(NesError::GenericError(format!(
+                "save state version {} cannot be read by this build, which writes version {}",
+                state.version, SAVE_STATE_VERSION
+            )));
+        }
+
+        for (offset, byte) in state.ram.iter().enumerate() {
+            self.cpu.write_byte(offset as u16, *byte)?;
+        }
+        for (offset, byte) in state.prg_ram.iter().enumerate() {
+            self.cpu.write_byte(0x6000 + offset as u16, *byte)?;
+        }
+
+        self.cpu.set_registers(state.registers);
+        self.cpu.set_cycles(state.cpu_cycles);
+        self.interrupts.set_irq(state.irq_line);
+        self.interrupts.nmi.set(state.nmi_pending);
+
+        self.ppu.load_state(&state.ppu);
+
+        if let Some(mapper) = self.mapper.borrow().as_ref() {
+            mapper.borrow_mut().load_state(&state.mapper);
+        }
+
+        self.state = SystemState::Running;
+        Ok(())
+    }
 }
 
 impl NesSystem {

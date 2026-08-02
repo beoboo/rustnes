@@ -8,4 +8,4 @@ pub mod nes_system;
 
 pub use bus::Bus;
 pub use dma::DmaController;
-pub use nes_system::{NesSystem, SystemState};
+pub use nes_system::{NesSystem, SaveState, SystemState};

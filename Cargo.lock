@@ -2252,6 +2252,7 @@ dependencies = [
  "rn_core",
  "rn_input",
  "rn_ui",
+ "serde_json",
  "tracing-subscriber",
 ]
 
@@ -3076,6 +3077,7 @@ dependencies = [
  "parse-display",
  "regex",
  "serde",
+ "serde_json",
  "thiserror 2.0.12",
 ]
 

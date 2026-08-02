@@ -184,6 +184,8 @@ struct NesDebugger {
     /// Repaints per emulated frame, when the display's rate is a clean multiple of 60.
     ///
     /// Zero means no lock has been established and the wall clock is used instead.
+    /// Where snapshots go, derived from the loaded file so each game has its own.
+    save_state_path: Option<PathBuf>,
     /// Whether the window is filling the screen. Held here rather than asked of the windowing
     /// system, which reports it only after the change has taken effect.
     fullscreen: bool,
@@ -645,6 +647,7 @@ impl NesDebugger {
             audio_controls,
             audio_running: false,
             next_frame_at: std::time::Instant::now(),
+            save_state_path: None,
             fullscreen: false,
             last_dump: None,
             repaints_per_frame: 0,
@@ -668,6 +671,43 @@ impl NesDebugger {
 }
 
 impl NesDebugger {
+    /// Write the machine's state beside the file it was loaded from.
+    fn save_state(&mut self) {
+        let Some(path) = self.save_state_path.clone() else {
+            self.last_dump = Some("nothing loaded to save".into());
+            return;
+        };
+
+        let result = serde_json::to_string(&self.system.borrow().save_state())
+            .map_err(|e| e.to_string())
+            .and_then(|encoded| std::fs::write(&path, encoded).map_err(|e| e.to_string()));
+
+        self.last_dump = Some(match result {
+            Ok(()) => format!("saved state to {}", path.display()),
+            Err(error) => format!("saving state: {error}"),
+        });
+    }
+
+    /// Restore the machine from the snapshot beside the loaded file.
+    fn load_state(&mut self) {
+        let Some(path) = self.save_state_path.clone() else {
+            self.last_dump = Some("nothing loaded to restore into".into());
+            return;
+        };
+
+        let result = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
+            .and_then(|state: rn_core::system::SaveState| {
+                self.system.borrow_mut().load_state(&state).map_err(|e| e.to_string())
+            });
+
+        self.last_dump = Some(match result {
+            Ok(()) => format!("restored state from {}", path.display()),
+            Err(error) => format!("restoring state: {error}"),
+        });
+    }
+
     /// Load a `.nes` ROM or 6502 assembly, from the command line or the File menu.
     ///
     /// Detected by content rather than by extension: an iNES image starts with the four bytes
@@ -675,6 +715,10 @@ impl NesDebugger {
     /// says nothing useful about what the user actually passed.
     fn load_file(&mut self, path: &Path) -> Result<()> {
         let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+
+        // One snapshot slot per file, beside it, so loading a different game cannot restore the
+        // wrong machine into it.
+        self.save_state_path = Some(path.with_extension("state.json"));
 
         if bytes.starts_with(b"NES\x1A") {
             info!("Loading iNES ROM: {}", path.display());
@@ -887,9 +931,15 @@ impl App for NesDebugger {
             });
         }
 
-        // Fullscreen, checked before the block above consumes the event queue.
+        // Fullscreen and save states, checked before the block above consumes the event queue.
         if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
             self.fullscreen = !self.fullscreen;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
+            self.save_state();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::F9)) {
+            self.load_state();
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
 
@@ -1074,6 +1124,15 @@ impl App for NesDebugger {
                 let fullscreen_label = if self.fullscreen { "🗗 Windowed" } else { "⛶ Fullscreen" };
                 if ui.button(fullscreen_label).on_hover_text("F11").clicked() {
                     self.fullscreen = !self.fullscreen;
+                }
+
+                ui.add_space(4.0);
+
+                if ui.button("💾 Save state").on_hover_text("F5").clicked() {
+                    self.save_state();
+                }
+                if ui.button("📂 Load state").on_hover_text("F9").clicked() {
+                    self.load_state();
                 }
 
                 ui.add_space(4.0);
