@@ -32,7 +32,11 @@ impl ControllerProfile {
         // Default NES controller mapping - common configuration
         profile.key_to_button.insert(KeyCode::Z, ControllerButton::A);
         profile.key_to_button.insert(KeyCode::X, ControllerButton::B);
-        profile.key_to_button.insert(KeyCode::Tab, ControllerButton::Select);
+        // Not Tab, however conventional that is for Select. The debugger is a GUI, and its
+        // toolkit claims Tab to move focus between widgets before the application sees any input —
+        // so the key never reaches the game. Super Mario Bros 3's title screen uses Select to
+        // choose between one and two players, which is simply impossible with Tab bound here.
+        profile.key_to_button.insert(KeyCode::ShiftRight, ControllerButton::Select);
         profile.key_to_button.insert(KeyCode::Enter, ControllerButton::Start);
         profile.key_to_button.insert(KeyCode::ArrowUp, ControllerButton::Up);
         profile.key_to_button.insert(KeyCode::ArrowDown, ControllerButton::Down);
@@ -84,7 +88,11 @@ impl ControllerProfile {
         // Action buttons
         profile.key_to_button.insert(KeyCode::K, ControllerButton::A);
         profile.key_to_button.insert(KeyCode::L, ControllerButton::B);
-        profile.key_to_button.insert(KeyCode::Tab, ControllerButton::Select);
+        // Not Tab, however conventional that is for Select. The debugger is a GUI, and its
+        // toolkit claims Tab to move focus between widgets before the application sees any input —
+        // so the key never reaches the game. Super Mario Bros 3's title screen uses Select to
+        // choose between one and two players, which is simply impossible with Tab bound here.
+        profile.key_to_button.insert(KeyCode::ShiftRight, ControllerButton::Select);
         profile.key_to_button.insert(KeyCode::Enter, ControllerButton::Start);
 
         profile
@@ -153,6 +161,50 @@ impl ControllerProfile {
 
 #[cfg(test)]
 mod tests {
+    /// No profile may bind Tab.
+    ///
+    /// Tab is the conventional key for Select, and it does not work: a windowed application's
+    /// toolkit takes Tab to move focus between widgets before the application is given any input,
+    /// so the press never reaches the game. The symptom is specific and baffling — Super Mario
+    /// Bros 3's title screen uses Select to choose between one and two players, so two-player mode
+    /// simply cannot be selected, while every other button behaves.
+    #[test]
+    fn no_profile_binds_tab() {
+        let profiles = [
+            ("default", ControllerProfile::create_default_profile("default")),
+            ("combined", ControllerProfile::create_combined_profile()),
+            ("wasd", ControllerProfile::create_wasd_profile()),
+        ];
+
+        for (name, profile) in profiles {
+            assert!(
+                !profile.key_to_button.contains_key(&KeyCode::Tab),
+                "the {name} profile binds Tab, which the window toolkit consumes first"
+            );
+        }
+    }
+
+    /// Every button must be reachable, or part of a game becomes unplayable without it being
+    /// obvious which key is missing.
+    #[test]
+    fn every_button_is_bound_in_every_profile() {
+        use ControllerButton::*;
+        let wanted = [A, B, Select, Start, Up, Down, Left, Right];
+
+        for (name, profile) in [
+            ("default", ControllerProfile::create_default_profile("default")),
+            ("combined", ControllerProfile::create_combined_profile()),
+            ("wasd", ControllerProfile::create_wasd_profile()),
+        ] {
+            for button in wanted {
+                assert!(
+                    profile.key_to_button.values().any(|bound| *bound == button),
+                    "the {name} profile has no key for {button:?}"
+                );
+            }
+        }
+    }
+
     use super::*;
 
     #[test]

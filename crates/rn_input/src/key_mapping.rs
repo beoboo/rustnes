@@ -572,8 +572,10 @@ mod tests {
             mapping.profile.get_button_for_key(KeyCode::X),
             Some(ControllerButton::B)
         );
+        // Not Tab: a windowed application's toolkit consumes it for focus traversal before the
+        // game is given any input, so a Select bound there can never be pressed.
         assert_eq!(
-            mapping.profile.get_button_for_key(KeyCode::Tab),
+            mapping.profile.get_button_for_key(KeyCode::ShiftRight),
             Some(ControllerButton::Select)
         );
         assert_eq!(
