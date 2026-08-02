@@ -337,8 +337,30 @@ impl Cpu {
     }
 
     /// Read a word (16-bits) from memory
+    /// Read without driving the clock, for inspecting memory rather than executing.
+    ///
+    /// Needed wherever the emulator looks at an operand it has already fetched — deciding whether
+    /// an index crossed a page, say. Hardware reads that operand once; reading it a second time to
+    /// answer a question about it would invent a bus cycle that does not exist.
+    pub fn peek_byte(&self, address: u16) -> Result<u8, NesError> {
+        self.memory()?.read_byte(address)
+    }
+
+    /// Read a word without driving the clock. See [`peek_byte`](Self::peek_byte).
+    pub fn peek_word(&self, address: u16) -> Result<u16, NesError> {
+        let low = self.peek_byte(address)? as u16;
+        let high = self.peek_byte(address.wrapping_add(1))? as u16;
+        Ok((high << 8) | low)
+    }
+
     pub fn read_word(&self, address: u16) -> Result<u16, NesError> {
-        self.memory()?.read_word(address)
+        // Two separate byte reads, because that is what the processor does: an address operand is
+        // fetched low byte then high byte, on consecutive cycles. Reading it as one word in a
+        // single memory operation skipped a bus access, and so a cycle, for every instruction with
+        // a two-byte operand.
+        let low = self.read_byte(address)? as u16;
+        let high = self.read_byte(address.wrapping_add(1))? as u16;
+        Ok((high << 8) | low)
     }
 
     /// Write a word (16-bits) to memory
@@ -364,6 +386,10 @@ impl Cpu {
 
     /// Pop a byte from the stack
     pub fn pop_byte(&mut self) -> Result<u8, NesError> {
+        // The stack is read at the current pointer and discarded before the pointer moves. That
+        // cycle exists to increment the pointer, and like every other cycle it drives the bus.
+        let _ = self.read_byte(0x0100 | (self.registers.sp as u16));
+
         self.registers.sp = self.registers.sp.wrapping_add(1);
         let stack_addr = 0x0100 | (self.registers.sp as u16);
         self.read_byte(stack_addr)

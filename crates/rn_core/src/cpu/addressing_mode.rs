@@ -201,8 +201,11 @@ impl AddressingMode {
                 Ok(zero_page_addr as u16)
             },
             AddressingMode::ZeroPageX => {
-                // Get the zero page address from the current PC
                 let zero_page_addr = cpu.read_byte(cpu.registers.pc)?;
+
+                // The unindexed address is read first and discarded — the cycle spent adding the
+                // index still drives the bus, as every cycle does.
+                let _ = cpu.read_byte(zero_page_addr as u16);
 
                 // Add the X register to it (with wrap-around in the zero page)
                 let effective_addr = (zero_page_addr.wrapping_add(cpu.registers.x)) as u16;
@@ -211,8 +214,10 @@ impl AddressingMode {
                 Ok(effective_addr)
             },
             AddressingMode::ZeroPageY => {
-                // Get the zero page address from the current PC
                 let zero_page_addr = cpu.read_byte(cpu.registers.pc)?;
+
+                // As with the X form: the unindexed address is read and discarded.
+                let _ = cpu.read_byte(zero_page_addr as u16);
 
                 // Add the Y register to it (with wrap-around in the zero page)
                 let effective_addr = (zero_page_addr.wrapping_add(cpu.registers.y)) as u16;
@@ -256,6 +261,10 @@ impl AddressingMode {
             AddressingMode::IndexedIndirect => {
                 // 1. Get the zero page pointer base from the current PC
                 let base_ptr = cpu.read_byte(cpu.registers.pc)?;
+
+                // The unindexed pointer is read and discarded, as in the zero-page indexed modes:
+                // the cycle spent adding the index still drives the bus.
+                let _ = cpu.read_byte(base_ptr as u16);
 
                 // 2. Add X register to get the effective pointer (with zero page wrap-around)
                 let eff_ptr = base_ptr.wrapping_add(cpu.registers.x);
@@ -356,17 +365,17 @@ impl AddressingMode {
         let res = match self {
             // Only these modes can cross page boundaries
             AddressingMode::AbsoluteX => {
-                let base_addr = cpu.read_word(cpu.registers.pc)?;
+                let base_addr = cpu.peek_word(cpu.registers.pc)?;
                 Self::crosses_boundary(base_addr, cpu.registers.x as u16)
             },
             AddressingMode::AbsoluteY => {
-                let base_addr = cpu.read_word(cpu.registers.pc)?;
+                let base_addr = cpu.peek_word(cpu.registers.pc)?;
                 Self::crosses_boundary(base_addr, cpu.registers.y as u16)
             },
             AddressingMode::IndirectIndexed => {
-                let zp_ptr = cpu.read_byte(cpu.registers.pc)? as u16;
-                let low_byte = cpu.read_byte(zp_ptr)? as u16;
-                let high_byte = cpu.read_byte(zp_ptr.wrapping_add(1) & 0xFF)? as u16;
+                let zp_ptr = cpu.peek_byte(cpu.registers.pc)? as u16;
+                let low_byte = cpu.peek_byte(zp_ptr)? as u16;
+                let high_byte = cpu.peek_byte(zp_ptr.wrapping_add(1) & 0xFF)? as u16;
                 let base_addr = (high_byte << 8) | low_byte;
                 Self::crosses_boundary(base_addr, cpu.registers.y as u16)
             },

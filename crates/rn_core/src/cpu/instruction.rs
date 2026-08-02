@@ -558,6 +558,19 @@ impl Cpu {
         let addressing_mode = instruction_metadata.addressing_mode;
         let mut additional_cycles = 0;
 
+        // An instruction with no operand still spends its second cycle reading the byte after its
+        // opcode, and then discards it. The 6502 has no bus-idle state: every cycle drives the
+        // address bus, so a cycle with nothing to fetch fetches something anyway.
+        //
+        // Omitting it is invisible against RAM, which is why it can be missing for a long time
+        // without anything looking wrong. It is not invisible against a register with side effects
+        // — a discarded read of $2007 still advances the PPU address — and it leaves the
+        // instruction performing fewer bus accesses than it takes cycles, which is what makes a
+        // cycle within it impossible to name from outside. See CYCLE_ACCURACY.md.
+        if matches!(addressing_mode, AddressingMode::Implied | AddressingMode::Accumulator) {
+            let _ = self.read_byte(self.registers.pc);
+        }
+
         match instruction {
             Instruction::LDA => self.lda(addressing_mode)?,
             Instruction::LDX => self.ldx(addressing_mode)?,
@@ -719,6 +732,11 @@ impl Cpu {
         // PC currently points to the first byte of the operand, which is PC+1
         // So we need PC+2 for the next instruction after JSR
         let return_address = self.registers.pc + 1;
+
+        // JSR spends a cycle on the stack before pushing anything — it holds the low byte of the
+        // target while it works, and reads the stack while doing so.
+        let _ = self.read_byte(0x0100 | (self.registers.sp as u16));
+
         self.push_word(return_address)?;
 
         // Set the program counter to the target address
@@ -955,6 +973,12 @@ impl Cpu {
     {
         let address = addressing_mode.get_write_address(self)?;
         let value = self.read_byte(address)?;
+
+        // The unmodified value is written back before the modified one. The processor has nowhere
+        // to hold the result while it computes, so it spends that cycle writing what it just read.
+        // Hardware relies on this: writing twice to a register that acts on writes acts twice.
+        self.write_byte(address, value)?;
+
         let result = modify(self, value);
         self.write_byte(address, result)?;
         Ok(result)
@@ -1001,22 +1025,33 @@ impl Cpu {
     /// Returns the *additional* cycles beyond the base 2: one for taking the branch, and one more
     /// if the target lands on a different page.
     fn branch_if(&mut self, condition: bool) -> Result<u8, NesError> {
+        // The offset is fetched whether or not the branch is taken — a branch is two cycles even
+        // when it does nothing, and the second is this read. Skipping the byte without reading it
+        // left every untaken branch a cycle short.
+        let offset = self.read_byte(self.registers.pc)? as i8;
+        let next = self.registers.pc.wrapping_add(1);
+        self.registers.pc = next;
+
         if !condition {
-            // Not taken: still skip the offset byte, since branches are marked as PC-modifying
-            // and so the normal PC advance does not apply.
-            self.registers.pc = self.registers.pc.wrapping_add(1);
             return Ok(0);
         }
 
-        // PC currently points at the offset byte, which is signed.
-        let offset = self.read_byte(self.registers.pc)? as i8;
-        let old_pc = self.registers.pc;
+        // The offset is relative to the instruction after the branch.
+        let target = (next as i32 + offset as i32) as u16;
 
-        // The offset is relative to the instruction *after* the branch.
-        let target = ((self.registers.pc.wrapping_add(1) as i32) + (offset as i32)) as u16;
+        // A taken branch spends its third cycle reading at the *unfixed* address: the new low byte
+        // with the old high byte. The processor adds the offset to the low byte first and only
+        // corrects the high byte afterwards, exactly as indexed addressing does.
+        let unfixed = (next & 0xFF00) | (target & 0x00FF);
+        let _ = self.read_byte(unfixed);
+
+        let page_crossed = (next & 0xFF00) != (target & 0xFF00);
+        if page_crossed {
+            // And a fourth reading the corrected address, when the high byte needed fixing.
+            let _ = self.read_byte(target);
+        }
+
         self.registers.pc = target;
-
-        let page_crossed = (old_pc & 0xFF00) != (target & 0xFF00);
         Ok(1 + u8::from(page_crossed))
     }
 
@@ -1388,9 +1423,9 @@ impl Cpu {
     /// Read-modify-write: the value is read, adjusted and written back. Only Zero and Negative
     /// are affected — notably not Carry, so this wraps $FF to $00 silently.
     pub fn inc(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        let addr = addressing_mode.get_operand_address(self)?;
-        let value = self.read_byte(addr)?.wrapping_add(1);
-        self.write_byte(addr, value)?;
+        // Through `modify_memory` so it performs the write of the unmodified value that every
+        // read-modify-write does, rather than reading and writing once each.
+        let value = self.modify_memory(addressing_mode, |_, value| value.wrapping_add(1))?;
 
         self.set_flag(CpuFlag::Zero, value == 0);
         self.set_flag(CpuFlag::Negative, (value & 0x80) != 0);
@@ -1401,9 +1436,7 @@ impl Cpu {
     ///
     /// The counterpart to [`Cpu::inc`]; wraps $00 to $FF without touching Carry.
     pub fn dec(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
-        let addr = addressing_mode.get_operand_address(self)?;
-        let value = self.read_byte(addr)?.wrapping_sub(1);
-        self.write_byte(addr, value)?;
+        let value = self.modify_memory(addressing_mode, |_, value| value.wrapping_sub(1))?;
 
         self.set_flag(CpuFlag::Zero, value == 0);
         self.set_flag(CpuFlag::Negative, (value & 0x80) != 0);
