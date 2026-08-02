@@ -968,7 +968,21 @@ The PPU draws a whole scanline at once, sampling its registers as the line begin
 tiles and sprites throughout the line, and several things depend on *where* in the line a fetch
 falls — including which pattern table is being read, which is what drives MMC3's counter.
 
+- [x] The scroll address advances on the dot schedule (coarse X per fetch group, down at 256,
+      horizontal restore at 257, vertical restore across 280-304)
 - [ ] Background and sprite fetches issued per dot, in hardware's order
+
+      Attempted background fetches alone, driving the mapper from a filtered A12 instead of from a
+      scanline count. It regressed: Super Mario Bros 3 lost a third of its picture and mmc3_test
+      fell from 3 to 2. The reason is that MMC3's A12 rise comes from the *sprite* pattern fetches
+      at dots 257-320, which use $1000 while the background uses $0000 — with only background
+      fetches the line never rises in the pattern the mapper is counting. The nametable fetches at
+      $2xxx also drive A12 high every eight dots, resetting the low-period filter, so genuine
+      rises are swallowed too.
+
+      So the fetches cannot be done in halves: background and sprite fetches have to arrive
+      together before A12 means anything, and the switch away from scanline counting has to happen
+      in the same change. Preserved in `scratchpad/ppu-fetches/`.
 - [ ] Sprite evaluation per dot, so $2004 reads during rendering return what it holds
 - [ ] Vblank flag set and cleared at the exact dot
 - Acceptance: `ppu_vbl_nmi`, `blargg_ppu_tests`, `oam_read`, `oam_stress`,
