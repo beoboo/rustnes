@@ -227,8 +227,8 @@ impl PpuWrapper {
     /// Consuming rather than peeking keeps this edge-triggered: one vblank raises exactly one
     /// interrupt, however often the system polls.
     pub fn take_nmi(&self) -> bool {
-        let mut ppu = self.ppu.borrow_mut();
-        std::mem::take(&mut ppu.nmi_raised)
+        let ppu = self.ppu.borrow_mut();
+        ppu.nmi_raised.replace(false)
     }
 
     /// Get the status register value
@@ -356,7 +356,7 @@ pub struct Ppu {
     write_toggle: Cell<bool>, // Tracks whether the next write is first (false) or second (true)
     frame_count: u64,         // Total frames rendered
     /// Set when vblank begins with NMI enabled; cleared when the system collects it.
-    nmi_raised: bool,
+    nmi_raised: Cell<bool>,
 
     /// Visible scanlines finished since the system last collected them.
     ///
@@ -384,6 +384,10 @@ pub struct Ppu {
 
     scanline: i16,            // Current scanline (-1 to 261)
     cycle: u16,               // Current cycle (0 to 340)
+
+    /// Set when a read of $2002 landed just before vblank began, which stops the flag being set
+    /// at all for that frame. Cleared once the moment has passed.
+    suppress_vblank: Cell<bool>,
 
     /// Whether the frame being drawn is an odd one.
     ///
@@ -549,6 +553,7 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             odd_frame: false,
+            suppress_vblank: Cell::new(false),
 
             // Initialize memory components
             vram: [0; 2048],
@@ -570,7 +575,7 @@ impl Ppu {
             read_buffer: Cell::new(0),
             write_toggle: Cell::new(false),
             frame_count: 0,
-            nmi_raised: false,
+            nmi_raised: Cell::new(false),
             scanlines_completed: 0,
             mirroring: Mirroring::default(),
             diagnostics: FrameDiagnostics {
@@ -620,6 +625,12 @@ impl Ppu {
         // such program saw the previous answer.
         if self.cycle == 1 {
             if self.scanline == 241 {
+                if self.suppress_vblank.replace(false) {
+                    // A read of $2002 on the previous dot took this frame's vblank with it.
+                    self.end_frame();
+                    return;
+                }
+
                 self.status.set(self.status.get() | STATUS_VBLANK);
 
                 // The visible portion is finished, so composite sprites over it.
@@ -628,7 +639,7 @@ impl Ppu {
                 // Vblank with NMI enabled raises the interrupt. Latched here and collected by the
                 // system, which owns the connection to the CPU.
                 if (self.ctrl & CTRL_NMI_ENABLE) != 0 {
-                    self.nmi_raised = true;
+                    self.nmi_raised.set(true);
                 }
             } else if self.scanline == 261 {
                 // The pre-render line clears vblank, along with the two flags that are per-frame
@@ -838,7 +849,7 @@ impl Ppu {
             read_buffer: self.read_buffer.get(),
             write_toggle: self.write_toggle.get(),
             frame_count: self.frame_count,
-            nmi_raised: self.nmi_raised,
+            nmi_raised: self.nmi_raised.get(),
             scanline: self.scanline,
             cycle: self.cycle,
             mirroring: self.mirroring,
@@ -869,7 +880,7 @@ impl Ppu {
         self.read_buffer.set(state.read_buffer);
         self.write_toggle.set(state.write_toggle);
         self.frame_count = state.frame_count;
-        self.nmi_raised = state.nmi_raised;
+        self.nmi_raised.set(state.nmi_raised);
         self.scanline = state.scanline;
         self.cycle = state.cycle;
         self.mirroring = state.mirroring;
@@ -1503,6 +1514,22 @@ impl Ppu {
 
     /// Read from PPUSTATUS ($2002)
     fn read_status(&self) -> u8 {
+        // Reading $2002 as vblank begins interferes with it, and which way depends on the exact
+        // dot. The flag is set on dot 1 of scanline 241; a read landing on the dot before sees it
+        // clear and stops it ever being set for that frame, and a read on that dot or the one
+        // after sees it set but still suppresses the interrupt. Either way no NMI arrives, which
+        // is what a program doing this is usually after — it wants the flag without the interrupt.
+        if self.scanline == 241 && self.cycle <= 2 {
+            self.nmi_raised.set(false);
+
+            if self.cycle == 0 {
+                // Read before the flag was set: it reads clear and is suppressed for this frame.
+                self.suppress_vblank.set(true);
+                self.write_toggle.set(false);
+                return self.status.get() & !STATUS_VBLANK;
+            }
+        }
+
         let result = self.status.get();
 
         // Reading status resets the write toggle
@@ -1581,7 +1608,7 @@ impl Ppu {
         // and waits would otherwise wait a whole frame.
         let enabling = (value & CTRL_NMI_ENABLE) != 0 && (self.ctrl & CTRL_NMI_ENABLE) == 0;
         if enabling && (self.status.get() & STATUS_VBLANK) != 0 {
-            self.nmi_raised = true;
+            self.nmi_raised.set(true);
         }
         log::debug!("PPU write_control: ${:02X}", value);
         self.ctrl = value;
@@ -2083,6 +2110,74 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// Advance the PPU to a given scanline and dot.
+    fn run_to(ppu: &mut Ppu, scanline: i16, cycle: u16) {
+        for _ in 0..400_000 {
+            if ppu.scanline == scanline && ppu.cycle == cycle {
+                return;
+            }
+            ppu.tick();
+        }
+        panic!("never reached scanline {scanline} dot {cycle}");
+    }
+
+    /// Reading $2002 as vblank begins interferes with it, and the dot decides how.
+    ///
+    /// A program does this deliberately: it wants to know vblank has started without taking the
+    /// interrupt. Landing on the dot before the flag is set means the flag never gets set at all
+    /// for that frame — not that the read merely missed it.
+    #[test]
+    fn reading_status_just_before_vblank_suppresses_it_for_the_frame() {
+        let mut ppu = Ppu::new();
+        ppu.write_register(0x2000, CTRL_NMI_ENABLE);
+
+        run_to(&mut ppu, 241, 0);
+        let seen = ppu.read_register(0x2002);
+        assert_eq!(seen & STATUS_VBLANK, 0, "the flag is not set yet on this dot");
+
+        // Past the dot on which it would have been set.
+        ppu.tick();
+        ppu.tick();
+        assert_eq!(
+            ppu.status.get() & STATUS_VBLANK,
+            0,
+            "the read should have stopped the flag being set at all this frame"
+        );
+        assert!(!ppu.nmi_raised.get(), "and no interrupt should be raised");
+    }
+
+    /// Reading on the dot the flag is set, or just after, sees it — but still takes the interrupt
+    /// away, which is the point of doing it.
+    #[test]
+    fn reading_status_as_vblank_begins_sees_the_flag_but_suppresses_the_interrupt() {
+        let mut ppu = Ppu::new();
+        ppu.write_register(0x2000, CTRL_NMI_ENABLE);
+
+        run_to(&mut ppu, 241, 1);
+        assert_ne!(ppu.status.get() & STATUS_VBLANK, 0, "set on this dot");
+        assert!(ppu.nmi_raised.get(), "and the interrupt is raised with it");
+
+        let seen = ppu.read_register(0x2002);
+        assert_ne!(seen & STATUS_VBLANK, 0, "the read still sees the flag");
+        assert!(!ppu.nmi_raised.get(), "but the interrupt is suppressed");
+    }
+
+    /// Away from that moment, a read is an ordinary read: it returns the flag and clears it,
+    /// leaving any interrupt alone.
+    #[test]
+    fn reading_status_well_into_vblank_leaves_the_interrupt_alone() {
+        let mut ppu = Ppu::new();
+        ppu.write_register(0x2000, CTRL_NMI_ENABLE);
+
+        run_to(&mut ppu, 245, 10);
+        assert!(ppu.nmi_raised.get(), "raised when vblank began");
+
+        let seen = ppu.read_register(0x2002);
+        assert_ne!(seen & STATUS_VBLANK, 0, "the flag is set well into vblank");
+        assert_eq!(ppu.status.get() & STATUS_VBLANK, 0, "and reading it clears it");
+        assert!(ppu.nmi_raised.get(), "an interrupt already raised is not taken back");
+    }
+
     /// The PPU's eight registers repeat every eight bytes up to $3FFF.
     ///
     /// Only three address lines reach the chip, so $2000, $2008 and $3FF8 are the same register.
