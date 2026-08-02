@@ -238,6 +238,11 @@ impl PpuWrapper {
     }
 
     /// Get the OAM address register value
+    /// A copy of object attribute memory: 64 sprites of (y, tile, attributes, x).
+    pub fn oam(&self) -> Vec<u8> {
+        self.ppu.borrow().oam.to_vec()
+    }
+
     pub fn oam_addr(&self) -> u8 {
         let ppu = self.ppu.borrow();
         ppu.oam_addr

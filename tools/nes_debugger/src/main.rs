@@ -1,3 +1,5 @@
+mod frame_dump;
+
 use std::{
     cell::RefCell,
     path::{Path, PathBuf},
@@ -174,6 +176,8 @@ struct NesDebugger {
     /// Repaints per emulated frame, when the display's rate is a clean multiple of 60.
     ///
     /// Zero means no lock has been established and the wall clock is used instead.
+    /// Result of the most recent frame dump, shown beside the button.
+    last_dump: Option<String>,
     repaints_per_frame: u32,
     /// Repaints since the last emulated frame, for the locked cadence.
     repaints_since_frame: u32,
@@ -624,6 +628,7 @@ impl NesDebugger {
             audio_controls,
             audio_running: false,
             next_frame_at: std::time::Instant::now(),
+            last_dump: None,
             repaints_per_frame: 0,
             repaints_since_frame: 0,
             fps_window_start: std::time::Instant::now(),
@@ -1008,6 +1013,29 @@ impl App for NesDebugger {
                     } else {
                         info!("Code assembled successfully");
                     }
+                }
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // Capturing the picture together with the registers that produced it, so a fault
+                // seen while playing can be diagnosed afterwards instead of described.
+                if ui.button("📷 Dump frame").clicked() {
+                    let system = self.system.borrow();
+                    match frame_dump::dump(&system, std::path::Path::new("frame-dumps")) {
+                        Ok(path) => {
+                            info!("dumped frame to {}", path.display());
+                            self.last_dump = Some(format!("saved {}", path.display()));
+                        },
+                        Err(error) => {
+                            error!("dumping the frame: {error}");
+                            self.last_dump = Some(format!("failed: {error}"));
+                        },
+                    }
+                }
+                if let Some(message) = &self.last_dump {
+                    ui.label(message);
                 }
 
                 ui.add_space(4.0);
