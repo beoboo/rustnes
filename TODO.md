@@ -934,10 +934,25 @@ work, so nothing measuring them can pass.
 - Acceptance: `cpu_interrupts_v2`, `instr_timing`, `branch_timing_tests`, `cpu_dummy_writes`,
   `cpu_exec_space`
 
-An earlier attempt at this was abandoned; a second, narrower attempt at the interrupt sampling alone
-moved `cli_latency` from its first sub-test to its tenth but hung `nmi_and_brk`, and was reverted. A
-latch approximating "before the instruction" is not the same as sampling at a defined cycle, and the
-difference is exactly what those tests measure.
+Three attempts have been made and reverted. They are recorded here so a fourth does not repeat
+them.
+
+1. A full cycle-accurate rewrite, abandoned: no measurable gain, and no test suite existed then to
+   say whether it had helped.
+2. A latch sampling "the flag as it stood before the instruction". Moved `cli_latency` from its
+   first sub-test to its tenth, but hung `nmi_and_brk`, which had been failing rather than hanging.
+   A hang is worse than a failure: in a game it is a freeze, and nestest cannot catch it because it
+   never exercises NMI.
+3. Sampling at a cycle chosen from the instruction's cycle count, watched for by the bus clock.
+   Worse than (2) — `cli_latency` reached only its third sub-test — because **the clock counts bus
+   accesses and the cycle count counts cycles, and they are not the same number**. Roughly two
+   thirds of cycles are accesses; the internal ones are not modelled. So a cycle chosen from the
+   instruction's length cannot be found by counting accesses, and the sample lands early, late, or
+   never.
+
+The lesson common to (2) and (3): the sampling point cannot be approximated from outside the
+instruction. It has to be a position *within* an explicit sequence of cycles, which is what the
+remaining work below actually is. Anything cheaper has now been tried three times.
 
 ### [PPU] Per-dot fetch pipeline
 The PPU draws a whole scanline at once, sampling its registers as the line begins. Hardware fetches
