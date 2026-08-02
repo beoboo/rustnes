@@ -616,6 +616,40 @@ impl Ppu {
         // Increment cycle count
         self.cycle += 1;
 
+        // The scroll address advances on a fixed schedule of dots, and only while rendering.
+        //
+        // Hardware fetches a tile every eight dots and advances coarse X with each, increments the
+        // vertical position at dot 256, restores the horizontal position from `t` at dot 257, and
+        // on the pre-render line restores the vertical position across dots 280 to 304. Doing all
+        // of it at the scanline boundary instead gives the same picture — the 32 horizontal
+        // advances across a line are undone by the restore at 257 — but leaves `v` holding the
+        // wrong value for the whole line, which anything reading it partway down a frame sees.
+        let rendering_now = (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0;
+        let on_a_rendered_line = (0..240).contains(&self.scanline) || self.scanline == 261;
+
+        if rendering_now && on_a_rendered_line {
+            match self.cycle {
+                // The fetch groups: dots 8 through 256, and 328 and 336 for the first two tiles of
+                // the next line.
+                dot if dot > 0 && dot <= 256 && dot % 8 == 0 => self.increment_horizontal_scroll(),
+                328 | 336 => self.increment_horizontal_scroll(),
+                _ => {},
+            }
+
+            if self.cycle == 256 {
+                self.increment_vertical_scroll();
+            }
+
+            if self.cycle == 257 {
+                self.reload_horizontal_scroll();
+            }
+
+            // The pre-render line reloads the vertical position across a range of dots, not one.
+            if self.scanline == 261 && (280..=304).contains(&self.cycle) {
+                self.reload_vertical_scroll();
+            }
+        }
+
         // Vblank begins and ends on the *second* dot of their scanlines, not the first.
         //
         // A single dot sounds too small to matter and is the whole subject of several test ROMs:
@@ -649,11 +683,9 @@ impl Ppu {
                 );
 
                 if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
-                    // Where the vertical scroll for the coming frame is loaded.
-                    self.reload_vertical_scroll();
-
-                    // It also performs the same pattern fetches as a visible line, so it clocks a
-                    // scanline-counting mapper: a frame clocks it 241 times, not 240.
+                    // The pre-render line performs the same pattern fetches as a visible one, so
+                    // it clocks a scanline-counting mapper: a frame clocks it 241 times, not 240.
+                    // Its vertical scroll reload happens across dots 280 to 304, above.
                     self.scanlines_completed = self.scanlines_completed.saturating_add(1);
                 }
             }
@@ -707,20 +739,15 @@ impl Ppu {
                 if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
                     self.scanlines_completed = self.scanlines_completed.saturating_add(1);
                 }
-                // Hardware restores the horizontal scroll at the end of every rendered line and
-                // advances the vertical one, both only while rendering is on. A $2006 write made
-                // partway down the frame survives the horizontal restore, because that write set
-                // `t` as well as `v` — which is what makes it a mid-frame scroll change.
-                if rendering_enabled {
-                    self.reload_horizontal_scroll();
-                }
+                // The line is drawn from `v` as it stands here, which the dot schedule above has
+                // already restored from `t` at dot 257 of the previous line. A $2006 write made
+                // partway down the frame survives that restore, because such a write sets `t` as
+                // well as `v` — which is what makes it a mid-frame scroll change rather than one
+                // that lasts a single line.
                 self.render_background_scanline(y);
                 // Sprites go on top, and are evaluated for this line specifically — so OAM
                 // changes made partway down a frame take effect from that line on, as on hardware.
                 self.render_sprites_for_scanline(y);
-                if rendering_enabled {
-                    self.increment_vertical_scroll();
-                }
             }
 
             // Start of next frame
@@ -906,6 +933,24 @@ impl Ppu {
     fn reload_vertical_scroll(&mut self) {
         let v = self.ppu_addr.get();
         self.ppu_addr.set((v & !0x7BE0) | (self.temp_addr & 0x7BE0));
+    }
+
+    /// Advance `v` by one tile horizontally, as each eight-dot fetch group does.
+    ///
+    /// Coarse X is five bits and a nametable is exactly 32 tiles wide, so it wraps cleanly — and
+    /// wrapping moves to the horizontally adjacent nametable, which is how a scrolled picture
+    /// reads the far side of the screen from the other table.
+    fn increment_horizontal_scroll(&mut self) {
+        let mut v = self.ppu_addr.get();
+
+        if (v & 0x001F) == 31 {
+            v &= !0x001F;
+            v ^= 0x0400; // the horizontal nametable
+        } else {
+            v += 1;
+        }
+
+        self.ppu_addr.set(v);
     }
 
     /// Advance `v` by one scanline.
@@ -2110,6 +2155,65 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// The scroll address advances on a fixed schedule of dots while rendering.
+    ///
+    /// Doing it all at the scanline boundary produces the same picture — the 32 horizontal
+    /// advances across a line are undone by the restore at dot 257 — so nothing on screen says
+    /// whether it is right. What says so is `v` itself, read partway down a line, which is what a
+    /// mid-frame $2006 or $2005 write interacts with.
+    #[test]
+    fn the_scroll_address_advances_on_the_documented_dots() {
+        let mut ppu = Ppu::new();
+        ppu.write_register(0x2001, MASK_SHOW_BACKGROUND);
+
+        run_to(&mut ppu, 0, 0);
+        ppu.ppu_addr.set(0);
+
+        // Coarse X advances once per eight-dot fetch group.
+        run_to(&mut ppu, 0, 8);
+        assert_eq!(ppu.ppu_addr.get() & 0x1F, 1, "one tile after the first group");
+
+        run_to(&mut ppu, 0, 64);
+        assert_eq!(ppu.ppu_addr.get() & 0x1F, 8, "eight tiles after eight groups");
+
+        // Dot 256 advances the vertical position; nothing before it does.
+        run_to(&mut ppu, 0, 255);
+        assert_eq!((ppu.ppu_addr.get() >> 12) & 7, 0, "fine Y is untouched during the line");
+        run_to(&mut ppu, 0, 256);
+        assert_eq!((ppu.ppu_addr.get() >> 12) & 7, 1, "dot 256 moves down a line");
+    }
+
+    /// Dot 257 restores the horizontal position from `t`, which is what stops a line's 32 advances
+    /// carrying into the next one.
+    #[test]
+    fn dot_257_restores_the_horizontal_scroll() {
+        let mut ppu = Ppu::new();
+        ppu.write_register(0x2001, MASK_SHOW_BACKGROUND);
+
+        run_to(&mut ppu, 0, 0);
+        ppu.temp_addr = 0x0005; // coarse X of 5 staged in t
+        ppu.ppu_addr.set(0);
+
+        run_to(&mut ppu, 0, 200);
+        assert_ne!(ppu.ppu_addr.get() & 0x1F, 5, "the line has advanced away from it");
+
+        run_to(&mut ppu, 0, 257);
+        assert_eq!(ppu.ppu_addr.get() & 0x1F, 5, "and dot 257 puts it back");
+    }
+
+    /// With rendering off, none of it happens: the address stays where the program put it.
+    #[test]
+    fn the_schedule_does_not_run_while_rendering_is_disabled() {
+        let mut ppu = Ppu::new();
+        ppu.write_register(0x2001, 0);
+
+        run_to(&mut ppu, 0, 0);
+        ppu.ppu_addr.set(0x2000);
+        run_to(&mut ppu, 0, 300);
+
+        assert_eq!(ppu.ppu_addr.get(), 0x2000, "a blanked screen leaves the address alone");
+    }
+
     /// Advance the PPU to a given scanline and dot.
     fn run_to(ppu: &mut Ppu, scanline: i16, cycle: u16) {
         for _ in 0..400_000 {
