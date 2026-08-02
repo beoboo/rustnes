@@ -4,7 +4,7 @@ use parse_display::{Display, FromStr};
 use thiserror::Error;
 
 use super::{AddressingMode, Cpu, CpuFlag};
-use crate::errors::NesError;
+use crate::{cpu::{IRQ_VECTOR, NMI_VECTOR}, errors::NesError};
 
 /// Error type for memory-related operations
 #[derive(Debug, Error)]
@@ -764,7 +764,21 @@ impl Cpu {
         // The 6502 BRK instruction is 2 bytes long (opcode + padding)
         let pc_to_push = self.registers.pc.wrapping_add(1);
 
+        // Whether an NMI was already waiting when BRK began. One that was would have been serviced
+        // instead of running BRK at all, so its presence here means it is not this instruction's
+        // business — only an NMI that *arrives* during the sequence takes it over.
+        let nmi_before = self.nmi_latched();
+
         self.push_word(pc_to_push)?;
+
+        // An NMI arriving while BRK is in progress takes it over.
+        //
+        // The two sequences are the same until the vector is fetched, so whichever line is
+        // asserted by the time the processor reaches that fetch decides where it goes. A BRK that
+        // is hijacked still pushes its status byte with the B flag set — the handler is told it
+        // was a BRK — but ends up in the NMI handler. Without this a program that takes an NMI
+        // during a BRK runs the wrong handler, which is what `2-nmi_and_brk` checks.
+        let hijacked = self.take_nmi_for_hijack(self.nmi_latched() && !nmi_before);
 
         // Push status register with Break flag set
         // The B flag (bit 4) is set in the status byte pushed to the stack
@@ -775,8 +789,8 @@ impl Cpu {
         // Set the interrupt disable flag
         self.set_flag(CpuFlag::InterruptDisable, true);
 
-        // Load the IRQ/BRK vector (0xFFFE-0xFFFF) into PC
-        self.registers.pc = self.read_word(0xFFFE)?;
+        let vector = if hijacked { NMI_VECTOR } else { IRQ_VECTOR };
+        self.registers.pc = self.read_word(vector)?;
 
         Ok(())
     }
@@ -4061,6 +4075,7 @@ mod tests {
         set_vector(&mut cpu, NMI_VECTOR, 0x9000)?;
 
         cpu.request_nmi();
+        cpu.sample_interrupts();
         let cycles = cpu.step()?;
 
         assert_eq!(cpu.registers.pc, 0x9000, "NMI should enter the handler");
@@ -4084,6 +4099,7 @@ mod tests {
         cpu.write_byte(0x9000, 0xEA)?; // NOP in the handler
 
         cpu.request_nmi();
+        cpu.sample_interrupts();
         cpu.step()?; // services the NMI
         assert_eq!(cpu.registers.pc, 0x9000);
 
@@ -4121,6 +4137,7 @@ mod tests {
         // The clue is in the name: unlike IRQ, the InterruptDisable flag does not stop it.
         cpu.set_flag(CpuFlag::InterruptDisable, true);
         cpu.request_nmi();
+        cpu.sample_interrupts();
         cpu.step()?;
 
         assert_eq!(cpu.registers.pc, 0x9000);
@@ -4137,6 +4154,7 @@ mod tests {
 
         cpu.request_nmi();
         cpu.set_irq_line(true);
+        cpu.sample_interrupts();
         cpu.step()?;
 
         assert_eq!(cpu.registers.pc, 0x9000, "NMI should win when both are pending");
@@ -4157,6 +4175,7 @@ mod tests {
         cpu.set_flag(CpuFlag::InterruptDisable, false);
 
         cpu.set_irq_line(true);
+        cpu.sample_interrupts();
         cpu.step()?; // enter the handler
         assert_eq!(cpu.registers.pc, 0x9000);
         cpu.step()?; // RTI back
@@ -4202,6 +4221,7 @@ mod tests {
         cpu.set_flag(CpuFlag::Carry, true);
         cpu.set_flag(CpuFlag::InterruptDisable, false); // reset leaves it set
         cpu.request_nmi();
+        cpu.sample_interrupts();
         cpu.step()?; // into the handler
         cpu.step()?; // RTI
 

@@ -935,9 +935,11 @@ work, so nothing measuring them can pass.
 - [x] Measure the gap: `rom_test cycles nestest.nes` reports it per opcode
 - [ ] Model every cycle as the bus access it is on hardware, so accesses and cycles agree
       (37 of 225 opcodes do already; 6463 of 8991 executed instructions are short of one)
-- [ ] Interrupts sampled before the last cycle, which only exists as a position once the above holds
-- [ ] The documented exceptions: branch polling, no polling inside an interrupt sequence,
-      NMI hijacking BRK
+- [x] Interrupts sampled before the last cycle — `1-cli_latency` passes, the first in that suite
+- [x] NMI hijacking BRK, and no polling inside an interrupt sequence
+- [ ] Branch polling: before the operand fetch, not before the third cycle of a taken branch
+- [ ] The rest of `cpu_interrupts_v2` is blocked on the PPU, not on the CPU: those tests spin in a
+      vblank synchronisation loop that needs cycle-exact CPU/PPU alignment
 - Acceptance: `cpu_interrupts_v2`, `instr_timing`, `branch_timing_tests`, `cpu_dummy_writes`,
   `cpu_exec_space`
 

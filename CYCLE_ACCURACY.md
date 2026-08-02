@@ -102,27 +102,33 @@ instruction samples at the end of cycle one, which is therefore already past by 
 is set, and has to be taken immediately rather than waited for. Without that, the sample never
 fires on short instructions and the whole thing behaves like the crude latch it replaced.
 
-**Steps 2 and 3 should land together.**
+**Steps 2 and 3 landed together**, and sampling works: `1-cli_latency` passes, the first test in
+that suite ever to. It measures the sampling rule directly, so it is the one that matters.
 
-They were then tried together, and the two hangs survived. NMI hijacking of BRK was implemented —
-both sequences are identical until the vector fetch, so whichever line is asserted by then decides
-where the processor goes — and it changed nothing. So the hijack was not the cause, or not the only
-one.
+Three architectural faults were found on the way, each of which had produced a misleading symptom:
 
-What the hang actually is, measured rather than guessed: `2-nmi_and_brk` spins in a tight loop
-around `$E340` with its status still reading "running", waiting for an interrupt that never
-arrives. The NMI path itself is not broken — Super Mario Bros 3 depends on it and still renders —
-so an NMI is being *lost* somewhere specific to this test's use of BRK.
+1. **The NMI edge latch had two owners.** `sample_interrupts` consumed it and so did the BRK
+   hijack, so whichever looked first destroyed it for the other. NMI is edge-triggered: the edge
+   sets a latch that persists until the interrupt is *serviced*, and reading it is not servicing
+   it. Sampling now reads without taking.
+2. **The hijack tested a level, not an edge.** Once the latch correctly persisted, every BRK saw a
+   pending NMI and was redirected — so BRK never reached the IRQ vector at all. Only an NMI that
+   *arrives during* the sequence takes it over; one already waiting would have been serviced
+   instead of running BRK.
+3. **The opcode fetch is cycle one and happens before the opcode is known**, so the sample target
+   cannot be set until after it. A two-cycle instruction samples at the end of cycle one, already
+   past by then, and must be sampled immediately rather than waited for.
 
-Two candidates, both introduced by steps 2 and 3 and both worth checking first next time:
+### What still hangs, and why it is not the CPU
 
-- `take_nmi_for_hijack` consumes the pending NMI on *every* BRK, whether or not one was meant to be
-  taken over. A test that raises an NMI around a BRK would have it eaten.
-- servicing an NMI discards the IRQ sample as well, to stop two interrupts being taken with no
-  instruction between them. That is right for the IRQ line, which is level-triggered and will be
-  sampled again — but it is worth confirming nothing else depends on the discarded sample.
+`2-nmi_and_brk` and the combined `cpu_interrupts` hang. Reading their source settles it: both
+include `sync_vbl.s` and spin in a vblank synchronisation loop — the address they hang at is that
+loop. `1-cli_latency`, which passes, does not include it.
 
-The attempt is preserved in `scratchpad/step2and3/`.
+That loop needs cycle-exact alignment between the CPU and the PPU, which the PPU cannot yet
+provide. **The remaining interrupt tests are therefore blocked on the PPU work, not on more CPU
+work.** The two rewrites are coupled, which was not obvious before and changes their order: there
+is little point attempting `3-nmi_and_irq` or the combined ROM until the PPU runs per dot.
 
 ### 3. The special cases
 
