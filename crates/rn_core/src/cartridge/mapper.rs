@@ -43,6 +43,16 @@ pub trait Mapper: std::fmt::Debug {
 
     /// Notify the mapper that a scanline has been rendered, for those that count them.
     fn on_scanline(&mut self) {}
+
+    /// Notify the mapper of an address placed on the PPU's bus.
+    ///
+    /// MMC3's counter is not really counting scanlines: it counts bit 12 of the PPU address rising
+    /// from 0 to 1. During rendering that happens once a line — background and sprite fetches come
+    /// from different halves of pattern memory — which is why counting scanlines works for games.
+    /// It is not the whole story though, because the CPU can drive the same bus: writing $2006
+    /// with an address of $1000 or more raises A12 and clocks the counter, with no scanline
+    /// involved at all.
+    fn on_ppu_address(&mut self, _address: u16) {}
 }
 
 const PRG_BANK: usize = 8 * 1024;
@@ -380,6 +390,8 @@ pub struct Mmc3 {
     irq_enabled: bool,
     irq_pending: bool,
     irq_reload: bool,
+    /// The last state of PPU address bit 12, so a rise can be told from a steady level.
+    a12_high: bool,
 }
 
 impl Mmc3 {
@@ -396,6 +408,7 @@ impl Mmc3 {
             irq_enabled: false,
             irq_pending: false,
             irq_reload: false,
+            a12_high: false,
         }
     }
 
@@ -514,7 +527,28 @@ impl Mapper for Mmc3 {
     ///
     /// This is what a game uses to know it has reached a particular line — the mechanism behind
     /// a status bar that stays put while the playfield scrolls.
+    fn on_ppu_address(&mut self, address: u16) {
+        let high = (address & 0x1000) != 0;
+        // Only the transition counts. A run of fetches from the upper half of pattern memory is
+        // one rise, not one per fetch.
+        if high && !self.a12_high {
+            self.clock_irq_counter();
+        }
+        self.a12_high = high;
+    }
+
     fn on_scanline(&mut self) {
+        self.clock_irq_counter();
+    }
+}
+
+impl Mmc3 {
+    /// One step of the scanline counter, however it was clocked.
+    ///
+    /// Reload is deferred rather than immediate: writing $C001 does not load the latch there and
+    /// then, it arranges for the *next* clock to load it. That is why a game rewrites the latch
+    /// and then waits, rather than expecting the new value to take effect at once.
+    fn clock_irq_counter(&mut self) {
         if self.irq_counter == 0 || self.irq_reload {
             self.irq_counter = self.irq_latch;
             self.irq_reload = false;
@@ -576,6 +610,46 @@ pub fn create(number: u8, prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> O
 
 #[cfg(test)]
 mod tests {
+    /// MMC3's counter follows bit 12 of the PPU address, not scanlines.
+    ///
+    /// Scanlines are only where that bit usually rises, because background and sprite fetches come
+    /// from different halves of pattern memory. The CPU drives the same bus, so writing $2006 with
+    /// an address of $1000 or more clocks the counter with no scanline involved — which is what
+    /// mmc3_test's clocking tests check, and what counting scanlines alone can never do.
+    #[test]
+    fn a_ppu_address_above_0x1000_clocks_the_counter() {
+        let mut mapper = Mmc3::new(vec![0; 32 * 1024], vec![0; 8 * 1024], Mirroring::Horizontal);
+
+        mapper.write_prg(0xC000, 2); // latch
+        mapper.write_prg(0xC001, 0); // reload on the next clock
+        mapper.write_prg(0xE001, 0); // enable the IRQ
+
+        // Reload, then count 2 -> 1 -> 0. Each rise needs a fall in between.
+        for _ in 0..4 {
+            mapper.on_ppu_address(0x0000);
+            mapper.on_ppu_address(0x1000);
+        }
+
+        assert!(mapper.irq_pending(), "four rises should have run the counter down");
+    }
+
+    /// Holding the address high is one rise, not one per access.
+    #[test]
+    fn staying_high_does_not_clock_repeatedly() {
+        let mut mapper = Mmc3::new(vec![0; 32 * 1024], vec![0; 8 * 1024], Mirroring::Horizontal);
+
+        mapper.write_prg(0xC000, 8);
+        mapper.write_prg(0xC001, 0);
+        mapper.write_prg(0xE001, 0);
+
+        mapper.on_ppu_address(0x0000);
+        for _ in 0..50 {
+            mapper.on_ppu_address(0x1FFF); // already high throughout
+        }
+
+        assert!(!mapper.irq_pending(), "a steady level is not a transition");
+    }
+
     use super::*;
 
     /// PRG image where each 8 KB bank is filled with its own index, so a read identifies its bank.

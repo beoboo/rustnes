@@ -626,9 +626,14 @@ impl Ppu {
                 let new_status = old_status & !STATUS_VBLANK;
                 self.status.set(new_status);
 
-                // The pre-render line is where the vertical scroll for the coming frame is loaded.
                 if (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0 {
+                    // The pre-render line is where the vertical scroll for the coming frame is
+                    // loaded.
                     self.reload_vertical_scroll();
+
+                    // It also performs the same pattern fetches as a visible line, so it clocks a
+                    // scanline-counting mapper: a frame clocks it 241 times, not 240.
+                    self.scanlines_completed = self.scanlines_completed.saturating_add(1);
                 }
             }
             // Start of next frame
@@ -737,6 +742,13 @@ impl Ppu {
             *pixel = ((plane0 >> shift) & 0x01) | (((plane1 >> shift) & 0x01) << 1);
         }
         pixels
+    }
+
+    /// Tell a scanline-counting mapper what address is on the PPU's bus.
+    fn notify_mapper_of_address(&self, address: u16) {
+        if let Some(mapper) = &self.mapper {
+            mapper.borrow_mut().on_ppu_address(address & 0x3FFF);
+        }
     }
 
     /// Copy the horizontal scroll from `t` into `v`, as hardware does at the end of every
@@ -1379,6 +1391,7 @@ impl Ppu {
     /// Read from PPUDATA ($2007)
     fn read_data(&self) -> u8 {
         let addr = self.ppu_addr.get();
+        self.notify_mapper_of_address(addr);
 
         // Increment address after read
         let increment = if (self.ctrl & CTRL_INCREMENT_MODE) != 0 { 32 } else { 1 };
@@ -1503,6 +1516,10 @@ impl Ppu {
             // rather than waiting for the next frame as a $2005 write would.
             self.temp_addr = (self.temp_addr & 0x7F00) | value as u16;
             self.ppu_addr.set(self.temp_addr);
+            // The CPU has just driven the PPU's address bus, which a scanline-counting mapper
+            // watches: bit 12 rising is what clocks its counter, whether a scanline caused it or
+            // the program did.
+            self.notify_mapper_of_address(self.temp_addr);
         }
 
         self.write_toggle.set(!self.write_toggle.get());
@@ -1511,6 +1528,7 @@ impl Ppu {
     /// Write to PPUDATA ($2007)
     fn write_data(&mut self, value: u8) {
         let addr = self.ppu_addr.get();
+        self.notify_mapper_of_address(addr);
 
         // Increment address after write
         let increment = if (self.ctrl & CTRL_INCREMENT_MODE) != 0 { 32 } else { 1 };
