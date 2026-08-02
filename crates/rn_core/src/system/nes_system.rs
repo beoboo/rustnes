@@ -60,6 +60,9 @@ pub struct NesSystem {
     /// The CPU component
     cpu: CpuWrapper,
 
+    /// Bus accesses and total cycles of the most recent instruction, in that order.
+    last_step: (u8, u8),
+
     /// Handles to the CPU's interrupt lines.
     ///
     /// Held separately so a device can raise an interrupt without borrowing the CPU, which is
@@ -124,6 +127,14 @@ pub struct SaveState {
 const SAVE_STATE_VERSION: u32 = 1;
 
 impl NesSystem {
+    /// Bus accesses and total cycles of the most recent instruction.
+    ///
+    /// Equal once every cycle is modelled as the bus access it is on hardware. Until then the
+    /// difference names exactly what is missing.
+    pub fn last_step_cycles(&self) -> (u8, u8) {
+        self.last_step
+    }
+
     /// Capture the whole machine.
     pub fn save_state(&self) -> SaveState {
         let read_range = |start: u16, len: usize| -> Vec<u8> {
@@ -283,6 +294,7 @@ impl NesSystem {
 
         Self {
             cpu,
+            last_step: (0, 0),
             interrupts,
             ppu,
             apu,
@@ -515,6 +527,10 @@ impl NesSystem {
         // last few cycles land slightly late.
         self.cpu.set_executing(false);
         let already_run = self.cpu.take_clocked_cycles();
+        // Recorded so the gap can be measured rather than guessed at. On hardware every cycle
+        // drives the bus, so once each discarded read and write is modelled these two are the same
+        // number — and that is the point at which a cycle can be named from outside an instruction.
+        self.last_step = (already_run, cpu_cycles);
         for _ in already_run..cpu_cycles {
             self.tick_cycle();
         }

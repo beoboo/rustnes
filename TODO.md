@@ -918,6 +918,9 @@ its own. Both are substantial and each deserves its own sitting; the groundwork 
 already in place.
 
 ### [CPU] Per-cycle state machine
+Design and ordering in [CYCLE_ACCURACY.md](CYCLE_ACCURACY.md), written after checking the hardware
+documentation rather than attempting a fourth time from intuition.
+
 Today an instruction is one indivisible step: it runs to completion and the rest of the system is
 advanced afterwards. The bus clock now advances the system on each memory access, which places most
 cycles correctly, but the instruction still cannot be interrupted or observed partway through.
@@ -929,8 +932,12 @@ work, so nothing measuring them can pass.
 - [x] Shared interrupt lines, so a device can assert one while the CPU is borrowed
 - [x] Mapper in a shared slot, so the clock can reach it
 - [x] Bus clock advancing the system on each access
-- [ ] Each instruction as an explicit sequence of cycles, each with its own bus operation
-- [ ] Interrupts sampled at the cycle hardware samples them
+- [x] Measure the gap: `rom_test cycles nestest.nes` reports it per opcode
+- [ ] Model every cycle as the bus access it is on hardware, so accesses and cycles agree
+      (37 of 225 opcodes do already; 6463 of 8991 executed instructions are short of one)
+- [ ] Interrupts sampled before the last cycle, which only exists as a position once the above holds
+- [ ] The documented exceptions: branch polling, no polling inside an interrupt sequence,
+      NMI hijacking BRK
 - Acceptance: `cpu_interrupts_v2`, `instr_timing`, `branch_timing_tests`, `cpu_dummy_writes`,
   `cpu_exec_space`
 

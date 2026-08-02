@@ -16,6 +16,7 @@
 //! without ROMs stays green.
 
 mod blargg;
+mod cycles;
 mod frame;
 mod nestest;
 
@@ -61,6 +62,16 @@ enum Command {
         budget: usize,
     },
 
+    /// Report which opcodes execute fewer bus accesses than they take cycles
+    Cycles {
+        /// Path to nestest.nes, which exercises every official opcode
+        rom: PathBuf,
+
+        /// Instructions to execute
+        #[arg(long, default_value_t = 8991)]
+        instructions: usize,
+    },
+
     /// Run a ROM and capture what the PPU drew
     Frame {
         /// Path to the .nes file
@@ -96,6 +107,7 @@ fn main() -> Result<()> {
     match args.command {
         Command::Nestest { rom, log, limit } => run_nestest(&rom, &log, limit),
         Command::Run { rom, budget } => run_one(&rom, budget),
+        Command::Cycles { rom, instructions } => cycles::report(&rom, instructions),
         Command::Frame { rom, frames, out, ascii } => run_frame(&rom, frames, out.as_deref(), ascii),
         Command::Suite { directory, budget } => run_suite(&directory, budget),
     }
