@@ -57,10 +57,20 @@ fn drifting_rom() -> std::path::PathBuf {
     image.extend_from_slice(&prg);
     image.extend_from_slice(&vec![0u8; 8 * 1024]);
 
-    let path = std::env::temp_dir().join("rn_alignment.nes");
+    let path = std::env::temp_dir().join(format!(
+        // A unique name per call. Tests in a file run in parallel threads, and a fixed path means
+        // one test truncating the ROM while another is reading it — which fails perhaps one run in
+        // twenty, in whichever test lost the race rather than the one at fault.
+        "rn_alignment_{}_{}.nes",
+        std::process::id(),
+        NEXT_ROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     std::fs::write(&path, &image).expect("writing the ROM");
     path
 }
+
+/// Distinguishes the ROMs written by tests running side by side.
+static NEXT_ROM: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[test]
 fn a_frame_costs_the_cpu_the_cycles_it_should() {

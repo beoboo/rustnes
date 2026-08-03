@@ -38,7 +38,14 @@ fn counting_system() -> NesSystem {
         0x4C, 0x02, 0xC0, // JMP $C002
     ];
     let image = synthesise_rom(&program, 0xC000);
-    let path = std::env::temp_dir().join("rn_save_state.nes");
+    let path = std::env::temp_dir().join(format!(
+        // A unique name per call. Tests in a file run in parallel threads, and a fixed path means
+        // one test truncating the ROM while another is reading it — which fails perhaps one run in
+        // twenty, in whichever test lost the race rather than the one at fault.
+        "rn_save_state_{}_{}.nes",
+        std::process::id(),
+        NEXT_ROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     std::fs::write(&path, image).expect("writing the test ROM");
 
     let rom = load_rom(&path).expect("loading the ROM");
@@ -63,6 +70,9 @@ fn run(system: &mut NesSystem, steps: usize) {
         system.step().expect("stepping");
     }
 }
+
+/// Distinguishes the ROMs written by tests running side by side.
+static NEXT_ROM: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[test]
 fn a_restored_machine_continues_identically() {

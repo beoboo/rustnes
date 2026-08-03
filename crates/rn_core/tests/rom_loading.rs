@@ -36,8 +36,18 @@ fn synthesise_rom(prg: &[u8], reset: u16, banks: usize) -> Vec<u8> {
     image
 }
 
+/// Distinguishes the ROMs written by tests running side by side.
+static NEXT_ROM: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 fn write_temp_rom(name: &str, image: &[u8]) -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(name);
+    // Unique per call: tests in a file run in parallel threads, and a shared path means one test
+    // truncating the ROM while another reads it.
+    let path = std::env::temp_dir().join(format!(
+        "{}_{}_{}",
+        std::process::id(),
+        NEXT_ROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        name
+    ));
     std::fs::write(&path, image).expect("writing the test ROM");
     path
 }
