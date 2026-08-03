@@ -466,6 +466,14 @@ impl NesSystem {
             debug!("DMA active: {} cycles", cpu_cycles);
             // Advance the DMA controller state
             self.dma.tick();
+
+            // The cycle still belongs to the CPU, which is stalled rather than idle, so it has to
+            // reach the cycle counter. The rest of the system is already advanced below, by the
+            // same `tick_cycle` an instruction's cycles use — it was only the count that was
+            // missing, and a sprite DMA is 513 of them. That made a frame appear to cost 29263 CPU
+            // cycles instead of 29781, which is exactly the sort of error that looks like the CPU
+            // and PPU being out of step when they are not.
+            self.cpu.set_cycles(self.cpu.cycles() + 1);
         } else {
             // Either Completed or Inactive, run the CPU
             dma_active = false;
