@@ -433,7 +433,9 @@ impl NesSystem {
     pub fn step(&mut self) -> Result<u8, NesError> {
         // Return 0 cycles if the system is already in a terminal state
         if self.state == SystemState::Finished {
-            log::info!("System in Finished state, returning 0 cycles");
+            // Debug, not info: once a ROM has finished the caller usually keeps stepping, so this
+            // reports the same thing on every step for as long as the app is open.
+            log::debug!("System in Finished state, returning 0 cycles");
             return Ok(0);
         }
 

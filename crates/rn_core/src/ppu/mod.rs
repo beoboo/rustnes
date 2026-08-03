@@ -73,7 +73,8 @@ impl PpuWrapper {
     }
 
     pub fn write_register(&self, address: u16, value: u8) {
-        log::info!("PpuWrapper write_register: ${:04X} = ${:02X}", address, value);
+        // The write itself is logged one level down, in `Ppu::write_register`. Logging it here as
+        // well reported every register write twice, and at a level the running app prints.
         let mut ppu = self.ppu.borrow_mut();
         ppu.write_register(address, value);
     }
@@ -720,12 +721,10 @@ impl Ppu {
     /// The PPU runs at 3x the speed of the CPU, so this will be called
     /// three times for each CPU cycle.
     pub fn tick(&mut self) {
-        log::debug!(
-            "PPU tick: scanline={}, cycle={}, status=${:02X}",
-            self.scanline,
-            self.cycle,
-            self.status.get()
-        );
+        // Deliberately not logged. This runs 5.4 million times a second, so a line per dot is
+        // both unreadable and a cost paid on the hottest path in the emulator — even switched
+        // off, since the arguments still have to be reached. Anything wanting to watch a dot go
+        // past wants a breakpoint or one of the tests in this file, not a log.
 
         // Increment cycle count
         self.cycle += 1;
@@ -2039,11 +2038,14 @@ impl Ppu {
 
     /// Read from a PPU register (mapped at $2000-$2007)
     pub fn read_register(&self, address: u16) -> u8 {
-        log::info!("PPU read_register: ${:04X}", address);
         match address & 0x7 {
             0x2 => {
                 let result = self.read_status();
-                log::info!(
+                // Trace, not info: a game polls $2002 in a tight loop waiting for vblank, so this
+                // is thousands of lines a frame. It is worth keeping — reading this register has
+                // side effects, and seeing them is often the only way to explain a missed vblank —
+                // but only for someone who has asked for it.
+                log::trace!(
                     "Read from status register: ${:02X} (VBLANK: {}, SPRITE_ZERO_HIT: {}, SPRITE_OVERFLOW: {})",
                     result,
                     (result & STATUS_VBLANK) != 0,
