@@ -474,7 +474,11 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement the frame IRQ: $4015 bit 6, the $4017 inhibit flag, and the CPU IRQ line
 - [x] Fix the PPU vblank flag so the `asm/` audio demos reach their APU init
 - [x] Report the DMC's remaining bytes in $4015 bit 4, and clear them when the channel is disabled
-- [ ] Give the DMC bus access so `load_next_byte` reads real memory, including CPU stall cycles
+- [ ] Give the DMC bus access so `load_next_byte` reads real memory, including CPU stall cycles.
+      Worth doing next rather than eventually: the stall is four CPU cycles a sample byte, up to
+      one byte every 54 cycles, and it is the best remaining candidate for the 21 cycles Super
+      Mario Bros 3's split is out by — right size, right direction, and a game whose author tuned
+      a delay loop on hardware would have tuned it with those stalls happening.
 - [ ] $4017 write timing: the delay before an effective write takes effect (`apu_reset/4017_timing`)
 - [ ] Power-on and reset state of the frame counter (`apu_reset/4017_written`, `works_immediately`)
 - [ ] Which length counters a reset leaves enabled (`apu_reset/len_ctrs_enabled`)
@@ -572,6 +576,10 @@ for anything else is refused by name at load time rather than run with silently 
 - [x] AxROM (7)
 - [x] Refuse an unimplemented mapper by name instead of running it wrongly
 - [x] Save and restore mapper state, so a snapshot resumes with the right banks
+- [ ] Save and restore the APU. A snapshot carries the CPU, RAM, cartridge RAM, PPU and mapper,
+      and nothing of the sound hardware — so a restored machine is silent until the game happens
+      to rewrite every register, and its DMC is idle. Found while trying to reproduce a timing
+      bug from a snapshot, where an idle DMC is precisely the difference that matters.
 - [ ] CNROM (3), MMC2 (9), Color Dreams (11) — each small, none needed by anything tried so far
 - [x] MMC3's A12 timing: the counter is clocked from the real PPU address bus, not from a count of
       scanlines. `3-A12_clocking` and `4-scanline_timing` both pass, the latter to PPU-clock
@@ -1142,6 +1150,32 @@ falls — including which pattern table is being read, which is what drives MMC3
             all. Neither the corruption nor the deliberate blank reaches the screen. The per-dot
             path renders both, faithfully, which is why it looks worse while the timing is wrong
             and will look right when it is not.
+
+            **The mapper is not where the missing cycles are**, settled against the documentation
+            rather than by more measurement of our own. The NESdev wiki puts the clock at PPU cycle
+            260 for the standard arrangement, which is what we do and what `4-scanline_timing`
+            checks. A scope measurement on an MMC3B puts the delay from A12 rising to /IRQ falling
+            at about 69 ns — a third of a pixel, negligible. There is no cycle-scale delay hiding
+            in the cartridge.
+
+            The same thread contains an observation worth keeping: on hardware, Super Mario Bros 3
+            "acknowledges the IRQ just over one scanline later". Ours reaches the acknowledging
+            `STA $E001` about 0.8 scanlines after the interrupt, which is close enough that the
+            interrupt delivery may well be right and the error be somewhere after it.
+
+            **The most likely remaining candidate is the DMC**, which is why the item at
+            [APU] Outstanding Accuracy Work is worth doing before another attempt here. Its DMA
+            steals four CPU cycles per sample byte — up to one byte every 54 cycles — and we do not
+            model the stall at all. Across the handler's 190 cycles that is a plausible 14 to 20,
+            which is the right size and the right direction. Super Mario Bros 3 plays DMC drums
+            throughout a level, so the author would have tuned the delay loop on hardware *with*
+            those stalls happening.
+
+            This cannot be tested from the save state as things stand, which is the other finding:
+            **a save state carries no APU state at all**, so a restored machine is silent and its
+            DMC idle. That is a bug in its own right — audio does not survive a save and reload —
+            and it makes any timing reproduction from a snapshot unfaithful in exactly the way that
+            matters here.
 
             Ruled out so far, each measured rather than argued:
 
