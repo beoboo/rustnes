@@ -1067,20 +1067,37 @@ falls — including which pattern table is being read, which is what drives MMC3
       as the beam reaches the overlapping pixel. This box stayed unticked afterwards, which is why
       the note above still reads as though it were pending.
 
-      **Outstanding, and the reason this is worth reading:** a one-scanline flicker, black against
-      the backdrop, appears at the status-bar split in Super Mario Bros 3 during a level. It was
-      reported from the running emulator, not from a test.
+      **Outstanding: a flickering line at the status-bar split in Super Mario Bros 3.** Reported
+      from the running emulator during a level, and since reproduced exactly, from a save state
+      loaded headlessly. Rows 193 and 194 alternate between mostly black and mostly backdrop.
 
-      What has been ruled out, by hashing every frame of a driven run and diffing builds:
-      the A12 work is not responsible — 1400 frames are byte-identical across it. The per-dot
-      sprite evaluation below is not responsible either, on the same measurement. The picture
-      changes on 1377 of those 1400 frames across *this* commit, so this is where it comes from.
+      Bisected by loading that state under each commit: it arrives with this one and is unchanged
+      by everything after it. The A12 work and the per-dot sprite evaluation are both ruled out —
+      1400 frames of a driven run are byte-identical across each of them.
 
-      What has not been done is reproducing it: the frames compared cover the title, the demo and
-      the world map — the split included — but not a level, because the scripted controller input
-      never got Mario off the map. Reproducing it needs a save state taken on that screen (F5 in
-      the debugger writes one beside the ROM), after which it can be gated on a pixel diff of the
-      split line like everything else here.
+      What is actually happening, traced rather than guessed:
+
+      - The MMC3 IRQ is raised at scanline 191 dot 260, and stably so — the same dot every frame.
+      - The handler's first `$2006` write lands at scanline **193, dot ~190**. That is 1.7
+        scanlines after the interrupt, about 197 CPU cycles, and it is inside the *visible* part
+        of the line rather than in hblank.
+      - `v` changes there and then, so the rest of line 193 is fetched from the new address. The
+        write dot drifts a few dots per frame as the CPU and PPU realign, which is the flicker:
+        the boundary moves, so the row alternates.
+      - The final pair of the handler's writes, at dots 259 and 271, does land in hblank and is
+        fine. It is the earlier pairs that corrupt the line.
+
+      This is not a rendering fault, which is why nothing in the renderer fixes it. A mid-line
+      `$2006` write *does* corrupt the rest of the line on hardware; the picture is right on
+      hardware because the write does not land there. The per-line renderer hid it by drawing every
+      line from the address captured at dot 257, so mid-line writes could not affect the line they
+      fell in — correct-looking for the wrong reason.
+
+      So the question is why the handler reaches its first write ~197 cycles after the interrupt,
+      which is either the interrupt arriving too early or the CPU being too slow to the write. That
+      is the cycle-exact CPU/PPU alignment already named above as what blocks `cpu_interrupts_v2` —
+      the two rewrites meeting again. Reproduce with a save state on that screen and diff the split
+      rows frame to frame; a scratch harness for it is straightforward and was thrown away.
 - [x] Sprite evaluation per dot, so $2004 reads during rendering return what it holds
 
       Secondary OAM now exists and is worked on its real schedule: wiped over dots 1-64, evaluated
