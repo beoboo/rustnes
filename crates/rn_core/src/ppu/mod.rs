@@ -2267,6 +2267,66 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// Which dots of a line the shift registers present a non-transparent pixel on.
+    fn dots_showing_a_pixel(ppu: &mut Ppu, scanline: i16) -> Vec<u16> {
+        run_to(ppu, scanline, 0);
+
+        let mut dots = Vec::new();
+        while ppu.cycle < 300 {
+            if ppu.shifted_background_pixel().0 != 0 {
+                dots.push(ppu.cycle);
+            }
+            ppu.tick();
+        }
+        dots
+    }
+
+    /// One tile at the left of the nametable must appear on the line's first eight dots.
+    ///
+    /// This is the alignment the whole pipeline turns on, and it cannot be judged from a rendered
+    /// picture: a tile arriving one group late looks like a different picture, not like a shifted
+    /// one, because every tile after it is displaced too. A single identifiable tile walked
+    /// through the registers says exactly which dot it emerges on.
+    ///
+    /// Eight dots because the register is sixteen bits wide: a reload enters at the low byte and
+    /// the pixel is taken from bit 15, so a tile becomes visible eight dots after it is loaded.
+    /// The two groups prefetched at dots 321 to 336 of the previous line exist precisely so that
+    /// the first tile has already reached the top when dot 1 comes round.
+    #[test]
+    fn the_first_tile_of_a_line_appears_on_its_first_dots() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // Tile 1 is opaque in this fixture; everything else on the row is blank.
+        ppu.write_ppu_memory(0x2000, 1);
+        for column in 1..32u16 {
+            ppu.write_ppu_memory(0x2000 + column, 0);
+        }
+
+        let dots = dots_showing_a_pixel(&mut ppu, 1);
+
+        assert_eq!(
+            dots,
+            (1..=8).collect::<Vec<u16>>(),
+            "the leftmost tile should be drawn on dots 1 to 8"
+        );
+    }
+
+    /// And the second tile follows immediately, on the next eight.
+    #[test]
+    fn the_second_tile_follows_on_the_next_eight_dots() {
+        let mut ppu = ppu_with_solid_tile();
+
+        ppu.write_ppu_memory(0x2000, 0);
+        ppu.write_ppu_memory(0x2001, 1);
+        for column in 2..32u16 {
+            ppu.write_ppu_memory(0x2000 + column, 0);
+        }
+
+        let dots = dots_showing_a_pixel(&mut ppu, 1);
+
+        assert_eq!(dots, (9..=16).collect::<Vec<u16>>(), "the second tile occupies dots 9 to 16");
+    }
+
     /// The fetch pipeline should be presenting the tile the nametable names.
     ///
     /// The registers are loaded a tile *after* the fetch, which is the behaviour worth pinning:
