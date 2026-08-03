@@ -433,6 +433,15 @@ pub struct Ppu {
     /// Where sprite evaluation has got to on this line.
     sprite_eval: SpriteEval,
 
+    /// The pattern address each of the eight output units fetches from.
+    ///
+    /// Separate from `selected_sprites` because the two are wanted by different things at very
+    /// different rates. Every slot fetches, including the ones no sprite reached — that is what
+    /// the address bus sees, once per line. Only the slots holding a real sprite can draw, and
+    /// that list is walked once per *pixel*. Keeping the empty slots out of it is worth a third of
+    /// the emulator's speed.
+    sprite_patterns: [u16; 8],
+
     /// Bit 12 of the address the PPU last drove, and how many dots it has been low for.
     ///
     /// This pair is the whole of the filter a scanline-counting mapper applies. Held here rather
@@ -647,13 +656,12 @@ struct SpriteData {
     x_position: u8,     // X position (left of sprite)
     tile_data: [u8; 8], // Processed pixel data for a single row
 
-    /// The address the low bitplane of this row is fetched from, with the high plane eight bytes
-    /// after it.
+    /// The address the low bitplane of this row was fetched from.
     ///
-    /// The pixels are already decoded into `tile_data`, so nothing about the picture needs this.
-    /// What needs it is the address bus: a mapper watching bit 12 sees these fetches, and they are
-    /// the ones that make it rise — the background reads the other half of pattern memory and the
-    /// nametable fetches are at $2xxx, where bit 12 is clear.
+    /// The address bus takes its copy from `sprite_patterns`, which covers the empty slots too.
+    /// This one is kept only so a test can check that a sprite resolved to the pattern it should
+    /// have, alongside the pixels it produced.
+    #[cfg(test)]
     pattern_address: u16,
 }
 
@@ -666,6 +674,7 @@ impl Ppu {
             a12_low_dots: A12_FILTER_DOTS,
             secondary_oam: [0xFF; 32],
             sprite_eval: SpriteEval::default(),
+            sprite_patterns: [0; 8],
             selected_sprites: Vec::new(),
             line_start_addr: 0,
             fetch: TileFetch::default(),
@@ -1036,7 +1045,19 @@ impl Ppu {
     /// 257-320. Doing it in one pass at dot 257 gave the same *set* of sprites, but nothing could
     /// observe it happening — and $2004 reads during rendering, which report exactly this, had
     /// nothing to report.
+    ///
+    /// Inlined deliberately. It is reached on every dot of every rendered line — some 89,000 times
+    /// a frame — and on most of them it has nothing to do, so the call itself was costing more
+    /// than the work. Letting it fold into the caller's dot handling turns the common case into a
+    /// couple of comparisons.
+    #[inline]
     fn advance_sprite_evaluation(&mut self) {
+        // Everything here happens in the first 320 dots; the rest of the line is background
+        // prefetch, which this has no part in.
+        if self.cycle > 320 {
+            return;
+        }
+
         match self.cycle {
             1 => {
                 // Each line evaluates from scratch. Reset before the clear rather than after it,
@@ -1160,10 +1181,16 @@ impl Ppu {
 
         let height = if (self.ctrl & CTRL_SPRITE_SIZE) != 0 { 16i16 } else { 8 };
         let row = self.scanline - y as i16;
-        let present = (0..height).contains(&row);
 
-        let (pattern_address, tile_data) =
-            self.decode_sprite_row(tile, attributes, if present { row as u8 } else { 0 });
+        if !(0..height).contains(&row) {
+            // Nothing reached this slot. It still fetches, and tile $FF left by the clear phase is
+            // what it fetches — but it can never draw, so it stays out of the drawing list.
+            self.sprite_patterns[slot] = self.sprite_pattern_address(tile, attributes, 0);
+            return;
+        }
+
+        let (pattern_address, tile_data) = self.decode_sprite_row(tile, attributes, row as u8);
+        self.sprite_patterns[slot] = pattern_address;
 
         self.selected_sprites.push(SpriteData {
             // Sprite zero is not slot zero by definition: it is slot zero *and* the first sprite
@@ -1175,7 +1202,8 @@ impl Ppu {
             tile_index: tile,
             attributes,
             x_position: x,
-            tile_data: if present { tile_data } else { [0; 8] },
+            tile_data,
+            #[cfg(test)]
             pattern_address,
         });
     }
@@ -1186,7 +1214,7 @@ impl Ppu {
     /// whole-line pass the debugging renderer still uses — so the two cannot drift apart on tile
     /// addressing, flipping or 8x16 mode. Only the *selection* differs between them, which is what
     /// `the_two_sprite_paths_agree` compares.
-    fn decode_sprite_row(&self, tile: u8, attributes: u8, row: u8) -> (u16, [u8; 8]) {
+    fn sprite_pattern_address(&self, tile: u8, attributes: u8, row: u8) -> u16 {
         let height: u8 = if (self.ctrl & CTRL_SPRITE_SIZE) != 0 { 16 } else { 8 };
 
         // Vertical flip counts the row from the bottom of the sprite instead of the top.
@@ -1205,7 +1233,16 @@ impl Ppu {
             (table + tile as u16 * 16, row)
         };
 
-        let pattern_address = tile_addr + row as u16;
+        tile_addr + row as u16
+    }
+
+    /// The address and the eight pixels together, for a slot that will actually draw.
+    ///
+    /// Split from the address above because most slots on most lines hold no sprite. They still
+    /// fetch — the bus does not care that the result is discarded — but decoding pixels nobody
+    /// will draw is pure cost, and there are up to eight of them on every line of every frame.
+    fn decode_sprite_row(&self, tile: u8, attributes: u8, row: u8) -> (u16, [u8; 8]) {
+        let pattern_address = self.sprite_pattern_address(tile, attributes, row);
 
         // Guarded because a bare PPU with no graphics source has nothing to draw — but the address
         // is returned regardless, because the address bus does not depend on there being data.
@@ -1267,10 +1304,7 @@ impl Ppu {
                         // empty slots read tile $FF from the sprite table. They drive bit 12
                         // exactly as a real sprite would, so leaving them out would make the count
                         // depend on how many sprites a game happened to place on the line.
-                        let address = match self.selected_sprites.get(slot) {
-                            Some(sprite) => sprite.pattern_address,
-                            None => self.unused_sprite_slot_address(),
-                        };
+                        let address = self.sprite_patterns[slot];
                         if phase < 6 { address } else { address + 8 }
                     },
                 }
@@ -1281,17 +1315,6 @@ impl Ppu {
         }
     }
 
-    /// The pattern address an unused sprite slot reads from: row 0 of tile $FF.
-    fn unused_sprite_slot_address(&self) -> u16 {
-        if (self.ctrl & CTRL_SPRITE_SIZE) != 0 {
-            // In 8x16 mode the table comes from bit 0 of the tile index rather than from PPUCTRL,
-            // and $FF is odd, so the fetch is always from the upper half.
-            0x1000 + 0xFE * 16
-        } else {
-            let table = if (self.ctrl & CTRL_SPRITE_PATTERN) != 0 { 0x1000 } else { 0x0000 };
-            table + 0xFF * 16
-        }
-    }
 
     /// Put this dot's address on the bus, and tell the mapper about the edges that survive the
     /// filter.
@@ -1432,7 +1455,15 @@ impl Ppu {
             None if background != 0 => {
                 self.read_palette(0x3F00 + (background_palette as u16 * 4) + background as u16)
             },
-            None => return,
+            // Nothing is drawn here, so the backdrop shows through — and it has to be the backdrop
+            // as it stands at *this dot*, not the one the frame was cleared to.
+            //
+            // A game is free to rewrite $3F00 partway down a frame, and Super Mario Bros 3 does:
+            // sky above the status bar, black below it. Leaving the cleared colour in place put a
+            // band of sky across the status bar wherever the background happened to be
+            // transparent — including the eight leftmost pixels of every line, which the left-hand
+            // mask blanks.
+            None => self.read_palette(0x3F00),
         };
 
         let rgb = self.palette_to_rgb(colour);
@@ -1781,6 +1812,7 @@ impl Ppu {
             // The row within the sprite. Flipping, 8x16 addressing and the pixel decode are all
             // shared with the per-dot path, so only the *selection* above is written twice.
             let y_offset = (scanline - first_row) as u8;
+            #[cfg_attr(not(test), allow(unused_variables))]
             let (pattern_address, tile_data) =
                 self.decode_sprite_row(tile_idx, attributes, y_offset);
 
@@ -1794,6 +1826,7 @@ impl Ppu {
                 attributes,
                 x_position: x_pos,
                 tile_data,
+                #[cfg(test)]
                 pattern_address,
             });
 
@@ -4544,12 +4577,86 @@ mod tests {
         // The units drawing a line were loaded during the line before it, so this reads what
         // scanline 0 will actually draw.
         run_to(&mut ppu, 0, 1);
-        assert!(ppu.selected_sprites.iter().all(|s| s.tile_data.iter().all(|p| *p == 0)),
+        assert!(ppu.selected_sprites.is_empty(),
             "scanline 0's sprites would have to come from the pre-render line, which does not evaluate");
 
         run_to(&mut ppu, 1, 1);
         assert!(ppu.selected_sprites.iter().any(|s| s.tile_data.iter().any(|p| *p != 0)),
             "scanline 1 is the first line a sprite at Y=0 can reach");
+    }
+
+    /// Where nothing is drawn, the backdrop shown is the one in effect at that dot.
+    ///
+    /// $3F00 is a register like any other and a game may rewrite it partway down a frame — one
+    /// colour above a status bar, another below it. Clearing the frame to the colour it started
+    /// with and leaving transparent pixels untouched gets that wrong for every line after the
+    /// change, which shows as a band of the old colour wherever the background is transparent.
+    #[test]
+    fn a_transparent_pixel_takes_the_backdrop_as_it_stands_at_that_dot() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // An empty nametable, so every background pixel is transparent and only the backdrop
+        // decides the colour.
+        for entry in 0..960u16 {
+            ppu.write_ppu_memory(0x2000 + entry, 0);
+        }
+        ppu.oam = [0xFF; 256]; // and no sprites over it
+        ppu.write_palette(0x3F00, 0x21); // a blue, from the top of the frame
+
+        run_to(&mut ppu, 100, 1);
+        let above = pixel_at(&ppu, 100, 50);
+        assert_eq!(above, ppu.palette_to_rgb(0x21), "the frame began with this backdrop");
+
+        // Change it partway down, as a game does at a split.
+        ppu.write_palette(0x3F00, 0x16); // a red
+        run_to(&mut ppu, 200, 1);
+
+        assert_eq!(
+            pixel_at(&ppu, 100, 150),
+            ppu.palette_to_rgb(0x16),
+            "lines drawn after the change must show the new backdrop"
+        );
+        assert_eq!(pixel_at(&ppu, 100, 50), above, "lines already drawn keep the old one");
+    }
+
+    /// Empty slots fetch, but they never reach the list the renderer walks.
+    ///
+    /// This is a performance invariant as much as a correctness one. The drawing list is walked
+    /// once per *pixel* — some 61,000 times a frame — so padding it out to eight entries whatever
+    /// the line holds cost a third of the emulator's speed. The addresses the empty slots fetch
+    /// from still have to reach the bus, and they do, from `sprite_patterns`.
+    #[test]
+    fn empty_sprite_slots_fetch_without_joining_the_drawing_list() {
+        let mut ppu = ppu_with_solid_tile();
+        ppu.ctrl = CTRL_SPRITE_PATTERN; // sprites from $1000
+
+        // Exactly two sprites on the line under test.
+        ppu.oam = [0xFF; 256];
+        for i in 0..2usize {
+            ppu.oam[i * 4] = 50;
+            ppu.oam[i * 4 + 1] = 1;
+            ppu.oam[i * 4 + 2] = 0;
+            ppu.oam[i * 4 + 3] = (i as u8) * 8;
+        }
+
+        run_to(&mut ppu, 51, 1);
+        assert_eq!(ppu.selected_sprites.len(), 2, "only the sprites that can draw are listed");
+
+        // All eight slots still have an address, and the six unused ones read tile $FF from the
+        // sprite table — which is what keeps the line's fetches, and any mapper counting them,
+        // independent of how many sprites the game placed.
+        //
+        // The row within that tile is not fixed: the clear phase leaves $FF in the attribute byte
+        // too, so the slot reads as vertically flipped and lands on the tile's last row. Only the
+        // tile and the table it is in matter here, since bit 12 is what a mapper counts.
+        let tile_ff = 0x1000 + 0xFF * 16;
+        for slot in 2..8 {
+            assert!(
+                (tile_ff..tile_ff + 8).contains(&ppu.sprite_patterns[slot]),
+                "slot {slot} is empty but must still fetch tile $FF from the sprite table, got ${:04X}",
+                ppu.sprite_patterns[slot]
+            );
+        }
     }
 
     /// A ninth sprite on a line sets overflow; exactly eight does not.

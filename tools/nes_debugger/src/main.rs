@@ -682,6 +682,13 @@ impl NesDebugger {
             .map_err(|e| e.to_string())
             .and_then(|encoded| std::fs::write(&path, encoded).map_err(|e| e.to_string()));
 
+        // Reported to the terminal as well as to the panel, because the panel is not on screen in
+        // fullscreen — which is exactly when someone is playing and wants to save.
+        match &result {
+            Ok(()) => info!("saved state to {}", path.display()),
+            Err(error) => error!("saving state: {error}"),
+        }
+
         self.last_dump = Some(match result {
             Ok(()) => format!("saved state to {}", path.display()),
             Err(error) => format!("saving state: {error}"),
@@ -701,6 +708,11 @@ impl NesDebugger {
             .and_then(|state: rn_core::system::SaveState| {
                 self.system.borrow_mut().load_state(&state).map_err(|e| e.to_string())
             });
+
+        match &result {
+            Ok(()) => info!("restored state from {}", path.display()),
+            Err(error) => error!("restoring state: {error}"),
+        }
 
         self.last_dump = Some(match result {
             Ok(()) => format!("restored state from {}", path.display()),
@@ -890,6 +902,15 @@ impl NesDebugger {
 
 impl App for NesDebugger {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        // Shortcuts are read here, before the controller block below empties the event queue.
+        //
+        // They used to be read after it, with a comment claiming otherwise, so none of them ever
+        // fired while the window had focus — which is the only time anyone would press one.
+        let fullscreen_pressed = ctx.input(|i| i.key_pressed(egui::Key::F11));
+        let leave_fullscreen = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        let save_pressed = ctx.input(|i| i.key_pressed(egui::Key::F5));
+        let load_pressed = ctx.input(|i| i.key_pressed(egui::Key::F9));
+
         // Handle keyboard input for controller
         if ctx.input(|i| i.focused) {
             // Process key events
@@ -931,19 +952,19 @@ impl App for NesDebugger {
             });
         }
 
-        // Fullscreen and save states, checked before the block above consumes the event queue.
-        if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
+        // Fullscreen and save states, from the presses sampled at the top of this function.
+        if fullscreen_pressed {
             self.fullscreen = !self.fullscreen;
         }
         // Escape only leaves, never enters: a key that toggles is a key that can strand someone
         // in a mode they cannot see the way out of.
-        if self.fullscreen && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        if self.fullscreen && leave_fullscreen {
             self.fullscreen = false;
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
+        if save_pressed {
             self.save_state();
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::F9)) {
+        if load_pressed {
             self.load_state();
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
