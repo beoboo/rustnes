@@ -433,6 +433,14 @@ pub struct Ppu {
     /// Where sprite evaluation has got to on this line.
     sprite_eval: SpriteEval,
 
+    /// Whether pixels come from the per-dot path rather than the per-line one.
+    ///
+    /// Off, because the per-dot path renders the CPU's mistimed interrupt faithfully and so shows
+    /// a broken line at Super Mario Bros 3's status bar — see [`emit_pixel`](Self::emit_pixel).
+    /// It is a field rather than a deletion so the two paths can be run against each other, which
+    /// is what `the_two_pixel_paths_agree_on_a_static_scene` does and what re-landing it needs.
+    per_dot_pixels: bool,
+
     /// The pattern address each of the eight output units fetches from.
     ///
     /// Separate from `selected_sprites` because the two are wanted by different things at very
@@ -674,6 +682,7 @@ impl Ppu {
             a12_low_dots: A12_FILTER_DOTS,
             secondary_oam: [0xFF; 32],
             sprite_eval: SpriteEval::default(),
+            per_dot_pixels: false,
             sprite_patterns: [0; 8],
             selected_sprites: Vec::new(),
             line_start_addr: 0,
@@ -871,8 +880,10 @@ impl Ppu {
                 // partway down the frame survives that restore, because such a write sets `t` as
                 // well as `v` — which is what makes it a mid-frame scroll change rather than one
                 // that lasts a single line.
-                // Both layers are drawn dot by dot as the line is scanned; nothing happens here.
-                let _ = y;
+                if !self.per_dot_pixels {
+                    self.render_background_scanline(y);
+                    self.render_sprites_for_scanline(y);
+                }
             }
 
             // Start of next frame
@@ -1379,8 +1390,13 @@ impl Ppu {
             return;
         }
 
-        // The pixel is taken from the registers as they stand, and only then do they advance.
-        if (1..=256).contains(&self.cycle) && (0..240).contains(&self.scanline) {
+        // Pixels come from here only when the per-dot path is switched on; see `emit_pixel` for
+        // why it is off. The fetches themselves always run, because the address bus they drive is
+        // what clocks the mapper.
+        if self.per_dot_pixels
+            && (1..=256).contains(&self.cycle)
+            && (0..240).contains(&self.scanline)
+        {
             self.emit_pixel();
         }
 
@@ -1428,6 +1444,18 @@ impl Ppu {
     /// Both layers are resolved here, at the dot the beam reaches them, which is what makes the
     /// sprite-zero hit land on the right cycle. Reporting it at the start or end of a line instead
     /// moves every screen split that depends on it.
+    ///
+    /// **Not currently what draws the picture.** This is the right design and hardware's, but it
+    /// renders faithfully whatever the CPU does *whenever* the CPU does it — and the CPU takes the
+    /// MMC3 interrupt about twenty-five cycles early, so Super Mario Bros 3's status-bar scroll
+    /// write lands while the beam is still drawing the visible line rather than in the gap after
+    /// it. The result is a line of sky across the status bar, flickering as the error drifts.
+    ///
+    /// Drawing a line at a time cannot express that error, because it never sees a mid-line write
+    /// at all. So the picture comes from [`render_background_scanline`](Self::render_background_scanline)
+    /// and [`render_sprites_for_scanline`](Self::render_sprites_for_scanline) until the interrupt
+    /// lands on the right cycle, at which point this becomes correct *and* correct-looking. Kept
+    /// exercised by its own tests so it does not rot while it waits.
     fn emit_pixel(&mut self) {
         let x = (self.cycle - 1) as usize;
         let y = self.scanline as usize;
@@ -1665,17 +1693,24 @@ impl Ppu {
                 self.background_pixels[index] = pixel_value;
             }
 
-            // Colour 0 of any palette is transparent and shows the backdrop, which the frame was
-            // already cleared to.
-            if pixel_value == 0 {
-                continue;
-            }
-
             // The leftmost 8 pixels can be hidden independently ($2001 bit 1). Games use this to
             // cover the partial tile that scrolling exposes at the screen edge — so ignoring the
             // bit shows exactly the garbage the game was trying to hide.
-            if screen_x < 8 && (self.mask & MASK_SHOW_LEFT_BACKGROUND) == 0 {
-                // Still counts as background for sprite priority and sprite-zero purposes.
+            let hidden = screen_x < 8 && (self.mask & MASK_SHOW_LEFT_BACKGROUND) == 0;
+
+            // Colour 0 of any palette is transparent, and so is a hidden pixel: both show the
+            // backdrop. It is written rather than left to the colour the frame was cleared to,
+            // because $3F00 can be rewritten partway down a frame — Super Mario Bros 3 does it,
+            // sky above the status bar and black below — and the cleared colour is the one the
+            // frame began with. Either still counts as background for sprite priority.
+            // Both show the backdrop. Left as the colour the frame was cleared to rather than
+            // written here, which is a deliberate approximation: hardware shows the backdrop as it
+            // stands at that *dot*, and writing it that way is correct — `emit_pixel` does. But it
+            // makes every transparent pixel follow a mid-frame $3F00 change, and the row at which
+            // that change lands jitters by a scanline while the CPU takes its interrupts early.
+            // The approximation is steady; the correct version visibly flickers. It goes back when
+            // the timing does.
+            if pixel_value == 0 || hidden {
                 continue;
             }
 
@@ -1696,6 +1731,9 @@ impl Ppu {
             return;
         }
 
+        // Evaluated for the line being drawn rather than taken from `selected_sprites`, because
+        // this is also how a frame is redrawn on demand — by the debugger, and by `force_render_
+        // frame` — where the per-dot evaluation has not run for the line in question.
         let sprites = self.evaluate_sprites_for_scanline(scanline);
 
         // Overlapping sprites are resolved per pixel, and the lowest-numbered sprite wins.
@@ -4585,6 +4623,64 @@ mod tests {
             "scanline 1 is the first line a sprite at Y=0 can reach");
     }
 
+    /// The per-dot and per-line pixel paths draw the same picture when nothing changes mid-line.
+    ///
+    /// Both exist: the per-line one draws today, the per-dot one is hardware's and will draw again
+    /// once the CPU takes its interrupts on the right cycle. This is the gate for that switch. It
+    /// deliberately uses a *static* scene, because that is where they must agree exactly — where
+    /// they differ is a scroll changed partway along a line, which is the whole point of the
+    /// per-dot path and cannot be asserted equal.
+    ///
+    /// **Ignored because it fails, and what it found is worth keeping.** 5166 pixels differ on a
+    /// static scene, and they are not scattered: they sit at x = 0, 8, 16, 24 — the *first pixel
+    /// of every tile* — with the rest of each tile agreeing, plus most of row 0. That is a
+    /// one-dot misalignment in the shift-register reload, so the first pixel of each tile is drawn
+    /// from the tile before it.
+    ///
+    /// It was not visible while the per-dot path was drawing, because the earlier comparison test
+    /// checked `shifted_background_pixel` against the per-line renderer rather than the finished
+    /// frame, and a whole-frame diff against Super Mario Bros 3 blamed the 2356 changed pixels on
+    /// the split. Some of them were this.
+    ///
+    /// So this has to pass before the per-dot path draws again — alongside the interrupt timing.
+    #[test]
+    #[ignore = "the per-dot path is one pixel out at each tile boundary; fix before re-enabling it"]
+    fn the_two_pixel_paths_agree_on_a_static_scene() {
+        let frame_with = |per_dot: bool| {
+            let mut ppu = ppu_with_solid_tile();
+            ppu.per_dot_pixels = per_dot;
+
+            // A patterned background, so a displacement of even one tile shows up.
+            ppu.mirroring = Mirroring::Vertical;
+            for entry in 0..960u16 {
+                ppu.write_ppu_memory(0x2000 + entry, u8::from(entry % 3 == 0));
+            }
+
+            // And a few sprites spread down the screen, to cover the compositing too.
+            ppu.oam = [0xFF; 256];
+            for i in 0..6usize {
+                ppu.oam[i * 4] = (20 + i * 30) as u8;
+                ppu.oam[i * 4 + 1] = 1;
+                ppu.oam[i * 4 + 2] = (i % 4) as u8;
+                ppu.oam[i * 4 + 3] = (i * 37) as u8;
+            }
+
+            run_to(&mut ppu, 241, 2); // a whole visible frame, then vblank
+            ppu.frame_buffer.clone()
+        };
+
+        let per_line = frame_with(false);
+        let per_dot = frame_with(true);
+
+        let differing = per_line
+            .chunks_exact(3)
+            .zip(per_dot.chunks_exact(3))
+            .filter(|(a, b)| a != b)
+            .count();
+
+        assert_eq!(differing, 0, "{differing} pixels differ between the two pixel paths");
+    }
+
     /// Where nothing is drawn, the backdrop shown is the one in effect at that dot.
     ///
     /// $3F00 is a register like any other and a game may rewrite it partway down a frame — one
@@ -4594,6 +4690,9 @@ mod tests {
     #[test]
     fn a_transparent_pixel_takes_the_backdrop_as_it_stands_at_that_dot() {
         let mut ppu = ppu_with_solid_tile();
+        // The per-dot path, which is where this behaviour lives — see `render_background_scanline`
+        // for why the per-line one deliberately does not have it yet.
+        ppu.per_dot_pixels = true;
 
         // An empty nametable, so every background pixel is transparent and only the backdrop
         // decides the colour.
