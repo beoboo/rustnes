@@ -45,6 +45,34 @@ use anyhow::{Context, Result};
 /// One NTSC frame: the NES runs at 60.0988 Hz, not exactly 60.
 const NTSC_FRAME_PERIOD: std::time::Duration = std::time::Duration::from_nanos(16_639_267);
 
+/// The same rate as a number, for deciding whether the display has a cadence worth following.
+const NES_FRAME_RATE: f32 = 60.0988;
+
+/// How many repaints one emulated frame should occupy, or zero to pace by the wall clock instead.
+///
+/// Locking emulation to the display's cadence removes the beat between two nearly-equal rates, but
+/// only when there genuinely is a cadence. The tolerance has to be tight: it was once 0.15, which
+/// accepted anything from 51 to 69 repaints a second as "one frame per repaint", so a machine
+/// managing only 55 had its emulation locked to 55 — running the game nine percent slow and
+/// starving the sound card by the same fraction, heard as the audio dragging. Worse, the effect
+/// deepened the more the display struggled, which is the opposite of what a fallback should do.
+///
+/// Locking is refused outright when the display cannot manage a repaint per frame. There is no
+/// cadence to follow below that, and the wall clock can make the deficit up where this cannot.
+fn cadence_lock(repaint_fps: f32) -> u32 {
+    let ratio = repaint_fps / NES_FRAME_RATE;
+    let rounded = ratio.round();
+
+    let is_a_multiple = (1.0..=4.0).contains(&rounded) && (ratio - rounded).abs() < 0.02;
+    let can_keep_up = repaint_fps >= NES_FRAME_RATE - 1.0;
+
+    if is_a_multiple && can_keep_up {
+        rounded as u32
+    } else {
+        0
+    }
+}
+
 /// Most frames to run in one repaint while catching up.
 const MAX_CATCH_UP_FRAMES: u32 = 2;
 
@@ -823,14 +851,7 @@ impl NesDebugger {
         // 60.0988 is not exactly half of 120 it occasionally occupies one or three instead. That
         // beat is visible as periodic judder even though the average is correct. Counting refreshes
         // instead makes every frame occupy the same number of them.
-        let ratio = self.repaint_fps / 60.0;
-        let rounded = ratio.round();
-        self.repaints_per_frame = if (1.0..=4.0).contains(&rounded) && (ratio - rounded).abs() < 0.15 {
-            rounded as u32
-        } else {
-            // An unlocked or erratic repaint rate has no cadence to follow; fall back to time.
-            0
-        };
+        self.repaints_per_frame = cadence_lock(self.repaint_fps);
 
         self.fps_window_start = std::time::Instant::now();
         self.frames_in_window = 0;
@@ -1400,4 +1421,47 @@ fn main() -> anyhow::Result<()> {
 
     info!("Application closed normally");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A display that cannot manage a repaint per emulated frame must not capture the cadence.
+    ///
+    /// This is the case that was reported: 55 repaints a second, locked to one frame each, so the
+    /// game ran at 55 Hz instead of 60.0988 — nine percent slow, with the sound card starved by
+    /// the same fraction and dragging audibly. The old tolerance of 0.15 accepted it because
+    /// 55/60 rounds to 1. Falling back to the wall clock instead lets the deficit be made up.
+    #[test]
+    fn a_display_that_cannot_keep_up_does_not_take_the_cadence() {
+        assert_eq!(cadence_lock(55.0), 0, "55 Hz is not a cadence, it is a shortfall");
+        assert_eq!(cadence_lock(51.0), 0);
+        assert_eq!(cadence_lock(59.0), 0, "even one repaint short of the NES rate");
+    }
+
+    /// The rates that genuinely are a whole number of repaints per frame still lock.
+    #[test]
+    fn a_clean_multiple_of_the_nes_rate_locks() {
+        assert_eq!(cadence_lock(60.0988), 1, "the NES's own rate");
+        assert_eq!(cadence_lock(120.1976), 2, "a ProMotion display at twice it");
+        assert_eq!(cadence_lock(240.3952), 4);
+    }
+
+    /// A rate close to a multiple but not close enough is left to the wall clock.
+    ///
+    /// 69 rounds to 1 and 65 to 1, and the old tolerance took both. Neither is a cadence: the
+    /// beat between them and the NES's rate is exactly what locking is supposed to remove.
+    #[test]
+    fn a_rate_near_but_not_on_a_multiple_is_refused() {
+        assert_eq!(cadence_lock(69.0), 0);
+        assert_eq!(cadence_lock(65.0), 0);
+        assert_eq!(cadence_lock(100.0), 0, "between one and two repaints a frame");
+    }
+
+    /// 144 Hz is not a multiple of 60.0988 and must not be treated as one.
+    #[test]
+    fn a_144_hz_display_paces_by_the_clock() {
+        assert_eq!(cadence_lock(144.0), 0);
+    }
 }
