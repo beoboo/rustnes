@@ -1120,6 +1120,29 @@ falls — including which pattern table is being read, which is what drives MMC3
             handler is 190 cycles from entry to the first write, hand-counted from the 6502's own
             timings and matched by the emulator to the dot.
 
+            **What the handler is actually doing**, which is worth having before touching any of
+            this, because it is not only a scroll change. Traced from every PPU register write
+            around the split:
+
+            ```
+            $2006 x4    line 193, dots 194-230   rendering still on — these corrupt v
+            $2001 = $00 line 193, dot 242        rendering off
+            $2006 = $0B,$00  line 193, dots 266,278   the real address, set while blanked
+            $2001 = $18 line 194, dot 219        rendering on again
+            ```
+
+            So the black band between the playfield and the status bar is *deliberate blanking*,
+            and the whole burst is meant to sit in hblank where corrupting `v` costs nothing. Being
+            21 cycles early puts the first four writes inside the visible line, so the rest of line
+            193 is fetched from `v = $0000` — the top of the nametable, which is sky. That is the
+            line that was reported.
+
+            It also explains why the per-line renderer is immune, and that its immunity is not a
+            virtue: it samples `$2001` once per scanline, so it cannot express mid-line blanking at
+            all. Neither the corruption nor the deliberate blank reaches the screen. The per-dot
+            path renders both, faithfully, which is why it looks worse while the timing is wrong
+            and will look right when it is not.
+
             Ruled out so far, each measured rather than argued:
 
             - The CPU running fast or slow. A frame costs 29776 cycles against hardware's 29781
