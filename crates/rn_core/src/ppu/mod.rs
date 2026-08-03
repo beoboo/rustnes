@@ -1390,6 +1390,14 @@ impl Ppu {
             return;
         }
 
+        // A new group begins: the tile the last one fetched starts being drawn. This happens
+        // before the pixel is taken, not after it — the reload is what makes this dot the first
+        // dot of the new tile, and taking the pixel first draws the previous tile's last pixel
+        // twice.
+        if self.cycle % 8 == 1 {
+            self.load_shift_registers();
+        }
+
         // Pixels come from here only when the per-dot path is switched on; see `emit_pixel` for
         // why it is off. The fetches themselves always run, because the address bus they drive is
         // what clocks the mapper.
@@ -1409,8 +1417,6 @@ impl Ppu {
         let v = self.ppu_addr.get();
         match self.cycle % 8 {
             1 => {
-                // A new group begins: the tile fetched by the last one starts being drawn.
-                self.load_shift_registers();
                 self.fetch.latch_nametable = self.read_ppu_memory(0x2000 | (v & 0x0FFF));
             },
             3 => {
@@ -2835,24 +2841,17 @@ mod tests {
         ppu.temp_addr = coarse_x;
         ppu.fine_x = fine_x;
 
+        // What the per-dot path draws for the line, taken from the pixels themselves.
+        ppu.per_dot_pixels = true;
         run_to(&mut ppu, 1, 0);
+        run_to(&mut ppu, 2, 0);
+        let from_pipeline: Vec<u8> = ppu.background_pixels[256..512].to_vec();
 
-        let mut from_pipeline = Vec::new();
-        loop {
-            if (1..=256).contains(&ppu.cycle) {
-                from_pipeline.push(ppu.shifted_background_pixel().0);
-            }
-            ppu.tick();
-            if ppu.cycle > 256 || ppu.scanline != 1 {
-                break;
-            }
-        }
-
+        // And what the per-line renderer draws for the same line.
         ppu.background_pixels.fill(0);
         ppu.render_background_scanline(1);
 
-        (0..256.min(from_pipeline.len()))
-            .find(|&x| from_pipeline[x] != ppu.background_pixels[256 + x])
+        (0..256).find(|&x| from_pipeline[x] != ppu.background_pixels[256 + x])
     }
 
     /// The two paths must agree at every scroll position, not only at zero.
@@ -2901,28 +2900,17 @@ mod tests {
             ppu.write_ppu_memory(0x2000 + column, if column % 3 == 0 { 1 } else { 0 });
         }
 
+        // What the pipeline draws for the line — the pixels, not the shift registers sampled
+        // between ticks, which is a different instant and hid a reload happening a dot too late.
+        ppu.per_dot_pixels = true;
         run_to(&mut ppu, 1, 0);
-        let v_at_line_start = ppu.ppu_addr.get();
+        run_to(&mut ppu, 2, 0);
+        let from_pipeline: Vec<u8> = ppu.background_pixels[256..512].to_vec();
 
-        // What the pipeline presents, dot by dot.
-        let mut from_pipeline = Vec::new();
-        while ppu.cycle >= 1 && ppu.cycle <= 256 || ppu.cycle == 0 {
-            if (1..=256).contains(&ppu.cycle) {
-                from_pipeline.push(ppu.shifted_background_pixel().0);
-            }
-            ppu.tick();
-            if ppu.cycle > 256 {
-                break;
-            }
-        }
-
-        // What the per-line renderer produces for the same line, from the same address.
-        ppu.ppu_addr.set(v_at_line_start);
+        // What the per-line renderer produces for the same line.
         ppu.background_pixels.fill(0);
         ppu.render_background_scanline(1);
         let from_renderer: Vec<u8> = (0..256).map(|x| ppu.background_pixels[256 + x]).collect();
-
-        assert_eq!(from_pipeline.len(), 256, "the pipeline should present every visible dot");
 
         let first_difference = (0..256).find(|&x| from_pipeline[x] != from_renderer[x]);
         assert_eq!(
@@ -2935,16 +2923,19 @@ mod tests {
 
     /// Which dots of a line the shift registers present a non-transparent pixel on.
     fn dots_showing_a_pixel(ppu: &mut Ppu, scanline: i16) -> Vec<u16> {
+        // The pixels actually drawn, not the shift registers sampled between ticks. Those are two
+        // different instants — `emit_pixel` reads the registers after the reload and before the
+        // shift, while a sampling loop sees them after both — and asserting on the sample rather
+        // than the pixel is how a reload that happened a dot too late went unnoticed.
+        ppu.per_dot_pixels = true;
         run_to(ppu, scanline, 0);
+        run_to(ppu, scanline + 1, 0);
 
-        let mut dots = Vec::new();
-        while ppu.cycle < 300 {
-            if ppu.shifted_background_pixel().0 != 0 {
-                dots.push(ppu.cycle);
-            }
-            ppu.tick();
-        }
-        dots
+        let row = scanline as usize * 256;
+        (0..256)
+            .filter(|x| ppu.background_pixels[row + x] != 0)
+            .map(|x| x as u16 + 1)
+            .collect()
     }
 
     /// One tile at the left of the nametable must appear on the line's first eight dots.
@@ -4631,20 +4622,14 @@ mod tests {
     /// they differ is a scroll changed partway along a line, which is the whole point of the
     /// per-dot path and cannot be asserted equal.
     ///
-    /// **Ignored because it fails, and what it found is worth keeping.** 5166 pixels differ on a
-    /// static scene, and they are not scattered: they sit at x = 0, 8, 16, 24 — the *first pixel
-    /// of every tile* — with the rest of each tile agreeing, plus most of row 0. That is a
-    /// one-dot misalignment in the shift-register reload, so the first pixel of each tile is drawn
-    /// from the tile before it.
-    ///
-    /// It was not visible while the per-dot path was drawing, because the earlier comparison test
-    /// checked `shifted_background_pixel` against the per-line renderer rather than the finished
-    /// frame, and a whole-frame diff against Super Mario Bros 3 blamed the 2356 changed pixels on
-    /// the split. Some of them were this.
-    ///
-    /// So this has to pass before the per-dot path draws again — alongside the interrupt timing.
+    /// It found a real defect when first written, which is why it compares whole frames rather
+    /// than the shift registers: 5133 pixels differed, sitting at x = 0, 8, 16, 24 — the *first
+    /// pixel of every tile*. The shift registers were being reloaded *after* the dot's pixel was
+    /// taken, so the first pixel of each tile was drawn from the tile before it. The earlier
+    /// comparison checked `shifted_background_pixel` against the per-line renderer rather than the
+    /// finished frame, so it could not see this, and the whole-frame diff against Super Mario
+    /// Bros 3 blamed all 2356 changed pixels on the split. Some of them were this.
     #[test]
-    #[ignore = "the per-dot path is one pixel out at each tile boundary; fix before re-enabling it"]
     fn the_two_pixel_paths_agree_on_a_static_scene() {
         let frame_with = |per_dot: bool| {
             let mut ppu = ppu_with_solid_tile();
@@ -4665,7 +4650,12 @@ mod tests {
                 ppu.oam[i * 4 + 3] = (i * 37) as u8;
             }
 
-            run_to(&mut ppu, 241, 2); // a whole visible frame, then vblank
+            // The *second* frame. Row 0 is drawn from the two tiles prefetched during the
+            // previous frame's pre-render line, so a frame captured from power-on has nothing
+            // priming its first line and shows the line displaced by exactly those two tiles.
+            run_to(&mut ppu, 241, 2);
+            run_to(&mut ppu, 100, 0);
+            run_to(&mut ppu, 241, 2);
             ppu.frame_buffer.clone()
         };
 
