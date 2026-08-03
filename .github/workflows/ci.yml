@@ -1,0 +1,67 @@
+# The checks this project already relies on, run on every push instead of from memory.
+#
+# There is nothing here that is not already run by hand before a commit. The point is that it stops
+# depending on somebody remembering: a failing test was committed on the day this was written, and
+# a test that failed one run in twenty went unnoticed for weeks because a full run was rarely done
+# twice in a row.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A backtrace costs nothing until something fails, and when something does fail on a machine you
+  # cannot attach a debugger to, it is the only thing you have.
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: clippy and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The debugger draws with eframe, plays sound through cpal and opens files with rfd, so the
+      # workspace does not build headless without ALSA, GTK and the X11/Wayland libraries winit
+      # links against. The core emulator needs none of them, but `--workspace` builds the lot.
+      - name: Install the system libraries eframe, cpal and rfd link against
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libasound2-dev libudev-dev libgtk-3-dev libxkbcommon-dev \
+            libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `--locked` so a dependency that has published a new version cannot change what is built
+      # here without the lockfile saying so.
+      - name: Build
+        run: cargo build --workspace --all-targets --locked
+
+      # The workspace already denies warnings, so no `-D` is needed here — adding one would only
+      # hide the fact that the setting lives in Cargo.toml.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+      # Run the suite a second time. Tests in a file run in parallel, and the failures that come
+      # from that are the ones a single green run is worst at catching — the flake found on the day
+      # this was written showed up in a test that was not the one at fault.
+      - name: Tests again, for anything order-dependent
+        run: cargo test --workspace --locked
+
+  # Deliberately not here: `cargo fmt --check`. The repository is not currently formatted to its own
+  # .rustfmt.toml, and that file asks for options only nightly rustfmt understands, so the check
+  # would fail on every commit for reasons unrelated to the commit. Worth fixing, and worth adding
+  # here once it is — but a check nobody can make pass is a check everyone learns to ignore.

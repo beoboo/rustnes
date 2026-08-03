@@ -31,7 +31,7 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Set up GitHub repository
 - [x] Create initial documentation structure
 - [x] Set up book framework with mdBook
-- [ ] Configure CI/CD pipeline [T9]
+- [x] Configure CI/CD pipeline [T9] — `.github/workflows/ci.yml`
 - [ ] Add benchmark infrastructure [T9]
 - [ ] Set up WebAssembly build infrastructure [T10]
 
@@ -1169,5 +1169,15 @@ falls — including which pattern table is being read, which is what drives MMC3
   ~~`oam_stress`~~, ~~`mmc3_test/3-A12_clocking`~~, ~~`mmc3_test/4-scanline_timing`~~
 
 ### Housekeeping
-- [ ] CI: the workspace has a clean clippy gate and a full test suite, and nothing runs them
+- [x] CI: the workspace has a clean clippy gate and a full test suite, and nothing ran them.
+      `.github/workflows/ci.yml` now does, on every push: build, clippy and the tests, all
+      `--locked`, and the tests a second time because the failures that come from tests running in
+      parallel are the ones a single green run is worst at catching.
+
+      Two things to know about it. It has never actually run, because the repository has no git
+      remote — the commands are verified locally, the workflow is not. And it deliberately does
+      not run `cargo fmt --check`: the tree is not formatted to its own `.rustfmt.toml`, and that
+      file asks for options only nightly rustfmt understands, so the check would fail on every
+      commit for reasons unrelated to the commit. Worth fixing and worth adding then; a check
+      nobody can make pass is a check everyone learns to ignore.
 - [ ] `crates/rn_core/tests/frame_alternation.rs` depends on a local ROM path and skips silently
