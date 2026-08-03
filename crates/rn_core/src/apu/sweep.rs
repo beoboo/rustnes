@@ -1,5 +1,5 @@
 /// Represents the sweep unit for pulse channels
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Sweep {
     // Sweep register state
     enabled: bool,

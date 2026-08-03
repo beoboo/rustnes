@@ -576,10 +576,14 @@ for anything else is refused by name at load time rather than run with silently 
 - [x] AxROM (7)
 - [x] Refuse an unimplemented mapper by name instead of running it wrongly
 - [x] Save and restore mapper state, so a snapshot resumes with the right banks
-- [ ] Save and restore the APU. A snapshot carries the CPU, RAM, cartridge RAM, PPU and mapper,
-      and nothing of the sound hardware — so a restored machine is silent until the game happens
-      to rewrite every register, and its DMC is idle. Found while trying to reproduce a timing
-      bug from a snapshot, where an idle DMC is precisely the difference that matters.
+- [x] Save and restore the APU. A snapshot carried the CPU, RAM, cartridge RAM, PPU and mapper and
+      nothing of the sound hardware, so a restored machine was silent until the game happened to
+      rewrite every register. Found while trying to reproduce a timing bug from a snapshot, where
+      an idle DMC is precisely the difference that matters. Snapshots written before this still
+      load: the field is optional and defaulted, rather than refusing every save anyone already
+      had. Not saved, deliberately: the output device's sample rate and resampling accumulator,
+      which belong to the sound card a snapshot is restored *onto*, and the output filter's
+      memory, which settles inaudibly in milliseconds.
 - [ ] CNROM (3), MMC2 (9), Color Dreams (11) — each small, none needed by anything tried so far
 - [x] MMC3's A12 timing: the counter is clocked from the real PPU address bus, not from a count of
       scanlines. `3-A12_clocking` and `4-scanline_timing` both pass, the latter to PPU-clock

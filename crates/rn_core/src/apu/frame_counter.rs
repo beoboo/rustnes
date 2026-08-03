@@ -16,7 +16,7 @@
 //! driven once per CPU cycle.
 
 /// What a step of the sequence should clock.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct FrameClock {
     /// Envelopes and the triangle's linear counter.
     pub quarter_frame: bool,
@@ -64,13 +64,13 @@ const FIVE_STEP: [(u64, FrameClock); 5] = [
     (37282, FrameClock::BOTH),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Mode {
     FourStep,
     FiveStep,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FrameCounter {
     mode: Mode,
     /// CPU cycles since the sequence last restarted.

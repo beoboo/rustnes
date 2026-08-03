@@ -1,7 +1,7 @@
 use super::{envelope::Envelope, length_counter::LengthCounter};
 
 /// Represents the noise channel in the APU
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NoiseChannel {
     // Registers
     control: u8,

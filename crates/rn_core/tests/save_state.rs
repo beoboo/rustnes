@@ -127,3 +127,71 @@ fn a_snapshot_survives_serialisation() {
     run(&mut system, 1_000);
     assert_eq!(fingerprint(&system), expected, "a snapshot changed by being written out");
 }
+
+/// The sound hardware has to come back too.
+///
+/// It did not, for a long time: a snapshot carried the CPU, RAM, cartridge RAM, PPU and mapper and
+/// nothing of the APU, so a restored machine was silent until the game happened to rewrite every
+/// register. That is audible on its own, and it also makes a snapshot useless for reproducing
+/// anything the sound hardware takes part in — the DMC's DMA stalls the CPU, so a machine restored
+/// with an idle DMC runs its code at a subtly different speed from the one that was saved.
+#[test]
+fn a_playing_channel_is_still_playing_after_a_restore() {
+    let mut system = counting_system();
+
+    // Set a pulse channel going: volume, a timer period, and a length counter to keep it alive.
+    system.cpu().write_byte(0x4015, 0x01).ok(); // enable pulse 1
+    system.cpu().write_byte(0x4000, 0xBF).ok(); // duty, constant volume, full
+    system.cpu().write_byte(0x4002, 0x40).ok(); // timer low
+    system.cpu().write_byte(0x4003, 0x08).ok(); // timer high and length counter reload
+
+    for _ in 0..200 {
+        system.step().expect("stepping");
+    }
+
+    let playing = system.cpu().read_byte(0x4015).expect("reading status");
+    assert_ne!(playing & 0x01, 0, "the channel should be sounding before the snapshot");
+
+    let snapshot = system.save_state();
+    let encoded = serde_json::to_string(&snapshot).expect("encoding");
+    let decoded: rn_core::system::SaveState = serde_json::from_str(&encoded).expect("decoding");
+
+    // A fresh machine, which has never been told to make a sound.
+    let mut restored = counting_system();
+    assert_eq!(
+        restored.cpu().read_byte(0x4015).expect("reading status") & 0x01,
+        0,
+        "a machine that has not been asked to play anything should be silent"
+    );
+
+    restored.load_state(&decoded).expect("restoring");
+    assert_ne!(
+        restored.cpu().read_byte(0x4015).expect("reading status") & 0x01,
+        0,
+        "the channel was sounding when the snapshot was taken and must sound after it"
+    );
+}
+
+/// A snapshot written before the APU was saved still loads.
+///
+/// Refusing them was the alternative, and it would have thrown away real saves to add a field none
+/// of them could have had. Such a snapshot restores a machine whose APU carries on from wherever
+/// it was, which is what the emulator did before this.
+#[test]
+fn a_snapshot_without_apu_state_still_loads() {
+    let mut system = counting_system();
+    for _ in 0..100 {
+        system.step().expect("stepping");
+    }
+
+    let encoded = serde_json::to_string(&system.save_state()).expect("encoding");
+    let mut value: serde_json::Value = serde_json::from_str(&encoded).expect("parsing");
+    value.as_object_mut().expect("an object").remove("apu");
+    let older = serde_json::to_string(&value).expect("re-encoding");
+
+    let decoded: rn_core::system::SaveState =
+        serde_json::from_str(&older).expect("a snapshot without an APU should still parse");
+
+    let mut restored = counting_system();
+    restored.load_state(&decoded).expect("restoring a snapshot that predates APU state");
+}

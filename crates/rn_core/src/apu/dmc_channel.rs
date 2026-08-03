@@ -1,7 +1,7 @@
 use super::length_counter::LengthCounter;
 
 /// Represents the DMC (Delta Modulation Channel) in the APU
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DmcChannel {
     // Registers
     control: u8,     // $4010: IRQ enable, loop, frequency

@@ -121,6 +121,15 @@ pub struct SaveState {
     prg_ram: Vec<u8>,
     ppu: PpuState,
     mapper: Vec<u8>,
+
+    /// The sound hardware.
+    ///
+    /// Optional, and defaulted when absent, so that snapshots written before the APU was saved
+    /// still load. Refusing them would have been the alternative, and it would have thrown away
+    /// real saves to add a field none of them could have had. A snapshot without this restores a
+    /// machine whose APU carries on from wherever it was, which is exactly the old behaviour.
+    #[serde(default)]
+    apu: Option<crate::apu::ApuState>,
 }
 
 /// Bumped whenever the layout changes, so old snapshots are refused rather than misread.
@@ -155,6 +164,7 @@ impl NesSystem {
             ram: read_range(0x0000, 0x0800),
             prg_ram: read_range(0x6000, 0x2000),
             ppu: self.ppu.save_state(),
+            apu: Some(self.apu.save_state()),
             mapper: self
                 .mapper
                 .borrow()
@@ -188,6 +198,9 @@ impl NesSystem {
         self.interrupts.nmi.set(state.nmi_pending);
 
         self.ppu.load_state(&state.ppu);
+        if let Some(apu) = &state.apu {
+            self.apu.load_state(apu);
+        }
 
         if let Some(mapper) = self.mapper.borrow().as_ref() {
             mapper.borrow_mut().load_state(&state.mapper);

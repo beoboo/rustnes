@@ -1,5 +1,5 @@
 /// Represents the envelope generator for sound channels
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Envelope {
     // State fields
     pub start: bool,

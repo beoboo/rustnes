@@ -1,7 +1,7 @@
 use super::{envelope::Envelope, length_counter::LengthCounter, sweep::Sweep};
 
 /// Represents a single pulse channel in the APU
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PulseChannel {
     // Registers
     control: u8,

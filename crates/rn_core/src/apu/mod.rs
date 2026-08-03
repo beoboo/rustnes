@@ -74,6 +74,27 @@ impl Channel {
 /// APU status/control register bits.
 const STATUS_FRAME_IRQ: u8 = 0x40;
 
+/// Everything about the APU that cannot be recomputed.
+///
+/// Deliberately excludes three things. The output device's sample rate and the resampling
+/// accumulator are properties of the sound card the snapshot is *restored* onto, not of the
+/// machine that was saved. The output filter's memory settles inaudibly within milliseconds. And
+/// the audio sink itself is a connection, not state.
+///
+/// What is here is what a game can observe or hear: the five channels with their timers, envelopes,
+/// sweeps and length counters, the status register, and the frame sequencer.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ApuState {
+    pulse1: PulseChannel,
+    pulse2: PulseChannel,
+    triangle: TriangleChannel,
+    noise: NoiseChannel,
+    dmc: DmcChannel,
+    status: u8,
+    apu_cycle: bool,
+    frame_counter: FrameCounter,
+}
+
 /// Wrapper for APU to make it easier to use with Rc/RefCell
 #[derive(Clone, Debug)]
 pub struct ApuWrapper {
@@ -81,6 +102,16 @@ pub struct ApuWrapper {
 }
 
 impl ApuWrapper {
+    /// Capture the APU's state.
+    pub fn save_state(&self) -> ApuState {
+        self.apu.borrow().save_state()
+    }
+
+    /// Restore a captured APU state.
+    pub fn load_state(&self, state: &ApuState) {
+        self.apu.borrow_mut().load_state(state);
+    }
+
     /// Create a new APU wrapper
     pub fn new(apu: Apu) -> Self {
         Self {
@@ -232,6 +263,32 @@ pub struct Apu {
 }
 
 impl Apu {
+    /// Capture everything that cannot be recomputed.
+    pub fn save_state(&self) -> ApuState {
+        ApuState {
+            pulse1: self.pulse1.clone(),
+            pulse2: self.pulse2.clone(),
+            triangle: self.triangle.clone(),
+            noise: self.noise.clone(),
+            dmc: self.dmc.clone(),
+            status: self.status,
+            apu_cycle: self.apu_cycle,
+            frame_counter: self.frame_counter.clone(),
+        }
+    }
+
+    /// Restore a captured state, leaving the connection to the sound card as it is.
+    pub fn load_state(&mut self, state: &ApuState) {
+        self.pulse1 = state.pulse1.clone();
+        self.pulse2 = state.pulse2.clone();
+        self.triangle = state.triangle.clone();
+        self.noise = state.noise.clone();
+        self.dmc = state.dmc.clone();
+        self.status = state.status;
+        self.apu_cycle = state.apu_cycle;
+        self.frame_counter = state.frame_counter.clone();
+    }
+
     /// Create a new APU instance
     pub fn new() -> Self {
         Self {

@@ -1,6 +1,6 @@
 /// Length counter for NES APU channels
 /// The length counter is used to limit the duration of a sound
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LengthCounter {
     // Length counter value (0 = disabled)
     counter: u8,

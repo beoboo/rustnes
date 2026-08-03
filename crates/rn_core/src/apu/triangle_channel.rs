@@ -1,7 +1,7 @@
 use super::length_counter::LengthCounter;
 
 /// Represents the triangle channel in the APU
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TriangleChannel {
     // Registers
     control: u8,  // Register 0 ($4008) - Control register
