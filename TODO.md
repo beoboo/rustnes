@@ -1112,6 +1112,27 @@ falls — including which pattern table is being read, which is what drives MMC3
       - [ ] The interrupt lands on the right cycle, so the split's write burst starts at dot 257
             rather than dot ~190.
 
+            Sharpened, since the numbers are exact and worth not re-deriving. The handler's six
+            `STX $2006` writes land on dots 194, 206, 218, 230, 266 and 278 — the first four four
+            cycles apart, then twelve cycles of other work, then the last pair. First to last is
+            **84 dots, and hblank is 84 dots**, so the burst is built to drop into it exactly and
+            ours begins **21 CPU cycles early**. Everything downstream of that is right: the
+            handler is 190 cycles from entry to the first write, hand-counted from the 6502's own
+            timings and matched by the emulator to the dot.
+
+            Ruled out so far, each measured rather than argued:
+
+            - The CPU running fast or slow. A frame costs 29776 cycles against hardware's 29781
+              once the sprite DMA is counted, and the handler path is exact.
+            - The A12 rise being on the wrong dot. It is at dot 260 with `$2000 = $A8`, which is
+              what `mmc3_test/4-scanline_timing` checks and passes.
+            - The mapper being clocked too often. It *is* — 243 times a frame rather than 241,
+              because a palette access through `$2007` puts `$3Fxx` on the bus and bit 12 of
+              `$3F00` is set, so every palette update clocks the counter. Suppressing those clocks
+              changes neither `mmc3_test` nor the dot the burst starts on, so it is left alone and
+              recorded here as a question: whether a palette access should reach the cartridge at
+              all is worth settling, but it is not this bug.
+
       Also waiting on the same switch: a transparent pixel should show the backdrop as it stands at
       that dot rather than the colour the frame was cleared to. `emit_pixel` does it; the per-line
       renderer deliberately does not, because it makes every transparent pixel follow a mid-frame
