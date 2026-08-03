@@ -1098,6 +1098,25 @@ falls — including which pattern table is being read, which is what drives MMC3
       is the cycle-exact CPU/PPU alignment already named above as what blocks `cpu_interrupts_v2` —
       the two rewrites meeting again. Reproduce with a save state on that screen and diff the split
       rows frame to frame; a scratch harness for it is straightforward and was thrown away.
+
+      **Reverted for now**, so the picture is right while that is outstanding: pixels come from the
+      per-line renderer again and `emit_pixel` sits behind `per_dot_pixels`, off. What has to be
+      true before it goes back:
+
+      - [x] The two paths agree pixel for pixel on a static scene. They now do. They did not: the
+            shift registers were reloaded *after* the dot's pixel was taken, so the first pixel of
+            every tile came from the tile before it. Four pipeline tests had encoded the fault,
+            because they sampled the shift registers between ticks rather than the pixels actually
+            drawn — a different instant, and the reason the note above concluded the alignment was
+            already right when it was not.
+      - [ ] The interrupt lands on the right cycle, so the split's write burst starts at dot 257
+            rather than dot ~190.
+
+      Also waiting on the same switch: a transparent pixel should show the backdrop as it stands at
+      that dot rather than the colour the frame was cleared to. `emit_pixel` does it; the per-line
+      renderer deliberately does not, because it makes every transparent pixel follow a mid-frame
+      $3F00 change and the row where that change lands jitters for exactly the same reason the
+      split does. A steady approximation beats a flickering correctness until the timing is right.
 - [x] Sprite evaluation per dot, so $2004 reads during rendering return what it holds
 
       Secondary OAM now exists and is worked on its real schedule: wiped over dots 1-64, evaluated
