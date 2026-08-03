@@ -983,6 +983,24 @@ falls — including which pattern table is being read, which is what drives MMC3
       So the fetches cannot be done in halves: background and sprite fetches have to arrive
       together before A12 means anything, and the switch away from scanline counting has to happen
       in the same change. Preserved in `scratchpad/ppu-fetches/`.
+
+- [x] The fetch machinery itself: nametable, attribute and both bitplanes into latches, loaded into
+      shift registers, with fine X selecting a bit. Tested directly; does not drive pixels.
+- [ ] Switch pixel output to the shift registers
+
+      Attempted and reverted. 23% of Super Mario Bros 3's picture changed — not a horizontal shift
+      of it, and not fixed by correcting the reload dots to 9, 17 ... 257, 329 and 337, which
+      changed nothing measurable.
+
+      What it turns on is that a 16-bit shifter takes pixels from bit 15 while reloads enter at the
+      low byte, so a tile becomes visible *eight dots after* it is loaded. Making that chain line up
+      across the line boundary is the whole difficulty: the prefetch groups run at 321-336, shifting
+      stops at 337, and the line is 341 dots, so the two prefetched tiles have to arrive at the top
+      of the register exactly as dots 1 and 9 of the next line come round. Getting that right needs
+      the register contents traced dot by dot against a known-good sequence rather than reasoned
+      about — a test that walks one tile through the pipeline and asserts which dot it appears on.
+
+      Write that test first, then switch. Preserved in `scratchpad/ppu-pixel-switch/`.
 - [ ] Sprite evaluation per dot, so $2004 reads during rendering return what it holds
 - [ ] Vblank flag set and cleared at the exact dot
 - Acceptance: `ppu_vbl_nmi`, `blargg_ppu_tests`, `oam_read`, `oam_stress`,
