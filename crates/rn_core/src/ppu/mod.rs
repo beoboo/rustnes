@@ -385,6 +385,18 @@ pub struct Ppu {
     scanline: i16,            // Current scanline (-1 to 261)
     cycle: u16,               // Current cycle (0 to 340)
 
+    /// The scroll address a line is drawn from, captured at dot 257.
+    ///
+    /// `v` does not stand still across a line. It advances a tile per fetch group, and the two
+    /// groups that prefetch the next line's first tiles advance it twice more — so by the time the
+    /// next line begins, `v` is two tiles past where that line starts. Anything wanting the address
+    /// a line is drawn *from* has to be handed it at dot 257 rather than read `v` afterwards.
+    ///
+    /// Captured whether or not rendering is on. Hardware only reloads while rendering, but a
+    /// renderer still has to draw the line after a game unblanks, and a value left over from
+    /// before the blanking would be stale.
+    line_start_addr: u16,
+
     /// The background fetch pipeline: what the current eight-dot group has read so far, and the
     /// shift registers the finished group is loaded into.
     ///
@@ -581,6 +593,7 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             odd_frame: false,
+            line_start_addr: 0,
             fetch: TileFetch::default(),
             suppress_vblank: Cell::new(false),
 
@@ -690,6 +703,10 @@ impl Ppu {
             if self.scanline == 261 && (280..=304).contains(&self.cycle) {
                 self.reload_vertical_scroll();
             }
+        }
+
+        if self.cycle == 257 {
+            self.line_start_addr = self.ppu_addr.get();
         }
 
         // Vblank begins and ends on the *second* dot of their scanlines, not the first.
@@ -1117,7 +1134,7 @@ impl Ppu {
         // it, and the row within the tile. Deriving it from separate scroll bytes is what made
         // Super Mario Bros 3's title screen flicker — the game scrolls it with $2006, which those
         // bytes never saw, and alternates a $2005 Y of 0 and 254 whose effect is deferred a frame.
-        let v = self.ppu_addr.get() as usize;
+        let v = self.line_start_addr as usize;
         let coarse_x_start = v & 0x1F;
         let tile_row = (v >> 5) & 0x1F;
         let nametable_x_start = (v >> 10) & 1;
@@ -2267,23 +2284,16 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
-    /// The fetch pipeline and the per-line renderer disagree by exactly one tile.
+    /// The fetch pipeline and the per-line renderer must agree pixel for pixel.
     ///
-    /// Ignored because it fails, and it is meant to: it records a divergence that is not yet
-    /// resolved, in the one form that says anything useful about it.
+    /// They are two ways of answering the same question, and until pixel output moves across, the
+    /// per-line one is what reaches the screen. Comparing them on a scene built here rather than
+    /// through a game says *which* pixel differs, where a rendered frame only says how many do —
+    /// and a frame is a poor witness for this: a displacement of one tile moves every tile after
+    /// it, so it reads as a different picture rather than a shifted one.
     ///
-    /// The pipeline draws the tile at the address in `v` starting at x=0; the per-line renderer
-    /// draws it from x=8. Every tile is displaced by eight pixels, which is why switching pixel
-    /// output changed a quarter of Super Mario Bros 3 and did not look like a shifted picture —
-    /// each tile moved into its neighbour's place.
-    ///
-    /// Which of the two is right is the open question, and it is not obvious: the pipeline's
-    /// reasoning says the tile at coarse X should appear at x=0, while the per-line renderer is
-    /// what currently draws games correctly. Resolving it means checking against hardware
-    /// behaviour rather than against either implementation's logic — the next thing to do here,
-    /// and cheap now that the disagreement is one number rather than a percentage of a frame.
+    /// They disagreed until the renderer was given the address the line actually starts from.
     #[test]
-    #[ignore = "records an unresolved one-tile divergence; see the doc comment"]
     fn the_pipeline_and_the_per_line_renderer_agree() {
         let mut ppu = ppu_with_solid_tile();
 
