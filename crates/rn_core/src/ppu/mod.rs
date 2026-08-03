@@ -385,6 +385,14 @@ pub struct Ppu {
     scanline: i16,            // Current scanline (-1 to 261)
     cycle: u16,               // Current cycle (0 to 340)
 
+    /// The sprites chosen for the line now being drawn.
+    ///
+    /// Hardware picks them while the *previous* line is still being scanned, and fetches their
+    /// patterns after it. Keeping them here means the line can be composited a pixel at a time as
+    /// the beam reaches it, rather than in one pass at either end of the line — which is what lets
+    /// the sprite-zero hit be reported at the dot it actually happens on.
+    selected_sprites: Vec<SpriteData>,
+
     /// The scroll address a line is drawn from, captured at dot 257.
     ///
     /// `v` does not stand still across a line. It advances a tile per fetch group, and the two
@@ -568,6 +576,7 @@ struct TileFetch {
 }
 
 /// Struct to hold processed sprite data for rendering
+#[derive(Debug)]
 struct SpriteData {
     /// Whether this is sprite 0, the one whose overlap sets the sprite-zero hit flag.
     is_sprite_zero: bool,
@@ -593,6 +602,7 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             odd_frame: false,
+            selected_sprites: Vec::new(),
             line_start_addr: 0,
             fetch: TileFetch::default(),
             suppress_vblank: Cell::new(false),
@@ -707,6 +717,17 @@ impl Ppu {
 
         if self.cycle == 257 {
             self.line_start_addr = self.ppu_addr.get();
+
+            // Sprites are chosen for the line about to be drawn, from object memory as it stands
+            // now — which is why a game rewriting it partway down a frame sees the change take
+            // effect on the following line rather than this one.
+            let next = self.scanline + 1;
+            self.selected_sprites = if (0..240).contains(&next) && (self.mask & MASK_SHOW_SPRITES) != 0
+            {
+                self.evaluate_sprites_for_scanline(next as usize)
+            } else {
+                Vec::new()
+            };
         }
 
         // Vblank begins and ends on the *second* dot of their scanlines, not the first.
@@ -792,10 +813,8 @@ impl Ppu {
                 // partway down the frame survives that restore, because such a write sets `t` as
                 // well as `v` — which is what makes it a mid-frame scroll change rather than one
                 // that lasts a single line.
-                self.render_background_scanline(y);
-                // Sprites go on top, and are evaluated for this line specifically — so OAM
-                // changes made partway down a frame take effect from that line on, as on hardware.
-                self.render_sprites_for_scanline(y);
+                // Both layers are drawn dot by dot as the line is scanned; nothing happens here.
+                let _ = y;
             }
 
             // Start of next frame
@@ -994,6 +1013,11 @@ impl Ppu {
             return;
         }
 
+        // The pixel is taken from the registers as they stand, and only then do they advance.
+        if (1..=256).contains(&self.cycle) && (0..240).contains(&self.scanline) {
+            self.emit_pixel();
+        }
+
         // The registers advance one pixel per dot while pixels are being produced.
         self.fetch.shift_pattern_low <<= 1;
         self.fetch.shift_pattern_high <<= 1;
@@ -1030,6 +1054,102 @@ impl Ppu {
                 }
             },
             _ => {},
+        }
+    }
+
+    /// Draw one pixel: background from the shift registers, with any sprite over or behind it.
+    ///
+    /// Both layers are resolved here, at the dot the beam reaches them, which is what makes the
+    /// sprite-zero hit land on the right cycle. Reporting it at the start or end of a line instead
+    /// moves every screen split that depends on it.
+    fn emit_pixel(&mut self) {
+        let x = (self.cycle - 1) as usize;
+        let y = self.scanline as usize;
+
+        let showing_background = (self.mask & MASK_SHOW_BACKGROUND) != 0
+            // The leftmost eight pixels have their own mask, used to hide what scrolling exposes
+            // at the edge.
+            && (x >= 8 || (self.mask & MASK_SHOW_LEFT_BACKGROUND) != 0);
+
+        let (background, background_palette) =
+            if showing_background { self.shifted_background_pixel() } else { (0, 0) };
+
+        let index = y * 256 + x;
+        if index < self.background_pixels.len() {
+            self.background_pixels[index] = background;
+        }
+
+        let sprite = self.sprite_pixel_at(x, background);
+
+        // Colour 0 of any palette is transparent and leaves the backdrop the frame was cleared to.
+        let colour = match sprite {
+            Some((value, attributes)) => {
+                self.read_palette(0x3F10 + ((attributes & 0x03) as u16 * 4) + value as u16)
+            },
+            None if background != 0 => {
+                self.read_palette(0x3F00 + (background_palette as u16 * 4) + background as u16)
+            },
+            None => return,
+        };
+
+        let rgb = self.palette_to_rgb(colour);
+        let offset = index * 3;
+        if offset + 2 < self.working_frame.len() {
+            self.working_frame[offset..offset + 3].copy_from_slice(&rgb);
+        }
+    }
+
+    /// The sprite pixel to draw at `x`, if any, and report the sprite-zero hit while deciding.
+    ///
+    /// Where sprites overlap the lowest-numbered one wins, and only that one's priority bit decides
+    /// whether the background covers it — a sprite that lost the pixel has no say even if it would
+    /// have been drawn in front.
+    fn sprite_pixel_at(&mut self, x: usize, background: u8) -> Option<(u8, u8)> {
+        if (self.mask & MASK_SHOW_SPRITES) == 0 {
+            return None;
+        }
+
+        // Sprites have their own leftmost-eight mask, for the same reason the background does.
+        if x < 8 && (self.mask & MASK_SHOW_LEFT_SPRITES) == 0 {
+            return None;
+        }
+
+        let mut winner = None;
+        let mut hit = false;
+
+        for sprite in &self.selected_sprites {
+            let start = sprite.x_position as usize;
+            if x < start || x >= start + 8 {
+                continue;
+            }
+
+            let value = sprite.tile_data[x - start];
+            if value == 0 {
+                continue;
+            }
+
+            // The hit is reported whether or not sprite zero is the sprite displayed here, and
+            // never on the rightmost pixel.
+            if sprite.is_sprite_zero && background != 0 && x < 255 {
+                hit = true;
+            }
+
+            if winner.is_none() {
+                winner = Some((value, sprite.attributes));
+            }
+        }
+
+        if hit {
+            self.status.set(self.status.get() | STATUS_SPRITE_ZERO_HIT);
+            if self.sprite_zero_hit_this_frame < 0 {
+                self.sprite_zero_hit_this_frame = self.scanline;
+            }
+        }
+
+        // A sprite behind the background shows only where the background is transparent.
+        match winner {
+            Some((_, attributes)) if (attributes & 0x20) != 0 && background != 0 => None,
+            other => other,
         }
     }
 
@@ -2284,6 +2404,106 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// A scroll change made partway along a line takes effect on that line.
+    ///
+    /// This is how a split screen works: a game writes $2006 from an interrupt handler as the beam
+    /// passes a known point, and the rest of that line comes from somewhere else. A renderer that
+    /// draws a whole line from the address it held at the start cannot express it at all — the
+    /// change appears on the next line instead, one line too low.
+    ///
+    /// The change is not instant. The tile being drawn was fetched eight dots ago and the one
+    /// after it is already fetched, so the new address reaches the screen about two tiles later,
+    /// which is exactly why games write it early.
+    #[test]
+    fn a_scroll_change_partway_along_a_line_takes_effect_on_that_line() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // $2000 solid, $2400 empty — the two that are distinct memory under vertical mirroring,
+        // where $2800 is another view of $2000 and filling it would undo the first. Every row,
+        // because the vertical position has advanced by the time the line under test is reached.
+        ppu.mirroring = Mirroring::Vertical;
+        for entry in 0..960u16 {
+            ppu.write_ppu_memory(0x2000 + entry, 1);
+            ppu.write_ppu_memory(0x2400 + entry, 0);
+        }
+
+        run_to(&mut ppu, 1, 100);
+        assert_eq!(ppu.shifted_background_pixel().0, 3, "drawing the solid nametable");
+
+        // Point the address at the empty nametable, as a split would.
+        ppu.ppu_addr.set(0x2400);
+
+        // Give the pipeline the couple of tiles it takes for a fetch to reach the screen.
+        for _ in 0..24 {
+            ppu.tick();
+        }
+
+        assert_eq!(
+            ppu.shifted_background_pixel().0,
+            0,
+            "the rest of the line should come from the nametable the write selected"
+        );
+    }
+
+    /// Compare the two background paths for a given scroll, returning the first x they differ at.
+    fn compare_paths_with_scroll(fine_x: u8, coarse_x: u16) -> Option<usize> {
+        let mut ppu = ppu_with_solid_tile();
+
+        for column in 0..32u16 {
+            ppu.write_ppu_memory(0x2000 + column, if column % 3 == 0 { 1 } else { 0 });
+        }
+
+        ppu.temp_addr = coarse_x;
+        ppu.fine_x = fine_x;
+
+        run_to(&mut ppu, 1, 0);
+
+        let mut from_pipeline = Vec::new();
+        loop {
+            if (1..=256).contains(&ppu.cycle) {
+                from_pipeline.push(ppu.shifted_background_pixel().0);
+            }
+            ppu.tick();
+            if ppu.cycle > 256 || ppu.scanline != 1 {
+                break;
+            }
+        }
+
+        ppu.background_pixels.fill(0);
+        ppu.render_background_scanline(1);
+
+        (0..256.min(from_pipeline.len()))
+            .find(|&x| from_pipeline[x] != ppu.background_pixels[256 + x])
+    }
+
+    /// The two paths must agree at every scroll position, not only at zero.
+    ///
+    /// Fine X is where they can most easily part company: the per-line renderer adds it to each
+    /// pixel's coordinate, while the pipeline uses it to choose a bit within the shift registers.
+    /// Those are the same thing only if the registers hold the tiles the coordinate arithmetic
+    /// would have reached, which is exactly the claim worth testing.
+    #[test]
+    fn the_two_background_paths_agree_at_every_scroll() {
+        for fine_x in 0..8u8 {
+            assert_eq!(
+                compare_paths_with_scroll(fine_x, 0),
+                None,
+                "the paths differ with a fine X scroll of {fine_x}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_two_background_paths_agree_at_every_coarse_scroll() {
+        for coarse_x in [0u16, 1, 5, 17, 31] {
+            assert_eq!(
+                compare_paths_with_scroll(0, coarse_x),
+                None,
+                "the paths differ with a coarse X scroll of {coarse_x}"
+            );
+        }
+    }
+
     /// The fetch pipeline and the per-line renderer must agree pixel for pixel.
     ///
     /// They are two ways of answering the same question, and until pixel output moves across, the
