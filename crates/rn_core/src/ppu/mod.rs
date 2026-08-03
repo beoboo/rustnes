@@ -2267,6 +2267,63 @@ impl Addressable for Ppu {
 
 #[cfg(test)]
 mod tests {
+    /// The fetch pipeline and the per-line renderer disagree by exactly one tile.
+    ///
+    /// Ignored because it fails, and it is meant to: it records a divergence that is not yet
+    /// resolved, in the one form that says anything useful about it.
+    ///
+    /// The pipeline draws the tile at the address in `v` starting at x=0; the per-line renderer
+    /// draws it from x=8. Every tile is displaced by eight pixels, which is why switching pixel
+    /// output changed a quarter of Super Mario Bros 3 and did not look like a shifted picture —
+    /// each tile moved into its neighbour's place.
+    ///
+    /// Which of the two is right is the open question, and it is not obvious: the pipeline's
+    /// reasoning says the tile at coarse X should appear at x=0, while the per-line renderer is
+    /// what currently draws games correctly. Resolving it means checking against hardware
+    /// behaviour rather than against either implementation's logic — the next thing to do here,
+    /// and cheap now that the disagreement is one number rather than a percentage of a frame.
+    #[test]
+    #[ignore = "records an unresolved one-tile divergence; see the doc comment"]
+    fn the_pipeline_and_the_per_line_renderer_agree() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // A varied row: alternating opaque and blank tiles, so a displacement of any size shows.
+        for column in 0..32u16 {
+            ppu.write_ppu_memory(0x2000 + column, if column % 3 == 0 { 1 } else { 0 });
+        }
+
+        run_to(&mut ppu, 1, 0);
+        let v_at_line_start = ppu.ppu_addr.get();
+
+        // What the pipeline presents, dot by dot.
+        let mut from_pipeline = Vec::new();
+        while ppu.cycle >= 1 && ppu.cycle <= 256 || ppu.cycle == 0 {
+            if (1..=256).contains(&ppu.cycle) {
+                from_pipeline.push(ppu.shifted_background_pixel().0);
+            }
+            ppu.tick();
+            if ppu.cycle > 256 {
+                break;
+            }
+        }
+
+        // What the per-line renderer produces for the same line, from the same address.
+        ppu.ppu_addr.set(v_at_line_start);
+        ppu.background_pixels.fill(0);
+        ppu.render_background_scanline(1);
+        let from_renderer: Vec<u8> = (0..256).map(|x| ppu.background_pixels[256 + x]).collect();
+
+        assert_eq!(from_pipeline.len(), 256, "the pipeline should present every visible dot");
+
+        let first_difference = (0..256).find(|&x| from_pipeline[x] != from_renderer[x]);
+        assert_eq!(
+            first_difference, None,
+            "pipeline {:?} vs renderer {:?} around the first difference",
+            &from_pipeline[first_difference.unwrap_or(0).saturating_sub(2)..(first_difference.unwrap_or(0) + 10).min(256)],
+            &from_renderer[first_difference.unwrap_or(0).saturating_sub(2)..(first_difference.unwrap_or(0) + 10).min(256)],
+        );
+    }
+
     /// Which dots of a line the shift registers present a non-transparent pixel on.
     fn dots_showing_a_pixel(ppu: &mut Ppu, scanline: i16) -> Vec<u16> {
         run_to(ppu, scanline, 0);

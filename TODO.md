@@ -1001,6 +1001,21 @@ falls — including which pattern table is being read, which is what drives MMC3
       about — a test that walks one tile through the pipeline and asserts which dot it appears on.
 
       Write that test first, then switch. Preserved in `scratchpad/ppu-pixel-switch/`.
+
+      Done, and it disproved the diagnosis above: the alignment is already right. A tile appears on
+      dots 1-8 and the next on 9-16, exactly as it should.
+
+      Comparing the two renderers directly on a synthetic scene found the real cause in one line.
+      They disagree by exactly one tile: the pipeline draws the tile at the address in `v` starting
+      at x=0, the per-line renderer draws it from x=8. Every tile displaced by eight pixels, which
+      is why a quarter of the frame changed and why it did not look shifted — each tile moved into
+      its neighbour's place.
+
+      Which is correct is the open question, and it is not obvious from either implementation: the
+      pipeline's reasoning says the tile at coarse X belongs at x=0, while the per-line renderer is
+      what currently draws games correctly. It needs checking against hardware, not against either
+      one's logic. `the_pipeline_and_the_per_line_renderer_agree` is committed as an ignored test
+      that records the disagreement; make it pass, then switch pixel output.
 - [ ] Sprite evaluation per dot, so $2004 reads during rendering return what it holds
 - [ ] Vblank flag set and cleared at the exact dot
 - Acceptance: `ppu_vbl_nmi`, `blargg_ppu_tests`, `oam_read`, `oam_stress`,
