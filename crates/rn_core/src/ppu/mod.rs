@@ -30,6 +30,29 @@ pub const MASK_EMPHASIZE_RED: u8 = 0x20; // Emphasize red
 pub const MASK_EMPHASIZE_GREEN: u8 = 0x40; // Emphasize green
 pub const MASK_EMPHASIZE_BLUE: u8 = 0x80; // Emphasize blue
 
+/// How long bit 12 of the PPU address must stay low before a rise counts, in dots.
+///
+/// MMC3 does not see the address line directly: it filters it, so that only a rise following a
+/// quiet period clocks the counter. Without that filter the alternation between a $1xxx pattern
+/// fetch and the $2xxx nametable fetch four dots later would clock it repeatedly across a line.
+///
+/// The hardware figure is about three CPU cycles, which is nine dots. Ten is what `mmc3_test`'s
+/// scanline timing actually accepts, and the boundary is sharp: at nine it fails, because the gap
+/// between the last prefetch of one line and the first background fetch of the next comes to
+/// exactly nine dots here, and hardware does not count that as a rise. Anything from ten to
+/// sixty-six passes — sixty-six being where the filter starts swallowing the sprite fetches
+/// themselves — so ten is both the physical value and one dot clear of the only nearby edge.
+const A12_FILTER_DOTS: u16 = 10;
+
+/// How far ahead of the read it serves the PPU puts an address on the bus, in dots.
+///
+/// An access takes two dots, and the address for it is asserted at the end of the dot before the
+/// first of them. That one dot is not a detail that can be rounded away: it is the difference
+/// between the sprite pattern fetch at dots 261-262 and the figure the documentation quotes for
+/// when MMC3's counter clocks, which is dot 260. Measured rather than assumed — `4-scanline_timing`
+/// fails at both a lead of zero and a lead of two, and passes at one.
+const ADDRESS_BUS_LEAD_DOTS: u16 = 1;
+
 // PPUSTATUS ($2002) bits
 pub const STATUS_SPRITE_OVERFLOW: u8 = 0x20; // Sprite overflow occurred
 pub const STATUS_SPRITE_ZERO_HIT: u8 = 0x40; // Sprite 0 hit occurred
@@ -213,15 +236,6 @@ impl PpuWrapper {
         self.ppu.borrow_mut().mirroring = mirroring;
     }
 
-    /// Take the count of visible scanlines finished since the last call.
-    ///
-    /// Only counts while rendering is enabled, matching the pattern fetches a scanline-counting
-    /// mapper actually observes.
-    pub fn take_scanlines(&self) -> u8 {
-        let mut ppu = self.ppu.borrow_mut();
-        std::mem::take(&mut ppu.scanlines_completed)
-    }
-
     /// Take a pending vblank NMI, if one was raised since the last call.
     ///
     /// Consuming rather than peeking keeps this edge-triggered: one vblank raises exactly one
@@ -358,12 +372,6 @@ pub struct Ppu {
     /// Set when vblank begins with NMI enabled; cleared when the system collects it.
     nmi_raised: Cell<bool>,
 
-    /// Visible scanlines finished since the system last collected them.
-    ///
-    /// Scanline-counting mappers such as MMC3 drive their IRQ from this, which is how a game
-    /// splits the screen — SMB3's status bar is exactly that.
-    scanlines_completed: u8,
-
     /// Nametable layout, set from the cartridge header.
     mirroring: Mirroring,
 
@@ -413,6 +421,14 @@ pub struct Ppu {
     /// tile is being fetched. That is why a scroll change partway along a line takes effect a tile
     /// later than the write: the pixels being drawn were fetched before it.
     fetch: TileFetch,
+
+    /// Bit 12 of the address the PPU last drove, and how many dots it has been low for.
+    ///
+    /// This pair is the whole of the filter a scanline-counting mapper applies. Held here rather
+    /// than in the mapper because it is a property of the line, not of the cartridge: the mapper
+    /// only ever sees the edges that survive it.
+    a12_high: bool,
+    a12_low_dots: u16,
 
     /// Set when a read of $2002 landed just before vblank began, which stops the flag being set
     /// at all for that frame. Cleared once the moment has passed.
@@ -595,6 +611,15 @@ struct SpriteData {
     attributes: u8,     // Sprite attributes (palette, flip, priority)
     x_position: u8,     // X position (left of sprite)
     tile_data: [u8; 8], // Processed pixel data for a single row
+
+    /// The address the low bitplane of this row is fetched from, with the high plane eight bytes
+    /// after it.
+    ///
+    /// The pixels are already decoded into `tile_data`, so nothing about the picture needs this.
+    /// What needs it is the address bus: a mapper watching bit 12 sees these fetches, and they are
+    /// the ones that make it rise — the background reads the other half of pattern memory and the
+    /// nametable fetches are at $2xxx, where bit 12 is clear.
+    pattern_address: u16,
 }
 
 impl Ppu {
@@ -602,6 +627,8 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             odd_frame: false,
+            a12_high: false,
+            a12_low_dots: A12_FILTER_DOTS,
             selected_sprites: Vec::new(),
             line_start_addr: 0,
             fetch: TileFetch::default(),
@@ -628,7 +655,6 @@ impl Ppu {
             write_toggle: Cell::new(false),
             frame_count: 0,
             nmi_raised: Cell::new(false),
-            scanlines_completed: 0,
             mirroring: Mirroring::default(),
             diagnostics: FrameDiagnostics {
                 last_toggle_scanline: -1,
@@ -698,21 +724,18 @@ impl Ppu {
                 self.reload_horizontal_scroll();
             }
 
-            // Clock a scanline-counting mapper here rather than at the scanline boundary.
-            //
-            // MMC3's counter is really driven by bit 12 of the PPU address rising, which during
-            // rendering happens as the sprite pattern fetches begin — around this dot, not at the
-            // start of the line. The count per frame is the same either way, 241 including the
-            // pre-render line, but a game splitting the screen positions its write relative to
-            // when the interrupt arrives, so a clock at the wrong dot moves the split.
-            if self.cycle == 260 {
-                self.scanlines_completed = self.scanlines_completed.saturating_add(1);
-            }
-
             // The pre-render line reloads the vertical position across a range of dots, not one.
             if self.scanline == 261 && (280..=304).contains(&self.cycle) {
                 self.reload_vertical_scroll();
             }
+
+            // A scanline-counting mapper is clocked from the real address bus rather than from a
+            // count of lines. The two agree on how many clocks a frame contains — 241, including
+            // the pre-render line — but not on when they arrive, and a game splitting the screen
+            // positions its write relative to the interrupt, so the wrong dot moves the split.
+            //
+            // Driven last, so the address reflects the advances this dot has already made to `v`.
+            self.drive_address_bus();
         }
 
         if self.cycle == 257 {
@@ -978,6 +1001,106 @@ impl Ppu {
         self.scanline = state.scanline;
         self.cycle = state.cycle;
         self.mirroring = state.mirroring;
+    }
+
+    /// The address a rendered line's fetch schedule reads from at `dot`.
+    ///
+    /// `dot` is the dot the read happens on, which is one ahead of the dot the address is put on
+    /// the bus for it — see [`ADDRESS_BUS_LEAD_DOTS`], which the caller applies.
+    ///
+    /// Hardware never leaves the bus idle. Every dot is half of a two-dot read, and the four reads
+    /// of an eight-dot group are the nametable byte, the attribute byte and the two bitplanes.
+    /// Dots 257-320 do the same eight times over for the sprites of the next line, and 321-336
+    /// prefetch that line's first two tiles.
+    ///
+    /// In the arrangement games with a scanline-counting mapper actually use — background patterns
+    /// at $0000, sprites at $1000 — the sprite groups are the only fetches that reach the upper
+    /// half of pattern memory. That is why they, and nothing else, are what such a mapper counts:
+    /// the nametable and attribute fetches are at $2xxx, where bit 12 is clear.
+    fn address_on_bus(&self, dot: u16) -> u16 {
+        let v = self.ppu_addr.get();
+        let nametable = 0x2000 | (v & 0x0FFF);
+        let attribute = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
+        let background_pattern = {
+            let table = if (self.ctrl & CTRL_BACKGROUND_PATTERN) != 0 { 0x1000 } else { 0x0000 };
+            table + (self.fetch.latch_nametable as u16 * 16) + ((v >> 12) & 7)
+        };
+
+        match dot {
+            dot @ (1..=256 | 321..=336) => match dot % 8 {
+                1 | 2 => nametable,
+                3 | 4 => attribute,
+                5 | 6 => background_pattern,
+                _ => background_pattern + 8,
+            },
+
+            dot @ 257..=320 => {
+                let slot = ((dot - 257) / 8) as usize;
+                match (dot - 257) % 8 {
+                    // Two reads whose results are thrown away. Hardware still drives an address
+                    // for them, and it is a nametable one, which is what holds bit 12 low for the
+                    // four dots between one sprite's patterns and the next — the gap the mapper's
+                    // filter is there to ignore.
+                    0..=3 => nametable,
+                    phase => {
+                        // A line with fewer than eight sprites still fetches eight patterns; the
+                        // empty slots read tile $FF from the sprite table. They drive bit 12
+                        // exactly as a real sprite would, so leaving them out would make the count
+                        // depend on how many sprites a game happened to place on the line.
+                        let address = match self.selected_sprites.get(slot) {
+                            Some(sprite) => sprite.pattern_address,
+                            None => self.unused_sprite_slot_address(),
+                        };
+                        if phase < 6 { address } else { address + 8 }
+                    },
+                }
+            },
+
+            // Dot 0 is idle and 337-340 read the nametable twice more, discarding both.
+            _ => nametable,
+        }
+    }
+
+    /// The pattern address an unused sprite slot reads from: row 0 of tile $FF.
+    fn unused_sprite_slot_address(&self) -> u16 {
+        if (self.ctrl & CTRL_SPRITE_SIZE) != 0 {
+            // In 8x16 mode the table comes from bit 0 of the tile index rather than from PPUCTRL,
+            // and $FF is odd, so the fetch is always from the upper half.
+            0x1000 + 0xFE * 16
+        } else {
+            let table = if (self.ctrl & CTRL_SPRITE_PATTERN) != 0 { 0x1000 } else { 0x0000 };
+            table + 0xFF * 16
+        }
+    }
+
+    /// Put this dot's address on the bus, and tell the mapper about the edges that survive the
+    /// filter.
+    ///
+    /// The mapper is only ever handed a filtered edge, so its own transition detection sees the
+    /// line as the cartridge sees it rather than every fetch the PPU makes.
+    fn drive_address_bus(&mut self) {
+        let address = self.address_on_bus(self.cycle + ADDRESS_BUS_LEAD_DOTS);
+        let high = (address & 0x1000) != 0;
+
+        if high == self.a12_high {
+            if !high {
+                self.a12_low_dots = self.a12_low_dots.saturating_add(1);
+            }
+            return;
+        }
+
+        self.a12_high = high;
+        if high {
+            // A rise following too short a gap is swallowed. The mapper is not told, so it stays
+            // low as far as it is concerned and the next rise after a real gap is what clocks it.
+            if self.a12_low_dots >= A12_FILTER_DOTS {
+                self.notify_mapper_of_address(address);
+            }
+            self.a12_low_dots = 0;
+        } else {
+            self.a12_low_dots = 1;
+            self.notify_mapper_of_address(address);
+        }
     }
 
     /// Tell a scanline-counting mapper what address is on the PPU's bus.
@@ -1456,31 +1579,34 @@ impl Ppu {
             // Get the tile data for this scanline
             let mut tile_data = [0u8; 8];
 
+            // In 8x16 mode the sprite pattern-table select in PPUCTRL is ignored: bit 0 of the
+            // tile index chooses the table instead, and the sprite spans that tile and the one
+            // after it. Using the PPUCTRL bit here would read the wrong half of CHR entirely.
+            let (tile_addr, row) = if sprite_height == 16 {
+                let table = if (tile_idx & 0x01) != 0 { 0x1000 } else { 0x0000 };
+                let top_tile = (tile_idx & 0xFE) as u16;
+                // Rows 8-15 come from the next tile.
+                let (tile_offset, row) = if pattern_y_offset >= 8 {
+                    (1, pattern_y_offset - 8)
+                } else {
+                    (0, pattern_y_offset)
+                };
+                (table + (top_tile + tile_offset) * 16, row)
+            } else {
+                (pattern_table_addr + (tile_idx as u16 * 16), pattern_y_offset)
+            };
+
+            // Computed whether or not there is anything to read it from, because it is also what
+            // goes on the address bus at dots 257-320 — and the mapper watching that bus counts
+            // even when the picture is blank.
+            let pattern_address = tile_addr + row as u16;
+
             // Fetch the sprite's row for this scanline through PPU memory, which follows CHR
             // banking. Guarded because a bare PPU with no graphics source has nothing to draw.
             if self.mapper.is_some() || self.cartridge.is_some() {
-                // In 8x16 mode the sprite pattern-table select in PPUCTRL is ignored: bit 0 of the
-                // tile index chooses the table instead, and the sprite spans that tile and the one
-                // after it. Using the PPUCTRL bit here would read the wrong half of CHR entirely.
-                let (tile_addr, row) = if sprite_height == 16 {
-                    let table = if (tile_idx & 0x01) != 0 { 0x1000 } else { 0x0000 };
-                    let top_tile = (tile_idx & 0xFE) as u16;
-                    // Rows 8-15 come from the next tile.
-                    let (tile_offset, row) = if pattern_y_offset >= 8 {
-                        (1, pattern_y_offset - 8)
-                    } else {
-                        (0, pattern_y_offset)
-                    };
-                    (table + (top_tile + tile_offset) * 16, row)
-                } else {
-                    (pattern_table_addr + (tile_idx as u16 * 16), pattern_y_offset)
-                };
-                let pattern_y_offset = row;
-
-                // Get the two bit planes for this row (pattern_y_offset)
-                // Each row takes 1 byte in each bit plane
-                let plane0 = self.read_ppu_memory(tile_addr + pattern_y_offset as u16);
-                let plane1 = self.read_ppu_memory(tile_addr + pattern_y_offset as u16 + 8);
+                // Get the two bit planes for this row. Each row takes 1 byte in each bit plane.
+                let plane0 = self.read_ppu_memory(pattern_address);
+                let plane1 = self.read_ppu_memory(pattern_address + 8);
 
                 // Process each bit in the row
                 for bit in 0..8 {
@@ -1508,6 +1634,7 @@ impl Ppu {
                 attributes,
                 x_position: x_pos,
                 tile_data,
+                pattern_address,
             });
 
             sprites_on_scanline += 1;
@@ -1859,6 +1986,12 @@ impl Ppu {
         // Increment address after read
         let increment = if (self.ctrl & CTRL_INCREMENT_MODE) != 0 { 32 } else { 1 };
         self.ppu_addr.set(addr.wrapping_add(increment));
+
+        // The incremented address goes on the bus as well, and it is a second thing the mapper
+        // sees. That is not a detail: a program stepping from $0FFF to $1000 raises bit 12 with
+        // the increment alone, having read from an address that never had it set — which is
+        // precisely what `mmc3_test/3-A12_clocking` reads $2007 at $0FFF to check.
+        self.notify_mapper_of_address(self.ppu_addr.get());
         log::debug!(
             "PPU read_data: Address incremented from ${:04X} to ${:04X} (increment={})",
             addr,
@@ -2006,6 +2139,9 @@ impl Ppu {
         // Increment address after write
         let increment = if (self.ctrl & CTRL_INCREMENT_MODE) != 0 { 32 } else { 1 };
         self.ppu_addr.set(addr.wrapping_add(increment));
+
+        // As with a read, the incremented address is driven too, and can raise bit 12 on its own.
+        self.notify_mapper_of_address(self.ppu_addr.get());
         log::debug!(
             "PPU write_data: Address incremented from ${:04X} to ${:04X} (increment={})",
             addr,
@@ -4157,6 +4293,159 @@ mod tests {
         let shown = pixel_at(&ppu, 0, 1);
 
         assert_ne!(hidden, shown, "the sprite left-column mask should be honoured");
+    }
+
+    /// A mapper that records the dot of every filtered A12 rise it is told about.
+    ///
+    /// Only the rises are recorded: the PPU hands the mapper both edges, but a scanline counter
+    /// steps on one of them and it is the one whose dot has to be exact.
+    #[derive(Debug, Default)]
+    struct RecordingMapper {
+        rises: Rc<RefCell<Vec<(i16, u16)>>>,
+        at: Rc<Cell<(i16, u16)>>,
+    }
+
+    impl Mapper for RecordingMapper {
+        fn read_prg(&self, _address: u16) -> u8 {
+            0
+        }
+        fn write_prg(&mut self, _address: u16, _value: u8) {}
+        fn read_chr(&self, _address: u16) -> u8 {
+            0
+        }
+        fn write_chr(&mut self, _address: u16, _value: u8) {}
+        fn mirroring(&self) -> Mirroring {
+            Mirroring::Horizontal
+        }
+        fn on_ppu_address(&mut self, address: u16) {
+            if (address & 0x1000) != 0 {
+                self.rises.borrow_mut().push(self.at.get());
+            }
+        }
+    }
+
+    /// Run one visible line with the given pattern-table arrangement, reporting where A12 rose.
+    fn a12_rises_on_a_line(ctrl: u8) -> Vec<(i16, u16)> {
+        let mut ppu = ppu_with_solid_tile();
+        ppu.ctrl = ctrl;
+
+        let rises = Rc::new(RefCell::new(Vec::new()));
+        let at = Rc::new(Cell::new((0, 0)));
+        let mapper: Box<dyn Mapper> = Box::new(RecordingMapper {
+            rises: rises.clone(),
+            at: at.clone(),
+        });
+        ppu.mapper = Some(Rc::new(RefCell::new(mapper)));
+
+        // A sprite on every line, so the sprite fetches have real addresses rather than the
+        // tile-$FF ones an empty slot uses. Either would rise; using a real one proves the
+        // address came from evaluation.
+        ppu.oam[0] = 0;
+        ppu.oam[1] = 1;
+
+        run_to(&mut ppu, 20, 0);
+        rises.borrow_mut().clear();
+
+        // One whole line, recording the dot each rise is reported on. The dot is named before the
+        // tick rather than after it: `tick` advances the counter and then does that dot's work, so
+        // reading the counter afterwards would name the dot the *next* rise belongs to.
+        for _ in 0..341 {
+            let next = if ppu.cycle >= 340 {
+                (ppu.scanline + 1, 0)
+            } else {
+                (ppu.scanline, ppu.cycle + 1)
+            };
+            at.set(next);
+            ppu.tick();
+        }
+
+        let seen = rises.borrow().clone();
+        seen
+    }
+
+    /// The mapper is clocked once a line, at dot 260, by the sprite pattern fetches.
+    ///
+    /// This is the whole point of driving the mapper from the address bus rather than from a count
+    /// of lines: the count is the same either way, but a game splitting the screen positions its
+    /// write relative to when the interrupt arrives. `mmc3_test/4-scanline_timing` measures that
+    /// dot to PPU-clock accuracy, and this test says the same thing without needing the ROM.
+    #[test]
+    fn sprite_fetches_raise_a12_once_a_line_at_dot_260() {
+        // Sprites from $1000, background from $0000 — what an MMC3 game uses.
+        let rises = a12_rises_on_a_line(CTRL_SPRITE_PATTERN);
+
+        assert_eq!(
+            rises.len(),
+            1,
+            "one rise a line: the four-dot gaps between the eight sprite fetches are inside the \
+             filter, so only the first of them counts — got {rises:?}"
+        );
+        assert_eq!(rises[0].1, 260, "the documented dot for MMC3's counter");
+    }
+
+    /// With nothing fetched above $0FFF the line never rises, so nothing is counted.
+    ///
+    /// A scanline count cannot express this — it would clock here just the same. It is also the
+    /// case that distinguishes the two models on a real game, and the reason the arrangement is
+    /// part of what a game sets up rather than something an emulator can assume.
+    #[test]
+    fn a12_never_rises_when_both_pattern_tables_are_low() {
+        assert!(
+            a12_rises_on_a_line(0).is_empty(),
+            "every fetch is below $1000 and the nametable fetches are at $2xxx, where bit 12 is \
+             clear as well"
+        );
+    }
+
+    /// Background patterns in the upper half rise once a line too, but much later.
+    ///
+    /// Sprite fetches then read $0000 and hold the line low for the whole of dots 257-320, so the
+    /// rise comes from the first background fetch after that gap rather than from the sprites.
+    /// `4-scanline_timing` tests this arrangement separately for exactly that reason.
+    #[test]
+    fn background_patterns_in_the_upper_half_rise_after_the_sprite_gap() {
+        let rises = a12_rises_on_a_line(CTRL_BACKGROUND_PATTERN);
+
+        assert_eq!(rises.len(), 1, "still once a line, but not from the sprites — got {rises:?}");
+        assert!(
+            rises[0].1 > 320,
+            "the rise follows the sprite fetches rather than being one of them, at dot {}",
+            rises[0].1
+        );
+    }
+
+    /// Stepping $2007's address across $1000 clocks the mapper, even though the access did not.
+    ///
+    /// The CPU drives the same bus the PPU does, so the address left sitting on it after the
+    /// increment is as real as the one the read used. A program at $0FFF reads from an address
+    /// with bit 12 clear and yet raises the line, because the increment to $1000 is what ends up
+    /// on the bus — `mmc3_test/3-A12_clocking` fails on nothing else.
+    #[test]
+    fn the_ppudata_increment_raises_a12_by_itself() {
+        for (name, read) in [("a read", true), ("a write", false)] {
+            let mut ppu = Ppu::new();
+
+            let rises = Rc::new(RefCell::new(Vec::new()));
+            let mapper: Box<dyn Mapper> = Box::new(RecordingMapper {
+                rises: rises.clone(),
+                at: Rc::new(Cell::new((0, 0))),
+            });
+            ppu.mapper = Some(Rc::new(RefCell::new(mapper)));
+
+            // $0FFF: bit 12 clear, and one below the address that sets it.
+            ppu.write_register(0x2006, 0x0F);
+            ppu.write_register(0x2006, 0xFF);
+            assert!(rises.borrow().is_empty(), "{name}: pointing at $0FFF must not raise anything");
+
+            if read {
+                ppu.read_register(0x2007);
+            } else {
+                ppu.write_register(0x2007, 0);
+            }
+
+            assert_eq!(ppu.ppu_addr.get(), 0x1000, "{name}: the address should have stepped");
+            assert_eq!(rises.borrow().len(), 1, "{name}: the increment should have raised bit 12");
+        }
     }
 
     #[test]

@@ -4,6 +4,12 @@
 //! disabled. Counting regardless fires its IRQ during the rendering-off window a game uses to
 //! rewrite nametables — the handler then runs at a moment the game never planned for, which
 //! presents as the CPU executing data somewhere unrelated rather than as anything IRQ-shaped.
+//!
+//! Rendering is necessary but not sufficient. What the mapper counts is bit 12 of the PPU address
+//! rising, and whether it ever does depends on where the two pattern tables sit: the rise comes
+//! from the sprite fetches at $1000 standing out against a background fetched from $0000. A game
+//! that puts both at $0000 gets no clocks at all, which is why the arrangement is set here
+//! deliberately rather than left at the power-on default.
 
 use rn_core::{cartridge::load_rom, memory::Addressable, system::NesSystem};
 
@@ -81,6 +87,9 @@ fn the_scanline_counter_advances_once_rendering_is_enabled() {
     system.cpu().write_byte(0xC001, 0).ok();
     system.cpu().write_byte(0xE001, 0).ok();
 
+    // Sprites from $1000, background from $0000 — the arrangement every MMC3 game that splits the
+    // screen uses, and the one that makes bit 12 rise once a line.
+    system.cpu().write_byte(0x2000, 0x08).ok();
     // Enable background rendering, which is what makes the PPU fetch patterns.
     system.cpu().write_byte(0x2001, 0x08).ok();
     run_frames(&mut system, 4);
@@ -88,5 +97,34 @@ fn the_scanline_counter_advances_once_rendering_is_enabled() {
     assert!(
         system.cpu().irq_line(),
         "with rendering on the counter should reach zero and assert the IRQ"
+    );
+}
+
+/// Rendering alone does not clock the counter; the address has to actually go somewhere.
+///
+/// With both pattern tables at $0000 every fetch of the line is below $1000 and the nametable
+/// fetches are at $2xxx, where bit 12 is clear too — so the line never rises and a mapper watching
+/// it counts nothing. Counting scanlines instead cannot express that, and this is the case where
+/// the two models visibly disagree.
+#[test]
+fn a_counter_watching_the_address_needs_the_sprite_patterns_to_be_in_the_upper_half() {
+    let path = spinning_mmc3_rom();
+    let rom = load_rom(&path).expect("loading");
+    let mut system = NesSystem::new();
+    system.load_rom(&rom).expect("loading into system");
+
+    system.cpu().write_byte(0x4017, 0x40).ok(); // inhibit the APU frame IRQ
+    system.cpu().write_byte(0xC000, 1).ok();
+    system.cpu().write_byte(0xC001, 0).ok();
+    system.cpu().write_byte(0xE001, 0).ok();
+
+    // Both tables at $0000, and rendering fully on.
+    system.cpu().write_byte(0x2000, 0x00).ok();
+    system.cpu().write_byte(0x2001, 0x18).ok();
+    run_frames(&mut system, 4);
+
+    assert!(
+        !system.cpu().irq_line(),
+        "with nothing fetched above $0FFF bit 12 never rises, so the counter must not run"
     );
 }

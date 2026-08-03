@@ -278,14 +278,11 @@ impl NesSystem {
                     lines.raise_nmi();
                 }
 
+                // A scanline-counting mapper is clocked by the PPU itself, from bit 12 of the
+                // address bus, so there is nothing to forward here — only its IRQ line to read.
                 let mut mapper_irq = false;
                 if let Some(mapper) = mapper_slot.borrow().as_ref() {
-                    let scanlines = ppu.take_scanlines();
-                    let mut mapper = mapper.borrow_mut();
-                    for _ in 0..scanlines {
-                        mapper.on_scanline();
-                    }
-                    mapper_irq = mapper.irq_pending();
+                    mapper_irq = mapper.borrow().irq_pending();
                 }
 
                 lines.set_irq(apu.irq_pending() || mapper_irq);
@@ -351,9 +348,8 @@ impl NesSystem {
     /// Advance every component other than the CPU by one CPU cycle.
     ///
     /// The PPU runs at three times the CPU's rate and the APU at the same rate, so one CPU cycle
-    /// is three PPU ticks and one APU tick. Interrupts and the mapper's scanline counter are
-    /// serviced here too, so they are noticed at cycle granularity rather than only between
-    /// instructions.
+    /// is three PPU ticks and one APU tick. Interrupt lines are serviced here too, so they are
+    /// noticed at cycle granularity rather than only between instructions.
     fn tick_cycle(&mut self) {
         for _ in 0..3 {
             self.ppu.tick();
@@ -365,18 +361,6 @@ impl NesSystem {
         // while the CPU is mid-instruction — which is when interrupts actually arrive.
         if self.ppu.take_nmi() {
             self.interrupts.raise_nmi();
-        }
-
-        // Scanline-counting mappers count PPU pattern fetches, which is why the PPU reports only
-        // the scanlines it actually rendered.
-        if let Some(mapper) = self.mapper.borrow().as_ref() {
-            let scanlines = self.ppu.take_scanlines();
-            if scanlines > 0 {
-                let mut mapper = mapper.borrow_mut();
-                for _ in 0..scanlines {
-                    mapper.on_scanline();
-                }
-            }
         }
 
         // IRQ is level-triggered and shared: the APU's frame counter and the cartridge's mapper

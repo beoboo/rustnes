@@ -548,10 +548,11 @@ file rather than on anything specific to the suite.
 - [x] nestest.nes — 8991/8991
 - [ ] instr_test-v5 — 13/18
 - [ ] instr_misc — 3/5
-- [ ] mmc3_test — 3/6
+- [ ] mmc3_test — 5/6 (only `6-MMC6`, which is the other chip's counter behaviour)
 - [ ] apu_test — 3/9
 - [ ] apu_reset — 2/6
-- [ ] ppu_vbl_nmi — 2/11
+- [ ] ppu_vbl_nmi — 5/11 (the figure here read 2/11 for a while after it was no longer true;
+      re-measured against the commit before the A12 work, which did not move it)
 - [ ] instr_timing — 1/3
 - [ ] cpu_interrupts_v2, branch_timing_tests, blargg_ppu_tests, cpu_dummy_writes, cpu_exec_space,
       oam_read, oam_stress — none yet
@@ -570,7 +571,9 @@ for anything else is refused by name at load time rather than run with silently 
 - [x] Refuse an unimplemented mapper by name instead of running it wrongly
 - [x] Save and restore mapper state, so a snapshot resumes with the right banks
 - [ ] CNROM (3), MMC2 (9), Color Dreams (11) — each small, none needed by anything tried so far
-- [ ] MMC3's remaining A12 timing, which needs the per-dot PPU below
+- [x] MMC3's A12 timing: the counter is clocked from the real PPU address bus, not from a count of
+      scanlines. `3-A12_clocking` and `4-scanline_timing` both pass, the latter to PPU-clock
+      accuracy. See the fetch pipeline below for what made it possible.
 
 ## MILESTONE 10: Full Desktop System [T10]
 - [x] Load and play commercial ROMs
@@ -970,19 +973,45 @@ falls — including which pattern table is being read, which is what drives MMC3
 
 - [x] The scroll address advances on the dot schedule (coarse X per fetch group, down at 256,
       horizontal restore at 257, vertical restore across 280-304)
-- [ ] Background and sprite fetches issued per dot, in hardware's order
+- [x] Background and sprite fetches issued per dot, in hardware's order
 
       Attempted background fetches alone, driving the mapper from a filtered A12 instead of from a
       scanline count. It regressed: Super Mario Bros 3 lost a third of its picture and mmc3_test
       fell from 3 to 2. The reason is that MMC3's A12 rise comes from the *sprite* pattern fetches
       at dots 257-320, which use $1000 while the background uses $0000 — with only background
-      fetches the line never rises in the pattern the mapper is counting. The nametable fetches at
-      $2xxx also drive A12 high every eight dots, resetting the low-period filter, so genuine
-      rises are swallowed too.
+      fetches the line never rises in the pattern the mapper is counting.
 
       So the fetches cannot be done in halves: background and sprite fetches have to arrive
       together before A12 means anything, and the switch away from scanline counting has to happen
       in the same change. Preserved in `scratchpad/ppu-fetches/`.
+
+      Done, with both together, and mmc3_test went 3/6 to 5/6. SMB3's frame is byte-identical
+      throughout, which is the gate that matters: the address bus changed and the picture did not.
+
+      Four things the earlier note had wrong or did not know:
+
+      1. **The nametable fetches do not drive A12 high.** $2000 and $23C0 both have bit 12 clear,
+         so they hold the line *low* — which is what creates the four-dot gaps between one
+         sprite's patterns and the next, and those gaps are what the filter exists to ignore.
+         There was never a filter-resetting problem to solve.
+      2. **The address bus leads the read it serves by one dot.** The sprite pattern fetch is at
+         dots 261-262 and its address is asserted at 260, which is the figure the documentation
+         quotes for when the counter clocks. A lead of zero or of two both fail
+         `4-scanline_timing`; one passes it outright. This was measured, not reasoned — the sweep
+         was over lead and filter threshold together.
+      3. **The filter is ten dots and the boundary is sharp at the low end.** Nine fails, because
+         the gap between one line's last prefetch and the next line's first background fetch comes
+         to exactly nine dots and hardware does not count it. Ten to sixty-six all pass; ten is the
+         physical figure (~3 CPU cycles) and one dot clear of the only nearby edge.
+      4. **Rendering being on does not mean the counter runs.** With both pattern tables at $0000
+         nothing is ever fetched above $0FFF and the line never rises at all. A unit test asserted
+         the opposite — it was written against the scanline model, where the arrangement of the
+         pattern tables cannot matter. Corrected, and the new fact pinned by its own test.
+
+      A fifth thing fell out of the same mechanism rather than out of the fetches: `$2007`'s
+      address increment drives the bus too. A program pointing at $0FFF and reading raises bit 12
+      by incrementing to $1000, having read from an address that never had it set. That alone was
+      the whole of `3-A12_clocking`'s remaining failure.
 
 - [x] The fetch machinery itself: nametable, attribute and both bitplanes into latches, loaded into
       shift registers, with fine X selecting a bit. Tested directly; does not drive pixels.
@@ -1034,7 +1063,7 @@ falls — including which pattern table is being read, which is what drives MMC3
 - [ ] Sprite evaluation per dot, so $2004 reads during rendering return what it holds
 - [ ] Vblank flag set and cleared at the exact dot
 - Acceptance: `ppu_vbl_nmi`, `blargg_ppu_tests`, `oam_read`, `oam_stress`,
-  `mmc3_test/3-A12_clocking`, `mmc3_test/4-scanline_timing`
+  ~~`mmc3_test/3-A12_clocking`~~ and ~~`mmc3_test/4-scanline_timing`~~, both now passing
 
 ### Housekeeping
 - [ ] CI: the workspace has a clean clippy gate and a full test suite, and nothing runs them
