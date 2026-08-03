@@ -554,8 +554,10 @@ file rather than on anything specific to the suite.
 - [ ] ppu_vbl_nmi — 5/11 (the figure here read 2/11 for a while after it was no longer true;
       re-measured against the commit before the A12 work, which did not move it)
 - [ ] instr_timing — 1/3
-- [ ] cpu_interrupts_v2, branch_timing_tests, blargg_ppu_tests, cpu_dummy_writes, cpu_exec_space,
-      oam_read, oam_stress — none yet
+- [x] oam_read — 1/1, and oam_stress — 1/1. Recorded here as "none yet" long after they passed;
+      re-measured against the commit before the sprite work, which did not move them.
+- [ ] cpu_interrupts_v2, branch_timing_tests, blargg_ppu_tests, cpu_dummy_writes, cpu_exec_space —
+      none yet
 
 
 ## MILESTONE 9: Mappers & Cartridges [T9]
@@ -1015,7 +1017,7 @@ falls — including which pattern table is being read, which is what drives MMC3
 
 - [x] The fetch machinery itself: nametable, attribute and both bitplanes into latches, loaded into
       shift registers, with fine X selecting a bit. Tested directly; does not drive pixels.
-- [ ] Switch pixel output to the shift registers
+- [x] Switch pixel output to the shift registers
 
       Attempted and reverted. 23% of Super Mario Bros 3's picture changed — not a horizontal shift
       of it, and not fixed by correcting the reload dots to 9, 17 ... 257, 329 and 337, which
@@ -1060,10 +1062,54 @@ falls — including which pattern table is being read, which is what drives MMC3
       reported as the beam reaches the overlapping pixel, not at either end of the line. That is
       the next item below rather than a separate problem, and the two have to land together.
       Preserved in `scratchpad/ppu-switch-attempt2/`.
-- [ ] Sprite evaluation per dot, so $2004 reads during rendering return what it holds
+
+      Landed on the third attempt: both layers are drawn a pixel at a time and the hit is reported
+      as the beam reaches the overlapping pixel. This box stayed unticked afterwards, which is why
+      the note above still reads as though it were pending.
+
+      **Outstanding, and the reason this is worth reading:** a one-scanline flicker, black against
+      the backdrop, appears at the status-bar split in Super Mario Bros 3 during a level. It was
+      reported from the running emulator, not from a test.
+
+      What has been ruled out, by hashing every frame of a driven run and diffing builds:
+      the A12 work is not responsible — 1400 frames are byte-identical across it. The per-dot
+      sprite evaluation below is not responsible either, on the same measurement. The picture
+      changes on 1377 of those 1400 frames across *this* commit, so this is where it comes from.
+
+      What has not been done is reproducing it: the frames compared cover the title, the demo and
+      the world map — the split included — but not a level, because the scripted controller input
+      never got Mario off the map. Reproducing it needs a save state taken on that screen (F5 in
+      the debugger writes one beside the ROM), after which it can be gated on a pixel diff of the
+      split line like everything else here.
+- [x] Sprite evaluation per dot, so $2004 reads during rendering return what it holds
+
+      Secondary OAM now exists and is worked on its real schedule: wiped over dots 1-64, evaluated
+      into over 65-256, read back into the eight output units over 257-320. The single pass at dot
+      257 is gone.
+
+      It changed nothing measurable — SMB3 is byte-identical, every suite stands where it did — and
+      that is the expected result: the *set* of sprites was already right, so what moved is only
+      when and how it is arrived at. What is new is what can now be observed while it happens:
+
+      - $2004 reads $FF for the whole of dots 1-64, because that is all secondary OAM holds. It
+        does not reach object memory at all while the beam is drawing.
+      - Evaluation starts at OAMADDR rather than at sprite zero, so a game that leaves the address
+        elsewhere gets a different sprite acting as sprite zero.
+      - OAMADDR is held at zero across dots 257-320.
+      - No sprite can appear on scanline 0, because evaluation runs a line ahead and the
+        pre-render line does not evaluate.
+
+      Two implementations of the selection now exist — this one and the whole-line pass the
+      debugging renderer still uses. They are compared directly against each other across thirty
+      lines, both sprite heights and both flips, rather than left to be reasoned about. Tile
+      addressing, flipping and the pixel decode are shared outright, so only the selection is
+      written twice.
+
+      Not modelled: the diagonal scan hardware performs after the eighth sprite, which is what
+      makes the overflow flag unreliable. Only the flag itself is set, on the ninth sprite.
 - [ ] Vblank flag set and cleared at the exact dot
-- Acceptance: `ppu_vbl_nmi`, `blargg_ppu_tests`, `oam_read`, `oam_stress`,
-  ~~`mmc3_test/3-A12_clocking`~~ and ~~`mmc3_test/4-scanline_timing`~~, both now passing
+- Acceptance: `ppu_vbl_nmi`, `blargg_ppu_tests`, and — all now passing — ~~`oam_read`~~,
+  ~~`oam_stress`~~, ~~`mmc3_test/3-A12_clocking`~~, ~~`mmc3_test/4-scanline_timing`~~
 
 ### Housekeeping
 - [ ] CI: the workspace has a clean clippy gate and a full test suite, and nothing runs them

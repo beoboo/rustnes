@@ -422,6 +422,16 @@ pub struct Ppu {
     /// later than the write: the pixels being drawn were fetched before it.
     fetch: TileFetch,
 
+    /// The eight sprites chosen for the *next* line, four bytes each, as hardware's secondary OAM.
+    ///
+    /// Held as bytes rather than as decoded sprites because that is what $2004 reads while
+    /// rendering, and because the slots a line does not fill are not empty — the clear phase
+    /// leaves $FF in them and the fetches still happen.
+    secondary_oam: [u8; 32],
+
+    /// Where sprite evaluation has got to on this line.
+    sprite_eval: SpriteEval,
+
     /// Bit 12 of the address the PPU last drove, and how many dots it has been low for.
     ///
     /// This pair is the whole of the filter a scanline-counting mapper applies. Held here rather
@@ -591,6 +601,30 @@ struct TileFetch {
     shift_attribute_high: u16,
 }
 
+/// How far sprite evaluation has got along a line.
+///
+/// Evaluation is a pass over primary OAM that stalls whenever it finds a sprite worth keeping, so
+/// it cannot be expressed as a position alone: it needs to know whether it is scanning or copying.
+#[derive(Debug, Default, Clone, Copy)]
+struct SpriteEval {
+    /// The sprite being examined, counted from OAMADDR rather than from the start of OAM.
+    ///
+    /// Starting from OAMADDR is not a detail: it is why a game that leaves the address somewhere
+    /// other than zero finds a different sprite acting as sprite zero.
+    n: u8,
+    /// The byte within the sprite being copied.
+    m: u8,
+    /// Sprites copied into secondary OAM so far, at most eight.
+    found: u8,
+    /// Whether a copy is in progress.
+    copying: bool,
+    /// Whether the *first* sprite examined was one of the ones kept, which is what makes the
+    /// sprite-zero hit belong to slot 0 of the next line.
+    zero_found: bool,
+    /// The byte evaluation last put on the bus, which is what $2004 reads while it runs.
+    bus: u8,
+}
+
 /// Struct to hold processed sprite data for rendering
 #[derive(Debug)]
 struct SpriteData {
@@ -629,6 +663,8 @@ impl Ppu {
             odd_frame: false,
             a12_high: false,
             a12_low_dots: A12_FILTER_DOTS,
+            secondary_oam: [0xFF; 32],
+            sprite_eval: SpriteEval::default(),
             selected_sprites: Vec::new(),
             line_start_addr: 0,
             fetch: TileFetch::default(),
@@ -729,6 +765,8 @@ impl Ppu {
                 self.reload_vertical_scroll();
             }
 
+            self.advance_sprite_evaluation();
+
             // A scanline-counting mapper is clocked from the real address bus rather than from a
             // count of lines. The two agree on how many clocks a frame contains — 241, including
             // the pre-render line — but not on when they arrive, and a game splitting the screen
@@ -740,17 +778,6 @@ impl Ppu {
 
         if self.cycle == 257 {
             self.line_start_addr = self.ppu_addr.get();
-
-            // Sprites are chosen for the line about to be drawn, from object memory as it stands
-            // now — which is why a game rewriting it partway down a frame sees the change take
-            // effect on the following line rather than this one.
-            let next = self.scanline + 1;
-            self.selected_sprites = if (0..240).contains(&next) && (self.mask & MASK_SHOW_SPRITES) != 0
-            {
-                self.evaluate_sprites_for_scanline(next as usize)
-            } else {
-                Vec::new()
-            };
         }
 
         // Vblank begins and ends on the *second* dot of their scanlines, not the first.
@@ -1001,6 +1028,200 @@ impl Ppu {
         self.scanline = state.scanline;
         self.cycle = state.cycle;
         self.mirroring = state.mirroring;
+    }
+
+    /// Run this dot's share of sprite evaluation.
+    ///
+    /// Three phases across the line, none of which used to exist: secondary OAM is wiped over dots
+    /// 1-64, evaluated into over 65-256, and read back out into the eight output units over
+    /// 257-320. Doing it in one pass at dot 257 gave the same *set* of sprites, but nothing could
+    /// observe it happening — and $2004 reads during rendering, which report exactly this, had
+    /// nothing to report.
+    fn advance_sprite_evaluation(&mut self) {
+        match self.cycle {
+            1 => {
+                // Each line evaluates from scratch. Reset before the clear rather than after it,
+                // so the load phase further down this same line still sees what was found.
+                self.sprite_eval = SpriteEval::default();
+                self.clear_secondary_oam();
+            },
+            2..=64 => self.clear_secondary_oam(),
+
+            // Evaluation runs on the visible lines only. The pre-render line clears secondary OAM
+            // and evaluates nothing, which is why no sprite can appear on scanline 0.
+            65..=256 if self.cycle % 2 == 1 && (0..240).contains(&self.scanline) => {
+                self.step_sprite_evaluation()
+            },
+
+            257 => {
+                self.selected_sprites.clear();
+                self.load_sprite_slot(0);
+                // OAMADDR is cleared throughout the sprite fetches, so a game that left it
+                // somewhere else finds it back at zero by the time the line ends.
+                self.oam_addr = 0;
+            },
+            258..=320 => {
+                if (self.cycle - 257).is_multiple_of(8) {
+                    self.load_sprite_slot(((self.cycle - 257) / 8) as usize);
+                }
+                self.oam_addr = 0;
+            },
+
+            _ => {},
+        }
+    }
+
+    /// Dots 1-64: wipe secondary OAM, one byte every second dot.
+    ///
+    /// $FF and not zero, because a slot is rejected by its Y coordinate and $FF is below every
+    /// line. Zero would leave eight phantom sprites parked at the top of the screen.
+    fn clear_secondary_oam(&mut self) {
+        if self.cycle.is_multiple_of(2) {
+            let index = (self.cycle / 2 - 1) as usize;
+            self.secondary_oam[index] = 0xFF;
+        }
+
+        // $2004 reads $FF throughout the clear, which is the one part of this a program can see.
+        self.sprite_eval.bus = 0xFF;
+    }
+
+    /// One step of sprite evaluation, run every second dot from 65 to 256.
+    ///
+    /// The pass examines each sprite's Y coordinate and stalls to copy the ones it keeps, so it is
+    /// not a plain loop over object memory: a line with eight sprites on it gets through far fewer
+    /// entries than an empty one. That is the whole reason a ninth sprite is dropped rather than
+    /// replacing an earlier one.
+    fn step_sprite_evaluation(&mut self) {
+        let eval = self.sprite_eval;
+        if eval.n >= 64 {
+            // The pass has run off the end of object memory; the rest of the line does nothing.
+            return;
+        }
+
+        let entry = self.oam_addr as usize + eval.n as usize * 4;
+
+        if eval.copying {
+            let value = self.oam[entry.wrapping_add(eval.m as usize) & 0xFF];
+            self.sprite_eval.bus = value;
+            self.secondary_oam[eval.found as usize * 4 + eval.m as usize] = value;
+
+            self.sprite_eval.m += 1;
+            if self.sprite_eval.m == 4 {
+                self.sprite_eval.m = 0;
+                self.sprite_eval.copying = false;
+                self.sprite_eval.found += 1;
+                self.sprite_eval.n += 1;
+            }
+            return;
+        }
+
+        // Examining a sprite is reading its Y and asking whether this line crosses it. Object
+        // memory holds the line *before* the sprite's first row, so a sprite found while line N is
+        // scanned is one that appears on line N+1 — which is why evaluation runs a line ahead, and
+        // why hardware can never show a sprite on scanline 0.
+        let y = self.oam[entry & 0xFF];
+        self.sprite_eval.bus = y;
+
+        let height = if (self.ctrl & CTRL_SPRITE_SIZE) != 0 { 16 } else { 8 };
+        let row = self.scanline - y as i16;
+        let in_range = (0..height).contains(&row);
+
+        if in_range && eval.found < 8 {
+            self.secondary_oam[eval.found as usize * 4] = y;
+            self.sprite_eval.copying = true;
+            self.sprite_eval.m = 1;
+            if eval.n == 0 {
+                self.sprite_eval.zero_found = true;
+            }
+            return;
+        }
+
+        if in_range {
+            // A ninth sprite on the line. Hardware then reads on with *both* indices advancing,
+            // which is what makes this flag famously unreliable; only the flag is modelled here,
+            // not the diagonal scan that follows it.
+            self.status.set(self.status.get() | STATUS_SPRITE_OVERFLOW);
+        }
+
+        self.sprite_eval.n += 1;
+    }
+
+    /// Load one sprite output unit from secondary OAM, at the start of its eight-dot fetch group.
+    ///
+    /// Every slot is loaded, including the ones evaluation never filled. Hardware does the same:
+    /// the clear phase left tile $FF in them and the fetch happens regardless, which is what keeps
+    /// the address bus — and so a mapper counting it — independent of how many sprites a game put
+    /// on the line.
+    fn load_sprite_slot(&mut self, slot: usize) {
+        let entry = slot * 4;
+        let y = self.secondary_oam[entry];
+        let tile = self.secondary_oam[entry + 1];
+        let attributes = self.secondary_oam[entry + 2];
+        let x = self.secondary_oam[entry + 3];
+
+        let height = if (self.ctrl & CTRL_SPRITE_SIZE) != 0 { 16i16 } else { 8 };
+        let row = self.scanline - y as i16;
+        let present = (0..height).contains(&row);
+
+        let (pattern_address, tile_data) =
+            self.decode_sprite_row(tile, attributes, if present { row as u8 } else { 0 });
+
+        self.selected_sprites.push(SpriteData {
+            // Sprite zero is not slot zero by definition: it is slot zero *and* the first sprite
+            // examined having been kept, which is what makes a non-zero OAMADDR move the hit.
+            is_sprite_zero: slot == 0 && self.sprite_eval.zero_found,
+            #[cfg(test)]
+            y_position: y,
+            #[cfg(test)]
+            tile_index: tile,
+            attributes,
+            x_position: x,
+            tile_data: if present { tile_data } else { [0; 8] },
+            pattern_address,
+        });
+    }
+
+    /// Decode one row of a sprite: where its pattern is fetched from, and the pixels it holds.
+    ///
+    /// Shared by both ways sprites are selected — the per-dot evaluation the hardware does, and the
+    /// whole-line pass the debugging renderer still uses — so the two cannot drift apart on tile
+    /// addressing, flipping or 8x16 mode. Only the *selection* differs between them, which is what
+    /// `the_two_sprite_paths_agree` compares.
+    fn decode_sprite_row(&self, tile: u8, attributes: u8, row: u8) -> (u16, [u8; 8]) {
+        let height: u8 = if (self.ctrl & CTRL_SPRITE_SIZE) != 0 { 16 } else { 8 };
+
+        // Vertical flip counts the row from the bottom of the sprite instead of the top.
+        let row = if (attributes & 0x80) != 0 { height.saturating_sub(1).saturating_sub(row) } else { row };
+
+        // In 8x16 mode the sprite pattern-table select in PPUCTRL is ignored: bit 0 of the tile
+        // index chooses the table instead, and the sprite spans that tile and the one after it.
+        // Using the PPUCTRL bit here would read the wrong half of CHR entirely.
+        let (tile_addr, row) = if height == 16 {
+            let table = if (tile & 0x01) != 0 { 0x1000 } else { 0x0000 };
+            let top = (tile & 0xFE) as u16;
+            // Rows 8-15 come from the next tile.
+            if row >= 8 { (table + (top + 1) * 16, row - 8) } else { (table + top * 16, row) }
+        } else {
+            let table = if (self.ctrl & CTRL_SPRITE_PATTERN) != 0 { 0x1000 } else { 0x0000 };
+            (table + tile as u16 * 16, row)
+        };
+
+        let pattern_address = tile_addr + row as u16;
+
+        // Guarded because a bare PPU with no graphics source has nothing to draw — but the address
+        // is returned regardless, because the address bus does not depend on there being data.
+        let mut tile_data = [0u8; 8];
+        if self.mapper.is_some() || self.cartridge.is_some() {
+            let plane0 = self.read_ppu_memory(pattern_address);
+            let plane1 = self.read_ppu_memory(pattern_address + 8);
+            for bit in 0..8usize {
+                let value = ((plane0 >> (7 - bit)) & 0x01) | (((plane1 >> (7 - bit)) & 0x01) << 1);
+                let at = if (attributes & 0x40) != 0 { 7 - bit } else { bit };
+                tile_data[at] = value;
+            }
+        }
+
+        (pattern_address, tile_data)
     }
 
     /// The address a rendered line's fetch schedule reads from at `dot`.
@@ -1524,13 +1745,6 @@ impl Ppu {
         // Get the sprite height (8 or 16 pixels, based on PPUCTRL)
         let sprite_height = if (self.ctrl & CTRL_SPRITE_SIZE) != 0 { 16 } else { 8 };
 
-        // Get sprite pattern table address from PPUCTRL
-        let pattern_table_addr = if (self.ctrl & CTRL_SPRITE_PATTERN) != 0 {
-            0x1000
-        } else {
-            0x0000
-        };
-
         // We can only show 8 sprites per scanline (hardware limitation)
         let mut sprites_on_scanline = 0;
 
@@ -1565,64 +1779,11 @@ impl Ppu {
             let attributes = self.oam[oam_idx + 2];
             let x_pos = self.oam[oam_idx + 3];
 
-            // Calculate the y offset within the sprite
+            // The row within the sprite. Flipping, 8x16 addressing and the pixel decode are all
+            // shared with the per-dot path, so only the *selection* above is written twice.
             let y_offset = (scanline - first_row) as u8;
-
-            // Apply vertical flip if enabled (bit 7 of attributes)
-            let pattern_y_offset = if (attributes & 0x80) != 0 {
-                // If vertical flip is enabled, flip the y offset
-                (sprite_height - 1) as u8 - y_offset
-            } else {
-                y_offset
-            };
-
-            // Get the tile data for this scanline
-            let mut tile_data = [0u8; 8];
-
-            // In 8x16 mode the sprite pattern-table select in PPUCTRL is ignored: bit 0 of the
-            // tile index chooses the table instead, and the sprite spans that tile and the one
-            // after it. Using the PPUCTRL bit here would read the wrong half of CHR entirely.
-            let (tile_addr, row) = if sprite_height == 16 {
-                let table = if (tile_idx & 0x01) != 0 { 0x1000 } else { 0x0000 };
-                let top_tile = (tile_idx & 0xFE) as u16;
-                // Rows 8-15 come from the next tile.
-                let (tile_offset, row) = if pattern_y_offset >= 8 {
-                    (1, pattern_y_offset - 8)
-                } else {
-                    (0, pattern_y_offset)
-                };
-                (table + (top_tile + tile_offset) * 16, row)
-            } else {
-                (pattern_table_addr + (tile_idx as u16 * 16), pattern_y_offset)
-            };
-
-            // Computed whether or not there is anything to read it from, because it is also what
-            // goes on the address bus at dots 257-320 — and the mapper watching that bus counts
-            // even when the picture is blank.
-            let pattern_address = tile_addr + row as u16;
-
-            // Fetch the sprite's row for this scanline through PPU memory, which follows CHR
-            // banking. Guarded because a bare PPU with no graphics source has nothing to draw.
-            if self.mapper.is_some() || self.cartridge.is_some() {
-                // Get the two bit planes for this row. Each row takes 1 byte in each bit plane.
-                let plane0 = self.read_ppu_memory(pattern_address);
-                let plane1 = self.read_ppu_memory(pattern_address + 8);
-
-                // Process each bit in the row
-                for bit in 0..8 {
-                    // Extract and combine the bits from both planes
-                    let pixel_value = ((plane0 >> (7 - bit)) & 0x01) | (((plane1 >> (7 - bit)) & 0x01) << 1);
-
-                    // Store the pixel value at the correct position based on horizontal flip
-                    if (attributes & 0x40) != 0 {
-                        // Store at flipped position (7 - bit)
-                        tile_data[(7 - bit) as usize] = pixel_value;
-                    } else {
-                        // Store at normal position (bit)
-                        tile_data[bit as usize] = pixel_value;
-                    }
-                }
-            }
+            let (pattern_address, tile_data) =
+                self.decode_sprite_row(tile_idx, attributes, y_offset);
 
             // Add this sprite to the visible sprites
             visible_sprites.push(SpriteData {
@@ -1968,6 +2129,15 @@ impl Ppu {
         // so they always read back as zero however they were written — the byte is stored as given
         // and masked here, which is what hardware does and what oam_read checks for all 256 bytes.
         //
+        // While the beam is drawing, $2004 does not read object memory at all: it reports whatever
+        // sprite evaluation currently has on its bus. During the clear that is $FF for all 64
+        // dots, which is the part of this a program can actually time against.
+        let rendering = (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0;
+        let on_a_rendered_line = (0..240).contains(&self.scanline) || self.scanline == 261;
+        if rendering && on_a_rendered_line && (1..=256).contains(&self.cycle) {
+            return self.sprite_eval.bus;
+        }
+
         // Unlike a write, a read does not advance the address: a program reading OAM has to set
         // $2003 for each byte it wants.
         let value = self.oam[self.oam_addr as usize];
@@ -4293,6 +4463,160 @@ mod tests {
         let shown = pixel_at(&ppu, 0, 1);
 
         assert_ne!(hidden, shown, "the sprite left-column mask should be honoured");
+    }
+
+    /// $2004 reads $FF for the whole of dots 1-64, because that is all secondary OAM holds.
+    ///
+    /// The read does not reach object memory at all while the beam is drawing: it reports what
+    /// sprite evaluation has on its bus, and during the clear that is the $FF being written. A
+    /// program times against this, so returning the OAM byte instead — which is what a PPU that
+    /// evaluates in one pass at dot 257 has no choice but to do — gives it the wrong answer for a
+    /// quarter of every line.
+    #[test]
+    fn reading_oam_during_the_clear_returns_ff() {
+        let mut ppu = ppu_with_solid_tile();
+        for byte in ppu.oam.iter_mut() {
+            *byte = 0x5A; // nothing like $FF, so the two sources cannot be confused
+        }
+
+        run_to(&mut ppu, 30, 1);
+        for dot in 1..=64 {
+            assert_eq!(ppu.cycle, dot);
+            assert_eq!(
+                ppu.read_register(0x2004),
+                0xFF,
+                "dot {dot} is inside the clear, so $2004 must read $FF"
+            );
+            ppu.tick();
+        }
+
+        // And once the clear is over it reports evaluation's reads instead, which are OAM bytes.
+        run_to(&mut ppu, 30, 100);
+        assert_eq!(ppu.read_register(0x2004), 0x5A, "evaluation reads object memory");
+    }
+
+    /// Outside rendering, $2004 still reads object memory at OAMADDR.
+    ///
+    /// The rule above is specific to a line being drawn. A game does most of its OAM work during
+    /// vblank, and breaking that would break every game rather than a subtle few.
+    #[test]
+    fn reading_oam_outside_rendering_is_unaffected() {
+        let mut ppu = ppu_with_solid_tile();
+        ppu.oam[7] = 0x3C;
+
+        // Reach vblank *first*: the sprite fetches on every rendered line hold OAMADDR at zero,
+        // so an address set before them would not survive to be read here.
+        run_to(&mut ppu, 245, 10);
+        ppu.write_register(0x2003, 7);
+        assert_eq!(ppu.read_register(0x2004), 0x3C);
+    }
+
+    /// The sprite fetches leave OAMADDR at zero, wherever the game had put it.
+    #[test]
+    fn the_sprite_fetches_clear_oam_address() {
+        let mut ppu = ppu_with_solid_tile();
+        run_to(&mut ppu, 30, 200);
+        ppu.write_register(0x2003, 0x40);
+        assert_eq!(ppu.oam_addr, 0x40);
+
+        run_to(&mut ppu, 30, 300); // inside the sprite fetches
+        assert_eq!(ppu.oam_addr, 0, "OAMADDR is held at zero across dots 257-320");
+    }
+
+    /// Sprites never appear on scanline 0.
+    ///
+    /// Evaluation for a line happens on the line before it, and the pre-render line does not
+    /// evaluate — so there is nothing to draw on the first visible line however OAM is arranged.
+    /// A PPU that evaluates for `scanline + 1` without that exception puts sprites there.
+    #[test]
+    fn no_sprite_is_drawn_on_the_first_visible_line() {
+        let mut ppu = ppu_with_solid_tile();
+
+        // A sprite covering the very top of the screen: Y=$FF would be off-screen, so Y=0 is the
+        // earliest a sprite can start, and that is scanline 1.
+        ppu.oam[0] = 0;
+        ppu.oam[1] = 1;
+        ppu.oam[2] = 0;
+        ppu.oam[3] = 0;
+
+        // The units drawing a line were loaded during the line before it, so this reads what
+        // scanline 0 will actually draw.
+        run_to(&mut ppu, 0, 1);
+        assert!(ppu.selected_sprites.iter().all(|s| s.tile_data.iter().all(|p| *p == 0)),
+            "scanline 0's sprites would have to come from the pre-render line, which does not evaluate");
+
+        run_to(&mut ppu, 1, 1);
+        assert!(ppu.selected_sprites.iter().any(|s| s.tile_data.iter().any(|p| *p != 0)),
+            "scanline 1 is the first line a sprite at Y=0 can reach");
+    }
+
+    /// A ninth sprite on a line sets overflow; exactly eight does not.
+    #[test]
+    fn overflow_is_set_by_the_ninth_sprite_and_not_the_eighth() {
+        // A fresh PPU each time: `run_to` tests its target before ticking, so asking a machine
+        // that is already standing on the target to run there again does nothing at all.
+        let overflow_with = |count: usize| {
+            let mut ppu = ppu_with_solid_tile();
+            ppu.oam = [0xFF; 256];
+            for i in 0..count {
+                ppu.oam[i * 4] = 40; // all on the same line
+                ppu.oam[i * 4 + 1] = 1;
+                ppu.oam[i * 4 + 2] = 0;
+                ppu.oam[i * 4 + 3] = (i as u8) * 8;
+            }
+            run_to(&mut ppu, 41, 300);
+            ppu.status.get() & STATUS_SPRITE_OVERFLOW != 0
+        };
+
+        assert!(!overflow_with(8), "eight sprites on a line is not an overflow");
+        assert!(overflow_with(9), "the ninth sets it");
+    }
+
+    /// The per-dot evaluation and the whole-line pass choose the same sprites.
+    ///
+    /// Two implementations of the same selection now exist — the one hardware runs across dots
+    /// 65-256, and the one the debugging renderer still uses in a single pass. Every wrong
+    /// diagnosis this PPU has had came from reasoning about such a pair instead of running them
+    /// side by side, so they are run side by side.
+    #[test]
+    fn the_two_sprite_paths_agree() {
+        for &(height, flip) in &[(8u8, 0x00u8), (8, 0xC0), (16, 0x00), (16, 0x80)] {
+            let mut ppu = ppu_with_solid_tile();
+            ppu.ctrl = if height == 16 { CTRL_SPRITE_SIZE } else { 0 };
+
+            // A spread of positions, tiles and attributes, including sprites that start above the
+            // line under test and ones that miss it entirely.
+            ppu.oam = [0xFF; 256];
+            for i in 0..12usize {
+                ppu.oam[i * 4] = (30 + i * 3) as u8;
+                ppu.oam[i * 4 + 1] = (i as u8) % 4;
+                ppu.oam[i * 4 + 2] = flip | (i as u8 % 4);
+                ppu.oam[i * 4 + 3] = (i as u8) * 17;
+            }
+
+            for line in 30..60usize {
+                // What the per-dot machinery selected for `line`, taken as that line begins.
+                run_to(&mut ppu, line as i16, 1);
+                let per_dot: Vec<_> = ppu
+                    .selected_sprites
+                    .iter()
+                    .filter(|s| s.tile_data.iter().any(|p| *p != 0))
+                    .map(|s| (s.x_position, s.attributes, s.tile_data, s.pattern_address))
+                    .collect();
+
+                let whole_line: Vec<_> = ppu
+                    .evaluate_sprites_for_scanline(line)
+                    .iter()
+                    .filter(|s| s.tile_data.iter().any(|p| *p != 0))
+                    .map(|s| (s.x_position, s.attributes, s.tile_data, s.pattern_address))
+                    .collect();
+
+                assert_eq!(
+                    per_dot, whole_line,
+                    "the two selections differ on line {line} at height {height} flip ${flip:02X}"
+                );
+            }
+        }
     }
 
     /// A mapper that records the dot of every filtered A12 rise it is told about.
