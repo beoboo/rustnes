@@ -1011,11 +1011,26 @@ falls — including which pattern table is being read, which is what drives MMC3
       is why a quarter of the frame changed and why it did not look shifted — each tile moved into
       its neighbour's place.
 
-      Which is correct is the open question, and it is not obvious from either implementation: the
-      pipeline's reasoning says the tile at coarse X belongs at x=0, while the per-line renderer is
-      what currently draws games correctly. It needs checking against hardware, not against either
-      one's logic. `the_pipeline_and_the_per_line_renderer_agree` is committed as an ignored test
-      that records the disagreement; make it pass, then switch pixel output.
+      Resolved: the pipeline was right. The per-line renderer was reading `v` two tiles past the
+      start of its line, because the prefetch groups advance it. It is now handed the address
+      captured at dot 257, and the two agree pixel for pixel — the comparison test is no longer
+      ignored.
+
+      The switch itself was then attempted again and reverted a second time. It gets to 2356 pixels
+      of 61440 rather than 14268, and the remainder is *not* background: the comparison test proves
+      the two background paths agree on a synthetic scene. It is sprite compositing. Drawing the
+      background dot by dot means sprites can only be composited once the line exists, at dot 257,
+      which also moves when the sprite-zero hit is reported — from the start of a line to two
+      thirds of the way along it. Super Mario Bros 3's split responds to that timing, so the
+      picture moves.
+
+      Selecting the sprites at the line's start and drawing them at 257 changes nothing, which
+      rules out object memory being sampled later and confirms it is the hit timing.
+
+      So the switch is blocked on sprite evaluation moving to its real dots — the hit has to be
+      reported as the beam reaches the overlapping pixel, not at either end of the line. That is
+      the next item below rather than a separate problem, and the two have to land together.
+      Preserved in `scratchpad/ppu-switch-attempt2/`.
 - [ ] Sprite evaluation per dot, so $2004 reads during rendering return what it holds
 - [ ] Vblank flag set and cleared at the exact dot
 - Acceptance: `ppu_vbl_nmi`, `blargg_ppu_tests`, `oam_read`, `oam_stress`,
