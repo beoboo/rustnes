@@ -401,11 +401,7 @@ impl AddressingMode {
 
             // Modes with page crossing penalties
             AddressingMode::AbsoluteX | AddressingMode::AbsoluteY | AddressingMode::IndirectIndexed => {
-                if page_crossed {
-                    1
-                } else {
-                    0
-                }
+                u8::from(page_crossed)
             },
 
             // All other modes have no additional cycles

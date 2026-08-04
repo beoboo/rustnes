@@ -289,12 +289,19 @@ impl NesSystem {
             let lines = interrupts.clone();
 
             cpu.set_clock(Rc::new(move || {
-                for _ in 0..3 {
+                let mut raised_at = None;
+                for sub in 0..3 {
                     ppu.tick();
+                    if raised_at.is_none() && ppu.peek_nmi() {
+                        raised_at = Some((sub, ppu.scanline_cycle()));
+                    }
                 }
                 apu.tick();
 
                 if ppu.take_nmi() {
+                    if std::env::var_os("RN_NMI_TRACE").is_some() {
+                        eprintln!("NMI raised sub={:?}", raised_at);
+                    }
                     lines.raise_nmi();
                 }
 

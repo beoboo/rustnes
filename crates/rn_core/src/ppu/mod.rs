@@ -241,6 +241,10 @@ impl PpuWrapper {
     ///
     /// Consuming rather than peeking keeps this edge-triggered: one vblank raises exactly one
     /// interrupt, however often the system polls.
+    pub fn peek_nmi(&self) -> bool {
+        self.ppu.borrow().nmi_raised.get()
+    }
+
     pub fn take_nmi(&self) -> bool {
         let ppu = self.ppu.borrow_mut();
         ppu.nmi_raised.replace(false)
