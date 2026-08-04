@@ -666,11 +666,19 @@ file rather than on anything specific to the suite.
 - [x] cpu_reset — 2/2. Reset is not power-on: it sets the I flag, subtracts three from the stack
       pointer and does nothing else. A, X, Y and the other flags survive it. The three are the
       interrupt sequence going through the motions of its pushes with the writes suppressed.
-- [ ] cpu_exec_space — 1/2. `ppuio` passes now that the PPU has an I/O latch of its own: a read of
-      one of the five write-only registers returns whatever the PPU's lines last carried, and
-      `$2002` supplies only its top three bits with the latch supplying the other five.
-      `test_cpu_exec_space_apu` still fails.
-- [ ] cpu_dummy_writes — 0/2, still failing at "verifying open bus behavior" (#9 and #5)
+- [ ] cpu_exec_space — 1/2. `ppuio` passes: the PPU has an I/O latch of its own, so a read of one
+      of its five write-only registers returns whatever its lines last carried, and `$2002`
+      supplies only its top three bits with the latch supplying the other five. The APU's
+      write-only registers now fall through to the CPU's open bus for the same reason, which moved
+      `test_cpu_exec_space_apu` from landing at $0234 to $1634 but not to the end. It executes code
+      *from* $4000 and follows where the open bus leads; what our bus returns there is evidently
+      still not what hardware returns.
+- [x] cpu_dummy_writes — 2/2. A read-modify-write makes *two* writes: the processor has nowhere to
+      hold the result while it computes, so it spends that cycle putting back what it just read.
+      `INC` and `DEC` had this right through `modify_memory`; every shift and rotate with a memory
+      operand went through a path that wrote once, which is the `0E 2E 4E 6E 1E 3E 5E 7E` the ROM
+      printed.
+- [x] cpu_dummy_reads — 1/1, once CNROM existed to load it.
 
 
 ## MILESTONE 9: Mappers & Cartridges [T9]

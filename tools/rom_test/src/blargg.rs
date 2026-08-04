@@ -238,8 +238,10 @@ fn read_signature(system: &NesSystem) -> [u8; 3] {
 fn read_message(system: &NesSystem) -> String {
     let mut text = String::new();
 
-    // Bounded: a corrupt or absent terminator must not read the whole address space.
-    for offset in 0..512u16 {
+    // Bounded: a corrupt or absent terminator must not read the whole address space. Generous,
+    // because several of these ROMs explain themselves at length before saying what went wrong,
+    // and a message cut off mid-sentence hides the one line that matters.
+    for offset in 0..2048u16 {
         match read(system, MESSAGE + offset) {
             0 => break,
             byte => text.push(byte as char),

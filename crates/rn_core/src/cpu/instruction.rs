@@ -1342,7 +1342,7 @@ impl Cpu {
         let result = value << 1;
 
         self.set_flag(CpuFlag::Carry, (value & 0x80) != 0);
-        self.write_shift_result(address, result)?;
+        self.write_shift_result(address, value, result)?;
         Ok(())
     }
 
@@ -1352,7 +1352,7 @@ impl Cpu {
         let result = value >> 1;
 
         self.set_flag(CpuFlag::Carry, (value & 0x01) != 0);
-        self.write_shift_result(address, result)?;
+        self.write_shift_result(address, value, result)?;
         Ok(())
     }
 
@@ -1487,7 +1487,7 @@ impl Cpu {
         let result = (value << 1) | carry_in;
 
         self.set_flag(CpuFlag::Carry, (value & 0x80) != 0);
-        self.write_shift_result(address, result)?;
+        self.write_shift_result(address, value, result)?;
         Ok(())
     }
 
@@ -1501,7 +1501,7 @@ impl Cpu {
         let result = (value >> 1) | (carry_in << 7);
 
         self.set_flag(CpuFlag::Carry, (value & 0x01) != 0);
-        self.write_shift_result(address, result)?;
+        self.write_shift_result(address, value, result)?;
         Ok(())
     }
 
@@ -1518,9 +1518,26 @@ impl Cpu {
     }
 
     /// Write back a shift or rotate result and set the Zero and Negative flags from it.
-    fn write_shift_result(&mut self, address: Option<u16>, result: u8) -> Result<(), NesError> {
+    ///
+    /// `original` is written first, unchanged. A read-modify-write instruction on the 6502 makes
+    /// *two* writes: the processor has nowhere to hold the result while it computes, so it spends
+    /// that cycle putting back what it just read, and only then writes the answer. Against RAM the
+    /// two are indistinguishable; against a register they are not, and `cpu_dummy_writes` exists
+    /// to say so — it named `0E 2E 4E 6E 1E 3E 5E 7E`, every shift and rotate with a memory
+    /// operand, while `INC` and `DEC` passed because they go through `modify_memory`, which had
+    /// this right all along.
+    fn write_shift_result(
+        &mut self,
+        address: Option<u16>,
+        original: u8,
+        result: u8,
+    ) -> Result<(), NesError> {
         match address {
-            Some(address) => self.write_byte(address, result)?,
+            Some(address) => {
+                self.write_byte(address, original)?;
+                self.write_byte(address, result)?;
+            },
+            // The accumulator forms touch no memory and make no writes at all.
             None => self.registers.a = result,
         }
 

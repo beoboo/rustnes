@@ -192,6 +192,71 @@ impl Mapper for UxRom {
     }
 }
 
+/// CNROM (mapper 3): fixed program, switchable character banks.
+///
+/// The mirror image of UxROM. The program ROM never moves — 16 or 32 KB, mapped exactly as NROM
+/// maps it — and a write anywhere in cartridge space selects which 8 KB bank of character ROM the
+/// PPU sees. That is the whole chip.
+///
+/// Two details are worth stating because they are easy to get wrong and invisible in most games.
+/// The bank register has no address decoding at all, so *any* write to `$8000-$FFFF` sets it,
+/// including one a program did not mean as a bank switch. And on the common boards only the low
+/// two bits are wired, so a game with four banks and one with a byte's worth behave the same;
+/// masking by the number of banks the cartridge actually has is what keeps both working.
+#[derive(Debug)]
+pub struct CnRom {
+    prg: Vec<u8>,
+    chr: Vec<u8>,
+    bank: usize,
+    mirroring: Mirroring,
+}
+
+impl CnRom {
+    pub fn new(prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> Self {
+        // CHR ROM is the point of this board, but a cartridge without any still has to answer.
+        let chr = if chr.is_empty() { vec![0; 8 * 1024] } else { chr };
+        Self {
+            prg,
+            chr,
+            bank: 0,
+            mirroring,
+        }
+    }
+
+    fn banks(&self) -> usize {
+        (self.chr.len() / (8 * 1024)).max(1)
+    }
+}
+
+impl Mapper for CnRom {
+    fn read_prg(&self, address: u16) -> u8 {
+        if self.prg.is_empty() {
+            return 0;
+        }
+        // Fixed, and mirrored for a 16 KB image exactly as NROM does it.
+        let offset = (address as usize).saturating_sub(0x8000);
+        self.prg[offset % self.prg.len()]
+    }
+
+    fn write_prg(&mut self, _address: u16, value: u8) {
+        // No address decoding: any write into cartridge space lands here.
+        self.bank = (value as usize) % self.banks();
+    }
+
+    fn read_chr(&self, address: u16) -> u8 {
+        banked(&self.chr, self.bank, 8 * 1024, address as usize & 0x1FFF)
+    }
+
+    fn write_chr(&mut self, _address: u16, _value: u8) {
+        // CHR is ROM on this board. Writes are ignored rather than accepted into a buffer nobody
+        // reads back, so a program that writes here sees the ROM it wrote over unchanged.
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 /// MMC1 (mapper 1): the most common mapper, configured through a serial shift register.
 ///
 /// Used by Zelda, Metroid, Mega Man 2 and hundreds of others. Its registers are not written
@@ -647,10 +712,11 @@ impl Mmc3 {
 ///
 /// Kept beside `create` so the two cannot disagree — a list that claims support the factory does
 /// not provide is worse than no list.
-pub const SUPPORTED: [(u8, &str); 5] = [
+pub const SUPPORTED: [(u8, &str); 6] = [
     (0, "NROM"),
     (1, "MMC1"),
     (2, "UxROM"),
+    (3, "CNROM"),
     (4, "MMC3"),
     (7, "AxROM"),
 ];
@@ -679,6 +745,7 @@ pub fn create(number: u8, prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> O
         // hint and is deliberately not passed along.
         1 => Some(Box::new(Mmc1::new(prg, chr))),
         2 => Some(Box::new(UxRom::new(prg, chr, mirroring))),
+        3 => Some(Box::new(CnRom::new(prg, chr, mirroring))),
         4 => Some(Box::new(Mmc3::new(prg, chr, mirroring))),
         7 => Some(Box::new(AxRom::new(prg, chr))),
         _ => None,
@@ -687,6 +754,54 @@ pub fn create(number: u8, prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> O
 
 #[cfg(test)]
 mod tests {
+
+    /// CNROM switches character banks from any write into cartridge space, and never moves the
+    /// program.
+    ///
+    /// The no-decoding part is the one worth pinning: the bank register has no address decoding at
+    /// all on this board, so a write to $FFFF selects a bank exactly as a write to $8000 does.
+    #[test]
+    fn cnrom_switches_chr_from_any_write_and_leaves_prg_alone() {
+        // Two 8 KB character banks, each filled with its own number.
+        let mut chr = vec![0u8; 16 * 1024];
+        chr[8 * 1024..].fill(1);
+
+        let mut prg = vec![0u8; 32 * 1024];
+        prg[0] = 0xAA;
+        prg[32 * 1024 - 1] = 0xBB;
+
+        let mut mapper = CnRom::new(prg, chr, Mirroring::Horizontal);
+
+        assert_eq!(mapper.read_chr(0x0000), 0, "bank zero to start with");
+
+        mapper.write_prg(0x8000, 1);
+        assert_eq!(mapper.read_chr(0x0000), 1, "a write into cartridge space selects a bank");
+
+        // No address decoding: the far end of the space works the same.
+        mapper.write_prg(0xFFFF, 0);
+        assert_eq!(mapper.read_chr(0x1FFF), 0, "any address at all, not just $8000");
+
+        // A bank number beyond what the cartridge has wraps to one it does.
+        mapper.write_prg(0x9000, 3);
+        assert_eq!(mapper.read_chr(0x0000), 1, "masked by the banks actually present");
+
+        // And the program never moves.
+        assert_eq!(mapper.read_prg(0x8000), 0xAA);
+        assert_eq!(mapper.read_prg(0xFFFF), 0xBB);
+    }
+
+    /// A 16 KB program appears at both $8000 and $C000, as it does on NROM.
+    #[test]
+    fn cnrom_mirrors_a_16k_program() {
+        let mut prg = vec![0u8; 16 * 1024];
+        prg[0] = 0x42;
+
+        let mapper = CnRom::new(prg, vec![0; 8 * 1024], Mirroring::Vertical);
+
+        assert_eq!(mapper.read_prg(0x8000), 0x42);
+        assert_eq!(mapper.read_prg(0xC000), 0x42, "the same byte, seen twice");
+    }
+
     /// A mapper's banking is machine state: restoring without it leaves the game reading code and
     /// graphics from whichever banks happened to be selected, which looks like corruption rather
     /// than like a failed load.

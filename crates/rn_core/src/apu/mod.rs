@@ -178,23 +178,19 @@ impl ApuWrapper {
 
 impl Addressable for ApuWrapper {
     fn handles_address(&self, address: u16) -> bool {
-        // Handle all APU registers
-        match address {
-            0x4000..=0x4003 | // Pulse 1 registers
-            0x4004..=0x4007 | // Pulse 2 registers
-            0x4008..=0x400B | // Triangle channel registers
-            0x400C..=0x400F | // Noise channel registers
-            0x4010..=0x4013 | // DMC channel registers
-            0x4015 => true,   // APU status/control
-            _ => false,
-        }
+        // Reads. Only $4015 answers one: it is the single readable register the APU has.
+        //
+        // Every other register here is write-only, and a write-only register does not drive the
+        // data bus — so a read of one must fall through to the bus and come back with whatever was
+        // last on it. Answering with zero instead is what `cpu_exec_space/test_cpu_exec_space_apu`
+        // catches: it executes code *from* $4000 and follows where the open bus takes it.
+        address == APU_STATUS
     }
 
     fn handles_write(&self, address: u16) -> bool {
-        // $4017 is write-only for the APU: it sets the frame counter's mode and IRQ inhibit.
-        // Reads of $4017 belong to controller 2, so it is deliberately absent from
-        // `handles_address` above.
-        self.handles_address(address) || address == 0x4017
+        // Writes are the other way round: every register in the range takes one, including $4017,
+        // whose reads belong to controller 2 rather than to the APU.
+        matches!(address, 0x4000..=0x4013 | 0x4015 | 0x4017)
     }
 
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
