@@ -549,6 +549,13 @@ Blargg's ROMs write a status byte to $6000 and a message at $6004, so no screen 
 - [x] `suite` mode over a directory, and `frame` mode to capture what the PPU drew
 - [x] Press reset when a ROM asks for it, which several apu_reset ROMs wait on forever otherwise
 - [x] Skip cleanly with a clear message when no ROMs are present
+- [x] Read the result off the screen for the ROMs that predate the $6000 protocol. Blargg's earlier
+      suites report on screen only, and every one of them was being counted as a failure for want
+      of a way to read the answer. They write ASCII straight into the nametable — the tile index is
+      the character code — so the fix was to look, not to guess. Seventeen ROMs were unmeasured;
+      fourteen now report, and the three that do not are marked as such rather than as failures.
+      A verdict read this way is labelled `[screen]` in the output, because it is this runner's
+      reading of what a ROM drew rather than the ROM's own word for it.
 - [ ] Machine-readable output suitable for CI
 
 ### [Testing] Pass the suites [T8]
@@ -599,8 +606,18 @@ file rather than on anything specific to the suite.
 - [ ] instr_timing — 1/3
 - [x] oam_read — 1/1, and oam_stress — 1/1. Recorded here as "none yet" long after they passed;
       re-measured against the commit before the sprite work, which did not move them.
-- [ ] cpu_interrupts_v2, branch_timing_tests, blargg_ppu_tests, cpu_dummy_writes, cpu_exec_space —
-      none yet
+- [x] branch_timing_tests — 3/3. Recorded as "none yet" for as long as the runner could not read
+      an on-screen result; they had been passing.
+- [x] mmc3_irq_tests — 5/6, likewise unmeasured until now. The one failure is `5.MMC3_rev_A`, the
+      other revision's counter, which is the same gap as `mmc3_test/6-MMC6`.
+- [ ] blargg_ppu_tests — 2/5, and the remaining three are precisely diagnosed by their own codes:
+      - `sprite_ram` $07 — "$4014 DMA copy should start at value in $2003 and wrap"
+      - `vram_access` $06 — "palette read should also read VRAM into the read buffer"
+      - `power_up_palette` $02 — "palette differs from table", which the suite's readme says is
+        expected: those values "are probably unique to my NES". Not a fault to chase.
+- [ ] nmi_sync, cpu_timing_test6 — still unmeasured. The `nmi_sync` ROMs are visual demos with no
+      verdict to read; `cpu_timing_test6` draws nothing into the first nametable within 600 frames.
+- [ ] cpu_interrupts_v2, cpu_dummy_writes, cpu_exec_space — none yet
 
 
 ## MILESTONE 9: Mappers & Cartridges [T9]
@@ -635,6 +652,36 @@ for anything else is refused by name at load time rather than run with silently 
 - [ ] Controller 2 surfaced in the key mapping (wired in the core already)
 - [ ] Audio: verify against real game music now that the pipeline works
 - [ ] Test with a wider variety of games
+
+### [UI] Display scaling and filters [T10]
+The picture is 256x240 and every screen it is shown on is larger, so something has to decide what
+happens between the pixels. Today nothing does: `PixelDisplay` hard-codes
+`egui::TextureOptions::NEAREST` and multiplies by a `zoom` float, so the window can land on a
+non-integer scale and the sampler then duplicates some source rows and not others — even
+nearest-neighbour is only uniform when the factor is a whole number. Fullscreen and overscan
+cropping already exist and this is the piece between them.
+
+- [ ] A `ScalingMode` the display widget takes, replacing the hard-coded `NEAREST`, with the choice
+      surfaced in the UI and saved with the other preferences
+- [ ] Integer scaling: pick the largest whole multiple that fits and letterbox the remainder, so no
+      row or column is ever wider than its neighbours. This is the fix for the uneven-pixel
+      artefact above and should be the default
+- [ ] Correct aspect ratio as an option: the NES pixel is not square (8:7 on NTSC), so 256x240
+      belongs on screen at roughly 292x240. Independent of the scaling mode, and a case where an
+      integer *vertical* scale with a stretched horizontal one is the usual compromise
+- [ ] Bilinear, for anyone who prefers it — one line once the mode exists, and worth having as the
+      baseline the sharper filters are compared against
+- [ ] Scale2x/AdvMAME2x, then Eagle or hq2x/hq3x: pixel-art scalers that read a 3x3 neighbourhood
+      and interpolate along detected edges rather than uniformly. Pure functions from one frame
+      buffer to another, so they test directly — a handful of known input patterns and their exact
+      expected output, no emulator needed
+- [ ] A CRT-style pass (scanline darkening at least, phosphor/aperture-grille shape if it earns its
+      keep), which is a different thing from interpolation and should be composable with it
+- [ ] Decide where the work happens. All of the above is per-frame over 61440 pixels; on the CPU
+      that is fine at 2x and questionable at hq3x, so measure before committing. A shader is the
+      other answer and is also what [T10] Web Integration will want, since WebGL is already on that
+      list — a filter written as a fragment shader would be shared rather than written twice
+- [ ] Benchmark the chosen path and confirm it does not cost frames on a 60Hz budget
 
 ### [CPU] Advanced Instructions [T9]
 - [ ] Implement remaining status flag changes (CLD, CLI, CLV, SED, SEI)
@@ -771,20 +818,25 @@ for anything else is refused by name at load time rather than run with silently 
 - [ ] Document optimization strategies
 
 ## Progress Tracking
-- Track 1 (Memory Visualization): 100% complete (50/50 tasks)
-- Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
-- Track 3 (Basic Sprite Rendering): 100% complete (54/54 tasks)
-- Track 4 (Animated Sprites): 100% complete (47/47 tasks)
-- Track 5 (Input Controllers): 100% complete (33/33 tasks) - Controller input is fully implemented with keyboard mapping support
-- Track 6 (Basic Sound Output): 100% complete (47/47 tasks) - APU registers, pulse channel, volume/mute controls, and audio output through CPAL. The output pipeline was rebuilt (resampling, non-linear mixing, APU clock divider, audio-clock pacing) — see [AUDIO_PLAN.md](AUDIO_PLAN.md)
-- Track 7 (Complete Audio System): 100% complete (31/31 tasks) - All audio channels implemented (pulse, triangle, noise, DMC) with hardware non-linear mixing, output filters, envelope generators, sweep units and length counters. Still outstanding: frame IRQ, 5-step frame counter mode, and DMC bus reads (tracked below)
-- Track 8 (Conformance & Test ROMs): 0% complete (0/25 tasks) - Blocked on PRG-ROM loading; see CONFORMANCE_PLAN.md
-- Track 9 (Mappers & Cartridges): 0% complete (0/25 tasks) 
-- Track 10 (Full Desktop System): 0% complete (0/91 tasks) - Additional branch instructions (BCC, BCS, BMI) will be implemented here
-- Track 11 (Web Integration): 0% complete (0/40 tasks)
-- Additional Areas: 0% complete (0/113 tasks) - Including cycle-accurate timing, background rendering, testing, edge cases, distribution, extended features, legal considerations, documentation, performance optimization, and demo ROMs
+Counted from the checkboxes themselves rather than kept by hand, which is why several figures moved
+when they were last recounted: the totals had drifted as items were added, and three tracks read 0%
+long after their work had landed. An item belongs to the milestone it sits under, unless its own
+line carries a track tag.
 
-**Total Progress: 299/535 tasks complete (55.9%)** 🚀
+- Track 1 (Memory Visualization): 100% complete (70/70 tasks)
+- Track 2 (PPU Pixel Display): 100% complete (40/40 tasks)
+- Track 3 (Basic Sprite Rendering): 100% complete (73/73 tasks)
+- Track 4 (Animated Sprites): 100% complete (47/47 tasks)
+- Track 5 (Input Controllers): 92% complete (35/38 tasks) - Controller input is fully implemented with keyboard mapping support; what remains is the D-pad movement demo ROM
+- Track 6 (Basic Sound Output): 100% complete (48/48 tasks) - APU registers, pulse channel, volume/mute controls, and audio output through CPAL. The output pipeline was rebuilt (resampling, non-linear mixing, APU clock divider, audio-clock pacing) — see [AUDIO_PLAN.md](AUDIO_PLAN.md)
+- Track 7 (Complete Audio System): 76% complete (44/58 tasks) - All audio channels implemented (pulse, triangle, noise, DMC) with hardware non-linear mixing, output filters, envelope generators, sweep units and length counters, and the frame IRQ, 5-step mode and DMC bus reads are all done. What remains is $4017 write and reset timing, and the per-channel test ROMs
+- Track 8 (Conformance & Test ROMs): 72% complete (23/32 tasks) - PRG-ROM loading, the headless runner and the official instruction set are done; the suites that still fail are mostly waiting on the two rewrites at the end of this file. See [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)
+- Track 9 (Mappers & Cartridges): 83% complete (10/12 tasks) - NROM, MMC1, UxROM, MMC3 (with A12 timing) and AxROM, saved and restored with snapshots. CNROM, MMC2 and Color Dreams are unstarted and unneeded so far
+- Track 10 (Full Desktop System): 4% complete (3/74 tasks) - Commercial ROMs, save states and fullscreen work; the bulk of the count is the CPU/PPU/debugger sections filed here, much of which is implemented but tracked in earlier milestones' boxes
+- Track 11 (Web Integration): 0% complete (0/41 tasks)
+- Additional Areas: 8% complete (15/177 tasks) - Including cycle-accurate timing, background rendering, testing, edge cases, distribution, extended features, legal considerations, documentation, performance optimization, demo ROMs, and the two rewrites
+
+**Total Progress: 408/710 tasks complete (57.5%)** 🚀
 
 ## Additional Important Areas (To Be Defined Better Later)
 

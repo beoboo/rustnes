@@ -32,11 +32,14 @@ impl ControllerProfile {
         // Default NES controller mapping - common configuration
         profile.key_to_button.insert(KeyCode::Z, ControllerButton::A);
         profile.key_to_button.insert(KeyCode::X, ControllerButton::B);
-        // Not Tab, however conventional that is for Select. The debugger is a GUI, and its
-        // toolkit claims Tab to move focus between widgets before the application sees any input —
-        // so the key never reaches the game. Super Mario Bros 3's title screen uses Select to
-        // choose between one and two players, which is simply impossible with Tab bound here.
-        profile.key_to_button.insert(KeyCode::ShiftRight, ControllerButton::Select);
+        // Tab for Select, the convention every other emulator uses, with Backspace as an
+        // alternative. Not a modifier key: egui reports modifiers as flags on other events rather
+        // than as keys of their own, so a Shift binding is one the player can never press — which
+        // is what made Super Mario Bros 3's two-player mode unreachable, its title screen choosing
+        // between one and two players with Select. Tab additionally moves egui's widget focus,
+        // which is untidy but harmless: the event is only read there, never consumed.
+        profile.key_to_button.insert(KeyCode::Tab, ControllerButton::Select);
+        profile.key_to_button.insert(KeyCode::Backspace, ControllerButton::Select);
         profile.key_to_button.insert(KeyCode::Enter, ControllerButton::Start);
         profile.key_to_button.insert(KeyCode::ArrowUp, ControllerButton::Up);
         profile.key_to_button.insert(KeyCode::ArrowDown, ControllerButton::Down);
@@ -64,9 +67,6 @@ impl ControllerProfile {
         profile.key_to_button.insert(KeyCode::K, ControllerButton::A);
         profile.key_to_button.insert(KeyCode::L, ControllerButton::B);
 
-        // Shift is a common alternative for Select, which Tab alone makes awkward in a windowed
-        // application where Tab may move focus.
-        profile.key_to_button.insert(KeyCode::ShiftRight, ControllerButton::Select);
         profile.key_to_button.insert(KeyCode::Space, ControllerButton::Start);
 
         profile
@@ -88,11 +88,9 @@ impl ControllerProfile {
         // Action buttons
         profile.key_to_button.insert(KeyCode::K, ControllerButton::A);
         profile.key_to_button.insert(KeyCode::L, ControllerButton::B);
-        // Not Tab, however conventional that is for Select. The debugger is a GUI, and its
-        // toolkit claims Tab to move focus between widgets before the application sees any input —
-        // so the key never reaches the game. Super Mario Bros 3's title screen uses Select to
-        // choose between one and two players, which is simply impossible with Tab bound here.
-        profile.key_to_button.insert(KeyCode::ShiftRight, ControllerButton::Select);
+        // Tab and Backspace for Select, as in the default profile.
+        profile.key_to_button.insert(KeyCode::Tab, ControllerButton::Select);
+        profile.key_to_button.insert(KeyCode::Backspace, ControllerButton::Select);
         profile.key_to_button.insert(KeyCode::Enter, ControllerButton::Start);
 
         profile
@@ -161,15 +159,16 @@ impl ControllerProfile {
 
 #[cfg(test)]
 mod tests {
-    /// No profile may bind Tab.
+    /// Select must be on Tab in every profile.
     ///
-    /// Tab is the conventional key for Select, and it does not work: a windowed application's
-    /// toolkit takes Tab to move focus between widgets before the application is given any input,
-    /// so the press never reaches the game. The symptom is specific and baffling — Super Mario
-    /// Bros 3's title screen uses Select to choose between one and two players, so two-player mode
-    /// simply cannot be selected, while every other button behaves.
+    /// Tab is what every other emulator uses, so it is the key a player will reach for, and it is
+    /// the one they will conclude is broken when it does nothing. It was previously avoided on the
+    /// belief that the window toolkit swallows it for focus traversal; egui only reads the event
+    /// to move focus and leaves it in the queue, so the game still sees it. What actually broke
+    /// was the replacement — Right Shift, which egui reports as a modifier flag and never as a key
+    /// of its own, leaving Select unpressable and Super Mario Bros 3's two-player mode unreachable.
     #[test]
-    fn no_profile_binds_tab() {
+    fn every_profile_binds_select_to_tab() {
         let profiles = [
             ("default", ControllerProfile::create_default_profile("default")),
             ("combined", ControllerProfile::create_combined_profile()),
@@ -177,9 +176,10 @@ mod tests {
         ];
 
         for (name, profile) in profiles {
-            assert!(
-                !profile.key_to_button.contains_key(&KeyCode::Tab),
-                "the {name} profile binds Tab, which the window toolkit consumes first"
+            assert_eq!(
+                profile.key_to_button.get(&KeyCode::Tab),
+                Some(&ControllerButton::Select),
+                "the {name} profile does not bind Select to Tab"
             );
         }
     }

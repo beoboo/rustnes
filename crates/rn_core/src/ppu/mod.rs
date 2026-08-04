@@ -243,6 +243,14 @@ impl PpuWrapper {
         self.ppu.borrow().nmi_line.get()
     }
 
+    /// Read a byte of PPU address space, without the side effects a $2007 read would have.
+    ///
+    /// For looking at what the PPU holds — a nametable, the pattern tables — rather than for
+    /// emulating a program's read. Nothing is buffered and no address is incremented.
+    pub fn read_vram(&self, address: u16) -> u8 {
+        self.ppu.borrow().read_ppu_memory(address)
+    }
+
     /// Get the status register value
     pub fn status(&self) -> u8 {
         let ppu = self.ppu.borrow();

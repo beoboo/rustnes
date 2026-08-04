@@ -19,6 +19,7 @@ mod blargg;
 mod cycles;
 mod frame;
 mod nestest;
+mod screen;
 
 use std::path::{Path, PathBuf};
 
@@ -90,6 +91,20 @@ enum Command {
         ascii: bool,
     },
 
+    /// Print the text a ROM has drawn on screen, for ROMs that report no other way
+    Screen {
+        /// Path to the .nes file
+        rom: PathBuf,
+
+        /// Video frames to run before reading the screen
+        #[arg(long, default_value_t = 240)]
+        frames: usize,
+
+        /// Print raw tile indices instead of decoded text
+        #[arg(long)]
+        raw: bool,
+    },
+
     /// Run every .nes file under a directory and summarise
     Suite {
         /// Directory to search, recursively
@@ -109,6 +124,7 @@ fn main() -> Result<()> {
         Command::Run { rom, budget } => run_one(&rom, budget),
         Command::Cycles { rom, instructions } => cycles::report(&rom, instructions),
         Command::Frame { rom, frames, out, ascii } => run_frame(&rom, frames, out.as_deref(), ascii),
+        Command::Screen { rom, frames, raw } => screen::report(&rom, frames, raw),
         Command::Suite { directory, budget } => run_suite(&directory, budget),
     }
 }
@@ -261,7 +277,15 @@ fn report(rom: &Path, outcome: &blargg::Outcome) {
         blargg::Status::NoProtocol => "NOPROTO".to_string(),
     };
 
-    println!("  {label}  {name}  ({} instructions)", outcome.instructions);
+    // Marked, not hidden. A verdict read off the screen is this runner's interpretation of what a
+    // ROM drew, where a $6000 result is the ROM's own word for it, and anyone doubting a result
+    // should be able to see at a glance which kind it is.
+    let source = match outcome.source {
+        blargg::Source::Protocol => "",
+        blargg::Source::Screen => " [screen]",
+    };
+
+    println!("  {label}{source}  {name}  ({} instructions)", outcome.instructions);
 
     if !outcome.message.is_empty() {
         for line in outcome.message.lines() {
@@ -270,7 +294,7 @@ fn report(rom: &Path, outcome: &blargg::Outcome) {
     }
 
     if matches!(outcome.status, blargg::Status::NoProtocol) {
-        println!("          ROM never wrote the $6000 signature — it may need a PPU or interrupts");
+        println!("          no $6000 signature, and nothing legible on screen either");
     }
 }
 

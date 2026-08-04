@@ -17,6 +17,8 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use rn_core::{cartridge::load_rom, memory::Addressable, system::NesSystem};
 
+use crate::screen;
+
 const STATUS: u16 = 0x6000;
 const SIGNATURE: u16 = 0x6001;
 const MESSAGE: u16 = 0x6004;
@@ -49,10 +51,22 @@ pub enum Status {
     NoProtocol,
 }
 
+/// Where a verdict came from.
+///
+/// Recorded and reported rather than flattened away, because the two are not equally trustworthy.
+/// The `$6000` protocol is exact; the screen is this runner's reading of what a ROM drew, and if
+/// that reading is ever wrong it should be obvious which results to doubt.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Source {
+    Protocol,
+    Screen,
+}
+
 pub struct Outcome {
     pub status: Status,
     pub message: String,
     pub instructions: usize,
+    pub source: Source,
 }
 
 /// Run a blargg-style ROM until it reports a result or the budget runs out.
@@ -108,6 +122,7 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
                     status: Status::Passed,
                     message: read_message(&system),
                     instructions: instruction,
+                    source: Source::Protocol,
                 })
             },
             code => {
@@ -115,15 +130,40 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
                     status: Status::Failed { code },
                     message: read_message(&system),
                     instructions: instruction,
+                    source: Source::Protocol,
                 })
             },
         }
     }
 
+    if signature_seen {
+        return Ok(Outcome {
+            status: Status::TimedOut,
+            message: read_message(&system),
+            instructions: max_instructions,
+            source: Source::Protocol,
+        });
+    }
+
+    // No signature, so the ROM predates the protocol and reports on screen instead. Blargg's
+    // earlier suites all end by looping forever on purpose — "disable IRQ and NMI then loop
+    // endlessly" — so running out of budget is their normal finish, not a hang, and the answer is
+    // sitting in the nametable.
+    let drawn = screen::read(&system);
+    let outcome = match screen::verdict(&drawn.text()) {
+        Some(screen::Verdict::Passed) => Status::Passed,
+        Some(screen::Verdict::Failed { code }) => Status::Failed { code },
+        // Nothing legible. Left as it was rather than guessed at.
+        None => Status::NoProtocol,
+    };
+
+    let source = if outcome == Status::NoProtocol { Source::Protocol } else { Source::Screen };
+
     Ok(Outcome {
-        status: if signature_seen { Status::TimedOut } else { Status::NoProtocol },
-        message: if signature_seen { read_message(&system) } else { String::new() },
+        status: outcome,
+        message: drawn.text(),
         instructions: max_instructions,
+        source,
     })
 }
 
