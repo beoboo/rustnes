@@ -399,6 +399,19 @@ pub struct Ppu {
     /// clocks in the frame.
     rendering_enabled: Cell<bool>,
 
+    /// The PPU's own I/O latch — what a read of a write-only register comes back with.
+    ///
+    /// Every read *or* write of any of the eight registers refreshes it, and the write-only ones
+    /// have nothing of their own to return, so they hand back whatever it is holding. That is the
+    /// PPU's open bus, and it is a different thing from the CPU's: this one is inside the PPU, is
+    /// refreshed by register traffic alone, and on hardware decays over a few frames.
+    ///
+    /// $2002 is the interesting case. It supplies only its top three bits and the latch supplies
+    /// the other five, so a program reading it sees the last thing it wrote in the bits the status
+    /// register does not define. `cpu_dummy_writes_ppumem` checks exactly that before it gets
+    /// anywhere near the dummy writes it is named for.
+    io_latch: Cell<u8>,
+
     /// Nametable layout, set from the cartridge header.
     mirroring: Mirroring,
 
@@ -738,6 +751,7 @@ impl Ppu {
             frame_count: 0,
             nmi_line: Cell::new(false),
             rendering_enabled: Cell::new(false),
+            io_latch: Cell::new(0),
             mirroring: Mirroring::default(),
             diagnostics: FrameDiagnostics {
                 last_toggle_scanline: -1,
@@ -2160,6 +2174,15 @@ impl Ppu {
 
     /// Read from a PPU register (mapped at $2000-$2007)
     pub fn read_register(&self, address: u16) -> u8 {
+        let value = self.read_register_inner(address);
+
+        // Every register read refreshes the latch with what came back, so the *next* read of a
+        // write-only register returns this.
+        self.io_latch.set(value);
+        value
+    }
+
+    fn read_register_inner(&self, address: u16) -> u8 {
         match address & 0x7 {
             0x2 => {
                 let result = self.read_status();
@@ -2179,14 +2202,14 @@ impl Ppu {
             0x4 => self.read_oam_data(),
             0x7 => self.read_data(),
             _ => {
-                // Most PPU registers are write-only
-                // Reading from write-only registers returns the internal read buffer
+                // $2000, $2001, $2003, $2005 and $2006 are write-only and drive nothing at all, so
+                // the value on the lines is whatever the latch is still holding.
                 log::debug!(
-                    "Read from write-only register ${:04X}, returning read buffer: ${:02X}",
+                    "Read from write-only register ${:04X}, returning the I/O latch: ${:02X}",
                     address,
-                    self.read_buffer.get()
+                    self.io_latch.get()
                 );
-                self.read_buffer.get()
+                self.io_latch.get()
             },
         }
     }
@@ -2194,6 +2217,11 @@ impl Ppu {
     /// Write to a PPU register (mapped at $2000-$2007)
     pub fn write_register(&mut self, address: u16, value: u8) {
         log::debug!("PPU write_register: ${:04X} = ${:02X}", address, value);
+
+        // A write puts its value on the PPU's lines whichever register it was aimed at, so it
+        // refreshes the I/O latch too — including for the registers that ignore the write.
+        self.io_latch.set(value);
+
         match address & 0x7 {
             0x0 => self.write_control(value),
             0x1 => self.write_mask(value),
@@ -2235,7 +2263,9 @@ impl Ppu {
             return self.status.get() & !STATUS_VBLANK;
         }
 
-        let result = self.status.get();
+        // Only the top three bits of $2002 exist. The other five are not zero and never were —
+        // nothing drives them, so they come back holding whatever the I/O latch last saw.
+        let result = (self.status.get() & 0xE0) | (self.io_latch.get() & 0x1F);
 
         // Reading status resets the write toggle
         self.write_toggle.set(false);
@@ -3303,6 +3333,62 @@ mod tests {
             ppu.read_register(0x2007),
             0x5A,
             "the palette read should have loaded the buffer from $2F00"
+        );
+    }
+
+
+    /// Reading a write-only PPU register returns the I/O latch, not zero.
+    ///
+    /// The five write-only registers drive nothing, so what comes back is whatever the PPU's lines
+    /// last carried — refreshed by any register read or write, including the writes those very
+    /// registers ignore.
+    #[test]
+    fn a_write_only_register_reads_back_the_io_latch() {
+        let mut ppu = Ppu::new();
+
+        ppu.write_register(0x2000, 0x00);
+        assert_eq!(ppu.read_register(0x2000), 0x00);
+
+        // A write to $2003 puts $5A on the lines; $2001 has nothing of its own to say.
+        ppu.write_register(0x2003, 0x5A);
+        assert_eq!(ppu.read_register(0x2001), 0x5A, "the latch, not zero");
+        assert_eq!(ppu.read_register(0x2005), 0x5A, "and every other write-only register agrees");
+    }
+
+    /// $2002 supplies its top three bits and the latch supplies the other five.
+    ///
+    /// The status register has only three bits in it. The rest of the byte is not zero and never
+    /// was — nothing drives those lines. `cpu_dummy_writes_ppumem` checks this before it reaches
+    /// the dummy writes it is named for, and `cpu_exec_space/ppuio` fails outright without it.
+    #[test]
+    fn reading_status_fills_its_unused_bits_from_the_latch() {
+        let mut ppu = Ppu::new();
+
+        // Put a value on the lines whose low five bits are distinctive.
+        ppu.write_register(0x2000, 0x1F);
+
+        run_to(&mut ppu, 241, 1);
+        let seen = ppu.read_register(0x2002);
+
+        assert_ne!(seen & STATUS_VBLANK, 0, "vblank is set and comes from the status register");
+        assert_eq!(seen & 0x1F, 0x1F, "and the five bits below it come from the latch");
+    }
+
+    /// A read refreshes the latch too, so the value follows the last thing that came back.
+    #[test]
+    fn a_register_read_refreshes_the_latch() {
+        let mut ppu = Ppu::new();
+
+        // Put a known byte in OAM and read it through $2004, which has a value of its own.
+        ppu.write_register(0x2003, 0x00);
+        ppu.write_register(0x2004, 0x3C);
+        ppu.write_register(0x2003, 0x00);
+        assert_eq!(ppu.read_register(0x2004), 0x3C);
+
+        assert_eq!(
+            ppu.read_register(0x2001),
+            0x3C,
+            "the write-only register hands back what the last read put on the lines"
         );
     }
 

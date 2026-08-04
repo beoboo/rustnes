@@ -774,6 +774,11 @@ impl Cpu {
         // Pull the return address from the stack
         let return_address = self.pop_word()?;
 
+        // The sixth cycle is spent incrementing the pulled address, and like every other cycle it
+        // drives the bus: it reads at the address as pulled, before the increment. RTS is six
+        // cycles and only five of them are otherwise accounted for — this is the last.
+        let _ = self.read_byte(return_address);
+
         // Return address points to the last byte of JSR, so add 1 to get to the next instruction
         self.registers.pc = return_address.wrapping_add(1);
 
@@ -1428,11 +1433,15 @@ impl Cpu {
     /// Pulls the status register and then the program counter. Unlike RTS, the pulled address is
     /// used as-is: an interrupt pushes the address to resume at, whereas JSR pushes one byte short.
     pub fn rti(&mut self) -> Result<(), NesError> {
-        let status = self.pop_byte()?;
+        // Three bytes come off the stack but the pointer is wound forward once, on the cycle
+        // before them. Pulling each with its own dummy read made RTI eight cycles instead of six.
+        self.dummy_stack_read();
+
+        let status = self.pull_byte()?;
         self.registers.status = (status & !(CpuFlag::Break as u8)) | CpuFlag::Unused as u8;
 
-        let low = self.pop_byte()? as u16;
-        let high = self.pop_byte()? as u16;
+        let low = self.pull_byte()? as u16;
+        let high = self.pull_byte()? as u16;
         self.registers.pc = (high << 8) | low;
         Ok(())
     }

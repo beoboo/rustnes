@@ -457,15 +457,33 @@ impl Cpu {
         Ok(())
     }
 
-    /// Pop a byte from the stack
-    pub fn pop_byte(&mut self) -> Result<u8, NesError> {
-        // The stack is read at the current pointer and discarded before the pointer moves. That
-        // cycle exists to increment the pointer, and like every other cycle it drives the bus.
+    /// The read the processor makes on the cycle it spends incrementing the stack pointer.
+    ///
+    /// A pull sequence has exactly *one* of these, however many bytes it goes on to pull. That is
+    /// what makes `PLA` four cycles and `RTI` six rather than eight: the pointer is wound forward
+    /// once and the pulls that follow are a cycle each.
+    ///
+    /// Charging it per byte cost `RTI` two cycles, which is what `instr_timing` reported as
+    /// "40 was 8, should be 6" — measured through the PPU, since the emulator advances the rest of
+    /// the system once per access.
+    pub(crate) fn dummy_stack_read(&self) {
         let _ = self.read_byte(0x0100 | (self.registers.sp as u16));
+    }
 
+    /// Pull one byte: the pointer moves, then the byte under it is read.
+    pub(crate) fn pull_byte(&mut self) -> Result<u8, NesError> {
         self.registers.sp = self.registers.sp.wrapping_add(1);
-        let stack_addr = 0x0100 | (self.registers.sp as u16);
-        self.read_byte(stack_addr)
+        self.read_byte(0x0100 | (self.registers.sp as u16))
+    }
+
+    /// Pop a byte from the stack: the whole of a one-byte pull, dummy read included.
+    ///
+    /// For the instructions that pull exactly one byte — `PLA` and `PLP`. Anything pulling more
+    /// wants [`dummy_stack_read`](Self::dummy_stack_read) once and then a
+    /// [`pull_byte`](Self::pull_byte) each.
+    pub fn pop_byte(&mut self) -> Result<u8, NesError> {
+        self.dummy_stack_read();
+        self.pull_byte()
     }
 
     /// Push a word onto the stack (high byte first, then low byte)
@@ -477,23 +495,37 @@ impl Cpu {
         Ok(())
     }
 
-    /// Pop a word from the stack (low byte first, then high byte)
+    /// Pop a word from the stack (low byte first, then high byte).
+    ///
+    /// One dummy read for the pair, not one each — see [`pop_byte`](Self::pop_byte).
     pub fn pop_word(&mut self) -> Result<u16, NesError> {
-        let low = self.pop_byte()? as u16;
-        let high = self.pop_byte()? as u16;
+        self.dummy_stack_read();
+        let low = self.pull_byte()? as u16;
+        let high = self.pull_byte()? as u16;
         Ok((high << 8) | low)
     }
 
     /// Reset the CPU
     pub fn reset(&mut self) -> Result<(), NesError> {
-        // Set registers to their initial values
-        self.registers = CpuRegisters::default();
+        // Pressing reset is not the same as switching the machine on, and the difference is
+        // exactly what `cpu_reset/registers` measures: "reset should set I flag, subtract 3 from S,
+        // nothing more". A, X, Y and every other flag survive it.
+        //
+        // The three the stack pointer loses are not arbitrary. The reset sequence is the interrupt
+        // sequence: it goes through the motions of pushing the program counter and the status byte,
+        // decrementing the pointer three times, but the writes are suppressed. Nothing is stored
+        // and the pointer moves anyway.
+        //
+        // Power-on is elsewhere and stays as it was — `Cpu::new` sets the documented power-up
+        // state and `load_rom` starts at the vector, so this is only ever the button.
+        self.set_flag(CpuFlag::InterruptDisable, true);
+        self.registers.sp = self.registers.sp.wrapping_sub(3);
 
         // Read the reset vector from 0xFFFC-0xFFFD
         self.registers.pc = self.read_word(0xFFFC)?;
 
         // Reset takes 7 cycles
-        self.cycles = 7;
+        self.cycles = self.cycles.wrapping_add(7);
 
         Ok(())
     }
@@ -846,6 +878,17 @@ mod tests {
         Ok(())
     }
 
+    /// Reset sets the I flag, subtracts three from the stack pointer, and does nothing else.
+    ///
+    /// It is not power-on, and this test used to assert that it was: it expected the stack pointer
+    /// to *become* $FD rather than to lose three, which only looked right because it started from
+    /// the power-up value. `cpu_reset/registers` states the rule in as many words — "reset should
+    /// set I flag, subtract 3 from S, nothing more" — and A, X, Y and the other flags surviving is
+    /// the substance of it.
+    ///
+    /// The three are the interrupt sequence going through the motions of pushing the program
+    /// counter and the status byte with its writes suppressed: nothing is stored, the pointer moves
+    /// anyway.
     #[test]
     fn test_reset() -> Result<()> {
         // Use RAM with full address space (0x0000-0xFFFF) for testing
@@ -856,14 +899,28 @@ mod tests {
         ram.write_byte(0xFFFD, 0x12)?;
 
         let mut cpu = setup_cpu_with_memory(ram);
+
+        // A machine that has been running: registers hold something, and I is clear.
+        cpu.registers.a = 0x11;
+        cpu.registers.x = 0x22;
+        cpu.registers.y = 0x33;
+        cpu.registers.sp = 0x80;
+        cpu.set_flag(CpuFlag::InterruptDisable, false);
+        cpu.set_flag(CpuFlag::Carry, true);
+        cpu.cycles = 100;
+
         cpu.reset()?;
 
-        // Check if PC was set to the reset vector
-        assert_eq!(cpu.registers.pc, 0x1234);
-        // Check if SP was set to 0xFD
-        assert_eq!(cpu.registers.sp, 0xFD);
-        // Check if cycles were set to 7
-        assert_eq!(cpu.cycles, 7);
+        assert_eq!(cpu.registers.pc, 0x1234, "the reset vector is followed");
+        assert_eq!(cpu.registers.sp, 0x7D, "three off the stack pointer, not a reload of it");
+        assert!(cpu.get_flag(CpuFlag::InterruptDisable), "and the I flag is set");
+
+        assert_eq!(cpu.registers.a, 0x11, "A survives a reset");
+        assert_eq!(cpu.registers.x, 0x22, "so does X");
+        assert_eq!(cpu.registers.y, 0x33, "and Y");
+        assert!(cpu.get_flag(CpuFlag::Carry), "and every flag but I");
+
+        assert_eq!(cpu.cycles, 107, "reset takes seven cycles, added to what came before");
 
         Ok(())
     }

@@ -619,7 +619,11 @@ file rather than on anything specific to the suite.
       after all three. The suspicion was that an interrupt raised on the first dot waited for the
       third, but the CPU already samples the line after the clock has run within the same bus
       access, so the extra granularity buys nothing. The dot is lost somewhere else.
-- [ ] instr_timing — 1/3
+- [x] instr_timing — 3/3. Two causes. `2-branch_timing` was the BRK halt. `1-instr_timing` reported
+      "40 was 8, should be 6": every pull did its own dummy stack read, where hardware winds the
+      pointer forward once per pull *sequence* and the pulls that follow are a cycle each. That
+      made `RTI` eight cycles. `RTS` gained the read it was missing at the address it pulled, which
+      is its sixth cycle.
 - [x] oam_read — 1/1, and oam_stress — 1/1. Recorded here as "none yet" long after they passed;
       re-measured against the commit before the sprite work, which did not move them.
 - [x] branch_timing_tests — 3/3. Recorded as "none yet" for as long as the runner could not read
@@ -643,7 +647,14 @@ file rather than on anything specific to the suite.
       test CYCLE_ACCURACY.md records as having hung on two previous attempts at interrupt timing;
       it was the BRK halt above, not the interrupt work. The combined `cpu_interrupts.nes` now
       fails rather than hangs.
-- [ ] cpu_dummy_writes, cpu_exec_space — none yet
+- [x] cpu_reset — 2/2. Reset is not power-on: it sets the I flag, subtracts three from the stack
+      pointer and does nothing else. A, X, Y and the other flags survive it. The three are the
+      interrupt sequence going through the motions of its pushes with the writes suppressed.
+- [ ] cpu_exec_space — 1/2. `ppuio` passes now that the PPU has an I/O latch of its own: a read of
+      one of the five write-only registers returns whatever the PPU's lines last carried, and
+      `$2002` supplies only its top three bits with the latch supplying the other five.
+      `test_cpu_exec_space_apu` still fails.
+- [ ] cpu_dummy_writes — 0/2, still failing at "verifying open bus behavior" (#9 and #5)
 
 
 ## MILESTONE 9: Mappers & Cartridges [T9]
