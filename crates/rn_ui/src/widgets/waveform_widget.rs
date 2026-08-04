@@ -81,7 +81,7 @@ impl WaveformWidget {
             let center_y = rect.min.y + rect.height() / 2.0;
             painter.line_segment(
                 [pos2(rect.min.x, center_y), pos2(rect.max.x, center_y)],
-                Stroke::new(1.0, Color32::from_gray(100)),
+                Stroke::new(1.0_f32, Color32::from_gray(100)),
             );
 
             let mut samples = Vec::new();
@@ -119,12 +119,12 @@ impl WaveformWidget {
                 // Draw the waveform as a single shape
                 painter.add(epaint::Shape::line(
                     points,
-                    Stroke::new(2.0, Color32::from_rgb(100, 255, 100)),
+                    Stroke::new(2.0_f32, Color32::from_rgb(100, 255, 100)),
                 ));
             }
 
             // Draw border using lines
-            let stroke = Stroke::new(1.0, Color32::from_gray(80));
+            let stroke = Stroke::new(1.0_f32, Color32::from_gray(80));
             // Top line
             painter.line_segment([pos2(rect.min.x, rect.min.y), pos2(rect.max.x, rect.min.y)], stroke);
             // Bottom line

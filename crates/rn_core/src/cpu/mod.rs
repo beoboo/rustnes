@@ -238,20 +238,31 @@ pub struct Cpu {
     /// Cycles the clock has been run for during the current instruction.
     clocked_cycles: Cell<u8>,
 
-    /// Which cycle of the current instruction samples the interrupt lines.
+    /// The internal NMI signal: an edge has been detected and not yet serviced.
     ///
-    /// Hardware reads them at the end of the second-to-last cycle and acts during the next, not at
-    /// the instruction's end. That is what makes CLI, SEI and PLP take effect one instruction late:
-    /// they change the I flag *after* the sample, so the flag they set is not the flag it saw.
+    /// The wiki: "the internal signal goes high during φ1 of the cycle that follows the one where
+    /// the edge is detected, and stays high until the NMI has been handled".
+    need_nmi: Cell<bool>,
+
+    /// [`need_nmi`](Self::need_nmi) as it stood one CPU cycle ago — the shadow that is acted on.
     ///
-    /// Counted in bus accesses, which is meaningful only because every cycle now performs one.
-    poll_at: Cell<u8>,
+    /// This is the whole of the sampling rule. Hardware reads the lines at the end of the
+    /// second-to-last cycle and acts during the next, and a one-cycle-delayed copy checked after
+    /// the instruction *is* that, without anything having to know how long the instruction is.
+    /// Deriving the polling cycle from the instruction's length was tried twice and failed twice;
+    /// see CYCLE_ACCURACY.md.
+    prev_need_nmi: Cell<bool>,
 
-    /// What that sample found: an IRQ eligible at the next instruction boundary.
-    irq_sampled: Cell<bool>,
+    /// The NMI line as it stood at the end of the previous cycle, for detecting its rising edge.
+    prev_nmi_line: Cell<bool>,
 
-    /// And a latched NMI, which unlike the IRQ line survives until it is serviced.
-    nmi_sampled: Cell<bool>,
+    /// Whether an IRQ is currently eligible: the line asserted and the I flag clear.
+    run_irq: Cell<bool>,
+
+    /// [`run_irq`](Self::run_irq) one cycle ago. Acted on for the same reason as `prev_need_nmi`,
+    /// and the reason `CLI`, `SEI` and `PLP` take effect one instruction late: they change the I
+    /// flag after the cycle whose value the shadow is still holding.
+    prev_run_irq: Cell<bool>,
 
     /// Every cycle ever run from a bus access, never reset. Diagnostic only.
     total_clocked: Cell<u64>,
@@ -300,9 +311,11 @@ impl Cpu {
             clock: None,
             executing: Cell::new(false),
             clocked_cycles: Cell::new(0),
-            poll_at: Cell::new(0),
-            irq_sampled: Cell::new(false),
-            nmi_sampled: Cell::new(false),
+            need_nmi: Cell::new(false),
+            prev_need_nmi: Cell::new(false),
+            prev_nmi_line: Cell::new(false),
+            run_irq: Cell::new(false),
+            prev_run_irq: Cell::new(false),
             total_clocked: Cell::new(0),
             nmi_pending: Rc::new(Cell::new(false)),
             irq_line: Rc::new(Cell::new(false)),
@@ -499,20 +512,42 @@ impl Cpu {
             self.total_clocked.set(self.total_clocked.get() + 1);
             clock();
 
-            // Sampled after the cycle has run, so the lines are read as they stand at its end.
-            if cycle == self.poll_at.get() {
-                self.sample_interrupts();
-            }
+            self.end_cpu_cycle();
         }
     }
 
-    /// Consume a pending NMI if one is asserted, for BRK to take over.
+    /// Close out one CPU cycle: shift the interrupt lines into their one-cycle-delayed shadow.
     ///
-    /// Both the latched sample and the raw line are checked: an NMI raised during BRK itself has
-    /// not been sampled, because an interrupt sequence does no polling, but it still arrives in
-    /// time to redirect the vector.
-    pub fn take_nmi_for_hijack(&mut self, arrived_during: bool) -> bool {
-        if !arrived_during {
+    /// Run for every cycle, unconditionally. Nothing here knows which cycle of which instruction
+    /// this is, and that is the point — "the status of the lines at the end of the second-to-last
+    /// cycle" falls out of the delay rather than being computed from an instruction's length.
+    fn end_cpu_cycle(&self) {
+        // Copied before the line is looked at, so the shadow lags by exactly one cycle.
+        self.prev_need_nmi.set(self.need_nmi.get());
+
+        // NMI is edge-triggered: the detector watches for the line going from unasserted to
+        // asserted, and the resulting signal stays up until the interrupt is serviced. Reading the
+        // line is not servicing it, which is why nothing is consumed here.
+        let nmi_line = self.nmi_pending.get();
+        if !self.prev_nmi_line.get() && nmi_line {
+            self.need_nmi.set(true);
+        }
+        self.prev_nmi_line.set(nmi_line);
+
+        // IRQ is level-triggered, so there is no latch: what matters is the line and the I flag as
+        // they stand at the end of this cycle.
+        self.prev_run_irq.set(self.run_irq.get());
+        self.run_irq
+            .set(self.irq_line.get() && !self.get_flag(CpuFlag::InterruptDisable));
+    }
+
+    /// Consume the internal NMI signal if it is up, for BRK to take over.
+    ///
+    /// The signal, not the shadow: an NMI that arrives during BRK's own first cycles is still in
+    /// time to redirect the vector, and one that arrived early enough for the shadow to have seen
+    /// it would have been serviced instead of BRK ever running.
+    pub fn take_nmi_for_hijack(&mut self) -> bool {
+        if !self.need_nmi.get() {
             return false;
         }
 
@@ -526,27 +561,31 @@ impl Cpu {
         self.nmi_pending.get()
     }
 
-    /// Release the NMI edge latch. Only servicing does this.
+    /// Release the NMI edge latch and the internal signal it raised. Only servicing does this.
     fn clear_nmi(&self) {
         self.nmi_pending.set(false);
-        self.nmi_sampled.set(false);
+        self.need_nmi.set(false);
+        self.prev_need_nmi.set(false);
     }
 
-    /// Read the interrupt lines, as hardware does before an instruction's last cycle.
-    pub(crate) fn sample_interrupts(&self) {
-        // Read, not taken. NMI is edge-triggered: the edge sets a latch that persists until the
-        // interrupt is serviced, and looking at it is not servicing it. Consuming it here made the
-        // latch single-shot with more than one consumer, so whichever code looked at it first
-        // silently destroyed it for everyone else — which is how an NMI went missing entirely
-        // around BRK, leaving a test spinning forever on an interrupt that had already happened.
-        if self.nmi_pending.get() {
-            self.nmi_sampled.set(true);
-        }
+    /// Drop whatever the shadow is holding, so no interrupt is taken at this instruction's end.
+    ///
+    /// Only `BRK` needs it: it is an interrupt sequence in an opcode's clothing and, like the
+    /// hardware sequences, does not poll.
+    pub(crate) fn clear_pending_interrupt_shadow(&self) {
+        self.prev_need_nmi.set(false);
+        self.prev_run_irq.set(false);
+    }
 
-        // The flag as it stands at this cycle. An instruction that changes it later in its own
-        // execution cannot affect this sample, which is the entire point.
-        self.irq_sampled
-            .set(self.irq_line.get() && !self.get_flag(CpuFlag::InterruptDisable));
+    /// Bring the shadow up to date with the lines as they stand, in one go.
+    ///
+    /// Only for a CPU with no clock installed, which is every unit test that constructs one
+    /// directly: with nothing advancing the cycles there is nothing to shift the shadow along, so
+    /// an interrupt raised between steps would never be noticed at all. Two cycles' worth, because
+    /// that is what it takes for the present to reach the shadow.
+    pub(crate) fn sample_interrupts(&self) {
+        self.end_cpu_cycle();
+        self.end_cpu_cycle();
     }
 
     /// Every cycle ever run from a bus access.
@@ -599,24 +638,22 @@ impl Cpu {
     /// Checked before each instruction rather than mid-instruction: the 6502 finishes the current
     /// instruction before honouring an interrupt, and this emulator steps whole instructions.
     fn poll_interrupts(&mut self) -> Result<Option<u8>, NesError> {
-        // Acted on from the sample taken during the previous instruction, not from the lines as
-        // they stand now. Each is cleared as it is consumed: servicing sets the InterruptDisable
-        // flag, so a sample left standing would send the CPU back into the handler it just entered.
-        // An interrupt sequence performs no polling of its own, so at least one instruction of a
-        // handler always runs before another interrupt is taken. Both samples are therefore
-        // discarded, not just the one being acted on: leaving the other standing would service two
-        // interrupts back to back with no instruction between them, and a handler that never
-        // reaches its first instruction never returns.
-        if self.nmi_sampled.get() {
-            // Servicing releases the latch, and discards the IRQ sample with it: an interrupt
-            // sequence does no polling of its own, so one instruction of the handler must run
-            // before another interrupt is taken.
+        // Acted on from the shadow, which holds the lines as they stood one cycle before the
+        // previous instruction ended, not from the lines as they stand now.
+        //
+        // Both shadows are cleared, not only the one being acted on: an interrupt sequence does no
+        // polling of its own, so at least one instruction of a handler always runs before another
+        // interrupt is taken. Leaving the other standing would service two back to back with no
+        // instruction between them, and a handler that never reaches its first instruction never
+        // returns. The sequence's own cycles then refill the shadows honestly — servicing sets the
+        // InterruptDisable flag, so `run_irq` falls of its own accord.
+        if self.prev_need_nmi.get() {
             self.clear_nmi();
-            self.irq_sampled.set(false);
+            self.prev_run_irq.set(false);
             return Ok(Some(self.service_interrupt(NMI_VECTOR)?));
         }
 
-        if self.irq_sampled.replace(false) {
+        if self.prev_run_irq.replace(false) {
             return Ok(Some(self.service_interrupt(IRQ_VECTOR)?));
         }
 
@@ -636,39 +673,19 @@ impl Cpu {
         // Decode instruction
         let metadata = self.decoder.decode(opcode)?;
 
-        // The lines are read before the last cycle. The count is known here — after decoding,
-        // before executing — which is the only point at which it can be turned into a cycle to
-        // watch for. A page-crossing penalty lengthens the instruction without moving the sample,
-        // which is why the base count is used rather than the total.
-        // BRK is an interrupt sequence wearing an opcode, and like the others it does not poll.
-        self.poll_at.set(if matches!(metadata.instruction, Instruction::BRK) {
-            0
-        } else {
-            metadata.cycles.saturating_sub(1)
-        });
-
-        // The opcode fetch has already happened — it is cycle one, and it ran before the opcode
-        // was known and so before this target could be set. A two-cycle instruction samples at the
-        // end of cycle one, which is therefore already behind us, so it is taken now rather than
-        // waited for.
-        if self.clocked_cycles.get() >= self.poll_at.get() {
-            self.sample_interrupts();
-            self.poll_at.set(0);
-        }
-
         // Execute instruction and update cycle count
         let additional_cycles = self.execute(metadata)?;
 
         // Calculate total cycles: base cycles from metadata + any additional cycles
         let total_cycles = metadata.cycles + additional_cycles;
 
-        // An instruction shorter than expected — or one running without a clock at all, as the
-        // unit tests do — would never reach the chosen cycle. Sampling on the way out means the
-        // lines are always looked at exactly once.
-        if self.poll_at.get() != 0 && self.clocked_cycles.get() < self.poll_at.get() {
+        // A CPU with no clock installed has run no cycles, so nothing has shifted the shadow along
+        // and an interrupt raised between steps would never be seen. Unit tests build such a CPU;
+        // the emulator never does. One catch-up per instruction keeps them working and matches
+        // what they were written against — the lines looked at exactly once per instruction.
+        if self.clocked_cycles.get() == 0 {
             self.sample_interrupts();
         }
-        self.poll_at.set(0);
 
         // Update the CPU's cycle counter
         self.cycles += total_cycles as u64;

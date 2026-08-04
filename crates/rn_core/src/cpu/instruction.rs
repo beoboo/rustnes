@@ -764,11 +764,6 @@ impl Cpu {
         // The 6502 BRK instruction is 2 bytes long (opcode + padding)
         let pc_to_push = self.registers.pc.wrapping_add(1);
 
-        // Whether an NMI was already waiting when BRK began. One that was would have been serviced
-        // instead of running BRK at all, so its presence here means it is not this instruction's
-        // business — only an NMI that *arrives* during the sequence takes it over.
-        let nmi_before = self.nmi_latched();
-
         self.push_word(pc_to_push)?;
 
         // An NMI arriving while BRK is in progress takes it over.
@@ -778,7 +773,11 @@ impl Cpu {
         // is hijacked still pushes its status byte with the B flag set — the handler is told it
         // was a BRK — but ends up in the NMI handler. Without this a program that takes an NMI
         // during a BRK runs the wrong handler, which is what `2-nmi_and_brk` checks.
-        let hijacked = self.take_nmi_for_hijack(self.nmi_latched() && !nmi_before);
+        //
+        // No "did it arrive during this instruction?" test is needed any more. One that arrived
+        // early enough for the shadow to have seen it would have been serviced instead of BRK
+        // running at all, so anything the internal signal holds here is by construction new.
+        let hijacked = self.take_nmi_for_hijack();
 
         // Push status register with Break flag set
         // The B flag (bit 4) is set in the status byte pushed to the stack
@@ -791,6 +790,13 @@ impl Cpu {
 
         let vector = if hijacked { NMI_VECTOR } else { IRQ_VECTOR };
         self.registers.pc = self.read_word(vector)?;
+
+        // BRK is an interrupt sequence wearing an opcode, and an interrupt sequence does no
+        // polling: the handler's first instruction must run before another interrupt is taken.
+        // Without this an NMI arriving during BRK's last cycles is serviced immediately after it,
+        // and the IRQ handler never reaches its first instruction — which is how `2-nmi_and_brk`
+        // hung on two earlier attempts.
+        self.clear_pending_interrupt_shadow();
 
         Ok(())
     }
