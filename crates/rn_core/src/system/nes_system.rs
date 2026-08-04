@@ -310,9 +310,10 @@ impl NesSystem {
                 // processor reads the interrupt lines.
                 apu.tick();
 
-                if ppu.take_nmi() {
-                    lines.raise_nmi();
-                }
+                // The line as the PPU is holding it, read once a cycle at the cycle's end. The
+                // CPU's own edge detector turns it into an interrupt, so nothing is consumed here
+                // and a line held down across many cycles still yields exactly one.
+                lines.set_nmi(ppu.nmi_line());
 
                 // A scanline-counting mapper is clocked by the PPU itself, from bit 12 of the
                 // address bus, so there is nothing to forward here — only its IRQ line to read.
@@ -438,12 +439,10 @@ impl NesSystem {
         }
         self.apu.tick();
 
-        // The PPU's vblank NMI is edge-triggered: latched by the PPU, collected exactly once.
-        // Asserted through the shared line rather than by calling into the CPU, so this can run
-        // while the CPU is mid-instruction — which is when interrupts actually arrive.
-        if self.ppu.take_nmi() {
-            self.interrupts.raise_nmi();
-        }
+        // The /NMI line as the PPU is driving it. Forwarded through the shared cell rather than by
+        // calling into the CPU, so this can run while the CPU is mid-instruction — which is when
+        // interrupts actually arrive.
+        self.interrupts.set_nmi(self.ppu.nmi_line());
 
         // IRQ is level-triggered and shared: the APU's frame counter and the cartridge's mapper
         // can each hold it, and the CPU sees only the combination.

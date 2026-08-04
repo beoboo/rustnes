@@ -192,9 +192,13 @@ pub struct InterruptLines {
 }
 
 impl InterruptLines {
-    /// Latch an NMI. Edge-triggered, so asserting twice before it is serviced is one interrupt.
-    pub fn raise_nmi(&self) {
-        self.nmi.set(true);
+    /// Drive the /NMI line. A level: the PPU holds it down for as long as it means to.
+    ///
+    /// The CPU detects the rising edge and remembers it, so releasing the line does not take back
+    /// an interrupt already detected — but re-asserting it gives another, which is what a program
+    /// toggling $2000 bit 7 during vblank is after.
+    pub fn set_nmi(&self, asserted: bool) {
+        self.nmi.set(asserted);
     }
 
     /// Set the IRQ line to whatever its holders currently assert.
@@ -285,15 +289,18 @@ pub struct Cpu {
     /// Every cycle ever run from a bus access, never reset. Diagnostic only.
     total_clocked: Cell<u64>,
 
-    /// Latched NMI request.
+    /// State of the /NMI line.
     ///
-    /// NMI is edge-triggered: the PPU asserts it once when vblank begins, and it stays latched
-    /// until the CPU services it. It cannot be masked — that is what "non-maskable" means, and why
-    /// this is separate from the IRQ line below.
+    /// A level, driven by the PPU, not a latch the CPU consumes: it goes down when the vblank flag
+    /// and the enable bit are both set and comes back up when either stops being true. What is
+    /// edge-triggered is the CPU's *response* to it — [`end_cpu_cycle`](Self::end_cpu_cycle)
+    /// watches for the rising edge and raises [`need_nmi`](Self::need_nmi), which then survives
+    /// until the interrupt is serviced. It cannot be masked, which is what "non-maskable" means and
+    /// why this is separate from the IRQ line below.
     /// Shared with whoever asserts it, so the rest of the system can raise an interrupt without
     /// borrowing the CPU. That matters once the system is clocked from inside an instruction: the
     /// CPU is already mutably borrowed then, and reaching back into it would panic.
-    nmi_pending: Rc<Cell<bool>>,
+    nmi_line: Rc<Cell<bool>>,
 
     /// State of the IRQ line.
     ///
@@ -310,7 +317,7 @@ impl Debug for Cpu {
         f.debug_struct("Cpu")
             .field("registers", &self.registers)
             .field("cycles", &self.cycles)
-            .field("nmi_pending", &self.nmi_pending.get())
+            .field("nmi_line", &self.nmi_line.get())
             .field("irq_line", &self.irq_line.get())
             .finish_non_exhaustive()
     }
@@ -335,7 +342,7 @@ impl Cpu {
             run_irq: Cell::new(false),
             prev_run_irq: Cell::new(false),
             total_clocked: Cell::new(0),
-            nmi_pending: Rc::new(Cell::new(false)),
+            nmi_line: Rc::new(Cell::new(false)),
             irq_line: Rc::new(Cell::new(false)),
         }
     }
@@ -499,9 +506,17 @@ impl Cpu {
     }
 
     /// Execute a single CPU instruction and return the number of cycles used
-    /// Assert the NMI line. Edge-triggered, so this latches until serviced.
+    /// Assert the /NMI line and leave it asserted, as the PPU does through a vblank.
+    ///
+    /// The CPU takes one interrupt from it, on the edge. Holding the line down does not produce a
+    /// second — that needs a release and a fresh edge.
     pub fn request_nmi(&mut self) {
-        self.nmi_pending.set(true);
+        self.nmi_line.set(true);
+    }
+
+    /// Drive the /NMI line to a given level, as the PPU does.
+    pub fn set_nmi_line(&mut self, asserted: bool) {
+        self.nmi_line.set(asserted);
     }
 
     /// Set the state of the IRQ line. Level-triggered: the asserting device holds it.
@@ -564,7 +579,7 @@ impl Cpu {
         // NMI is edge-triggered: the detector watches for the line going from unasserted to
         // asserted, and the resulting signal stays up until the interrupt is serviced. Reading the
         // line is not servicing it, which is why nothing is consumed here.
-        let nmi_line = self.nmi_pending.get();
+        let nmi_line = self.nmi_line.get();
         if !self.prev_nmi_line.get() && nmi_line {
             self.need_nmi.set(true);
         }
@@ -592,14 +607,18 @@ impl Cpu {
         true
     }
 
-    /// Whether an NMI is latched right now, without disturbing it.
-    pub fn nmi_latched(&self) -> bool {
-        self.nmi_pending.get()
+    /// The state of the /NMI line right now.
+    pub fn nmi_line(&self) -> bool {
+        self.nmi_line.get()
     }
 
-    /// Release the NMI edge latch and the internal signal it raised. Only servicing does this.
+    /// Release the internal NMI signal. Only servicing does this.
+    ///
+    /// Deliberately does not touch the line: the CPU does not drive it and cannot take it away.
+    /// The PPU releases it when the vblank flag goes, and until then the line simply stays down —
+    /// harmlessly, because the edge that mattered has already been counted and a level cannot
+    /// produce another.
     fn clear_nmi(&self) {
-        self.nmi_pending.set(false);
         self.need_nmi.set(false);
         self.prev_need_nmi.set(false);
     }
@@ -646,7 +665,7 @@ impl Cpu {
     /// raise an interrupt while the CPU is mid-instruction, which is when they actually happen.
     pub fn interrupt_lines(&self) -> InterruptLines {
         InterruptLines {
-            nmi: Rc::clone(&self.nmi_pending),
+            nmi: Rc::clone(&self.nmi_line),
             irq: Rc::clone(&self.irq_line),
         }
     }
@@ -954,7 +973,7 @@ mod tests {
                     cycle.set(cycle.get() + 1);
                 }
                 if (cycle.get(), phase) == raise_at {
-                    lines.raise_nmi();
+                    lines.set_nmi(true);
                 }
             }));
         }
@@ -1047,6 +1066,105 @@ mod tests {
             cpu.peek_byte(0x0400).expect("reading the result"),
             2,
             "asserted at the first LDX's last cycle, so the second one runs before it is taken"
+        );
+    }
+
+    /// An NMI the CPU has already detected survives the line being released.
+    ///
+    /// The other half of `reading_status_well_into_vblank_releases_the_line_with_the_flag`: the PPU
+    /// lets /NMI go when a program reads $2002, and that must not cancel an interrupt whose edge
+    /// has already been counted. Detection is edge-triggered and the resulting signal persists
+    /// until it is serviced — the line going back up is not servicing it.
+    #[test]
+    fn an_nmi_already_detected_survives_the_line_being_released() {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+
+        for (i, byte) in [0xA2, 0x01, 0xA2, 0x02].iter().enumerate() {
+            cpu.write_byte(0x8000 + i as u16, *byte).expect("writing the program");
+        }
+        for (i, byte) in [0x8E, 0x00, 0x04, 0x40].iter().enumerate() {
+            cpu.write_byte(0x9000 + i as u16, *byte).expect("writing the handler");
+        }
+        cpu.write_byte(NMI_VECTOR, 0x00).expect("writing the vector");
+        cpu.write_byte(NMI_VECTOR + 1, 0x90).expect("writing the vector");
+        cpu.write_byte(0x0400, 0xFF).expect("clearing the result");
+        cpu.registers.pc = 0x8000;
+
+        let lines = cpu.interrupt_lines();
+        let cycle = Rc::new(Cell::new(0u32));
+        {
+            let cycle = Rc::clone(&cycle);
+            cpu.set_clock(Rc::new(move |phase| {
+                if phase == ClockPhase::BeforeAccess {
+                    cycle.set(cycle.get() + 1);
+                }
+                if phase == ClockPhase::AfterAccess {
+                    // Down for one cycle only, then straight back up — a $2002 read landing
+                    // immediately after the edge was detected.
+                    lines.set_nmi(cycle.get() == 1);
+                }
+            }));
+        }
+
+        cpu.set_executing(true);
+        for _ in 0..8 {
+            cpu.step().expect("stepping");
+            if cpu.registers.pc > 0x9000 {
+                break;
+            }
+        }
+        cpu.set_executing(false);
+
+        assert_eq!(
+            cpu.peek_byte(0x0400).expect("reading the result"),
+            1,
+            "the edge was counted, so releasing the line cannot take the interrupt back"
+        );
+    }
+
+    /// And a line held down does not produce a second interrupt — only a fresh edge does.
+    ///
+    /// The PPU holds /NMI down for the whole of vblank, twenty scanlines of it. If the level rather
+    /// than its edge were what counted, the handler would be re-entered every cycle and the machine
+    /// would never leave it.
+    #[test]
+    fn a_line_held_down_gives_exactly_one_interrupt() {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+
+        // The handler counts its own entries by incrementing $0400, then returns.
+        for (i, byte) in [0xEE, 0x00, 0x04, 0x40].iter().enumerate() {
+            cpu.write_byte(0x9000 + i as u16, *byte).expect("writing the handler");
+        }
+        // NOPs to return to.
+        for i in 0..8 {
+            cpu.write_byte(0x8000 + i, 0xEA).expect("writing the program");
+        }
+        cpu.write_byte(NMI_VECTOR, 0x00).expect("writing the vector");
+        cpu.write_byte(NMI_VECTOR + 1, 0x90).expect("writing the vector");
+        cpu.write_byte(0x0400, 0x00).expect("clearing the count");
+        cpu.registers.pc = 0x8000;
+
+        {
+            let lines = cpu.interrupt_lines();
+            cpu.set_clock(Rc::new(move |phase| {
+                if phase == ClockPhase::AfterAccess {
+                    lines.set_nmi(true);
+                }
+            }));
+        }
+
+        cpu.set_executing(true);
+        for _ in 0..12 {
+            cpu.step().expect("stepping");
+        }
+        cpu.set_executing(false);
+
+        assert_eq!(
+            cpu.peek_byte(0x0400).expect("reading the count"),
+            1,
+            "one rising edge, one interrupt, however long the line stays down"
         );
     }
 }

@@ -252,11 +252,37 @@ There is no delay to model between the counter reaching zero and the CPU seeing 
 `TriggerIrq` sets the flag the CPU's own end-of-cycle poll reads, exactly as ours does, and a scope
 measurement on an MMC3B puts the cartridge's own delay at about 69 ns — a third of a pixel.
 
-Still failing and not moved by any of this: `07-nmi_on_timing` and `08-nmi_off_timing`. Both turn
-the NMI enable on or off around the vblank flag, so they are about the PPU's `$2000` handling rather
-than about when the CPU polls — our NMI is a one-shot latch raised by the PPU, where hardware holds
-a level for as long as the flag and the enable bit are both set. That is the next piece of
-`ppu_vbl_nmi`, and it is PPU work, not CPU work.
+**`07-nmi_on_timing` and `08-nmi_off_timing` followed, once /NMI became a level.** They were not
+moved by any of the above, and correctly so: they turn the NMI enable on and off around the vblank
+flag, which is about what the PPU drives rather than about when the CPU looks.
+
+Our /NMI was a one-shot latch — the PPU set it at vblank and the system consumed it. That can
+express a vblank *arriving* but not the line being *released*, so a program toggling `$2000` bit 7
+during vblank got one interrupt where hardware gives it one per rising edge. It is now a level, as
+Mesen has it: the PPU holds the line down for as long as the vblank flag and the enable bit are both
+set, and drives it at each of the four places that can change either — vblank set, pre-render clear,
+`$2002` read, `$2000` write.
+
+Nothing had to be added to the CPU to take advantage of it. The edge detector the shadow rewrite
+already put in `end_cpu_cycle` is exactly what turns a level into an interrupt, and it was sitting
+there detecting edges on a latch that only ever had one. The only CPU change was that servicing an
+NMI no longer clears the line — the CPU does not drive it and cannot take it away.
+
+Two quirks stopped being special cases and became consequences, which is the sign the model is
+right rather than merely tuned:
+
+- A `$2002` read on the dot vblank begins, or the dot after, suppresses the interrupt. There is no
+  longer a rule for this. The read clears the flag, the line goes up with it, and the line was down
+  for less than a whole CPU cycle — so the CPU's once-per-cycle poll never saw it. A read well into
+  vblank releases the line just the same and does *not* suppress anything, because by then the edge
+  has long since been counted.
+- Releasing the line cannot take back an interrupt already detected, and holding it down cannot
+  produce a second. Both fall out of edge detection over a persistent signal, and both have a test.
+
+`ppu_vbl_nmi` is 9/11. The combined `ppu_vbl_nmi.nes` now runs to test 10 of 10 and fails there for
+the same single reason `10-even_odd_timing` does — "clock is skipped too late, relative to enabling
+BG", the odd-frame dot skip being decided from the rendering flag at the wrong moment. One cause,
+and the only one left in that suite.
 
 ### 3. The special cases
 

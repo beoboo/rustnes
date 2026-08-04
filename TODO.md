@@ -531,7 +531,9 @@ correctly halt, and six are the unstable stores. `report_undecoded_opcodes` prin
 - [ ] The six unstable stores (SHA, SHX, SHY, TAS, LAS), whose behaviour varies with the chip
 
 ### [CPU] Interrupts [T8]
-- [x] NMI: vector at $FFFA, triggered by PPU vblank when $2000 bit 7 is set
+- [x] NMI: vector at $FFFA, triggered by PPU vblank when $2000 bit 7 is set. /NMI is a level the
+      PPU holds for as long as the flag and the enable bit are both set, and the CPU takes one
+      interrupt per rising edge of it
 - [x] IRQ: vector at $FFFE, gated on InterruptDisable, shared by the APU frame counter and the mapper
 - [x] BRK pushing the correct status byte, RTI restoring it
 - [x] Interrupt lines shared, so a device can assert one while the CPU is mid-instruction
@@ -558,10 +560,19 @@ file rather than on anything specific to the suite.
 - [ ] mmc3_test — 5/6 (only `6-MMC6`, which is the other chip's counter behaviour)
 - [ ] apu_test — 5/9, from 4/9
 - [ ] apu_reset — 3/6
-- [ ] ppu_vbl_nmi — 7/11, from 5/11 (the figure here read 2/11 for a while after it was no longer
+- [ ] ppu_vbl_nmi — 9/11, from 5/11 (the figure here read 2/11 for a while after it was no longer
       true; re-measured against the commit before the A12 work, which did not move it)
 
-      **`05-nmi_timing` and `06-suppression` now pass.** The cause was one PPU dot, and it was
+      What is left is one cause, not two. `10-even_odd_timing` fails with "clock is skipped too
+      late, relative to enabling BG" — the odd-frame dot skip is decided from the rendering flag at
+      the wrong moment — and the combined `ppu_vbl_nmi.nes` now runs to test 10 of 10 and fails
+      there for exactly that.
+
+      **`05-nmi_timing`, `06-suppression`, `07-nmi_on_timing` and `08-nmi_off_timing` now pass.**
+      The last two came from /NMI becoming a level the PPU holds rather than a one-shot latch the
+      system consumes, which is what lets a program toggling `$2000` bit 7 during vblank take one
+      interrupt per rising edge. The CPU needed nothing new for it — the edge detector was already
+      there. The cause was one PPU dot, and it was
       neither the PPU's nor the flag's: our clock ran all three of a CPU cycle's dots and then
       performed the bus access, so the interrupt lines were read at the instant of the access. A
       6502 cycle runs on past its access, so the poll belongs one dot later, at the cycle's end.

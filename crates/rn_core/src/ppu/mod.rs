@@ -228,13 +228,19 @@ impl PpuWrapper {
         self.ppu.borrow_mut().mirroring = mirroring;
     }
 
-    /// Take a pending vblank NMI, if one was raised since the last call.
+    /// The state of the /NMI line the PPU is driving, right now.
     ///
-    /// Consuming rather than peeking keeps this edge-triggered: one vblank raises exactly one
-    /// interrupt, however often the system polls.
-    pub fn take_nmi(&self) -> bool {
-        let ppu = self.ppu.borrow_mut();
-        ppu.nmi_raised.replace(false)
+    /// A level, not an event, and read without disturbing it: the PPU holds the line for as long
+    /// as the vblank flag and the enable bit are both set, and it is the CPU that turns that into
+    /// an interrupt by detecting the edge. Which is why toggling $2000 bit 7 during vblank yields
+    /// one NMI per rising edge — the line goes down and up again, and the CPU counts both.
+    ///
+    /// This used to be a one-shot latch that the system consumed. That could express a vblank
+    /// arriving but not the line being *released*, so a program turning the enable bit off and on
+    /// got one interrupt where hardware gives it several, and `07-nmi_on_timing` and
+    /// `08-nmi_off_timing` measure exactly that.
+    pub fn nmi_line(&self) -> bool {
+        self.ppu.borrow().nmi_line.get()
     }
 
     /// Get the status register value
@@ -362,7 +368,7 @@ pub struct Ppu {
     write_toggle: Cell<bool>, // Tracks whether the next write is first (false) or second (true)
     frame_count: u64,         // Total frames rendered
     /// Set when vblank begins with NMI enabled; cleared when the system collects it.
-    nmi_raised: Cell<bool>,
+    nmi_line: Cell<bool>,
 
     /// Nametable layout, set from the cartridge header.
     mirroring: Mirroring,
@@ -585,6 +591,7 @@ pub struct PpuState {
     read_buffer: u8,
     write_toggle: bool,
     frame_count: u64,
+    /// Stored under its old name so snapshots written before the line became a level still load.
     nmi_raised: bool,
     scanline: i16,
     cycle: u16,
@@ -700,7 +707,7 @@ impl Ppu {
             read_buffer: Cell::new(0),
             write_toggle: Cell::new(false),
             frame_count: 0,
-            nmi_raised: Cell::new(false),
+            nmi_line: Cell::new(false),
             mirroring: Mirroring::default(),
             diagnostics: FrameDiagnostics {
                 last_toggle_scanline: -1,
@@ -808,11 +815,9 @@ impl Ppu {
                 // The visible portion is finished, so composite sprites over it.
                 self.end_frame();
 
-                // Vblank with NMI enabled raises the interrupt. Latched here and collected by the
-                // system, which owns the connection to the CPU.
-                if (self.ctrl & CTRL_NMI_ENABLE) != 0 {
-                    self.nmi_raised.set(true);
-                }
+                // The PPU pulls /NMI low for as long as the flag and the enable bit are both set.
+                // Asserting the level is all it does; detecting the edge is the CPU's job.
+                self.nmi_line.set((self.ctrl & CTRL_NMI_ENABLE) != 0);
             } else if self.scanline == 261 {
                 // The pre-render line clears vblank, along with the two flags that are per-frame
                 // results rather than running state.
@@ -820,6 +825,8 @@ impl Ppu {
                     self.status.get() & !(STATUS_VBLANK | STATUS_SPRITE_ZERO_HIT | STATUS_SPRITE_OVERFLOW),
                 );
 
+                // The flag is gone, so the line it was holding down is released.
+                self.nmi_line.set(false);
             }
         }
 
@@ -1003,7 +1010,7 @@ impl Ppu {
             read_buffer: self.read_buffer.get(),
             write_toggle: self.write_toggle.get(),
             frame_count: self.frame_count,
-            nmi_raised: self.nmi_raised.get(),
+            nmi_raised: self.nmi_line.get(),
             scanline: self.scanline,
             cycle: self.cycle,
             mirroring: self.mirroring,
@@ -1034,7 +1041,7 @@ impl Ppu {
         self.read_buffer.set(state.read_buffer);
         self.write_toggle.set(state.write_toggle);
         self.frame_count = state.frame_count;
-        self.nmi_raised.set(state.nmi_raised);
+        self.nmi_line.set(state.nmi_raised);
         self.scanline = state.scanline;
         self.cycle = state.cycle;
         self.mirroring = state.mirroring;
@@ -2168,19 +2175,18 @@ impl Ppu {
     /// Read from PPUSTATUS ($2002)
     fn read_status(&self) -> u8 {
         // Reading $2002 as vblank begins interferes with it, and which way depends on the exact
-        // dot. The flag is set on dot 1 of scanline 241; a read landing on the dot before sees it
-        // clear and stops it ever being set for that frame, and a read on that dot or the one
-        // after sees it set but still suppresses the interrupt. Either way no NMI arrives, which
-        // is what a program doing this is usually after — it wants the flag without the interrupt.
-        if self.scanline == 241 && self.cycle <= 2 {
-            self.nmi_raised.set(false);
-
-            if self.cycle == 0 {
-                // Read before the flag was set: it reads clear and is suppressed for this frame.
-                self.suppress_vblank.set(true);
-                self.write_toggle.set(false);
-                return self.status.get() & !STATUS_VBLANK;
-            }
+        // dot. The flag is set on dot 1 of scanline 241, and a read landing on the dot before sees
+        // it clear and stops it ever being set for that frame — not merely missing it.
+        //
+        // The neighbouring case, a read on that dot or the one after, needs nothing special any
+        // more. It sees the flag set and clears it, and the line goes up with the flag below, all
+        // of which the ordinary path already does. It suppresses the interrupt for a reason rather
+        // than by a rule: the line is down for less than a full CPU cycle, so the CPU's poll never
+        // sees it. That used to be a case listed here, with the latch cleared by hand.
+        if self.scanline == 241 && self.cycle == 0 {
+            self.suppress_vblank.set(true);
+            self.write_toggle.set(false);
+            return self.status.get() & !STATUS_VBLANK;
         }
 
         let result = self.status.get();
@@ -2188,8 +2194,13 @@ impl Ppu {
         // Reading status resets the write toggle
         self.write_toggle.set(false);
 
-        // Clear bit 7 (VBlank flag) after reading
+        // Clear bit 7 (VBlank flag) after reading, which releases /NMI with it: the line is held
+        // by the flag, so taking the flag away takes the line away. Nothing is being cancelled —
+        // an edge the CPU has already detected stays detected, and it will still take the
+        // interrupt. That is what makes a read *just* as vblank begins suppress the NMI while a
+        // read well into vblank does not: only the first gets there before the CPU has looked.
         self.status.set(result & 0x7F);
+        self.nmi_line.set(false);
 
         result
     }
@@ -2269,14 +2280,16 @@ impl Ppu {
         // The nametable select lives in t, so $2000 is also a scroll write.
         self.temp_addr = (self.temp_addr & 0x73FF) | ((value as u16 & 0x03) << 10);
 
-        // Enabling the NMI while the vblank flag is already set raises one immediately. The
-        // interrupt is not an event that happened at the start of vblank and was missed — the PPU
-        // asserts the line for as long as both the flag and the enable bit are set, so turning the
-        // bit on part way through vblank asserts it there and then. A program that enables it late
-        // and waits would otherwise wait a whole frame.
-        let enabling = (value & CTRL_NMI_ENABLE) != 0 && (self.ctrl & CTRL_NMI_ENABLE) == 0;
-        if enabling && (self.status.get() & STATUS_VBLANK) != 0 {
-            self.nmi_raised.set(true);
+        // The PPU asserts /NMI for as long as both the flag and the enable bit are set, so this
+        // write drives the line in both directions and does so unconditionally rather than only on
+        // a change. Turning the bit on part way through vblank pulls the line down there and then;
+        // turning it off releases it, and turning it on again pulls it down a second time. That
+        // last case is the one a latch could not express: hardware gives a program that toggles the
+        // bit during vblank one interrupt per rising edge, and `08-nmi_off_timing` counts them.
+        if (value & CTRL_NMI_ENABLE) == 0 {
+            self.nmi_line.set(false);
+        } else if (self.status.get() & STATUS_VBLANK) != 0 {
+            self.nmi_line.set(true);
         }
         log::debug!("PPU write_control: ${:02X}", value);
         self.ctrl = value;
@@ -3130,7 +3143,7 @@ mod tests {
             0,
             "the read should have stopped the flag being set at all this frame"
         );
-        assert!(!ppu.nmi_raised.get(), "and no interrupt should be raised");
+        assert!(!ppu.nmi_line.get(), "and /NMI is never pulled down this frame");
     }
 
     /// Reading on the dot the flag is set, or just after, sees it — but still takes the interrupt
@@ -3142,27 +3155,54 @@ mod tests {
 
         run_to(&mut ppu, 241, 1);
         assert_ne!(ppu.status.get() & STATUS_VBLANK, 0, "set on this dot");
-        assert!(ppu.nmi_raised.get(), "and the interrupt is raised with it");
+        assert!(ppu.nmi_line.get(), "and /NMI goes down with it");
 
         let seen = ppu.read_register(0x2002);
         assert_ne!(seen & STATUS_VBLANK, 0, "the read still sees the flag");
-        assert!(!ppu.nmi_raised.get(), "but the interrupt is suppressed");
+        assert!(!ppu.nmi_line.get(), "but the read releases the line again");
     }
 
-    /// Away from that moment, a read is an ordinary read: it returns the flag and clears it,
-    /// leaving any interrupt alone.
+    /// Away from that moment a read is an ordinary read: it returns the flag and clears it, and
+    /// the line goes up with the flag.
+    ///
+    /// Which is not the same as taking the interrupt back. The CPU detected the edge many cycles
+    /// ago and holds it until it is serviced; releasing the line now cannot undo that. The two
+    /// halves of the story live in different components, and this is the PPU's half —
+    /// `an_nmi_already_detected_survives_the_line_being_released` is the CPU's.
     #[test]
-    fn reading_status_well_into_vblank_leaves_the_interrupt_alone() {
+    fn reading_status_well_into_vblank_releases_the_line_with_the_flag() {
         let mut ppu = Ppu::new();
         ppu.write_register(0x2000, CTRL_NMI_ENABLE);
 
         run_to(&mut ppu, 245, 10);
-        assert!(ppu.nmi_raised.get(), "raised when vblank began");
+        assert!(ppu.nmi_line.get(), "held down since vblank began");
 
         let seen = ppu.read_register(0x2002);
         assert_ne!(seen & STATUS_VBLANK, 0, "the flag is set well into vblank");
         assert_eq!(ppu.status.get() & STATUS_VBLANK, 0, "and reading it clears it");
-        assert!(ppu.nmi_raised.get(), "an interrupt already raised is not taken back");
+        assert!(!ppu.nmi_line.get(), "the line is held by the flag, so it goes up with it");
+    }
+
+    /// Toggling $2000 bit 7 during vblank pulls /NMI down once per rising edge.
+    ///
+    /// The behaviour a one-shot latch could not express, and the whole reason the line became a
+    /// level: with a latch this sequence raised one interrupt and hardware raises three.
+    /// `08-nmi_off_timing` counts them.
+    #[test]
+    fn toggling_the_enable_bit_during_vblank_pulls_the_line_down_each_time() {
+        let mut ppu = Ppu::new();
+
+        // Into vblank with the NMI disabled, so the flag is set and the line is not down.
+        run_to(&mut ppu, 245, 10);
+        assert_ne!(ppu.status.get() & STATUS_VBLANK, 0, "the flag is set");
+        assert!(!ppu.nmi_line.get(), "but nothing is pulling the line down yet");
+
+        for round in 1..=3 {
+            ppu.write_register(0x2000, CTRL_NMI_ENABLE);
+            assert!(ppu.nmi_line.get(), "enabling pulls it down, round {round}");
+            ppu.write_register(0x2000, 0);
+            assert!(!ppu.nmi_line.get(), "disabling releases it, round {round}");
+        }
     }
 
     /// The PPU's eight registers repeat every eight bytes up to $3FFF.
