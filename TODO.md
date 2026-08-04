@@ -567,7 +567,8 @@ file rather than on anything specific to the suite.
       6502 cycle runs on past its access, so the poll belongs one dot later, at the cycle's end.
       Two dots before the access and one after, with the lines read at the end of the second.
       Full account in [CYCLE_ACCURACY.md](CYCLE_ACCURACY.md), including the measurement that found
-      the dot and an unresolved conflict with `mmc3_test/4-scanline_timing` over the same dot.
+      the dot, and how the same dot turned out to be behind `ADDRESS_BUS_LEAD_DOTS` — a constant
+      that existed only to cancel it, now deleted.
 
       What follows is the analysis that led there, kept because the reasoning is still the way to
       read the table. `05-nmi_timing` measures the fault precisely, and is the best handle on

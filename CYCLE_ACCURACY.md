@@ -225,21 +225,32 @@ alignment is settled at power-on and is not always the same. It is verifiable ra
 of taste — with it, `02-vbl_set_time` and `03-vbl_clear_time` run to exactly the instruction counts
 they did before the split.
 
-**An unresolved dot, recorded so it is not rediscovered.** `mmc3_test/4-scanline_timing` measures
-when the mapper's IRQ arrives *in the program's own time*, so it constrains the A12 rise and the
-poll together. Moving the poll a dot later therefore broke it, and `ADDRESS_BUS_LEAD_DOTS` had to
-come down from one to zero to compensate — at which point the A12 rise is reported on dot 261 rather
-than the documented 260. Both cannot be satisfied at once:
+**A second dot, which turned out to be the same one.** `mmc3_test/4-scanline_timing` measures when
+the mapper's IRQ arrives *in the program's own time*, so it constrains the A12 rise and the poll
+together. Moving the poll a dot later therefore broke it, and `ADDRESS_BUS_LEAD_DOTS` had to come
+down from one to zero to compensate — at which point the A12 rise was reported on dot 261 rather
+than the documented 260, and the two ROMs appeared to want different things.
 
-| `ADDRESS_BUS_LEAD_DOTS` | A12 rise | `4-scanline_timing` |
-| --- | --- | --- |
-| 1 | dot 260, as documented | fails |
-| 0 | dot 261 | passes |
+They do not. Reading Mesen settled it in one line. Its sprite fetch runs at
+`(_cycle - 257) % 8 == 4`, which is **cycle 261** — the comment beside it says "Cycle 260, 268, etc."
+and is as loose as the wiki's figure. Both are describing the same fetch. Dots 257-320 fetch eight
+sprites in groups of eight: a garbage nametable read, a garbage attribute read, then the two pattern
+bitplanes. Only the patterns reach $1000, and their group begins four dots into the group, at 261.
+Mesen's dot numbering is ours — it increments the cycle and then processes it, and sets the vblank
+flag at cycle 1 of the NMI scanline — so the two are directly comparable, and its background
+schedule matches ours dot for dot as well.
 
-So something between the A12 rise and the CPU noticing /IRQ is still a dot out. It is not the
-cartridge: a scope measurement on an MMC3B puts that delay at about 69 ns, a third of a pixel. The
-unit test that pins the rise now asserts 261 and says why. This is the next thing to settle, and by
-this project's own record it wants a reference implementation and a trace, not another sweep.
+So `ADDRESS_BUS_LEAD_DOTS` was never a property of the hardware. It was a knob holding a real error
+still: with the interrupt poll a dot early, giving the address bus a one-dot lead cancelled it for
+anything measured through the mapper, and the pair agreed often enough to look right. Fixing the
+poll exposed it. **The constant is deleted** rather than left at zero, so there is no fudge factor
+sitting there to be bent the next time a dot goes missing; the address goes on the bus for the dot
+the read begins on, which in a per-dot model is the same event. The unit test now asserts 261, says
+why, and records that it once read 260 and what that cost.
+
+There is no delay to model between the counter reaching zero and the CPU seeing /IRQ. Mesen's
+`TriggerIrq` sets the flag the CPU's own end-of-cycle poll reads, exactly as ours does, and a scope
+measurement on an MMC3B puts the cartridge's own delay at about 69 ns — a third of a pixel.
 
 Still failing and not moved by any of this: `07-nmi_on_timing` and `08-nmi_off_timing`. Both turn
 the NMI enable on or off around the vblank flag, so they are about the PPU's `$2000` handling rather

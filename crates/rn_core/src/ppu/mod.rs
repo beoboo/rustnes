@@ -44,29 +44,6 @@ pub const MASK_EMPHASIZE_BLUE: u8 = 0x80; // Emphasize blue
 /// themselves — so ten is both the physical value and one dot clear of the only nearby edge.
 const A12_FILTER_DOTS: u16 = 10;
 
-/// How far ahead of the read it serves the PPU puts an address on the bus, in dots.
-///
-/// An access takes two dots and the address for it is asserted around the dot before them, which
-/// is why the sprite pattern fetch at dots 261-262 is what the documentation calls a clock at dot
-/// 260. That much is hardware. The value here is not: it is measured, and measured *through the
-/// CPU*, because the only thing that can settle it is `mmc3_test/4-scanline_timing`, which reports
-/// when the interrupt arrived in the program's own time. So it carries the PPU's real lead plus
-/// wherever our interrupt poll sits against the dot schedule, and it moves when either does.
-///
-/// It was one while the CPU read its interrupt lines at the instant of a bus access. Now that the
-/// poll lands at the *end* of the cycle instead — one dot later, which is what
-/// `ppu_vbl_nmi/05-nmi_timing` measures — this is zero: `4-scanline_timing` fails at one, two and
-/// three and passes at zero.
-///
-/// **The two ROMs disagree by that dot, and this constant is where the disagreement is absorbed.**
-/// With the poll at the cycle's end and this set to one, the A12 rise lands on the documented dot
-/// 260 and `4-scanline_timing` fails; set to zero the ROM passes and the rise is reported a dot
-/// late. Both cannot be satisfied at once, so something in the path from the A12 rise to the CPU
-/// noticing /IRQ is still a dot out. Not the cartridge — a scope measurement on an MMC3B puts that
-/// delay at about 69 ns, a third of a pixel. Worth settling against a reference implementation
-/// rather than by another sweep; see CYCLE_ACCURACY.md.
-const ADDRESS_BUS_LEAD_DOTS: u16 = 0;
-
 // PPUSTATUS ($2002) bits
 pub const STATUS_SPRITE_OVERFLOW: u8 = 0x20; // Sprite overflow occurred
 pub const STATUS_SPRITE_ZERO_HIT: u8 = 0x40; // Sprite 0 hit occurred
@@ -1287,8 +1264,9 @@ impl Ppu {
 
     /// The address a rendered line's fetch schedule reads from at `dot`.
     ///
-    /// `dot` is the dot the read happens on, which is one ahead of the dot the address is put on
-    /// the bus for it — see [`ADDRESS_BUS_LEAD_DOTS`], which the caller applies.
+    /// `dot` is the dot the address is on the bus for, which is the first of the two the read
+    /// occupies. There is no lead to apply: in a per-dot model the address going up and the read
+    /// beginning are the same event.
     ///
     /// Hardware never leaves the bus idle. Every dot is half of a two-dot read, and the four reads
     /// of an eight-dot group are the nametable byte, the attribute byte and the two bitplanes.
@@ -1347,7 +1325,7 @@ impl Ppu {
     /// The mapper is only ever handed a filtered edge, so its own transition detection sees the
     /// line as the cartridge sees it rather than every fetch the PPU makes.
     fn drive_address_bus(&mut self) {
-        let address = self.address_on_bus(self.cycle + ADDRESS_BUS_LEAD_DOTS);
+        let address = self.address_on_bus(self.cycle);
         let high = (address & 0x1000) != 0;
 
         if high == self.a12_high {
@@ -4899,20 +4877,27 @@ mod tests {
         seen
     }
 
-    /// The mapper is clocked once a line, by the sprite pattern fetches, around dot 260.
+    /// The mapper is clocked once a line, by the sprite pattern fetches, at dot 261.
     ///
     /// This is the whole point of driving the mapper from the address bus rather than from a count
     /// of lines: the count is the same either way, but a game splitting the screen positions its
     /// write relative to when the interrupt arrives. `mmc3_test/4-scanline_timing` measures that
     /// dot to PPU-clock accuracy, and this test says the same thing without needing the ROM.
     ///
-    /// The dot asserted here is 261, not the documented 260, and the difference is not cosmetic —
-    /// it is the one dot [`ADDRESS_BUS_LEAD_DOTS`] is currently absorbing, described in full there.
-    /// This assertion is not independent evidence for either figure: it was written to pin
-    /// whatever made `4-scanline_timing` pass, and it moved when that did. It earns its place by
-    /// catching a *change*, which is what it did here.
+    /// **261, not the 260 the documentation quotes, and this is the settled figure rather than a
+    /// number bent to make something pass.** Dots 257-320 fetch eight sprites in groups of eight
+    /// dots: a garbage nametable read, a garbage attribute read, then the two pattern bitplanes.
+    /// Only the patterns reach $1000, and their group begins at dot 261 — 257 plus the four dots
+    /// the two garbage reads occupy. Mesen does exactly this, at `(_cycle - 257) % 8 == 4`, which
+    /// is cycle 261; the "cycle 260" in its comment there is as loose as the wiki's, and both are
+    /// describing the same fetch.
+    ///
+    /// This assertion read 260 for a while, which was only reachable by giving the address bus a
+    /// one-dot lead over the read it serves. That lead was cancelling a real error elsewhere — the
+    /// CPU read its interrupt lines at the instant of a bus access rather than at the end of the
+    /// cycle — and the two wrongs agreed often enough to look right. Fixing the poll exposed it.
     #[test]
-    fn sprite_fetches_raise_a12_once_a_line_at_dot_260() {
+    fn sprite_fetches_raise_a12_once_a_line_at_dot_261() {
         // Sprites from $1000, background from $0000 — what an MMC3 game uses.
         let rises = a12_rises_on_a_line(CTRL_SPRITE_PATTERN);
 
@@ -4924,8 +4909,7 @@ mod tests {
         );
         assert_eq!(
             rises[0].1, 261,
-            "one dot past the documented 260 — see ADDRESS_BUS_LEAD_DOTS for why, and do not \
-             simply move this number again without reading it"
+            "the dot the sprite pattern group begins on, which is where Mesen clocks it too"
         );
     }
 
