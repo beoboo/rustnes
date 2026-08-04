@@ -260,6 +260,18 @@ pub struct Cpu {
     /// Cycles the clock has been run for during the current instruction.
     clocked_cycles: Cell<u8>,
 
+    /// Whether this instruction's addressing had to fix up a carried index, costing a cycle.
+    ///
+    /// Set by [`AddressingMode::index`](crate::cpu::AddressingMode) when an indexed *read* crosses
+    /// a page, which is the one case where the fix-up is an extra access rather than one the
+    /// instruction was always going to make. A store pays for it whatever happens, and its base
+    /// cycle count says so.
+    ///
+    /// Recorded here rather than recomputed because the cycle *is* the access: tying the count to
+    /// what the bus actually did keeps the two from drifting apart, which is the whole difficulty
+    /// described in CYCLE_ACCURACY.md.
+    page_cross_access: Cell<bool>,
+
     /// The internal NMI signal: an edge has been detected and not yet serviced.
     ///
     /// The wiki: "the internal signal goes high during φ1 of the cycle that follows the one where
@@ -336,6 +348,7 @@ impl Cpu {
             clock: None,
             executing: Cell::new(false),
             clocked_cycles: Cell::new(0),
+            page_cross_access: Cell::new(false),
             need_nmi: Cell::new(false),
             prev_need_nmi: Cell::new(false),
             prev_nmi_line: Cell::new(false),
@@ -646,6 +659,16 @@ impl Cpu {
     /// Every cycle ever run from a bus access.
     pub fn total_clocked_cycles(&self) -> u64 {
         self.total_clocked.get()
+    }
+
+    /// Note that an indexed read had to fix up a carried index. Costs a cycle.
+    pub(crate) fn note_page_cross_access(&self) {
+        self.page_cross_access.set(true);
+    }
+
+    /// Take the pending page-cross cycle, if the addressing mode incurred one.
+    pub(crate) fn take_page_cross_access(&self) -> bool {
+        self.page_cross_access.replace(false)
     }
 
     /// Cycles already run for the current instruction's bus accesses.

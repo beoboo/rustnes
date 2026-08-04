@@ -667,6 +667,11 @@ impl Cpu {
             self.registers.pc = self.registers.pc.wrapping_add((instruction_metadata.bytes - 1) as u16);
         }
 
+        // The page-cross cycle, taken from what the addressing actually did rather than from a
+        // table. `LDA $02FF,X` with X carrying is five cycles, not four; nothing added this before,
+        // and nothing noticed, because nestest compares registers and not cycles.
+        additional_cycles += u8::from(self.take_page_cross_access());
+
         Ok(additional_cycles)
     }
 
@@ -1850,6 +1855,66 @@ mod tests {
         let before = cpu.total_clocked_cycles();
         cpu.nop(AddressingMode::Implied)?;
         assert_eq!(cpu.total_clocked_cycles(), before, "an implied NOP reads nothing here");
+
+        Ok(())
+    }
+
+
+    /// An indexed read that carries takes an extra cycle; one that does not, does not.
+    ///
+    /// The 6502 adds the index to the low byte first and only fixes the high byte afterwards, so a
+    /// carry costs a cycle. Nothing in this emulator added that cycle for years: the two functions
+    /// that compute it, `crosses_page_boundary` and `get_additional_cycles`, were both correct and
+    /// both called by nothing but their own tests.
+    ///
+    /// It went unnoticed because the *bus* was right all along — the addressing mode performs the
+    /// fix-up access, so the PPU is advanced for it and nothing rendered ever looked wrong — and
+    /// because nestest compares PC, A, X, Y, P and SP and never looks at a cycle count.
+    #[test]
+    fn an_indexed_read_costs_a_cycle_when_the_index_carries() -> Result<()> {
+        /// Cycles reported for `LDA $addr,X` with X = `index`.
+        fn lda_absolute_x(base: u16, index: u8) -> Result<u8, NesError> {
+            let mut cpu = setup_cpu();
+            cpu.registers.pc = 0x0100;
+            cpu.registers.x = index;
+
+            let [low, high] = base.to_le_bytes();
+            cpu.write_byte(0x0100, 0xBD)?; // LDA absolute,X
+            cpu.write_byte(0x0101, low)?;
+            cpu.write_byte(0x0102, high)?;
+
+            cpu.step()
+        }
+
+        assert_eq!(lda_absolute_x(0x0200, 0x10)?, 4, "no carry, so no fix-up and no extra cycle");
+        assert_eq!(lda_absolute_x(0x02FF, 0x01)?, 5, "the index carries, so the high byte is fixed");
+
+        Ok(())
+    }
+
+    /// A store pays for the fix-up whether or not the index carries, so it must not pay twice.
+    ///
+    /// The other half of the rule, and the reason this cannot simply be "add one when the pages
+    /// differ": `STA $02FF,X` is five cycles and so is `STA $0200,X`. Hardware performs the same
+    /// dummy read either way, which is already in the base count.
+    #[test]
+    fn an_indexed_store_costs_the_same_whether_it_carries_or_not() -> Result<()> {
+        fn sta_absolute_x(base: u16, index: u8) -> Result<u8, NesError> {
+            let mut cpu = setup_cpu();
+            cpu.registers.pc = 0x0100;
+            cpu.registers.x = index;
+            cpu.registers.a = 0x42;
+
+            let [low, high] = base.to_le_bytes();
+            cpu.write_byte(0x0100, 0x9D)?; // STA absolute,X
+            cpu.write_byte(0x0101, low)?;
+            cpu.write_byte(0x0102, high)?;
+
+            cpu.step()
+        }
+
+        assert_eq!(sta_absolute_x(0x0200, 0x10)?, 5);
+        assert_eq!(sta_absolute_x(0x02FF, 0x01)?, 5, "a store always pays, so it must not pay twice");
 
         Ok(())
     }

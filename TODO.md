@@ -1067,15 +1067,17 @@ work, so nothing measuring them can pass.
 - [ ] Model every cycle as the bus access it is on hardware, so accesses and cycles agree.
       204 of 225 opcodes do already, and 44 of 8991 executed instructions are short of one —
       from 37 and 6463 when this was written.
-- [ ] **The page-cross penalty is never added to an instruction's cycle count.**
-      `crosses_page_boundary` and `get_additional_cycles` both exist, are both correct, and are
-      called by nothing but their own tests: `execute` only ever adds cycles for branches. So
-      `LDA $02FF,X` with X carrying reports four cycles where hardware takes five.
-      The *bus* is right — the addressing mode performs the extra access, so the PPU is advanced
-      for it — and it is only the count that is short, which is why nothing rendered has ever
-      looked wrong. Nothing catches it either: nestest compares PC, A, X, Y, P and SP and does not
-      look at cycles at all. `instr_timing`, `cpu_timing_test6` and `branch_timing_tests` are the
-      tests that would, and the first two are exactly what still fails.
+- [x] The page-cross penalty, which was never added to any instruction's cycle count.
+      `crosses_page_boundary` and `get_additional_cycles` both existed, were both correct, and were
+      called by nothing but their own tests — `execute` only ever added cycles for branches. So
+      `LDA $02FF,X` with X carrying reported four cycles where hardware takes five. It went
+      unnoticed because the *bus* was right all along (the addressing mode performs the fix-up
+      access, so the PPU is advanced for it and nothing rendered looked wrong) and because nestest
+      compares registers and never looks at a cycle count.
+      Fixed by taking the cycle from what the addressing actually did rather than from a table: the
+      fix-up access *is* the extra cycle, so the count cannot drift from the bus. A store performs
+      that access whether or not the index carries and its base length already says so, which is
+      why the rule cannot simply be "add one when the pages differ".
 - [x] Interrupts sampled before the last cycle — `1-cli_latency` passes, the first in that suite
 - [x] The computed `poll_at` replaced by a one-cycle-delayed shadow of both lines, and the poll
       moved from the instant of the bus access to the end of the cycle, one dot later

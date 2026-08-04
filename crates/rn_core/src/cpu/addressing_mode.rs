@@ -330,6 +330,13 @@ impl AddressingMode {
             let _ = cpu.read_byte(unfixed);
         }
 
+        // A read that crossed a page has just made an access it would not otherwise have made, and
+        // that access is the instruction's extra cycle. A store performs the same read whether or
+        // not the index carried, so it is already counted in its base length and nothing is owed.
+        if crossed && !always {
+            cpu.note_page_cross_access();
+        }
+
         effective
     }
 
