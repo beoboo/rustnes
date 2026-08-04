@@ -1188,6 +1188,12 @@ impl Cpu {
             return Ok(0);
         }
 
+        // A taken branch skips the poll it would otherwise make during its last cycle, so an IRQ
+        // that has only just become eligible waits for the instruction after the branch target.
+        // One of the three documented exceptions to the sampling rule; the other two — the
+        // interrupt sequence not polling, and BRK — are handled where they happen.
+        self.ignore_irq_raised_during_this_cycle();
+
         // The offset is relative to the instruction after the branch.
         let target = (next as i32 + offset as i32) as u16;
 
@@ -1924,6 +1930,89 @@ mod tests {
 
         assert_eq!(sta_absolute_x(0x0200, 0x10)?, 5);
         assert_eq!(sta_absolute_x(0x02FF, 0x01)?, 5, "a store always pays, so it must not pay twice");
+
+        Ok(())
+    }
+
+
+    /// A taken branch ignores an IRQ that goes up during its own last cycle.
+    ///
+    /// "A taken non-page-crossing branch ignores IRQ/NMI during its last clock, so that the next
+    /// instruction executes before the IRQ." It is one of three documented exceptions to the
+    /// sampling rule — the others being that an interrupt sequence never polls and that `BRK`
+    /// behaves as one — and unlike the rest of the rule it does not fall out of the shadow: the
+    /// processor genuinely skips a poll here.
+    ///
+    /// Asserted directly because `cpu_interrupts_v2/5-branch_delays_irq` does not move on it: that
+    /// ROM fails in its first sub-test, which measures `JMP` and never reaches the branch cases.
+    #[test]
+    fn a_taken_branch_defers_an_irq_raised_during_its_last_cycle() -> Result<()> {
+        /// Run `opcode` at $0100 with the IRQ line rising on `raise_on`, and report where the CPU
+        /// was when the interrupt was finally taken.
+        fn pc_when_irq_taken(program: &[u8], raise_on: u32) -> Result<u16, NesError> {
+            let mut cpu = setup_cpu();
+            cpu.registers.sp = 0xFD;
+            cpu.set_flag(CpuFlag::InterruptDisable, false);
+            cpu.registers.pc = 0x0100;
+
+            for (i, byte) in program.iter().enumerate() {
+                cpu.write_byte(0x0100 + i as u16, *byte)?;
+            }
+            // The handler records the return address the interrupt pushed.
+            cpu.write_byte(IRQ_VECTOR, 0x00)?;
+            cpu.write_byte(IRQ_VECTOR + 1, 0x90)?;
+            cpu.write_byte(0x9000, 0xEA)?; // NOP, so the handler simply stops there
+
+            let lines = cpu.interrupt_lines();
+            let cycle = Rc::new(std::cell::Cell::new(0u32));
+            {
+                let cycle = Rc::clone(&cycle);
+                cpu.set_clock(Rc::new(move |phase| {
+                    if phase == crate::cpu::ClockPhase::BeforeAccess {
+                        cycle.set(cycle.get() + 1);
+                    }
+                    if phase == crate::cpu::ClockPhase::AfterAccess && cycle.get() >= raise_on {
+                        lines.set_nmi(false);
+                        lines.set_irq(true);
+                    }
+                }));
+            }
+
+            cpu.set_executing(true);
+            for _ in 0..6 {
+                cpu.step()?;
+                if cpu.registers.pc >= 0x9000 {
+                    break;
+                }
+            }
+            cpu.set_executing(false);
+
+            // The pushed return address says which instruction the interrupt landed between.
+            let low = cpu.peek_byte(0x0100 | (cpu.registers.sp.wrapping_add(2) as u16))? as u16;
+            let high = cpu.peek_byte(0x0100 | (cpu.registers.sp.wrapping_add(3) as u16))? as u16;
+            Ok((high << 8) | low)
+        }
+
+        // BCC $02 at $0100, taken, landing on $0104. Then NOPs.
+        // Its cycles are 1 (opcode), 2 (offset), 3 (the branch's own last cycle).
+        let branch = [0x90, 0x02, 0xEA, 0xEA, 0xEA, 0xEA, 0xEA, 0xEA];
+
+        // The line rises during the branch's last cycle. The branch skips that poll, so the NOP at
+        // the target runs before the interrupt: the return address is past it.
+        let after_branch = pc_when_irq_taken(&branch, 3)?;
+        assert_eq!(after_branch, 0x0105, "the instruction after the branch runs first");
+
+        // Raising it during the *operand fetch* is deferred too, and for the same reason: the poll
+        // that would have seen it is the one at the end of cycle two, which is exactly the one a
+        // taken branch skips.
+        let during_operand = pc_when_irq_taken(&branch, 2)?;
+        assert_eq!(during_operand, 0x0105, "the skipped poll is the one at the end of cycle two");
+
+        // A cycle earlier still — during the opcode fetch — and the poll at the end of that cycle
+        // has already caught it. It was eligible before the branch's last cycle, so the branch has
+        // nothing to ignore and the interrupt is taken at the branch's end.
+        let before_the_branch = pc_when_irq_taken(&branch, 1)?;
+        assert_eq!(before_the_branch, 0x0104, "an IRQ already eligible is not deferred");
 
         Ok(())
     }

@@ -1117,7 +1117,11 @@ work, so nothing measuring them can pass.
 - [x] The computed `poll_at` replaced by a one-cycle-delayed shadow of both lines, and the poll
       moved from the instant of the bus access to the end of the cycle, one dot later
 - [x] NMI hijacking BRK, and no polling inside an interrupt sequence
-- [ ] Branch polling: before the operand fetch, not before the third cycle of a taken branch
+- [x] Branch polling: a taken branch ignores an IRQ that only became eligible during its own last
+      cycle, so the instruction at the target runs first. The last of the three documented
+      exceptions, and the only part of the sampling rule that does not fall out of the shadow.
+      Proved by a unit test rather than by `5-branch_delays_irq`, which does not move on it: that
+      ROM fails in its first sub-test, which measures `JMP` and never reaches the branch cases.
 - [ ] The rest of `cpu_interrupts_v2` is blocked on the PPU, not on the CPU: those tests spin in a
       vblank synchronisation loop that needs cycle-exact CPU/PPU alignment
 - Acceptance: `cpu_interrupts_v2`, `instr_timing`, `branch_timing_tests`, `cpu_dummy_writes`,

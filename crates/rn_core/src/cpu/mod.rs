@@ -693,6 +693,22 @@ impl Cpu {
         self.total_clocked.get()
     }
 
+    /// A taken branch ignores an IRQ that only became eligible during its own last cycle.
+    ///
+    /// The documented exception, and the last of the three: "a taken non-page-crossing branch
+    /// ignores IRQ/NMI during its last clock, so that the next instruction executes before the
+    /// IRQ". Everywhere else the shadow does this on its own; here the processor genuinely skips a
+    /// poll, so it has to be said out loud.
+    ///
+    /// The test is `run_irq && !prev_run_irq` — the line went up this cycle and the shadow has not
+    /// caught it yet. An IRQ that was already eligible before the branch began is untouched and is
+    /// taken as normal. `cpu_interrupts_v2/5-branch_delays_irq` is built around the difference.
+    pub(crate) fn ignore_irq_raised_during_this_cycle(&self) {
+        if self.run_irq.get() && !self.prev_run_irq.get() {
+            self.run_irq.set(false);
+        }
+    }
+
     /// Note that an indexed read had to fix up a carried index. Costs a cycle.
     pub(crate) fn note_page_cross_access(&self) {
         self.page_cross_access.set(true);
