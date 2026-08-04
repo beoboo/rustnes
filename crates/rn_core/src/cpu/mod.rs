@@ -100,8 +100,8 @@ impl CpuWrapper {
         self.cpu.borrow().interrupt_lines()
     }
 
-    /// Install the callback that advances the rest of the system by one CPU cycle.
-    pub fn set_clock(&self, clock: Rc<dyn Fn()>) {
+    /// Install the callback that advances the rest of the system across one CPU cycle.
+    pub fn set_clock(&self, clock: Rc<dyn Fn(ClockPhase)>) {
         self.cpu.borrow_mut().set_clock(clock);
     }
 
@@ -203,6 +203,23 @@ impl InterruptLines {
     }
 }
 
+/// Which half of a CPU cycle the clock is being asked to run.
+///
+/// A 6502 cycle does not end when its bus access does: the access happens partway through, and the
+/// cycle runs on past it. Splitting the cycle here is what puts the interrupt poll at the cycle's
+/// *end* rather than at the instant of the access — one PPU dot later, and that dot is measurable.
+/// `ppu_vbl_nmi/05-nmi_timing` prints which instruction an NMI landed after, one PPU clock later
+/// each line; with the whole cycle run before the access, every transition in its table came out
+/// one line late.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClockPhase {
+    /// Before the access: the part of the cycle the access is waiting on.
+    BeforeAccess,
+
+    /// After it: the rest of the cycle, ending with the interrupt lines being read.
+    AfterAccess,
+}
+
 /// MOS 6502 CPU implementation
 pub struct Cpu {
     // Registers
@@ -217,9 +234,10 @@ pub struct Cpu {
     // Instruction decoder
     decoder: InstructionDecoder,
 
-    /// Advances the rest of the system by one CPU cycle.
+    /// Advances the rest of the system across one CPU cycle, in the two halves either side of the
+    /// bus access that cycle performs.
     ///
-    /// Every 6502 cycle is a bus access, so calling this before each read and write puts the PPU
+    /// Every 6502 cycle is a bus access, so calling this around each read and write puts the PPU
     /// and APU where they actually stand when the access happens — rather than running the whole
     /// instruction and catching them up afterwards, which makes every access in an instruction
     /// appear simultaneous.
@@ -227,7 +245,7 @@ pub struct Cpu {
     /// Deliberately unable to touch the CPU: it is called while the CPU is borrowed. Interrupts
     /// reach it through the shared lines instead.
     #[allow(clippy::type_complexity)]
-    clock: Option<Rc<dyn Fn()>>,
+    clock: Option<Rc<dyn Fn(ClockPhase)>>,
 
     /// Whether an instruction is being executed, so the clock runs only for its accesses.
     ///
@@ -357,14 +375,18 @@ impl Cpu {
 
     /// Read a byte from memory
     pub fn read_byte(&self, address: u16) -> Result<u8, NesError> {
-        self.tick_bus();
-        self.memory()?.read_byte(address)
+        self.start_cycle();
+        let value = self.memory().and_then(|memory| memory.read_byte(address));
+        self.end_cycle();
+        value
     }
 
     /// Write a byte to memory
     pub fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
-        self.tick_bus();
-        self.memory_mut()?.write_byte(address, value)
+        self.start_cycle();
+        let result = self.memory_mut().and_then(|mut memory| memory.write_byte(address, value));
+        self.end_cycle();
+        result
     }
 
     /// Read a word (16-bits) from memory
@@ -491,17 +513,17 @@ impl Cpu {
         self.irq_line.get()
     }
 
-    /// Install the callback that advances the rest of the system by one CPU cycle.
-    pub fn set_clock(&mut self, clock: Rc<dyn Fn()>) {
+    /// Install the callback that advances the rest of the system across one CPU cycle.
+    pub fn set_clock(&mut self, clock: Rc<dyn Fn(ClockPhase)>) {
         self.clock = Some(clock);
     }
 
-    /// Advance the rest of the system by one cycle, for one bus access.
+    /// Open a cycle: run the rest of the system up to the point its bus access happens.
     ///
     /// Counted so the caller can make up whatever the instruction's cycle count exceeds its bus
     /// accesses. Not every 6502 cycle is modelled as an access here — the internal ones are not —
     /// so the remainder still has to be run, just after the accesses rather than instead of them.
-    fn tick_bus(&self) {
+    fn start_cycle(&self) {
         if !self.executing.get() {
             return;
         }
@@ -510,8 +532,22 @@ impl Cpu {
             let cycle = self.clocked_cycles.get().saturating_add(1);
             self.clocked_cycles.set(cycle);
             self.total_clocked.set(self.total_clocked.get() + 1);
-            clock();
+            clock(ClockPhase::BeforeAccess);
+        }
+    }
 
+    /// Close a cycle: run what is left of it after the access, then read the interrupt lines.
+    ///
+    /// The access is not the end of the cycle, and the difference is one PPU dot. Reading the lines
+    /// at the instant of the access instead put every transition in `05-nmi_timing`'s table one
+    /// line late — that test runs one PPU clock later on each line, so a line is a dot.
+    fn end_cycle(&self) {
+        if !self.executing.get() {
+            return;
+        }
+
+        if let Some(clock) = &self.clock {
+            clock(ClockPhase::AfterAccess);
             self.end_cpu_cycle();
         }
     }
@@ -873,5 +909,144 @@ mod tests {
         assert_eq!(cpu.read_byte(0x0200)?, 0x42);
 
         Ok(())
+    }
+
+    /// Where in a CPU cycle the interrupt lines are read, stated as the thing it decides.
+    ///
+    /// A 6502 cycle does not end when its bus access does. The access happens partway through and
+    /// the cycle runs on past it, so an interrupt asserted *after* the access of a cycle is still
+    /// caught by that cycle's poll. One PPU dot of the three in a CPU cycle falls after the access,
+    /// and that dot is measurable: with the whole cycle run before the access, every transition in
+    /// `ppu_vbl_nmi/05-nmi_timing`'s table came out one line late — that ROM runs one PPU clock
+    /// later on each line, so a line is a dot.
+    ///
+    /// Here the same thing is asserted without the ROM and without a PPU: the clock raises the NMI
+    /// at a chosen point of a chosen cycle, and the handler records which `LDX #n` had run.
+    ///
+    /// Returns the X the handler saw — the number of the last `LDX` to complete.
+    fn ldx_reached_when_nmi_is_raised(raise_at: (u32, ClockPhase)) -> u8 {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+
+        // Four two-cycle instructions, so a cycle is half an instruction and the boundary being
+        // measured is unambiguous.
+        for (i, byte) in [0xA2, 0x01, 0xA2, 0x02, 0xA2, 0x03, 0xA2, 0x04].iter().enumerate() {
+            cpu.write_byte(0x8000 + i as u16, *byte).expect("writing the program");
+        }
+
+        // The handler: STX $0400, then RTI.
+        for (i, byte) in [0x8E, 0x00, 0x04, 0x40].iter().enumerate() {
+            cpu.write_byte(0x9000 + i as u16, *byte).expect("writing the handler");
+        }
+        cpu.write_byte(NMI_VECTOR, 0x00).expect("writing the vector");
+        cpu.write_byte(NMI_VECTOR + 1, 0x90).expect("writing the vector");
+        cpu.write_byte(0x0400, 0xFF).expect("clearing the result");
+
+        cpu.registers.pc = 0x8000;
+
+        let lines = cpu.interrupt_lines();
+        let cycle = Rc::new(Cell::new(0u32));
+        {
+            let cycle = Rc::clone(&cycle);
+            cpu.set_clock(Rc::new(move |phase| {
+                // Counted on the way in, so cycle one is the first opcode fetch.
+                if phase == ClockPhase::BeforeAccess {
+                    cycle.set(cycle.get() + 1);
+                }
+                if (cycle.get(), phase) == raise_at {
+                    lines.raise_nmi();
+                }
+            }));
+        }
+
+        cpu.set_executing(true);
+        for _ in 0..8 {
+            cpu.step().expect("stepping");
+            if cpu.registers.pc > 0x9000 {
+                break;
+            }
+        }
+        cpu.set_executing(false);
+
+        cpu.peek_byte(0x0400).expect("reading the result")
+    }
+
+    #[test]
+    fn an_nmi_after_the_second_to_last_cycles_access_is_taken_at_that_instructions_end() {
+        // Cycle one is the first `LDX`'s opcode fetch, and since the instruction is two cycles long
+        // that is its second-to-last cycle. An NMI asserted after that cycle's access is still
+        // inside the cycle, so the poll at its end sees it and the interrupt follows the
+        // instruction it arrived during. Polling at the instant of the access instead misses it by
+        // one dot, defers it to the next cycle, and the handler finds X holding 2.
+        assert_eq!(
+            ldx_reached_when_nmi_is_raised((1, ClockPhase::AfterAccess)),
+            1,
+            "the NMI belongs to the cycle it arrived in, so it is taken after the first LDX"
+        );
+    }
+
+    #[test]
+    fn an_nmi_after_the_last_cycles_access_waits_for_the_following_instruction() {
+        // The other side of the same boundary, and the reason the assertion above is not merely
+        // "interrupts are prompt": cycle two is the first `LDX`'s *last* cycle. What that cycle's
+        // poll sees is acted on one cycle later, by which time the instruction is over, so the
+        // interrupt falls after the second LDX instead. That is the one-cycle-delayed shadow doing
+        // its job — the same rule that makes CLI and SEI take effect one instruction late.
+        assert_eq!(
+            ldx_reached_when_nmi_is_raised((2, ClockPhase::AfterAccess)),
+            2,
+            "sampled at the last cycle, so it cannot be acted on until the next instruction ends"
+        );
+    }
+
+    /// The IRQ line obeys the same one-cycle delay, and it is a separate path: level-triggered,
+    /// masked by the I flag, and with no latch of its own.
+    #[test]
+    fn an_irq_raised_during_an_instruction_waits_a_cycle_to_be_noticed() {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.set_flag(CpuFlag::InterruptDisable, false);
+
+        for (i, byte) in [0xA2, 0x01, 0xA2, 0x02, 0xA2, 0x03].iter().enumerate() {
+            cpu.write_byte(0x8000 + i as u16, *byte).expect("writing the program");
+        }
+        for (i, byte) in [0x8E, 0x00, 0x04, 0x40].iter().enumerate() {
+            cpu.write_byte(0x9000 + i as u16, *byte).expect("writing the handler");
+        }
+        cpu.write_byte(IRQ_VECTOR, 0x00).expect("writing the vector");
+        cpu.write_byte(IRQ_VECTOR + 1, 0x90).expect("writing the vector");
+        cpu.write_byte(0x0400, 0xFF).expect("clearing the result");
+        cpu.registers.pc = 0x8000;
+
+        let lines = cpu.interrupt_lines();
+        let cycle = Rc::new(Cell::new(0u32));
+        {
+            let cycle = Rc::clone(&cycle);
+            cpu.set_clock(Rc::new(move |phase| {
+                if phase == ClockPhase::BeforeAccess {
+                    cycle.set(cycle.get() + 1);
+                }
+                // Held from the end of the first instruction's last cycle onwards, as a device
+                // holds it: the line is level-triggered and nothing here releases it.
+                if cycle.get() >= 2 && phase == ClockPhase::AfterAccess {
+                    lines.set_irq(true);
+                }
+            }));
+        }
+
+        cpu.set_executing(true);
+        for _ in 0..8 {
+            cpu.step().expect("stepping");
+            if cpu.registers.pc > 0x9000 {
+                break;
+            }
+        }
+        cpu.set_executing(false);
+
+        assert_eq!(
+            cpu.peek_byte(0x0400).expect("reading the result"),
+            2,
+            "asserted at the first LDX's last cycle, so the second one runs before it is taken"
+        );
     }
 }

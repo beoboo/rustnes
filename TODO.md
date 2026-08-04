@@ -535,8 +535,10 @@ correctly halt, and six are the unstable stores. `report_undecoded_opcodes` prin
 - [x] IRQ: vector at $FFFE, gated on InterruptDisable, shared by the APU frame counter and the mapper
 - [x] BRK pushing the correct status byte, RTI restoring it
 - [x] Interrupt lines shared, so a device can assert one while the CPU is mid-instruction
-- [ ] Sample the lines at the cycle hardware samples them, so CLI and SEI take effect one
-      instruction late (`cpu_interrupts_v2`). Needs the per-cycle CPU below.
+- [x] Sample the lines at the cycle hardware samples them, so CLI and SEI take effect one
+      instruction late (`cpu_interrupts_v2`). A one-cycle-delayed shadow of both lines, updated by
+      the same clock that advances the PPU and checked after the instruction, as Mesen does — no
+      computed polling cycle, so nothing has to know how long an instruction is.
 
 ### [Testing] Headless test-ROM runner [T8]
 Blargg's ROMs write a status byte to $6000 and a message at $6004, so no screen is needed.
@@ -554,14 +556,23 @@ file rather than on anything specific to the suite.
 - [ ] instr_test-v5 — 13/18
 - [ ] instr_misc — 3/5
 - [ ] mmc3_test — 5/6 (only `6-MMC6`, which is the other chip's counter behaviour)
-- [ ] apu_test — 4/9
+- [ ] apu_test — 5/9, from 4/9
 - [ ] apu_reset — 3/6
-- [ ] ppu_vbl_nmi — 5/11 (the figure here read 2/11 for a while after it was no longer true;
-      re-measured against the commit before the A12 work, which did not move it)
+- [ ] ppu_vbl_nmi — 7/11, from 5/11 (the figure here read 2/11 for a while after it was no longer
+      true; re-measured against the commit before the A12 work, which did not move it)
 
-      `05-nmi_timing` measures the fault precisely, and is the best handle on CPU/PPU alignment in
-      the suite: it prints which instruction the NMI landed after, running one PPU clock later on
-      each line. Expected against ours:
+      **`05-nmi_timing` and `06-suppression` now pass.** The cause was one PPU dot, and it was
+      neither the PPU's nor the flag's: our clock ran all three of a CPU cycle's dots and then
+      performed the bus access, so the interrupt lines were read at the instant of the access. A
+      6502 cycle runs on past its access, so the poll belongs one dot later, at the cycle's end.
+      Two dots before the access and one after, with the lines read at the end of the second.
+      Full account in [CYCLE_ACCURACY.md](CYCLE_ACCURACY.md), including the measurement that found
+      the dot and an unresolved conflict with `mmc3_test/4-scanline_timing` over the same dot.
+
+      What follows is the analysis that led there, kept because the reasoning is still the way to
+      read the table. `05-nmi_timing` measures the fault precisely, and is the best handle on
+      CPU/PPU alignment in the suite: it prints which instruction the NMI landed after, running one
+      PPU clock later on each line. Expected against ours *as it then stood*:
 
       ```
       expected   00 4  01 4  02 4  03 3  04 3  05 3  06 3  07 3  08 3  09 2
@@ -973,6 +984,8 @@ work, so nothing measuring them can pass.
 - [ ] Model every cycle as the bus access it is on hardware, so accesses and cycles agree
       (37 of 225 opcodes do already; 6463 of 8991 executed instructions are short of one)
 - [x] Interrupts sampled before the last cycle — `1-cli_latency` passes, the first in that suite
+- [x] The computed `poll_at` replaced by a one-cycle-delayed shadow of both lines, and the poll
+      moved from the instant of the bus access to the end of the cycle, one dot later
 - [x] NMI hijacking BRK, and no polling inside an interrupt sequence
 - [ ] Branch polling: before the operand fetch, not before the third cycle of a taken branch
 - [ ] The rest of `cpu_interrupts_v2` is blocked on the PPU, not on the CPU: those tests spin in a

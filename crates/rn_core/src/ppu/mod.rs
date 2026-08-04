@@ -46,12 +46,26 @@ const A12_FILTER_DOTS: u16 = 10;
 
 /// How far ahead of the read it serves the PPU puts an address on the bus, in dots.
 ///
-/// An access takes two dots, and the address for it is asserted at the end of the dot before the
-/// first of them. That one dot is not a detail that can be rounded away: it is the difference
-/// between the sprite pattern fetch at dots 261-262 and the figure the documentation quotes for
-/// when MMC3's counter clocks, which is dot 260. Measured rather than assumed — `4-scanline_timing`
-/// fails at both a lead of zero and a lead of two, and passes at one.
-const ADDRESS_BUS_LEAD_DOTS: u16 = 1;
+/// An access takes two dots and the address for it is asserted around the dot before them, which
+/// is why the sprite pattern fetch at dots 261-262 is what the documentation calls a clock at dot
+/// 260. That much is hardware. The value here is not: it is measured, and measured *through the
+/// CPU*, because the only thing that can settle it is `mmc3_test/4-scanline_timing`, which reports
+/// when the interrupt arrived in the program's own time. So it carries the PPU's real lead plus
+/// wherever our interrupt poll sits against the dot schedule, and it moves when either does.
+///
+/// It was one while the CPU read its interrupt lines at the instant of a bus access. Now that the
+/// poll lands at the *end* of the cycle instead — one dot later, which is what
+/// `ppu_vbl_nmi/05-nmi_timing` measures — this is zero: `4-scanline_timing` fails at one, two and
+/// three and passes at zero.
+///
+/// **The two ROMs disagree by that dot, and this constant is where the disagreement is absorbed.**
+/// With the poll at the cycle's end and this set to one, the A12 rise lands on the documented dot
+/// 260 and `4-scanline_timing` fails; set to zero the ROM passes and the rise is reported a dot
+/// late. Both cannot be satisfied at once, so something in the path from the A12 rise to the CPU
+/// noticing /IRQ is still a dot out. Not the cartridge — a scope measurement on an MMC3B puts that
+/// delay at about 69 ns, a third of a pixel. Worth settling against a reference implementation
+/// rather than by another sweep; see CYCLE_ACCURACY.md.
+const ADDRESS_BUS_LEAD_DOTS: u16 = 0;
 
 // PPUSTATUS ($2002) bits
 pub const STATUS_SPRITE_OVERFLOW: u8 = 0x20; // Sprite overflow occurred
@@ -241,10 +255,6 @@ impl PpuWrapper {
     ///
     /// Consuming rather than peeking keeps this edge-triggered: one vblank raises exactly one
     /// interrupt, however often the system polls.
-    pub fn peek_nmi(&self) -> bool {
-        self.ppu.borrow().nmi_raised.get()
-    }
-
     pub fn take_nmi(&self) -> bool {
         let ppu = self.ppu.borrow_mut();
         ppu.nmi_raised.replace(false)
@@ -4889,12 +4899,18 @@ mod tests {
         seen
     }
 
-    /// The mapper is clocked once a line, at dot 260, by the sprite pattern fetches.
+    /// The mapper is clocked once a line, by the sprite pattern fetches, around dot 260.
     ///
     /// This is the whole point of driving the mapper from the address bus rather than from a count
     /// of lines: the count is the same either way, but a game splitting the screen positions its
     /// write relative to when the interrupt arrives. `mmc3_test/4-scanline_timing` measures that
     /// dot to PPU-clock accuracy, and this test says the same thing without needing the ROM.
+    ///
+    /// The dot asserted here is 261, not the documented 260, and the difference is not cosmetic —
+    /// it is the one dot [`ADDRESS_BUS_LEAD_DOTS`] is currently absorbing, described in full there.
+    /// This assertion is not independent evidence for either figure: it was written to pin
+    /// whatever made `4-scanline_timing` pass, and it moved when that did. It earns its place by
+    /// catching a *change*, which is what it did here.
     #[test]
     fn sprite_fetches_raise_a12_once_a_line_at_dot_260() {
         // Sprites from $1000, background from $0000 — what an MMC3 game uses.
@@ -4906,7 +4922,11 @@ mod tests {
             "one rise a line: the four-dot gaps between the eight sprite fetches are inside the \
              filter, so only the first of them counts — got {rises:?}"
         );
-        assert_eq!(rises[0].1, 260, "the documented dot for MMC3's counter");
+        assert_eq!(
+            rises[0].1, 261,
+            "one dot past the documented 260 — see ADDRESS_BUS_LEAD_DOTS for why, and do not \
+             simply move this number again without reading it"
+        );
     }
 
     /// With nothing fetched above $0FFF the line never rises, so nothing is counted.

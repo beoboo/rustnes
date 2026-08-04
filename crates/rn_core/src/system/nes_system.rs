@@ -7,7 +7,7 @@ use crate::{
     apu::{Apu, ApuWrapper},
     audio::SampleProducer,
     cartridge::{create_mapper, mapper_name, supported_mappers, Cartridge, Mapper, Mirroring, Rom},
-    cpu::{Cpu, CpuRegisters, CpuWrapper},
+    cpu::{ClockPhase, Cpu, CpuRegisters, CpuWrapper},
     errors::NesError,
     input::{ControllerHandlerWrapper, ControllerState},
     memory::{Addressable, Ram},
@@ -288,20 +288,29 @@ impl NesSystem {
             let mapper_slot = Rc::clone(&mapper);
             let lines = interrupts.clone();
 
-            cpu.set_clock(Rc::new(move || {
-                let mut raised_at = None;
-                for sub in 0..3 {
+            cpu.set_clock(Rc::new(move |phase| {
+                // Two of the cycle's three dots run before the access and one after it. The access
+                // happens partway through a 6502 cycle, not at its end, and the dot that follows it
+                // is the difference between an NMI being noticed by this cycle's poll or the next
+                // one's. Measured on `ppu_vbl_nmi/05-nmi_timing`: with all three dots ahead of the
+                // access, every transition in its table came out one line late.
+                let dots = match phase {
+                    ClockPhase::BeforeAccess => 2,
+                    ClockPhase::AfterAccess => 1,
+                };
+                for _ in 0..dots {
                     ppu.tick();
-                    if raised_at.is_none() && ppu.peek_nmi() {
-                        raised_at = Some((sub, ppu.scanline_cycle()));
-                    }
                 }
+
+                if phase == ClockPhase::BeforeAccess {
+                    return;
+                }
+
+                // The rest of this runs once per CPU cycle, at its end, which is where the
+                // processor reads the interrupt lines.
                 apu.tick();
 
                 if ppu.take_nmi() {
-                    if std::env::var_os("RN_NMI_TRACE").is_some() {
-                        eprintln!("NMI raised sub={:?}", raised_at);
-                    }
                     lines.raise_nmi();
                 }
 
@@ -315,6 +324,21 @@ impl NesSystem {
                 lines.set_irq(apu.irq_pending() || mapper_irq);
             }));
         }
+
+        // The CPU/PPU alignment: which of a CPU cycle's three dots the machine starts on.
+        //
+        // A real NES settles this at power-on and not always the same way, which is why some games
+        // show a different first frame on different runs. Here it is fixed, and it is set here
+        // rather than left at zero for a specific reason: moving two of the cycle's three dots
+        // ahead of the bus access and one after it also moved every access a dot earlier against
+        // the PPU, and only the *poll* was meant to move. This dot puts the accesses back.
+        //
+        // Measured, not assumed. With it, `02-vbl_set_time` and `03-vbl_clear_time` run to the same
+        // instruction counts as before the split — the same reads landing on the same dots — and
+        // the only thing that has changed is when the interrupt lines are read. Without it those
+        // counts shift, and while both ROMs still pass, they pass having been moved for no reason
+        // this change had any business moving them.
+        ppu.tick();
 
         Self {
             cpu,

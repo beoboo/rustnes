@@ -188,6 +188,65 @@ the one driven from `poll_at` at the end of `step`, not the one in `tick_bus`. T
 rewrite above replaces that machinery outright, which is why it is the thing to try rather than
 another adjustment around it.
 
+### Done, and what it took
+
+`poll_at` is gone. The CPU keeps `need_nmi`/`prev_need_nmi` and `run_irq`/`prev_run_irq`, updated
+every cycle by the same clock that advances the PPU, and `poll_interrupts` acts on the shadows.
+Nothing computes a polling cycle or asks how long an instruction is.
+
+**The shadow alone changed nothing.** Not the `05-nmi_timing` table, not the instruction count, not
+one test — it was byte-for-byte the behaviour `poll_at` had produced. That is the right result and
+worth stating plainly: for a two-cycle instruction the computed poll had always landed on the same
+cycle the shadow does, so the rewrite bought structure, not accuracy. Everything below is what
+actually moved the dot, and none of it was reachable while `poll_at` decided the outcome.
+
+**Where the dot was, measured rather than argued.** Instrumenting the clock to record which of a
+CPU cycle's three dots raised the NMI, across the ten lines of `05-nmi_timing`, gave the position
+directly: dot 0, 2, 1, 0, 2, 1 … one earlier per line, as a test that runs one PPU clock later each
+line should. Lining that up against the table showed the failing lines were exactly the ones where
+the NMI arrived on the *first* dot of a cycle, and that those needed to be attributed to the cycle
+before. Nothing else fitted: a shift of two dots would have moved lines that were already right.
+
+**What that means, and it is not about the poll's granularity.** Our clock ran all three of a
+cycle's dots and then performed the bus access, so the lines were read at the instant of the access.
+A 6502 cycle does not end there — the access happens partway through and the cycle runs on past it.
+So the poll belongs one dot later, at the cycle's end. The clock now takes a `ClockPhase`: two dots
+before the access, one after, and the interrupt lines read at the end of the second. Mesen does the
+same thing by construction, running the PPU five master clocks in, performing the access, then the
+remaining seven, and sampling after.
+
+That one dot is the whole of it: `05-nmi_timing` passes with the expected table, and `06-suppression`
+followed without being aimed at. `ppu_vbl_nmi` went 5/11 to 7/11 and `apu_test` 4/9 to 5/9.
+
+**The alignment dot.** Splitting the cycle also moved every bus access one dot earlier against the
+PPU, which was not the intention — only the poll was meant to move. One extra PPU tick at power-on
+puts the accesses back, and it is a real hardware degree of freedom rather than a fudge: the CPU/PPU
+alignment is settled at power-on and is not always the same. It is verifiable rather than a matter
+of taste — with it, `02-vbl_set_time` and `03-vbl_clear_time` run to exactly the instruction counts
+they did before the split.
+
+**An unresolved dot, recorded so it is not rediscovered.** `mmc3_test/4-scanline_timing` measures
+when the mapper's IRQ arrives *in the program's own time*, so it constrains the A12 rise and the
+poll together. Moving the poll a dot later therefore broke it, and `ADDRESS_BUS_LEAD_DOTS` had to
+come down from one to zero to compensate — at which point the A12 rise is reported on dot 261 rather
+than the documented 260. Both cannot be satisfied at once:
+
+| `ADDRESS_BUS_LEAD_DOTS` | A12 rise | `4-scanline_timing` |
+| --- | --- | --- |
+| 1 | dot 260, as documented | fails |
+| 0 | dot 261 | passes |
+
+So something between the A12 rise and the CPU noticing /IRQ is still a dot out. It is not the
+cartridge: a scope measurement on an MMC3B puts that delay at about 69 ns, a third of a pixel. The
+unit test that pins the rise now asserts 261 and says why. This is the next thing to settle, and by
+this project's own record it wants a reference implementation and a trace, not another sweep.
+
+Still failing and not moved by any of this: `07-nmi_on_timing` and `08-nmi_off_timing`. Both turn
+the NMI enable on or off around the vblank flag, so they are about the PPU's `$2000` handling rather
+than about when the CPU polls — our NMI is a one-shot latch raised by the PPU, where hardware holds
+a level for as long as the flag and the enable bit are both set. That is the next piece of
+`ppu_vbl_nmi`, and it is PPU work, not CPU work.
+
 ### 3. The special cases
 
 Each is a documented exception rather than a consequence of the model, so each needs its own code
