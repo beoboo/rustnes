@@ -97,6 +97,11 @@ pub enum Instruction {
     SBX, // (A AND X) minus an immediate, into X
     LXA, // AND an immediate into both A and X — unstable on hardware
     ANE, // A OR magic, AND X, AND an immediate — unstable on hardware
+    SHY, // Store Y AND the target's high byte plus one — unstable on hardware
+    SHX, // Store X AND the target's high byte plus one — unstable on hardware
+    SHA, // Store A AND X AND the target's high byte plus one — unstable on hardware
+    TAS, // SHA, and copy A AND X into the stack pointer — unstable on hardware
+    LAS, // AND memory with the stack pointer into A, X and the stack pointer
 }
 
 impl Instruction {
@@ -326,6 +331,14 @@ impl InstructionDecoder {
         self.add_instruction(0xFB, Instruction::ISB, AddressingMode::AbsoluteY, 3, 7);
         self.add_instruction(0xE3, Instruction::ISB, AddressingMode::IndexedIndirect, 2, 8);
         self.add_instruction(0xF3, Instruction::ISB, AddressingMode::IndirectIndexed, 2, 8);
+        // The six unstable stores. Their instability is modelled — see `store_high_and`.
+        self.add_instruction(0x9C, Instruction::SHY, AddressingMode::AbsoluteX, 3, 5);
+        self.add_instruction(0x9E, Instruction::SHX, AddressingMode::AbsoluteY, 3, 5);
+        self.add_instruction(0x9F, Instruction::SHA, AddressingMode::AbsoluteY, 3, 5);
+        self.add_instruction(0x93, Instruction::SHA, AddressingMode::IndirectIndexed, 2, 6);
+        self.add_instruction(0x9B, Instruction::TAS, AddressingMode::AbsoluteY, 3, 5);
+        self.add_instruction(0xBB, Instruction::LAS, AddressingMode::AbsoluteY, 3, 4);
+
         self.add_instruction(0x87, Instruction::SAX, AddressingMode::ZeroPage, 2, 3);
         self.add_instruction(0x97, Instruction::SAX, AddressingMode::ZeroPageY, 2, 4);
         self.add_instruction(0x8F, Instruction::SAX, AddressingMode::Absolute, 3, 4);
@@ -602,6 +615,11 @@ impl Cpu {
             Instruction::RLA => self.rla(addressing_mode)?,
             Instruction::SRE => self.sre(addressing_mode)?,
             Instruction::RRA => self.rra(addressing_mode)?,
+            Instruction::SHY => self.shy(addressing_mode)?,
+            Instruction::SHX => self.shx(addressing_mode)?,
+            Instruction::SHA => self.sha(addressing_mode)?,
+            Instruction::TAS => self.tas(addressing_mode)?,
+            Instruction::LAS => self.las(addressing_mode)?,
             Instruction::SAX => self.sax(addressing_mode)?,
             Instruction::LAX => self.lax(addressing_mode)?,
             Instruction::ANC => self.anc(addressing_mode)?,
@@ -852,6 +870,94 @@ impl Cpu {
     pub fn sax(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
         let address = addressing_mode.get_operand_address(self)?;
         self.write_byte(address, self.registers.a & self.registers.x)
+    }
+
+    /// The shared body of `SHY`, `SHX`, `SHA` and `TAS`: store a register ANDed with the high byte
+    /// of the target address plus one.
+    ///
+    /// These are the six opcodes MOS never documented and never made work properly, and they are
+    /// the reason the decoder had a hole in it: four of blargg's ROMs run into `$9C` partway
+    /// through and stopped the emulator dead.
+    ///
+    /// Two things make them strange, and both are hardware rather than convention:
+    ///
+    /// 1. **The value depends on where it is being stored.** The register is ANDed with the high
+    ///    byte of the *base* address plus one. Nothing else on the 6502 does this; it falls out of
+    ///    the high byte still being on the internal bus when the store happens.
+    /// 2. **Crossing a page corrupts the address as well.** When the index carries, the high byte
+    ///    of the address written to is itself ANDed with the register. So the store lands somewhere
+    ///    other than where the operand said.
+    ///
+    /// `base` is the address before indexing — which is why these cannot go through
+    /// `get_operand_address`, since by then it has been added and lost.
+    ///
+    /// Not modelled: on hardware the AND with the high byte does not happen if a DMA interrupts the
+    /// instruction just before its dummy read, which needs the DMA to be able to land mid-cycle.
+    fn store_high_and(&mut self, base: u16, index: u8, value_reg: u8) -> Result<(), NesError> {
+        let effective = base.wrapping_add(index as u16);
+        let crossed = (base & 0xFF00) != (effective & 0xFF00);
+
+        // The dummy read every indexed store performs, at the unfixed address.
+        let _ = self.read_byte(effective.wrapping_sub(if crossed { 0x100 } else { 0 }));
+
+        let value = value_reg & (((base >> 8) as u8).wrapping_add(1));
+
+        let mut high = (effective >> 8) as u8;
+        if crossed {
+            high &= value_reg;
+        }
+        let address = ((high as u16) << 8) | (effective & 0x00FF);
+
+        self.write_byte(address, value)
+    }
+
+    /// Read the base address of an unstable store, before any index is added.
+    fn unstable_base(&mut self, addressing_mode: AddressingMode) -> Result<u16, NesError> {
+        match addressing_mode {
+            // $93 takes its base through a zero-page pointer, which wraps within page zero.
+            AddressingMode::IndirectIndexed => {
+                let pointer = self.read_byte(self.registers.pc)? as u16;
+                let low = self.read_byte(pointer)? as u16;
+                let high = self.read_byte(pointer.wrapping_add(1) & 0xFF)? as u16;
+                Ok((high << 8) | low)
+            },
+            _ => self.read_word(self.registers.pc),
+        }
+    }
+
+    /// SHY - Store Y AND the high byte of the target address plus one
+    pub fn shy(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let base = self.unstable_base(addressing_mode)?;
+        self.store_high_and(base, self.registers.x, self.registers.y)
+    }
+
+    /// SHX - Store X AND the high byte of the target address plus one
+    pub fn shx(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let base = self.unstable_base(addressing_mode)?;
+        self.store_high_and(base, self.registers.y, self.registers.x)
+    }
+
+    /// SHA - Store A AND X AND the high byte of the target address plus one
+    pub fn sha(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let base = self.unstable_base(addressing_mode)?;
+        self.store_high_and(base, self.registers.y, self.registers.a & self.registers.x)
+    }
+
+    /// TAS - SHA, and put A AND X into the stack pointer as well
+    pub fn tas(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        self.sha(addressing_mode)?;
+        self.registers.sp = self.registers.a & self.registers.x;
+        Ok(())
+    }
+
+    /// LAS - AND memory with the stack pointer, into A, X and the stack pointer
+    pub fn las(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        let value = self.operand(addressing_mode)? & self.registers.sp;
+        self.registers.a = value;
+        self.registers.x = value;
+        self.registers.sp = value;
+        self.set_zero_negative(value);
+        Ok(())
     }
 
     /// LAX - Load the same value into both A and X
@@ -1540,6 +1646,124 @@ mod tests {
         // (A AND X) is 0, so subtracting 1 wraps and the comparison fails.
         assert_eq!(cpu.registers.x, 0xFF);
         assert!(!cpu.get_flag(CpuFlag::Carry), "0 is not >= 1");
+    }
+
+
+    /// The unstable stores AND the register with the high byte of the target address, plus one.
+    ///
+    /// Nothing else on the 6502 makes the value depend on where it is going. It falls out of the
+    /// address's high byte still being on an internal bus when the store happens, which is also why
+    /// MOS never documented these and why they are called unstable.
+    #[test]
+    fn shy_stores_y_anded_with_the_target_page_plus_one() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.pc = 0x0100;
+        cpu.registers.y = 0xFF;
+        cpu.registers.x = 0x02;
+
+        // Operand $0344, so the base page is $03 and the value stored is Y & ($03 + 1) = $04.
+        cpu.write_byte(0x0100, 0x44)?;
+        cpu.write_byte(0x0101, 0x03)?;
+
+        cpu.shy(AddressingMode::AbsoluteX)?;
+
+        assert_eq!(cpu.read_byte(0x0346)?, 0x04, "Y masked by the page it is stored in, plus one");
+        Ok(())
+    }
+
+    /// SHX is the same instruction with the registers swapped over.
+    #[test]
+    fn shx_stores_x_and_indexes_by_y() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.pc = 0x0100;
+        cpu.registers.x = 0xFF;
+        cpu.registers.y = 0x01;
+
+        cpu.write_byte(0x0100, 0x10)?;
+        cpu.write_byte(0x0101, 0x05)?;
+
+        cpu.shx(AddressingMode::AbsoluteY)?;
+
+        assert_eq!(cpu.read_byte(0x0511)?, 0x06, "X masked by $05 + 1");
+        Ok(())
+    }
+
+    /// Crossing a page corrupts the address as well as the value.
+    ///
+    /// The high byte of the address written to is itself ANDed with the register, so the store
+    /// lands somewhere other than where the operand said. This is the half of the behaviour that a
+    /// naive implementation misses, because it looks like a bug rather than a specification.
+    #[test]
+    fn an_unstable_store_that_crosses_a_page_lands_somewhere_else() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.pc = 0x0100;
+        cpu.registers.y = 0x03;
+        cpu.registers.x = 0xFF;
+
+        // $02FF + X($FF) = $03FE, so the page is crossed.
+        cpu.write_byte(0x0100, 0xFF)?;
+        cpu.write_byte(0x0101, 0x02)?;
+
+        cpu.shy(AddressingMode::AbsoluteX)?;
+
+        // Value is Y & ($02 + 1) = $03 & $03 = $03. The high byte $03 is then ANDed with Y ($03),
+        // which leaves it at $03 here — so the store lands at $03FE with $03 in it.
+        assert_eq!(cpu.read_byte(0x03FE)?, 0x03);
+
+        // And with a register that masks the high byte to something different, it moves.
+        let mut cpu = setup_cpu();
+        cpu.registers.pc = 0x0100;
+        cpu.registers.y = 0x01;
+        cpu.registers.x = 0xFF;
+        cpu.write_byte(0x0100, 0xFF)?;
+        cpu.write_byte(0x0101, 0x02)?;
+
+        cpu.shy(AddressingMode::AbsoluteX)?;
+
+        // High byte $03 & Y($01) = $01, so the write goes to $01FE, not $03FE.
+        assert_eq!(cpu.read_byte(0x01FE)?, 0x01, "the target page is masked by the register too");
+        assert_eq!(cpu.read_byte(0x03FE)?, 0x00, "and nothing lands where the operand pointed");
+        Ok(())
+    }
+
+    /// TAS stores like SHA and puts A AND X into the stack pointer on the way past.
+    #[test]
+    fn tas_also_loads_the_stack_pointer() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.pc = 0x0100;
+        cpu.registers.a = 0x3C;
+        cpu.registers.x = 0xF0;
+        cpu.registers.y = 0x01;
+
+        cpu.write_byte(0x0100, 0x00)?;
+        cpu.write_byte(0x0101, 0x04)?;
+
+        cpu.tas(AddressingMode::AbsoluteY)?;
+
+        assert_eq!(cpu.registers.sp, 0x30, "A AND X into the stack pointer");
+        assert_eq!(cpu.read_byte(0x0401)?, 0x30 & 0x05, "and A AND X AND ($04 + 1) into memory");
+        Ok(())
+    }
+
+    /// LAS pulls memory through the stack pointer and into all three of A, X and S.
+    #[test]
+    fn las_ands_memory_with_the_stack_pointer_into_a_x_and_s() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.pc = 0x0100;
+        cpu.registers.y = 0x00;
+        cpu.registers.sp = 0x3C;
+
+        cpu.write_byte(0x0100, 0x20)?;
+        cpu.write_byte(0x0101, 0x02)?;
+        cpu.write_byte(0x0220, 0xF0)?;
+
+        cpu.las(AddressingMode::AbsoluteY)?;
+
+        assert_eq!(cpu.registers.a, 0x30);
+        assert_eq!(cpu.registers.x, 0x30);
+        assert_eq!(cpu.registers.sp, 0x30);
+        assert!(!cpu.get_flag(CpuFlag::Zero));
+        Ok(())
     }
 
     /// Which opcodes the decoder still does not know.

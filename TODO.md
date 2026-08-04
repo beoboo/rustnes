@@ -522,15 +522,21 @@ synthesise their own iNES images. Full rationale and ROM list in
 - [x] Load a ROM by path in nes_debugger and the probe tools, detected by content not extension
 
 ### [CPU] Complete the official instruction set [T8]
-All 151 official opcodes decode. Of the 256, eighteen remain undecoded: twelve are JAM, which
-correctly halt, and six are the unstable stores. `report_undecoded_opcodes` prints the list.
+All 151 official opcodes decode, and of the 256 only the twelve JAM opcodes remain undecoded —
+which is correct, since they halt. `report_undecoded_opcodes` prints the list.
 - [x] PHA, PHP, PLA, PLP (including the B flag's behaviour in the pushed status byte)
 - [x] ROL, ROR (accumulator and memory forms)
 - [x] CPY, CLV, TSX
 - [x] RTI
 - [x] Fill in missing addressing modes until all 151 official opcodes decode
 - [x] Unofficial opcodes: implemented, including the immediate-mode set nestest and 03-immediate need
-- [ ] The six unstable stores (SHA, SHX, SHY, TAS, LAS), whose behaviour varies with the chip
+- [x] The six unstable stores (SHA, SHX, SHY, TAS, LAS). Two things make them strange and both are
+      modelled: the value stored is the register ANDed with the high byte of the *base* address
+      plus one, and when the index crosses a page the high byte of the target is itself ANDed with
+      the register, so the store lands somewhere other than where the operand said. Only the twelve
+      JAM opcodes are now undecoded, which is correct — they halt.
+      Not modelled: on hardware the AND with the high byte is skipped if a DMA interrupts the
+      instruction just before its dummy read, which needs a DMA that can land mid-cycle.
 
 ### [CPU] Interrupts [T8]
 - [x] NMI: vector at $FFFA, triggered by PPU vblank when $2000 bit 7 is set. /NMI is a level the
@@ -564,8 +570,11 @@ Blargg's ROMs write a status byte to $6000 and a message at $6004, so no screen 
 Standing as of the last run. Most of what remains is blocked on the two rewrites at the end of this
 file rather than on anything specific to the suite.
 - [x] nestest.nes — 8991/8991
-- [ ] instr_test-v5 — 13/18
-- [ ] instr_misc — 3/5
+- [ ] instr_test-v5 — 14/18, from 13/18
+- [ ] instr_misc — 3/5, but both remaining ROMs now run to completion and report rather than
+      stopping dead. `04-dummy_reads_apu` fails #2, "unofficial opcodes failed", naming
+      `1C 3C 5C 7C DC FC` — the unofficial `NOP abs,X` forms, whose dummy read is what the test is
+      checking against APU registers that have side effects when read.
 - [ ] mmc3_test — 5/6 (only `6-MMC6`, which is the other chip's counter behaviour)
 - [ ] apu_test — 5/9, from 4/9
 - [ ] apu_reset — 3/6
