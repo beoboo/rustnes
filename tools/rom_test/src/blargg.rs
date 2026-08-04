@@ -87,8 +87,12 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
 
     for instruction in 0..max_instructions {
         if let Err(error) = system.step() {
+            // The system reports the program counter; the cause is in its error message, and
+            // without that a failing access says only where the CPU was, not what it asked for.
+            let cause =
+                system.error_message().map(str::to_string).unwrap_or_else(|| error.to_string());
             bail!(
-                "emulation failed after {instruction} instructions at PC ${:04X}: {error}",
+                "emulation failed after {instruction} instructions at PC ${:04X}: {cause}",
                 system.cpu().pc()
             );
         }

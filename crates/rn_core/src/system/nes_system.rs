@@ -768,6 +768,40 @@ mod tests {
     use super::*;
     use crate::{cpu::Assembler, memory::Addressable};
 
+    /// A component that claims $5000-$5FFF and refuses every access to it.
+    ///
+    /// Needed because unmapped memory no longer faults — the bus answers it with open bus, as
+    /// hardware does. The Error state is not about holes in the memory map; it is for a component
+    /// that genuinely cannot serve an access, and this is the smallest thing that is one.
+    ///
+    /// Deliberately not claiming the whole address space: the reset vector at $FFFC has to stay
+    /// readable, or `reset` fails before it can clear the state these tests are about.
+    #[derive(Debug)]
+    struct FailingMemory;
+
+    impl Addressable for FailingMemory {
+        fn handles_address(&self, address: u16) -> bool {
+            (0x5000..=0x5FFF).contains(&address)
+        }
+
+        fn read_byte(&self, address: u16) -> Result<u8, NesError> {
+            Err(NesError::MemoryAccessError(address))
+        }
+
+        fn write_byte(&mut self, address: u16, _value: u8) -> Result<(), NesError> {
+            Err(NesError::MemoryAccessError(address))
+        }
+    }
+
+    /// Wire a failing memory into `system` and step, leaving it in the Error state.
+    fn drive_into_error(system: &mut NesSystem, pc: u16) {
+        // Ahead of everything else on the bus, so nothing else can claim its range first.
+        system.bus.borrow_mut().attach_component_first(Box::new(FailingMemory));
+        system.cpu.set_pc(pc);
+        let result = system.step();
+        assert!(result.is_err(), "a memory that refuses every access must fail the step");
+    }
+
     // Create a utility function to assemble code for tests
     fn assemble_code(code: &str, load_address: u16) -> Vec<u8> {
         let mut assembler = Assembler::new(load_address);
@@ -991,24 +1025,41 @@ mod tests {
         Ok(())
     }
 
+    /// A step that fails records where it failed and why.
     #[test]
     fn test_error_state() -> Result<()> {
         let mut system = NesSystem::new();
+        let pc = 0x5000;
 
-        // Attempt to execute from unmapped memory
-        let pc = 0x5000; // This should be completely unmapped in our system
+        drive_into_error(&mut system, pc);
 
-        // Manually set PC to unmapped region
-        system.cpu.set_pc(pc);
-
-        // Step should fail and set Error state
-        let result = system.step();
-        assert!(result.is_err(), "Step should fail when PC is in unmapped memory");
         assert!(
             matches!(system.state(), SystemState::Error(error_pc) if error_pc == pc),
             "State should be Error with correct PC"
         );
         assert!(system.error_message().is_some(), "Error message should be present");
+
+        Ok(())
+    }
+
+    /// Running off into unmapped memory is not an error, and must not be treated as one.
+    ///
+    /// This test exists because the opposite was asserted for a long time: three tests drove the PC
+    /// to $5000 expecting `step` to fail. Hardware has nothing driving those lines and answers with
+    /// whatever they last held, so a program that reads there — and indexed addressing does, on
+    /// purpose, every time an index crosses a page — carries on. Refusing the access stopped four
+    /// of blargg's ROMs dead partway through.
+    #[test]
+    fn executing_from_unmapped_memory_does_not_fault() -> Result<()> {
+        let mut system = NesSystem::new();
+
+        system.cpu.set_pc(0x5000);
+        system.step().expect("an unmapped fetch reads open bus rather than failing");
+
+        assert!(
+            !matches!(system.state(), SystemState::Error(_)),
+            "an unmapped fetch is not an error state"
+        );
 
         Ok(())
     }
@@ -1046,14 +1097,8 @@ mod tests {
         system.reset()?;
         assert_eq!(system.state(), SystemState::Ready);
 
-        // Create an error state - using a memory address clearly outside any component's range
-        system.cpu.set_pc(0x5000); // Definitely unmapped memory area
-
-        // Try to step - this should fail because the memory isn't mapped
-        let step_result = system.step();
-        assert!(step_result.is_err(), "Step should fail with unmapped memory at 0x5000");
-
-        // Check we're in error state
+        // Create an error state from a component that genuinely cannot serve an access.
+        drive_into_error(&mut system, 0x5000);
         assert!(matches!(system.state(), SystemState::Error(_)));
 
         // Attempting to step in Error state should do nothing
@@ -1076,8 +1121,7 @@ mod tests {
         let mut system = NesSystem::new();
 
         // Put system in Error state
-        system.cpu.set_pc(0x5000); // Unmapped memory
-        let _ = system.step();
+        drive_into_error(&mut system, 0x5000);
         assert!(matches!(system.state(), SystemState::Error(_)));
         assert!(system.error_message().is_some());
 

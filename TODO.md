@@ -116,7 +116,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 ### [System] Component Timing System [T2]
 - [x] Implement system-level timing controller for component synchronization
 - [x] Ensure PPU ticks at 3x the CPU rate
-- [x] Improve memory access error handling to fail visibly on invalid accesses
+- [x] Improve memory access error handling to fail visibly on invalid accesses. Superseded: an
+      unmapped access is ordinary on hardware, so it is answered with open bus and counted rather
+      than refused. See "Implement open bus behavior" under Special Hardware Edge Cases.
 - [x] Refactor AsmDebugger to use the NesSystem class for timing control
 - [x] Implement NOP instruction to support timing-related tests
 - [x] Test correct timing ratios between components
@@ -923,7 +925,12 @@ line carries a track tag.
 - [ ] Support undocumented CPU instructions properly
 - [ ] Handle games that rely on hardware glitches
 - [ ] Test against diagnostic ROMs that verify edge cases
-- [ ] Implement open bus behavior
+- [x] Implement open bus behavior. Reads of an address nothing drives — `$4018-$401F`,
+      `$4020-$5FFF`, `$6000-$7FFF` without cartridge RAM — return the last value the data bus
+      carried rather than failing. The bus used to refuse them outright, deliberately, so that a
+      hole in the memory map would be loud; but programs read unmapped addresses *on purpose*
+      (every indexed addressing mode does a dummy read at an unfixed address), so refusing them
+      stopped correct programs dead. The count of fall-throughs is kept for visibility instead.
 - [ ] Support PPU race conditions and edge cases
 - [ ] Implement accurate sprite overflow handling
 - [ ] Support illegal opcodes with correct timing

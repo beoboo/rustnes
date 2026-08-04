@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use crate::{
     errors::NesError,
     memory::{Addressable, Ram},
@@ -12,6 +14,24 @@ pub struct Bus {
     /// Components attached to the bus in priority order
     /// First component that handles an address will process the request
     components: Vec<Box<dyn Addressable>>,
+
+    /// The last value the data bus carried — what an unmapped read answers with.
+    ///
+    /// Large parts of the address space have nothing driving them: `$4018-$401F`, `$4020-$5FFF`,
+    /// and `$6000-$7FFF` on a cartridge without RAM. A read there does not fail on hardware and it
+    /// does not return zero either. Nothing drives the lines, so they hold the last value that was
+    /// put on them, and the CPU reads that back. This is "open bus".
+    open_bus: Cell<u8>,
+
+    /// How many accesses have fallen through to open bus. Diagnostic only.
+    ///
+    /// This bus used to refuse an unmapped access outright, deliberately, so that a mistake in the
+    /// memory map would be loud rather than silent. That was the right instinct and the wrong
+    /// mechanism: programs read unmapped addresses *on purpose* — every indexed addressing mode
+    /// performs a dummy read at an unfixed address, and four of blargg's ROMs exist specifically to
+    /// check it — so refusing them stopped the emulator dead on correct programs. The count keeps
+    /// the visibility without the fatality.
+    open_bus_accesses: Cell<u64>,
 }
 
 impl Bus {
@@ -20,7 +40,11 @@ impl Bus {
     /// This automatically configures:
     /// - RAM at $0000-$1FFF (main system RAM)
     pub fn new() -> Self {
-        let mut bus = Self { components: Vec::new() };
+        let mut bus = Self {
+            components: Vec::new(),
+            open_bus: Cell::new(0),
+            open_bus_accesses: Cell::new(0),
+        };
 
         // Attach RAM for the main memory region ($0000-$1FFF)
         // This is the 2KB of RAM that's mirrored throughout this region in the NES
@@ -80,6 +104,14 @@ impl Bus {
             .find(|component| component.handles_write(address))
     }
 
+    /// How many accesses have found nothing driving the bus.
+    ///
+    /// Expected to be non-zero on a working machine — dummy reads land here — so this is for
+    /// noticing a *change*, not for asserting zero.
+    pub fn open_bus_accesses(&self) -> u64 {
+        self.open_bus_accesses.get()
+    }
+
     /// Returns a debugging string showing all attached components and their address ranges
     pub fn debug_memory_map(&self) -> String {
         let mut result = String::new();
@@ -127,19 +159,30 @@ impl Addressable for Bus {
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         // Find the component that handles this address
         if let Some(component) = self.find_component_for_address(address) {
-            return component.read_byte(address);
+            let value = component.read_byte(address)?;
+            self.open_bus.set(value);
+            return Ok(value);
         }
 
-        Err(NesError::MemoryAccessError(address))
+        // Nothing drives these lines, so they still hold whatever was last put on them.
+        self.open_bus_accesses.set(self.open_bus_accesses.get().saturating_add(1));
+        Ok(self.open_bus.get())
     }
 
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
+        // The CPU drives the data bus for the whole of a write, whether or not anything is
+        // listening, so the value stays on the lines either way.
+        self.open_bus.set(value);
+
         // Find the component that handles this address
         if let Some(component) = self.find_component_for_address_mut(address) {
             component.write_byte(address, value)?;
             return Ok(());
         }
-        Err(NesError::MemoryAccessError(address))
+
+        // A write to nothing is simply lost, as it is on hardware.
+        self.open_bus_accesses.set(self.open_bus_accesses.get().saturating_add(1));
+        Ok(())
     }
 }
 
@@ -331,29 +374,35 @@ mod tests {
         Ok(())
     }
 
+    /// An unmapped address reads back the last value the bus carried, and a write to one is lost.
+    ///
+    /// This test used to assert the opposite — that both fail with `MemoryAccessError` — which was
+    /// a deliberate choice to make a hole in the memory map loud. It had to go, because programs
+    /// read unmapped addresses on purpose: every indexed addressing mode performs a dummy read at
+    /// an unfixed address, and four of blargg's ROMs stopped the emulator dead doing exactly that.
+    /// Refusing an access hardware answers is not strictness, it is a different machine.
     #[test]
-    fn test_unmapped_memory() -> Result<()> {
+    fn unmapped_addresses_read_back_the_last_value_on_the_bus() -> Result<()> {
         let mut bus = Bus::new();
 
-        // Read from unmapped memory (nothing handles 0x6000)
-        let read_result = bus.read_byte(0x6000);
-        assert!(read_result.is_err());
+        // Put a known value on the bus by way of a mapped address.
+        bus.write_byte(0x0010, 0x5A)?;
+        assert_eq!(bus.read_byte(0x0010)?, 0x5A);
 
-        if let Err(NesError::MemoryAccessError(addr)) = read_result {
-            assert_eq!(addr, 0x6000);
-        } else {
-            panic!("Expected MemoryAccessError for read from unmapped memory");
-        }
+        // Nothing handles $6000 on a bare bus, so the lines still hold that value.
+        assert_eq!(bus.read_byte(0x6000)?, 0x5A, "an unmapped read sees what was last on the bus");
 
-        // Write to unmapped memory should return an error
-        let write_result = bus.write_byte(0x6000, 0xFF);
-        assert!(write_result.is_err());
+        // A write drives the bus even where nothing is listening, and is otherwise lost.
+        bus.write_byte(0x6000, 0x3C)?;
+        assert_eq!(bus.read_byte(0x6000)?, 0x3C, "the write left its value on the lines");
 
-        if let Err(NesError::MemoryAccessError(addr)) = write_result {
-            assert_eq!(addr, 0x6000);
-        } else {
-            panic!("Expected MemoryAccessError for write to unmapped memory");
-        }
+        // And it really was lost rather than stored: a mapped read moves the bus on, and the
+        // unmapped address has nothing of its own to give back.
+        bus.write_byte(0x0010, 0x11)?;
+        assert_eq!(bus.read_byte(0x0010)?, 0x11);
+        assert_eq!(bus.read_byte(0x6000)?, 0x11, "nothing was remembered at $6000");
+
+        assert!(bus.open_bus_accesses() > 0, "and the fall-throughs are counted");
 
         Ok(())
     }
