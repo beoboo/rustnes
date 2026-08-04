@@ -659,7 +659,10 @@ file rather than on anything specific to the suite.
         readme says is expected: those values "are probably unique to my NES". Not a fault to chase.
 - [ ] nmi_sync, cpu_timing_test6 — still unmeasured. The `nmi_sync` ROMs are visual demos with no
       verdict to read; `cpu_timing_test6` draws nothing into the first nametable within 600 frames.
-- [ ] cpu_interrupts_v2 — 2/6, and no longer hanging anywhere. `2-nmi_and_brk` passes, which is the
+- [ ] cpu_interrupts_v2 — 2/6, and no longer hanging anywhere. `3-nmi_and_irq` is closer but not
+      passing: an NMI arriving while an IRQ is being vectored now takes the vector, as it should,
+      but hardware's window for that is wider than ours — the table alternates where it should hold
+      a run of the same value. `2-nmi_and_brk` passes, which is the
       test CYCLE_ACCURACY.md records as having hung on two previous attempts at interrupt timing;
       it was the BRK halt above, not the interrupt work. The combined `cpu_interrupts.nes` now
       fails rather than hangs.
@@ -1107,9 +1110,10 @@ work, so nothing measuring them can pass.
 - [x] Mapper in a shared slot, so the clock can reach it
 - [x] Bus clock advancing the system on each access
 - [x] Measure the gap: `rom_test cycles nestest.nes` reports it per opcode
-- [ ] Model every cycle as the bus access it is on hardware, so accesses and cycles agree.
-      204 of 225 opcodes do already, and 44 of 8991 executed instructions are short of one —
-      from 37 and 6463 when this was written.
+- [x] Model every cycle as the bus access it is on hardware, so accesses and cycles agree. Done:
+      `rom_test cycles` reports "every opcode accounts for all of its cycles" across all 8991 of
+      nestest's instructions, from 6463 short when this was written. Pinned by
+      `every_instruction_accesses_the_bus_once_per_cycle`.
 - [x] The page-cross penalty, which was never added to any instruction's cycle count.
       `crosses_page_boundary` and `get_additional_cycles` both existed, were both correct, and were
       called by nothing but their own tests — `execute` only ever added cycles for branches. So

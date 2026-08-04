@@ -746,8 +746,24 @@ impl Cpu {
     /// The pushed status has Break *clear* and Unused set. That bit is how a handler distinguishes
     /// a hardware interrupt from a `BRK`, which pushes it set — the 6502 has no real Break flag,
     /// only these pushed copies.
-    fn service_interrupt(&mut self, vector: u16) -> Result<u8, NesError> {
+    fn service_interrupt(&mut self) -> Result<u8, NesError> {
+        // The sequence begins by fetching an opcode it will not use, then reading the byte after
+        // it, and discarding both. It is a BRK whose opcode nobody supplied: the same seven cycles,
+        // with the first two spent looking at the instruction that is not going to run.
+        let _ = self.read_byte(self.registers.pc);
+        let _ = self.read_byte(self.registers.pc);
+
         self.push_word(self.registers.pc)?;
+
+        // *Which* vector is decided here, after the program counter has been pushed and not
+        // before. Up to this point the IRQ and NMI sequences are identical, so an NMI that arrives
+        // while an IRQ is being vectored takes it over — the IRQ is not deferred, it is replaced,
+        // and its handler never runs at all.
+        //
+        // That is the same hijack `BRK` performs, for the same reason, and it is what
+        // `cpu_interrupts_v2/3-nmi_and_irq` is entirely about: "NMI behavior when it interrupts IRQ
+        // vectoring".
+        let vector = if self.take_nmi_for_hijack() { NMI_VECTOR } else { IRQ_VECTOR };
 
         let status = (self.registers.status & !(CpuFlag::Break as u8)) | CpuFlag::Unused as u8;
         self.push_byte(status)?;
@@ -773,17 +789,17 @@ impl Cpu {
         // instruction between them, and a handler that never reaches its first instruction never
         // returns. The sequence's own cycles then refill the shadows honestly — servicing sets the
         // InterruptDisable flag, so `run_irq` falls of its own accord.
-        if self.prev_need_nmi.get() {
-            self.clear_nmi();
-            self.prev_run_irq.set(false);
-            return Ok(Some(self.service_interrupt(NMI_VECTOR)?));
+        if !self.prev_need_nmi.get() && !self.prev_run_irq.get() {
+            return Ok(None);
         }
 
-        if self.prev_run_irq.replace(false) {
-            return Ok(Some(self.service_interrupt(IRQ_VECTOR)?));
-        }
+        // Both shadows are dropped, whichever of them called for this. The sequence itself decides
+        // which vector it takes, from the internal NMI signal as it stands partway through — see
+        // `service_interrupt`.
+        self.prev_need_nmi.set(false);
+        self.prev_run_irq.set(false);
 
-        Ok(None)
+        Ok(Some(self.service_interrupt()?))
     }
 
     pub fn step(&mut self) -> Result<u8, NesError> {

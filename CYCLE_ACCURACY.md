@@ -75,8 +75,15 @@ Order, easiest and highest-count first:
 - taken branches: the read at the unfixed program counter, and the fixup read on a page cross
 - `JSR`, `RTS`, `RTI`, `BRK`: their explicit sequences
 
-Done when the report says every opcode accounts for all of its cycles. That check then becomes a
-test rather than a tool, and any future instruction that forgets a cycle fails it.
+**Done.** `rom_test cycles` reports "every opcode accounts for all of its cycles" across all 8991
+of nestest's instructions, from 6463 short when this was written. The check is now a test as well as
+a tool — `every_instruction_accesses_the_bus_once_per_cycle` runs it on synthesised programs, since
+nestest cannot be committed, and any future instruction that forgets a cycle fails it.
+
+The last of it came from unexpected places rather than from the addressing-mode families listed
+above: the unofficial `NOP`s were not reading their operands at all, every pull was doing its own
+dummy stack read, `RTS` was missing the read on its sixth cycle, and the interrupt sequence was
+missing the two discarded reads it begins with.
 
 ### 2. Move the sample to the right cycle
 

@@ -2034,6 +2034,148 @@ mod tests {
         Ok(())
     }
 
+
+    /// An NMI arriving while an IRQ is being vectored takes it over.
+    ///
+    /// The two sequences are identical until the vector is fetched, so an NMI that arrives in the
+    /// meantime is not deferred behind the IRQ — it *replaces* it, and the IRQ handler never runs
+    /// at all. The same hijack `BRK` performs, and what `cpu_interrupts_v2/3-nmi_and_irq` is about.
+    #[test]
+    fn an_nmi_during_irq_vectoring_takes_the_vector() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.sp = 0xFD;
+        cpu.set_flag(CpuFlag::InterruptDisable, false);
+        cpu.registers.pc = 0x8000;
+        cpu.write_byte(0x8000, 0xEA)?; // NOP
+
+        cpu.write_byte(IRQ_VECTOR, 0x00)?;
+        cpu.write_byte(IRQ_VECTOR + 1, 0xA0)?; // IRQ handler at $A000
+        cpu.write_byte(NMI_VECTOR, 0x00)?;
+        cpu.write_byte(NMI_VECTOR + 1, 0x90)?; // NMI handler at $9000
+
+        let lines = cpu.interrupt_lines();
+        lines.set_irq(true);
+
+        // Sample the IRQ so the next step services it.
+        cpu.sample_interrupts();
+
+        // Raise the NMI two cycles into the sequence, while the program counter is being pushed.
+        let cycle = Rc::new(std::cell::Cell::new(0u32));
+        {
+            let cycle = Rc::clone(&cycle);
+            cpu.set_clock(Rc::new(move |phase| {
+                if phase == crate::cpu::ClockPhase::BeforeAccess {
+                    cycle.set(cycle.get() + 1);
+                }
+                if phase == crate::cpu::ClockPhase::AfterAccess && cycle.get() == 2 {
+                    lines.set_nmi(true);
+                }
+            }));
+        }
+
+        cpu.set_executing(true);
+        cpu.step()?; // the interrupt sequence
+        cpu.set_executing(false);
+
+        assert_eq!(
+            cpu.registers.pc, 0x9000,
+            "the NMI took the vector; the IRQ handler is not run and not queued behind it"
+        );
+
+        Ok(())
+    }
+
+
+    /// Every instruction performs as many bus accesses as it takes cycles.
+    ///
+    /// The 6502 has no bus-idle state: every cycle drives the address bus and performs a read or a
+    /// write, including the cycles that do nothing useful with the result. An emulator that skips
+    /// the useless ones looks correct against RAM and stops being correct the moment one of those
+    /// accesses lands on a register with side effects — a discarded read of `$2007` still advances
+    /// the PPU address.
+    ///
+    /// It also matters structurally, and that is why this is a test rather than a note.
+    /// CYCLE_ACCURACY.md records two failed attempts at interrupt timing that died on the gap:
+    /// while an instruction performs fewer accesses than it takes cycles, "cycle four of this
+    /// instruction" corresponds to nothing observable, and a sampling point cannot be named from
+    /// outside. It stood at 6463 of 8991 instructions short when that was written.
+    ///
+    /// Checked here on synthesised programs rather than on `nestest`, which cannot be committed.
+    /// `rom_test cycles` runs the same check across all 8991 of its instructions.
+    #[test]
+    fn every_instruction_accesses_the_bus_once_per_cycle() -> Result<()> {
+        /// Run one instruction and report (accesses, cycles).
+        fn measure(program: &[u8], setup: impl FnOnce(&mut Cpu)) -> Result<(u64, u8), NesError> {
+            let mut cpu = setup_cpu();
+            cpu.registers.sp = 0xFD;
+            cpu.registers.pc = 0x0200;
+            for (i, byte) in program.iter().enumerate() {
+                cpu.write_byte(0x0200 + i as u16, *byte)?;
+            }
+            setup(&mut cpu);
+
+            cpu.set_clock(Rc::new(|_| {}));
+            cpu.set_executing(true);
+            let before = cpu.total_clocked_cycles();
+            let cycles = cpu.step()?;
+            let accesses = cpu.total_clocked_cycles() - before;
+            cpu.set_executing(false);
+
+            Ok((accesses, cycles))
+        }
+
+        // One from each family that had a gap, plus the ones that never did.
+        let cases: &[(&str, &[u8])] = &[
+            ("NOP implied", &[0xEA]),
+            ("LDA immediate", &[0xA9, 0x00]),
+            ("LDA absolute", &[0xAD, 0x00, 0x03]),
+            ("LDA absolute,X", &[0xBD, 0x00, 0x03]),
+            ("LDA (zp),Y", &[0xB1, 0x10]),
+            ("STA absolute,X", &[0x9D, 0x00, 0x03]),
+            ("INC zero page", &[0xE6, 0x10]),
+            ("INC absolute", &[0xEE, 0x00, 0x03]),
+            ("INC absolute,X", &[0xFE, 0x00, 0x03]),
+            ("ASL absolute", &[0x0E, 0x00, 0x03]),
+            ("ASL absolute,X", &[0x1E, 0x00, 0x03]),
+            ("ASL accumulator", &[0x0A]),
+            ("PHA", &[0x48]),
+            ("PLA", &[0x68]),
+            ("JSR", &[0x20, 0x00, 0x03]),
+            ("RTS", &[0x60]),
+            ("RTI", &[0x40]),
+            ("JMP absolute", &[0x4C, 0x00, 0x03]),
+            ("JMP indirect", &[0x6C, 0x00, 0x03]),
+            ("BIT absolute", &[0x2C, 0x00, 0x03]),
+            ("branch not taken", &[0xD0, 0x10]),
+            ("NOP absolute,X", &[0x1C, 0x00, 0x03]),
+        ];
+
+        for (name, program) in cases {
+            let (accesses, cycles) = measure(program, |_| {})?;
+            assert_eq!(
+                accesses, cycles as u64,
+                "{name}: {accesses} accesses for {cycles} cycles"
+            );
+        }
+
+        // A taken branch, and one that crosses a page, are counted separately: their cycle count
+        // depends on what they do rather than only on the opcode.
+        let (accesses, cycles) = measure(&[0xD0, 0x10], |cpu| {
+            cpu.set_flag(CpuFlag::Zero, false);
+        })?;
+        assert_eq!(accesses, cycles as u64, "taken branch");
+
+        // And an indexed read that carries, which is the case that had no cycle at all until
+        // recently.
+        let (accesses, cycles) = measure(&[0xBD, 0xFF, 0x02], |cpu| {
+            cpu.registers.x = 0x01;
+        })?;
+        assert_eq!(accesses, cycles as u64, "indexed read across a page");
+        assert_eq!(cycles, 5, "and it is five cycles, not four");
+
+        Ok(())
+    }
+
     /// Which opcodes the decoder still does not know.
     ///
     /// Not every one of the 256 is a real instruction, but the gap is what makes a test ROM stop
