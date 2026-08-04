@@ -558,6 +558,25 @@ file rather than on anything specific to the suite.
 - [ ] apu_reset — 3/6
 - [ ] ppu_vbl_nmi — 5/11 (the figure here read 2/11 for a while after it was no longer true;
       re-measured against the commit before the A12 work, which did not move it)
+
+      `05-nmi_timing` measures the fault precisely, and is the best handle on CPU/PPU alignment in
+      the suite: it prints which instruction the NMI landed after, running one PPU clock later on
+      each line. Expected against ours:
+
+      ```
+      expected   00 4  01 4  02 4  03 3  04 3  05 3  06 3  07 3  08 3  09 2
+      ours       00 4  01 4  02 4  03 4  04 3  05 3  06 3  07 3  08 3  09 3
+      ```
+
+      Every transition is one line late, so **the NMI reaches the CPU one PPU dot after it should**.
+      Note what is *not* wrong: `02-vbl_set_time` and `03-vbl_clear_time` pass, so the flag itself
+      is set and cleared on the right dot. It is the interrupt's delivery that lags, not the PPU.
+
+      Tried and reverted, because it changed nothing at all — not the table, not even the
+      instruction count: collecting the NMI after each of a CPU cycle's three dots rather than
+      after all three. The suspicion was that an interrupt raised on the first dot waited for the
+      third, but the CPU already samples the line after the clock has run within the same bus
+      access, so the extra granularity buys nothing. The dot is lost somewhere else.
 - [ ] instr_timing — 1/3
 - [x] oam_read — 1/1, and oam_stress — 1/1. Recorded here as "none yet" long after they passed;
       re-measured against the commit before the sprite work, which did not move them.
