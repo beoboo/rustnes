@@ -46,23 +46,36 @@ impl FrameClock {
 }
 
 /// 4-step sequence: (CPU cycle within the sequence, what to clock).
-///
-/// The last entry is the wrap point, where the IRQ is raised.
 const FOUR_STEP: [(u64, FrameClock); 4] = [
     (7457, FrameClock::QUARTER),
     (14913, FrameClock::BOTH),
     (22371, FrameClock::QUARTER),
-    (29830, FrameClock::BOTH),
+    (29829, FrameClock::BOTH),
 ];
 
+/// Where the 4-step sequence wraps. One cycle past its last clock.
+const FOUR_STEP_LENGTH: u64 = 29830;
+
+/// The cycles across which the 4-step sequence holds its IRQ flag up.
+///
+/// Three of them, not one. The flag goes up at 29828, before the last clock rather than with it,
+/// and is set again on each of the two cycles that follow — so a program that reads `$4015` in the
+/// middle of that window clears it and finds it set again immediately.
+///
+/// Raising it only at the wrap put it two cycles late, which is what `apu_test/6-irq_flag_timing`
+/// reports as "flag first set too late" and `4-jitter` as "frame irq is set too late".
+const FOUR_STEP_IRQ: std::ops::RangeInclusive<u64> = 29828..=29830;
+
 /// 5-step sequence. One step longer, and it never raises an IRQ.
-const FIVE_STEP: [(u64, FrameClock); 5] = [
+const FIVE_STEP: [(u64, FrameClock); 4] = [
     (7457, FrameClock::QUARTER),
     (14913, FrameClock::BOTH),
     (22371, FrameClock::QUARTER),
-    (29829, FrameClock::NONE),
-    (37282, FrameClock::BOTH),
+    (37281, FrameClock::BOTH),
 ];
+
+/// Where the 5-step sequence wraps.
+const FIVE_STEP_LENGTH: u64 = 37282;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Mode {
@@ -81,10 +94,20 @@ pub struct FrameCounter {
     irq_pending: bool,
     /// Countdown to a pending `$4017` reset, in CPU cycles.
     ///
-    /// A write to `$4017` does not take effect immediately: hardware defers the reset by 3 or 4
-    /// CPU cycles depending on write timing. Modelled as a fixed 3 so a write during a step cannot
-    /// swallow that step's clock.
+    /// A write to `$4017` does not take effect immediately, and how long it waits depends on *when*
+    /// it lands: three CPU cycles if the write falls on an APU cycle, four if it falls between two.
+    /// The APU is clocked every other CPU cycle, so this is the parity of the cycle the write
+    /// happened on and nothing more.
+    ///
+    /// A fixed three loses the distinction, which `apu_test/4-jitter` exists to catch — its name is
+    /// the jitter a program sees when it writes `$4017` on alternating cycles.
     pending_reset: Option<u8>,
+
+    /// Whether the next CPU cycle is one the APU is clocked on.
+    ///
+    /// Free-running: never reset by a `$4017` write, because the APU's divider is not what the
+    /// write restarts.
+    apu_cycle: bool,
 }
 
 impl Default for FrameCounter {
@@ -101,6 +124,7 @@ impl FrameCounter {
             irq_inhibit: false,
             irq_pending: false,
             pending_reset: None,
+            apu_cycle: true,
         }
     }
 
@@ -138,7 +162,8 @@ impl FrameCounter {
             self.irq_pending = false;
         }
 
-        self.pending_reset = Some(3);
+        // Three cycles if the write lands on an APU cycle, four if it lands between two.
+        self.pending_reset = Some(if self.apu_cycle { 3 } else { 4 });
 
         match self.mode {
             Mode::FiveStep => FrameClock::BOTH,
@@ -160,13 +185,12 @@ impl FrameCounter {
         }
 
         self.cycle += 1;
+        self.apu_cycle = !self.apu_cycle;
 
-        let sequence: &[(u64, FrameClock)] = match self.mode {
-            Mode::FourStep => &FOUR_STEP,
-            Mode::FiveStep => &FIVE_STEP,
+        let (sequence, length): (&[(u64, FrameClock)], u64) = match self.mode {
+            Mode::FourStep => (&FOUR_STEP, FOUR_STEP_LENGTH),
+            Mode::FiveStep => (&FIVE_STEP, FIVE_STEP_LENGTH),
         };
-
-        let last_cycle = sequence[sequence.len() - 1].0;
 
         let clock = sequence
             .iter()
@@ -174,11 +198,16 @@ impl FrameCounter {
             .map(|(_, clock)| *clock)
             .unwrap_or(FrameClock::NONE);
 
-        // The 4-step sequence raises its IRQ at the wrap point. The 5-step sequence never does.
-        if self.cycle == last_cycle {
-            if matches!(self.mode, Mode::FourStep) && !self.irq_inhibit {
-                self.irq_pending = true;
-            }
+        // The 4-step sequence holds its IRQ up across the last three cycles. The 5-step never
+        // raises one at all.
+        if matches!(self.mode, Mode::FourStep)
+            && !self.irq_inhibit
+            && FOUR_STEP_IRQ.contains(&self.cycle)
+        {
+            self.irq_pending = true;
+        }
+
+        if self.cycle == length {
             self.cycle = 0;
         }
 
@@ -211,7 +240,7 @@ mod tests {
         assert_eq!(events[0], (7457, FrameClock::QUARTER));
         assert_eq!(events[1], (14913, FrameClock::BOTH));
         assert_eq!(events[2], (22371, FrameClock::QUARTER));
-        assert_eq!(events[3], (29830, FrameClock::BOTH));
+        assert_eq!(events[3], (29829, FrameClock::BOTH), "the last clock is one cycle before the wrap");
     }
 
     #[test]
@@ -267,16 +296,37 @@ mod tests {
         assert_eq!(halves * 2, quarters, "every half frame also clocks a quarter frame");
     }
 
+    /// The frame IRQ goes up three cycles before the sequence wraps, and stays up across all three.
+    ///
+    /// Not one cycle at the wrap, which is what this asserted before and what `6-irq_flag_timing`
+    /// calls "flag first set too late". The width matters as much as the position: a program that
+    /// reads `$4015` inside the window clears the flag and finds it set again on the next cycle,
+    /// which is the behaviour `4-jitter` is built to catch.
     #[test]
-    fn four_step_mode_raises_an_irq_at_the_end_of_each_sequence() {
+    fn four_step_mode_raises_its_irq_across_the_last_three_cycles() {
         let mut counter = FrameCounter::new();
 
         assert!(!counter.irq_pending());
-        collect(&mut counter, 29829);
+        collect(&mut counter, 29827);
         assert!(!counter.irq_pending(), "IRQ raised too early");
 
-        counter.tick(); // cycle 29830
-        assert!(counter.irq_pending(), "IRQ should be raised at the sequence wrap");
+        counter.tick(); // cycle 29828
+        assert!(counter.irq_pending(), "the flag goes up before the last clock, not with it");
+
+        // Reading $4015 clears it, and the very next cycle puts it back.
+        counter.take_irq();
+        assert!(!counter.irq_pending());
+        counter.tick(); // cycle 29829
+        assert!(counter.irq_pending(), "still asserted on the second of the three");
+
+        counter.take_irq();
+        counter.tick(); // cycle 29830, the wrap
+        assert!(counter.irq_pending(), "and on the third");
+
+        // And then not again until the next sequence comes round.
+        counter.take_irq();
+        collect(&mut counter, 100);
+        assert!(!counter.irq_pending(), "the window has passed");
     }
 
     #[test]

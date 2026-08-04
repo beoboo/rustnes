@@ -581,7 +581,12 @@ file rather than on anything specific to the suite.
       invisible against a register, where `NOP $4015,X` acknowledges the APU's frame IRQ exactly as
       `LDA $4015,X` would.
 - [ ] mmc3_test — 5/6 (only `6-MMC6`, which is the other chip's counter behaviour)
-- [ ] apu_test — 5/9, from 4/9
+- [x] apu_test — 9/9, from 4/9, combined ROM included. Two faults in the frame counter. Its IRQ
+      flag went up for one cycle at the sequence wrap where hardware holds it across the last
+      *three* cycles, 29828 to 29830, so a program reading `$4015` inside that window clears it and
+      finds it set again immediately. And a `$4017` write waited a fixed three cycles where the
+      delay is three or four depending on whether the write landed on an APU cycle — the parity of
+      the CPU cycle, and the jitter `4-jitter` is named for.
 - [ ] apu_reset — 3/6
 - [x] ppu_vbl_nmi — 11/11, from 5/11, combined ROM included (the figure here read 2/11 for a while
       after it was no longer true; re-measured against the commit before the A12 work, which did
