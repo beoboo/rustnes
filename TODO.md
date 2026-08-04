@@ -474,11 +474,12 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Implement the frame IRQ: $4015 bit 6, the $4017 inhibit flag, and the CPU IRQ line
 - [x] Fix the PPU vblank flag so the `asm/` audio demos reach their APU init
 - [x] Report the DMC's remaining bytes in $4015 bit 4, and clear them when the channel is disabled
-- [ ] Give the DMC bus access so `load_next_byte` reads real memory, including CPU stall cycles.
-      Worth doing next rather than eventually: the stall is four CPU cycles a sample byte, up to
-      one byte every 54 cycles, and it is the best remaining candidate for the 21 cycles Super
-      Mario Bros 3's split is out by — right size, right direction, and a game whose author tuned
-      a delay loop on hardware would have tuned it with those stalls happening.
+- [x] Give the DMC bus access so `load_next_byte` reads real memory, including CPU stall cycles.
+      Three faults, each hiding the next: it played a placeholder byte and wrapped its address out
+      of cartridge space; its memory reader was only reachable from inside the output unit, so a
+      channel that had just started never asked for its first byte and no sample ever began; and it
+      was clocked at the APU's half rate although its table is in CPU cycles, so everything played
+      an octave low. The fetch now stalls the CPU four cycles, as hardware does.
 - [ ] $4017 write timing: the delay before an effective write takes effect (`apu_reset/4017_timing`)
 - [ ] Power-on and reset state of the frame counter (`apu_reset/4017_written`, `works_immediately`)
 - [ ] Which length counters a reset leaves enabled (`apu_reset/len_ctrs_enabled`)
@@ -1167,19 +1168,26 @@ falls — including which pattern table is being read, which is what drives MMC3
             `STA $E001` about 0.8 scanlines after the interrupt, which is close enough that the
             interrupt delivery may well be right and the error be somewhere after it.
 
-            **The most likely remaining candidate is the DMC**, which is why the item at
-            [APU] Outstanding Accuracy Work is worth doing before another attempt here. Its DMA
-            steals four CPU cycles per sample byte — up to one byte every 54 cycles — and we do not
-            model the stall at all. Across the handler's 190 cycles that is a plausible 14 to 20,
-            which is the right size and the right direction. Super Mario Bros 3 plays DMC drums
-            throughout a level, so the author would have tuned the delay loop on hardware *with*
-            those stalls happening.
+            **The DMC was suspected and is not the answer**, which is worth stating plainly
+            because it was chased on a mistake. The reasoning was that its DMA stalls the CPU four
+            cycles a sample byte, so a handler counting cycles takes longer while a sample plays.
+            The arithmetic was an order of magnitude out: the rate table is CPU cycles *per bit*,
+            not per byte. Fifty-four a bit at the fastest rate is 432 a byte, so the stall is four
+            cycles in 432 — under one percent of the CPU's time, about two cycles across a
+            190-cycle handler. It cannot account for twenty-one.
 
-            This cannot be tested from the save state as things stand, which is the other finding:
-            **a save state carries no APU state at all**, so a restored machine is silent and its
-            DMC idle. That is a bug in its own right — audio does not survive a save and reload —
-            and it makes any timing reproduction from a snapshot unfaithful in exactly the way that
-            matters here.
+            The hunt was still worth it. It found the DMC playing a placeholder byte rather than
+            reading memory, its memory reader unreachable so no sample ever started, and the whole
+            channel clocked at half speed; and it found that a save state carried no APU state at
+            all. All four are fixed. But the split's missing cycles are still missing.
+
+            **What to do next**, having ruled out the CPU's rate, the mapper's clock dot, the
+            mapper's clock count and the DMC: compare against another implementation rather than
+            reason further. That is this project's own recorded lesson — every correct diagnosis
+            here has come from running two implementations side by side, and every one argued from
+            the mechanism alone has been wrong. This bug has now consumed several sittings of the
+            latter. A reference emulator, the same ROM, the same point in the game, and a trace of
+            which CPU cycle the IRQ is taken on.
 
             Ruled out so far, each measured rather than argued:
 
