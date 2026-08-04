@@ -313,6 +313,14 @@ impl Apu {
 
     /// Create a new APU instance
     pub fn new() -> Self {
+        let mut apu = Self::at_power_up();
+        // One implementation of the power-up state, not two: the fields below are the struct's
+        // shape and this is what makes them the documented values.
+        apu.power_on();
+        apu
+    }
+
+    fn at_power_up() -> Self {
         Self {
             // Initialize pulse channels
             pulse1: PulseChannel::new(true),  // Pulse 1
@@ -372,22 +380,46 @@ impl Apu {
     }
 
     /// Reset the APU to initial state
-    pub fn reset(&mut self) {
-        // Reset pulse channels
+    /// Restore the state the APU has when the machine is switched on.
+    ///
+    /// Distinct from [`reset`](Self::reset), and the distinction is the whole of what `apu_reset`
+    /// checks. Power-on clears everything: every channel register, every envelope, every counter.
+    /// Reset clears `$4015` and leaves `$4000-$4013` exactly as they were.
+    ///
+    /// The two used to be the same function, which is why pressing reset silently wiped the
+    /// triangle's linear counter control along with everything else.
+    pub fn power_on(&mut self) {
         self.pulse1.reset();
         self.pulse2.reset();
-
-        // Reset triangle channel
         self.triangle.reset();
-
-        // Reset noise channel
         self.noise.reset();
-
-        // Reset DMC channel
         self.dmc.reset();
 
-        // Reset status register
         self.status = 0;
+        self.cycle_counter = 0;
+        self.apu_cycle = false;
+        self.sample_counter = 0.0;
+        self.sample_accumulator = 0.0;
+        self.accumulated_cycles = 0;
+        self.filter.reset();
+        self.frame_counter = FrameCounter::new();
+    }
+
+    /// Press reset.
+    ///
+    /// This is not power-on, and the difference is what `apu_reset` measures. `$4000-$4013` are
+    /// *unchanged* by a reset: the duty settings, envelope flags, periods and — the one the ROM
+    /// names — the triangle's linear counter control all survive it. All that happens is `$4015`
+    /// being cleared, which silences every channel and empties the length counters while leaving
+    /// them able to be loaded again.
+    ///
+    /// `len_ctrs_enabled` catches the difference precisely: it sets the triangle's halt flag
+    /// before the reset and afterwards expects the triangle's length counter still to be sitting
+    /// where it was loaded while the other three have run down. Clearing the channels outright
+    /// takes that flag with them.
+    pub fn reset(&mut self) {
+        // Clearing $4015 is the whole of what reset does to the channels.
+        let _ = self.write_byte(APU_STATUS, 0);
 
         // Reset sample generation state
         self.cycle_counter = 0;

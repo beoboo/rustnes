@@ -482,9 +482,11 @@ This document provides a detailed task breakdown for developing the RustNES emul
       channel that had just started never asked for its first byte and no sample ever began; and it
       was clocked at the APU's half rate although its table is in CPU cycles, so everything played
       an octave low. The fetch now stalls the CPU four cycles, as hardware does.
-- [ ] $4017 write timing: the delay before an effective write takes effect (`apu_reset/4017_timing`)
-- [ ] Power-on and reset state of the frame counter (`apu_reset/4017_written`, `works_immediately`)
-- [ ] Which length counters a reset leaves enabled (`apu_reset/len_ctrs_enabled`)
+- [x] $4017 write timing: three cycles if the write lands on an APU cycle, four if between two
+- [x] Power-on and reset state of the frame counter: the mode survives a reset, and the machine
+      runs the cycles the CPU spends starting up before its first instruction
+- [x] Which length counters a reset leaves enabled: all of them. A reset clears `$4015` and nothing
+      else, so `$4000-$4013` and everything derived from them survive
 - [ ] Drop the `objc2` `relax-sign-encoding` workaround in the root Cargo.toml once eframe/winit
       move to objc2 0.6+ (see AUDIO_PLAN.md section 4)
 
@@ -587,7 +589,16 @@ file rather than on anything specific to the suite.
       finds it set again immediately. And a `$4017` write waited a fixed three cycles where the
       delay is three or four depending on whether the write landed on an APU cycle — the parity of
       the CPU cycle, and the jitter `4-jitter` is named for.
-- [ ] apu_reset — 3/6
+- [x] apu_reset — 6/6, from 3/6. Three causes, and the common thread is that reset is not
+      power-on:
+      - `$4000-$4013` survive a reset. Only `$4015` is cleared. Resetting every channel outright
+        took the triangle's linear counter control with it, which is what `len_ctrs_enabled`
+        checks by setting that flag before the reset and looking for the triangle still counting
+        after it. The two paths are now separate: `power_on` clears everything, `reset` clears
+        `$4015`.
+      - The frame counter's mode survives a reset too (`4017_written`).
+      - The machine runs for the cycles the CPU spends starting up, before its first instruction.
+        `4017_timing` measures exactly that and wants 9 to 12; without it we reported 3.
 - [x] ppu_vbl_nmi — 11/11, from 5/11, combined ROM included (the figure here read 2/11 for a while
       after it was no longer true; re-measured against the commit before the A12 work, which did
       not move it)

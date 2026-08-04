@@ -149,6 +149,14 @@ pub struct SaveState {
 /// less than the difference between four and the nothing this used to cost.
 const DMC_STALL_CYCLES: u8 = 4;
 
+/// Cycles the CPU spends starting up, before its first instruction.
+///
+/// Power-on and reset both run the interrupt sequence with its pushes suppressed and then read the
+/// reset vector, and the rest of the machine runs throughout. Measured rather than assumed:
+/// `apu_reset/4017_timing` reports how long after the effective `$4017` write execution began and
+/// wants 9 to 12, which this puts at 11.
+const RESET_CYCLES: usize = 8;
+
 /// Bumped whenever the layout changes, so old snapshots are refused rather than misread.
 const SAVE_STATE_VERSION: u32 = 1;
 
@@ -389,6 +397,7 @@ impl NesSystem {
         self.cpu.reset()?;
         self.ppu.reset();
         self.apu.reset();
+        self.settle_after_reset();
 
         let old_state = self.state;
         self.state = SystemState::Ready;
@@ -438,6 +447,22 @@ impl NesSystem {
         self.cpu.set_cycles(self.cpu.cycles() + DMC_STALL_CYCLES as u64);
 
         DMC_STALL_CYCLES
+    }
+
+    /// Run the cycles the CPU spends getting started, before its first instruction.
+    ///
+    /// The processor does not begin executing the moment it is switched on or reset: it goes
+    /// through an interrupt sequence — the one whose suppressed pushes take three off the stack
+    /// pointer — and reads the reset vector, and the rest of the machine is running throughout.
+    /// Skipping those cycles starts the APU and PPU that much behind the program.
+    ///
+    /// It is measurable, which is how the figure was chosen. `apu_reset/4017_timing` prints how
+    /// long after the effective `$4017` write execution began and expects 9 to 12; without this it
+    /// printed 3. Mesen runs eight cycles here for the same reason.
+    fn settle_after_reset(&mut self) {
+        for _ in 0..RESET_CYCLES {
+            self.tick_cycle();
+        }
     }
 
     /// Advance every component other than the CPU by one CPU cycle.
@@ -509,6 +534,8 @@ impl NesSystem {
 
         let reset = u16::from_le_bytes([mapper.borrow().read_prg(0xFFFC), mapper.borrow().read_prg(0xFFFD)]);
         self.cpu.set_pc(reset);
+
+        self.settle_after_reset();
 
         let old_state = self.state;
         self.state = SystemState::Loaded;

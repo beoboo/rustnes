@@ -128,8 +128,21 @@ impl FrameCounter {
         }
     }
 
+    /// Press reset.
+    ///
+    /// The mode survives it. `apu_reset/4017_written` states the rule: "at power, $4017 = $00; at
+    /// reset, $4017 mode is unchanged, but IRQ inhibit flag is sometimes cleared". A program that
+    /// put the sequencer in 5-step mode and then pressed reset finds it still there.
+    ///
+    /// The sequence restarts, and it restarts *now*. The three-or-four cycle deferral belongs to a
+    /// write to `$4017` landing between APU cycles and not to the button; the cycles the machine
+    /// spends starting up are already run by the system, and charging both put `4017_timing`'s
+    /// second stage out of range — it printed the right figure for power-on and then waited for an
+    /// interrupt that came too late, forever.
     pub fn reset(&mut self) {
-        *self = Self::new();
+        self.irq_pending = false;
+        self.irq_inhibit = false;
+        self.cycle = 0;
     }
 
 
