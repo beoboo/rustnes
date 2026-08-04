@@ -13,6 +13,18 @@ pub struct DmcChannel {
     enabled: bool,
     irq_enabled: bool,
     loop_flag: bool,
+    /// The 7-bit level the channel presents to the mixer.
+    ///
+    /// Distinct from the sample buffer, which the code used to conflate it with. The buffer holds
+    /// a *fetched byte* waiting to enter the shifter; this is the running level that each shifted
+    /// bit nudges up or down by two.
+    output_level: u8,
+
+    /// The one-byte buffer between the memory reader and the output unit.
+    ///
+    /// Hardware really does have exactly one byte here, and `apu_test/7-dmc_basics` checks for it:
+    /// it is refilled the moment it empties, independently of whether the output unit is ready for
+    /// it, which is what lets a sample play without gaps.
     sample_buffer: u8,
     sample_buffer_empty: bool,
     bits_remaining: u8,
@@ -25,6 +37,13 @@ pub struct DmcChannel {
 
     // Length counter
     length_counter: LengthCounter,
+
+    /// Set when a sample finishes with the IRQ enabled, until a game clears it.
+    ///
+    /// This is how a game learns a sample has ended without polling for it, and it is reported by
+    /// bit 7 of `$4015`. It is cleared by reading that register, by writing it, and by clearing
+    /// the enable bit in `$4010`.
+    irq_pending: bool,
 
     /// A sample byte the channel wants fetched, and has not been given yet.
     ///
@@ -48,6 +67,7 @@ impl DmcChannel {
             enabled: false,
             irq_enabled: false,
             loop_flag: false,
+            output_level: 0,
             sample_buffer: 0,
             sample_buffer_empty: true,
             bits_remaining: 0,
@@ -60,6 +80,7 @@ impl DmcChannel {
 
             // Initialize length counter
             length_counter: LengthCounter::new(),
+            irq_pending: false,
             pending_fetch: None,
         }
     }
@@ -96,38 +117,52 @@ impl DmcChannel {
             return;
         }
 
-        // The memory reader runs independently of the output unit: whenever the buffer is empty
-        // and the sample is not finished, it asks for the next byte. Asking only once the output
-        // unit had run dry meant the *first* byte was never requested — the channel started with
-        // no bits to shift, so the branch that would have asked was never reached and a sample
-        // never began at all.
-        if self.bits_remaining == 0 && self.bytes_remaining > 0 && self.pending_fetch.is_none() {
+        // The memory reader runs independently of the output unit: the moment the buffer is empty
+        // and the sample is unfinished, it asks for the next byte. Asking only once the output
+        // unit had run dry meant the *first* byte was never requested — a channel that has just
+        // started has no bits to shift, so the branch that would have asked was never reached and
+        // a sample never began at all.
+        if self.sample_buffer_empty && self.bytes_remaining > 0 && self.pending_fetch.is_none() {
             self.load_next_byte();
         }
 
         // Check if timer_value is zero
         if self.timer_value == 0 {
-            // Reset timer to the configured value
-            self.timer_value = self.timer;
+            // One less than the period, not the period itself. Acting at zero and *then* reloading
+            // with the full value puts one extra cycle between one action and the next, which
+            // `apu_test/8-dmc_rates` reports as "rate 0's period is too long".
+            self.timer_value = self.timer.saturating_sub(1);
 
-            // Process one bit if we have bits remaining
-            if self.bits_remaining > 0 {
-                // Get the next bit from the shift register
+            // A bit leaves the shifter and nudges the level, unless the channel is silent.
+            if !self.silence_flag && self.bits_remaining > 0 {
                 let bit = (self.shift_register & 0x01) != 0;
                 self.shift_register >>= 1;
-                self.bits_remaining -= 1;
 
-                // Update the sample buffer based on the bit
                 if bit {
-                    if self.sample_buffer <= 0x7D {
-                        self.sample_buffer += 2;
+                    if self.output_level <= 0x7D {
+                        self.output_level += 2;
                     }
-                } else if self.sample_buffer >= 0x02 {
-                    self.sample_buffer -= 2;
+                } else if self.output_level >= 0x02 {
+                    self.output_level -= 2;
                 }
+            }
 
-                // The next byte is asked for at the top of the following tick, by the memory
-                // reader above, rather than from inside the output unit here.
+            if self.bits_remaining > 0 {
+                self.bits_remaining -= 1;
+            }
+
+            // An emptied shifter takes whatever the buffer holds. If the buffer is empty too the
+            // channel goes silent — it keeps its level and stops changing it — until the memory
+            // reader refills it.
+            if self.bits_remaining == 0 {
+                self.bits_remaining = 8;
+                if self.sample_buffer_empty {
+                    self.silence_flag = true;
+                } else {
+                    self.silence_flag = false;
+                    self.shift_register = self.sample_buffer;
+                    self.sample_buffer_empty = true;
+                }
             }
         } else {
             // Decrement timer_value
@@ -151,6 +186,16 @@ impl DmcChannel {
         }
     }
 
+    /// Whether the channel is holding an interrupt.
+    pub fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
+
+    /// Drop any interrupt the channel is holding.
+    pub fn acknowledge_irq(&mut self) {
+        self.irq_pending = false;
+    }
+
     /// The address this channel wants read, if it is waiting on one. Clears the request.
     pub fn take_pending_fetch(&mut self) -> Option<u16> {
         self.pending_fetch.take()
@@ -158,11 +203,10 @@ impl DmcChannel {
 
     /// Hand the channel the byte it asked for.
     pub fn supply_byte(&mut self, value: u8) {
+        // Into the buffer only. The output unit takes it when its own shifter empties, which is
+        // what makes this a buffer rather than a hand-off.
         self.sample_buffer = value;
         self.sample_buffer_empty = false;
-        self.bits_remaining = 8;
-        self.shift_register = self.sample_buffer;
-        self.silence_flag = false;
 
         // The sample address runs up through the top of memory and wraps to $8000, not to zero:
         // the whole sample lives in cartridge space. Masking it into the low half instead pointed
@@ -171,9 +215,14 @@ impl DmcChannel {
             if self.current_address == 0xFFFF { 0x8000 } else { self.current_address + 1 };
         self.bytes_remaining -= 1;
 
-        // If we've reached the end and loop is enabled, restart
-        if self.bytes_remaining == 0 && self.loop_flag {
-            self.restart();
+        // The end of a sample either restarts it or raises an interrupt, depending on how the
+        // game set $4010 — and never both.
+        if self.bytes_remaining == 0 {
+            if self.loop_flag {
+                self.restart();
+            } else if self.irq_enabled {
+                self.irq_pending = true;
+            }
         }
     }
 
@@ -218,10 +267,12 @@ impl DmcChannel {
     /// silence here means level 0, not "the midpoint": the DC offset that leaves is removed by the
     /// high-pass filters on the mixed output, exactly as on hardware.
     pub fn output(&self) -> u8 {
-        if !self.enabled || self.silence_flag {
+        if !self.enabled {
             return 0;
         }
-        self.sample_buffer
+        // The level persists through silence rather than dropping to zero: silence means the
+        // shifter has nothing to change it *with*, not that the channel stops driving the mixer.
+        self.output_level
     }
 
     /// Set the enabled state
@@ -267,14 +318,18 @@ impl DmcChannel {
                 // Control register ($4010)
                 self.control = value;
                 self.irq_enabled = (value & 0x80) != 0;
+                // Clearing the enable bit also clears any interrupt it had already raised.
+                if !self.irq_enabled {
+                    self.irq_pending = false;
+                }
                 self.loop_flag = (value & 0x40) != 0;
                 self.update_timer();
             },
             1 => {
                 // Direct load register ($4011)
                 self.direct_load = value;
-                self.sample_buffer = value;
-                self.silence_flag = false;
+                // $4011 writes the DAC level straight out, which is how a game plays PCM by hand.
+                self.output_level = value & 0x7F;
             },
             2 => {
                 // Address register ($4012)
@@ -382,12 +437,15 @@ mod tests {
     fn test_direct_load() {
         let mut channel = DmcChannel::new();
 
-        // Write a value to the direct load register
-        channel.write_register(1, 0x80);
+        // $4011 writes the DAC level straight out, which is how a game plays PCM by hand. It
+        // does not touch the sample buffer: that holds a byte fetched from memory, which is a
+        // different thing that this code used to conflate it with.
+        channel.write_register(1, 0x42);
+        assert_eq!(channel.output_level, 0x42);
 
-        // Check that the sample buffer was updated
-        assert_eq!(channel.sample_buffer, 0x80);
-        assert!(!channel.silence_flag);
+        // The level is seven bits, so the top bit of the write is dropped rather than kept.
+        channel.write_register(1, 0x80);
+        assert_eq!(channel.output_level, 0x00);
     }
 
     #[test]
@@ -400,23 +458,22 @@ mod tests {
         // Enable the channel
         channel.set_enabled(true);
 
-        // Should still be silent with silence flag set
-        assert_eq!(channel.output(), 0);
-
-        // Set a sample value and clear silence flag
-        channel.sample_buffer = 0x40; // 64 - middle of 7-bit range
-        channel.silence_flag = false;
-
-        // Should output 0.0 (middle value)
+        // The output is the DAC level, wherever the level came from.
+        channel.output_level = 0x40;
         assert_eq!(channel.output(), 64); // Mid-scale: the DAC centre
 
-        // Test maximum value (127)
-        channel.sample_buffer = 0x7F;
+        channel.output_level = 0x7F;
         assert_eq!(channel.output(), 127); // Full scale
 
-        // Test minimum value (0)
-        channel.sample_buffer = 0x00;
+        channel.output_level = 0x00;
         assert_eq!(channel.output(), 0); // Bottom of the DAC range
+
+        // Silence does not pull the level to zero. It means the shifter has nothing to change the
+        // level *with* — the channel goes on driving the mixer at whatever it last reached, which
+        // is why a stopped sample does not click.
+        channel.output_level = 0x40;
+        channel.silence_flag = true;
+        assert_eq!(channel.output(), 64);
     }
 
     #[test]
@@ -428,10 +485,9 @@ mod tests {
         assert!(channel.irq_enabled);
         assert!(channel.loop_flag);
 
-        // Test direct load register ($4011)
+        // Test direct load register ($4011), which sets the DAC level
         channel.write_register(1, 0x42);
-        assert_eq!(channel.sample_buffer, 0x42);
-        assert!(!channel.silence_flag);
+        assert_eq!(channel.output_level, 0x42);
 
         // Test address register ($4012)
         channel.write_register(2, 0x30);

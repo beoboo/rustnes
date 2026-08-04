@@ -73,6 +73,8 @@ impl Channel {
 
 /// APU status/control register bits.
 const STATUS_FRAME_IRQ: u8 = 0x40;
+/// Set while the DMC is holding an interrupt, and cleared by reading or writing $4015.
+const STATUS_DMC_IRQ: u8 = 0x80;
 
 /// Everything about the APU that cannot be recomputed.
 ///
@@ -476,7 +478,9 @@ impl Apu {
     /// The CPU has no interrupt line yet, so nothing consumes this; the flag is maintained
     /// correctly so `$4015` reports it, and so connecting it later is wiring rather than work.
     pub fn irq_pending(&self) -> bool {
-        self.frame_counter.irq_pending()
+        // Two sources share the line: the frame sequencer and the DMC finishing a sample. The CPU
+        // sees only the combination, so a handler has to read $4015 to find out which fired.
+        self.frame_counter.irq_pending() || self.dmc.irq_pending()
     }
 
     /// Mix the current channel levels into one sample in roughly 0.0..=1.0.
@@ -563,6 +567,9 @@ impl Addressable for Apu {
                 if self.frame_counter.irq_pending() {
                     status |= STATUS_FRAME_IRQ;
                 }
+                if self.dmc.irq_pending() {
+                    status |= STATUS_DMC_IRQ;
+                }
                 if self.pulse1.is_length_counter_active() {
                     status |= 0x01;
                 }
@@ -626,6 +633,8 @@ impl Addressable for Apu {
                 self.triangle.set_enabled((value & 0x04) != 0);
                 self.noise.set_enabled((value & 0x08) != 0);
                 self.dmc.set_enabled((value & 0x10) != 0);
+                // Writing the register clears the DMC's interrupt, whatever else the write does.
+                self.dmc.acknowledge_irq();
                 self.status = value;
                 Ok(())
             },

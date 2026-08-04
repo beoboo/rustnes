@@ -554,8 +554,8 @@ file rather than on anything specific to the suite.
 - [ ] instr_test-v5 — 13/18
 - [ ] instr_misc — 3/5
 - [ ] mmc3_test — 5/6 (only `6-MMC6`, which is the other chip's counter behaviour)
-- [ ] apu_test — 3/9
-- [ ] apu_reset — 2/6
+- [ ] apu_test — 4/9
+- [ ] apu_reset — 3/6
 - [ ] ppu_vbl_nmi — 5/11 (the figure here read 2/11 for a while after it was no longer true;
       re-measured against the commit before the A12 work, which did not move it)
 - [ ] instr_timing — 1/3
