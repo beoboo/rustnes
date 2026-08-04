@@ -35,9 +35,18 @@ jobs:
             libasound2-dev libudev-dev libgtk-3-dev libxkbcommon-dev \
             libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
+      # The toolchain comes from `.tool-versions`, which is what asdf reads locally, so CI and a
+      # developer's machine compile with the same rustc. Taking whatever is newest instead meant CI
+      # failing on lints that could not be reproduced or even seen here — a build nobody can make
+      # green locally is worse than no build at all.
+      - name: Read the pinned toolchain
+        id: toolchain
+        run: echo "version=$(awk '/^rust /{print $2}' .tool-versions)" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.toolchain.outputs.version }}
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
