@@ -595,7 +595,7 @@ impl Cpu {
             Instruction::JSR => self.jsr(addressing_mode)?,
             Instruction::RTS => self.rts()?,
             Instruction::BRK => self.brk()?,
-            Instruction::NOP => self.nop(),
+            Instruction::NOP => self.nop(addressing_mode)?,
             Instruction::BIT => self.bit(addressing_mode)?,
             Instruction::BPL => additional_cycles = self.bpl()?,
             Instruction::BMI => additional_cycles = self.bmi()?,
@@ -1117,8 +1117,24 @@ impl Cpu {
     }
 
     /// NOP - No Operation
-    pub fn nop(&mut self) {
-        // NOP does not affect any processor state
+    pub fn nop(&mut self, addressing_mode: AddressingMode) -> Result<(), NesError> {
+        // The official NOP is implied, and the discarded read of the byte after its opcode is
+        // already done for every implied instruction in `execute`.
+        if matches!(addressing_mode, AddressingMode::Implied) {
+            return Ok(());
+        }
+
+        // The unofficial NOPs are a different matter. They take an operand and they *read* it —
+        // they are a load whose result goes nowhere, not a do-nothing that happens to be longer.
+        //
+        // Against RAM that is invisible, which is how this went unnoticed: the value is discarded
+        // either way. Against a register it is not. `NOP $4015,X` acknowledges the APU's frame IRQ
+        // exactly as `LDA $4015,X` would, and the indexed forms perform the same dummy read at the
+        // unfixed address when the index carries. `instr_misc/04-dummy_reads_apu` checks precisely
+        // this, and named $1C $3C $5C $7C $DC $FC when it failed.
+        let address = addressing_mode.get_operand_address(self)?;
+        let _ = self.read_byte(address)?;
+        Ok(())
     }
 
     /// BIT - Bit Test with memory
@@ -1763,6 +1779,78 @@ mod tests {
         assert_eq!(cpu.registers.x, 0x30);
         assert_eq!(cpu.registers.sp, 0x30);
         assert!(!cpu.get_flag(CpuFlag::Zero));
+        Ok(())
+    }
+
+
+    /// An unofficial NOP with an operand reads it, and the read is not a formality.
+    ///
+    /// Against RAM the difference is invisible — the value is discarded either way — which is
+    /// exactly why this was missing for a long time without anything looking wrong. Against a
+    /// register with side effects it is not invisible at all, and that is what
+    /// `instr_misc/04-dummy_reads_apu` checks: it named $1C $3C $5C $7C $DC $FC when it failed.
+    ///
+    /// Asserted through a memory that records what was read, rather than by counting bus accesses,
+    /// because it is the access itself that a register would notice.
+    #[test]
+    fn an_unofficial_nop_reads_its_operand() -> Result<()> {
+        /// Memory that remembers every address read from it.
+        #[derive(Debug, Default)]
+        struct WatchfulRam {
+            ram: Ram,
+            reads: RefCell<Vec<u16>>,
+        }
+
+        impl Addressable for WatchfulRam {
+            fn handles_address(&self, address: u16) -> bool {
+                self.ram.handles_address(address)
+            }
+
+            fn read_byte(&self, address: u16) -> Result<u8, NesError> {
+                self.reads.borrow_mut().push(address);
+                self.ram.read_byte(address)
+            }
+
+            fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
+                self.ram.write_byte(address, value)
+            }
+        }
+
+        let memory = Rc::new(RefCell::new(WatchfulRam::default()));
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(memory.clone());
+
+        cpu.registers.pc = 0x0100;
+        cpu.registers.x = 0x10;
+        cpu.write_byte(0x0100, 0x30)?;
+        cpu.write_byte(0x0101, 0x02)?;
+
+        memory.borrow().reads.borrow_mut().clear();
+        cpu.nop(AddressingMode::AbsoluteX)?;
+
+        let reads = memory.borrow().reads.borrow().clone();
+        assert!(
+            reads.contains(&0x0240),
+            "NOP $0230,X should read $0240 — it reads its operand, it does not merely skip it; \
+             saw {reads:02X?}"
+        );
+
+        Ok(())
+    }
+
+    /// The implied NOP has no operand, so it must not invent a read of one.
+    ///
+    /// The pair to the test above: the discarded read the official NOP does perform belongs to
+    /// every implied instruction and is done once, in `execute`, not a second time here.
+    #[test]
+    fn the_official_nop_reads_nothing_of_its_own() -> Result<()> {
+        let mut cpu = setup_cpu();
+        cpu.registers.pc = 0x0100;
+
+        let before = cpu.total_clocked_cycles();
+        cpu.nop(AddressingMode::Implied)?;
+        assert_eq!(cpu.total_clocked_cycles(), before, "an implied NOP reads nothing here");
+
         Ok(())
     }
 

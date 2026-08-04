@@ -571,10 +571,11 @@ Standing as of the last run. Most of what remains is blocked on the two rewrites
 file rather than on anything specific to the suite.
 - [x] nestest.nes — 8991/8991
 - [ ] instr_test-v5 — 14/18, from 13/18
-- [ ] instr_misc — 3/5, but both remaining ROMs now run to completion and report rather than
-      stopping dead. `04-dummy_reads_apu` fails #2, "unofficial opcodes failed", naming
-      `1C 3C 5C 7C DC FC` — the unofficial `NOP abs,X` forms, whose dummy read is what the test is
-      checking against APU registers that have side effects when read.
+- [x] instr_misc — 5/5, from 3/5. The unofficial NOPs were doing nothing at all: they take an
+      operand and they *read* it, being a load whose result goes nowhere rather than a do-nothing
+      that happens to be longer. Invisible against RAM, which is why it went unnoticed; not
+      invisible against a register, where `NOP $4015,X` acknowledges the APU's frame IRQ exactly as
+      `LDA $4015,X` would.
 - [ ] mmc3_test — 5/6 (only `6-MMC6`, which is the other chip's counter behaviour)
 - [ ] apu_test — 5/9, from 4/9
 - [ ] apu_reset — 3/6
@@ -1063,8 +1064,18 @@ work, so nothing measuring them can pass.
 - [x] Mapper in a shared slot, so the clock can reach it
 - [x] Bus clock advancing the system on each access
 - [x] Measure the gap: `rom_test cycles nestest.nes` reports it per opcode
-- [ ] Model every cycle as the bus access it is on hardware, so accesses and cycles agree
-      (37 of 225 opcodes do already; 6463 of 8991 executed instructions are short of one)
+- [ ] Model every cycle as the bus access it is on hardware, so accesses and cycles agree.
+      204 of 225 opcodes do already, and 44 of 8991 executed instructions are short of one —
+      from 37 and 6463 when this was written.
+- [ ] **The page-cross penalty is never added to an instruction's cycle count.**
+      `crosses_page_boundary` and `get_additional_cycles` both exist, are both correct, and are
+      called by nothing but their own tests: `execute` only ever adds cycles for branches. So
+      `LDA $02FF,X` with X carrying reports four cycles where hardware takes five.
+      The *bus* is right — the addressing mode performs the extra access, so the PPU is advanced
+      for it — and it is only the count that is short, which is why nothing rendered has ever
+      looked wrong. Nothing catches it either: nestest compares PC, A, X, Y, P and SP and does not
+      look at cycles at all. `instr_timing`, `cpu_timing_test6` and `branch_timing_tests` are the
+      tests that would, and the first two are exactly what still fails.
 - [x] Interrupts sampled before the last cycle — `1-cli_latency` passes, the first in that suite
 - [x] The computed `poll_at` replaced by a one-cycle-delayed shadow of both lines, and the poll
       moved from the instant of the bus access to the end of the cycle, one dot later
