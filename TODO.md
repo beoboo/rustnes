@@ -570,7 +570,11 @@ Blargg's ROMs write a status byte to $6000 and a message at $6004, so no screen 
 Standing as of the last run. Most of what remains is blocked on the two rewrites at the end of this
 file rather than on anything specific to the suite.
 - [x] nestest.nes — 8991/8991
-- [ ] instr_test-v5 — 14/18, from 13/18
+- [x] instr_test-v5 — 18/18. The last four were not failures at all: the system peeked at the next
+      opcode after every step and, on seeing `$00`, declared the program Finished and switched the
+      machine off. That is right for the debugger, where a hand-assembled snippet really does end
+      with `BRK`, and fatal for a cartridge, where `BRK` is an instruction with a handler behind it.
+      Now a property of how the code was loaded: `load_program` halts, `load_rom` does not.
 - [x] instr_misc — 5/5, from 3/5. The unofficial NOPs were doing nothing at all: they take an
       operand and they *read* it, being a load whose result goes nowhere rather than a do-nothing
       that happens to be longer. Invisible against RAM, which is why it went unnoticed; not
@@ -635,7 +639,11 @@ file rather than on anything specific to the suite.
         readme says is expected: those values "are probably unique to my NES". Not a fault to chase.
 - [ ] nmi_sync, cpu_timing_test6 — still unmeasured. The `nmi_sync` ROMs are visual demos with no
       verdict to read; `cpu_timing_test6` draws nothing into the first nametable within 600 frames.
-- [ ] cpu_interrupts_v2, cpu_dummy_writes, cpu_exec_space — none yet
+- [ ] cpu_interrupts_v2 — 2/6, and no longer hanging anywhere. `2-nmi_and_brk` passes, which is the
+      test CYCLE_ACCURACY.md records as having hung on two previous attempts at interrupt timing;
+      it was the BRK halt above, not the interrupt work. The combined `cpu_interrupts.nes` now
+      fails rather than hangs.
+- [ ] cpu_dummy_writes, cpu_exec_space — none yet
 
 
 ## MILESTONE 9: Mappers & Cartridges [T9]

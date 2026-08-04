@@ -236,3 +236,72 @@ fn most_cycles_are_run_from_bus_accesses() {
     );
     assert!(clocked <= total, "a bus access cannot run more cycles than the instruction took");
 }
+
+
+/// A cartridge must not stop when it reaches a `BRK`.
+///
+/// `BRK` on a cartridge is an ordinary instruction with a handler behind it. The system used to
+/// peek at the next opcode after every step and, on seeing `$00`, declare the program Finished and
+/// halt — a convenience for the debugger, where a hand-assembled snippet really does end with
+/// `BRK`, and fatal for a ROM that uses it.
+///
+/// It cost more than it looks. `instr_test-v5/15-brk` and `16-special` were recorded as hangs for a
+/// long time; so were `all_instrs` and `official_only`, which run them; so was
+/// `cpu_interrupts_v2/2-nmi_and_brk`, the test CYCLE_ACCURACY.md names as having hung on two
+/// previous attempts at interrupt timing. All five were the machine having switched itself off,
+/// with the program counter parked on the `BRK` for the rest of the run.
+#[test]
+fn a_cartridge_runs_through_a_brk_instead_of_halting_on_it() {
+    // A NOP, then a BRK, with a handler that stores a marker and spins.
+    //
+    //   $8000  NOP
+    //   $8001  BRK            ; through the IRQ vector
+    //   $8010  LDA #$5A       ; the handler
+    //   $8012  STA $0200
+    //   $8015  JMP $8015
+    //
+    // The NOP is load-bearing. The halt fired on the opcode the CPU was *about* to run, checked
+    // after each step, so a BRK reached as the first instruction of all was never looked at. It
+    // had to be arrived at from somewhere.
+    let mut prg = vec![0xEA; 32 * 1024];
+    prg[0x0000] = 0xEA; // NOP
+    prg[0x0001] = 0x00; // BRK
+    prg[0x0002] = 0x00; // its padding byte
+
+    prg[0x0010] = 0xA9; // LDA #$5A
+    prg[0x0011] = 0x5A;
+    prg[0x0012] = 0x8D; // STA $0200
+    prg[0x0013] = 0x00;
+    prg[0x0014] = 0x02;
+    prg[0x0015] = 0x4C; // JMP $8015
+    prg[0x0016] = 0x15;
+    prg[0x0017] = 0x80;
+
+    // Vectors, at the end of the 32 KB image: NMI, reset, IRQ.
+    let end = prg.len();
+    prg[end - 6..end - 4].copy_from_slice(&0x8000u16.to_le_bytes());
+    prg[end - 4..end - 2].copy_from_slice(&0x8000u16.to_le_bytes());
+    prg[end - 2..end].copy_from_slice(&0x8010u16.to_le_bytes());
+
+    let mut image = Vec::new();
+    image.extend_from_slice(b"NES\x1A");
+    image.extend_from_slice(&[2, 1, 0x00, 0x00]);
+    image.extend_from_slice(&[0; 8]);
+    image.extend_from_slice(&prg);
+    image.extend_from_slice(&vec![0u8; 8 * 1024]);
+
+    let path = write_temp_rom("brk_does_not_halt.nes", &image);
+    let rom = load_rom(&path).expect("loading the ROM");
+    let mut system = NesSystem::new();
+    system.load_rom(&rom).expect("loading into the system");
+
+    for _ in 0..64 {
+        system.step().expect("stepping");
+    }
+
+    assert_eq!(
+        system.cpu().read_byte(0x0200).expect("reading the marker"),
+        0x5A,
+        "the BRK should have entered its handler and the machine should have kept running"
+    );
+}

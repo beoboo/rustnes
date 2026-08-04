@@ -121,9 +121,22 @@ Three architectural faults were found on the way, each of which had produced a m
 
 ### What still hangs, and why it is not the CPU
 
-`2-nmi_and_brk` and the combined `cpu_interrupts` hang. Reading their source settles it: both
-include `sync_vbl.s` and spin in a vblank synchronisation loop — the address they hang at is that
-loop. `1-cli_latency`, which passes, does not include it.
+**Resolved, and the diagnosis below was wrong.** `2-nmi_and_brk` passes. It was never the vblank
+synchronisation loop: the system peeked at the next opcode after every step and, on seeing `$00`,
+declared the program Finished and switched the machine off. The program counter then sat on the
+`BRK` for the rest of the run, which is what made it look like a spin in whatever loop happened to
+contain it. A convenience for the debugger — where a hand-assembled snippet really does end with
+`BRK` — and fatal for a cartridge, where `BRK` is an instruction with a handler behind it.
+
+It was found by asking the runner where a hung ROM was spinning and disassembling what it found
+there, which took a few minutes and answered "`BRK`, and only `BRK`" for every one of them. The
+guess below stood for several sittings and shaped the plan: it is the reason this document says the
+remaining interrupt tests are blocked on the PPU. They are not.
+
+The original note follows, as a record of what a plausible unverified diagnosis costs.
+
+> Reading their source settles it: both include `sync_vbl.s` and spin in a vblank synchronisation
+> loop — the address they hang at is that loop. `1-cli_latency`, which passes, does not include it.
 
 That loop needs cycle-exact alignment between the CPU and the PPU, which the PPU cannot yet
 provide. **The remaining interrupt tests are therefore blocked on the PPU work, not on more CPU

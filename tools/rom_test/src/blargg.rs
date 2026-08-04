@@ -15,7 +15,7 @@
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use rn_core::{cartridge::load_rom, memory::Addressable, system::NesSystem};
+use rn_core::{cartridge::load_rom, cpu::Disassembler, memory::Addressable, system::NesSystem};
 
 use crate::screen;
 
@@ -67,6 +67,13 @@ pub struct Outcome {
     pub message: String,
     pub instructions: usize,
     pub source: Source,
+
+    /// The distinct addresses the CPU was executing at when the budget ran out, in order, each
+    /// with the instruction found there.
+    ///
+    /// A hung ROM is nearly always spinning in a handful of instructions, and knowing *which*
+    /// turns "it hangs" into a place to look. Empty unless the run timed out.
+    pub spinning_at: Vec<(u16, String)>,
 }
 
 /// Run a blargg-style ROM until it reports a result or the budget runs out.
@@ -85,7 +92,13 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
     // When the ROM asked to be reset, so the wait can be measured from that moment.
     let mut reset_requested_at: Option<u64> = None;
 
+    // A rolling window of recent program counters, for describing a hang.
+    const WINDOW: usize = 128;
+    let mut recent = [0u16; WINDOW];
+
     for instruction in 0..max_instructions {
+        recent[instruction % WINDOW] = system.cpu().pc();
+
         if let Err(error) = system.step() {
             // The system reports the program counter; the cause is in its error message, and
             // without that a failing access says only where the CPU was, not what it asked for.
@@ -127,6 +140,7 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
                     message: read_message(&system),
                     instructions: instruction,
                     source: Source::Protocol,
+                    spinning_at: Vec::new(),
                 })
             },
             code => {
@@ -135,6 +149,7 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
                     message: read_message(&system),
                     instructions: instruction,
                     source: Source::Protocol,
+                    spinning_at: Vec::new(),
                 })
             },
         }
@@ -146,6 +161,7 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
             message: read_message(&system),
             instructions: max_instructions,
             source: Source::Protocol,
+            spinning_at: distinct_in_order(&recent, &system),
         });
     }
 
@@ -161,14 +177,49 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
         None => Status::NoProtocol,
     };
 
-    let source = if outcome == Status::NoProtocol { Source::Protocol } else { Source::Screen };
+    let outcome_is_unread = outcome == Status::NoProtocol;
+    let source = if outcome_is_unread { Source::Protocol } else { Source::Screen };
 
     Ok(Outcome {
         status: outcome,
         message: drawn.text(),
         instructions: max_instructions,
         source,
+        spinning_at: if outcome_is_unread { distinct_in_order(&recent, &system) } else { Vec::new() },
     })
+}
+
+/// The distinct values of `window`, in the order they first appear, each disassembled.
+///
+/// A spin loop visits the same few addresses over and over, so the distinct set is short and is
+/// the loop itself. Kept in order rather than sorted, because the order is the loop's shape.
+///
+/// Bounded at sixteen: past that it is not a spin loop and the list stops being an explanation.
+fn distinct_in_order(window: &[u16], system: &NesSystem) -> Vec<(u16, String)> {
+    let disassembler = Disassembler::new();
+    let mut seen: Vec<u16> = Vec::new();
+
+    for &pc in window {
+        if !seen.contains(&pc) {
+            seen.push(pc);
+        }
+        if seen.len() > 16 {
+            return Vec::new();
+        }
+    }
+
+    seen.into_iter()
+        .map(|pc| {
+            // Three bytes is the longest 6502 instruction, so this always has enough to decode.
+            let bytes: Vec<u8> =
+                (0..3).map(|offset| read(system, pc.wrapping_add(offset))).collect();
+            let text = disassembler
+                .disassemble_instruction(&bytes, 0)
+                .map(|(text, _)| text)
+                .unwrap_or_else(|_| format!("{:02X} ?", bytes[0]));
+            (pc, text)
+        })
+        .collect()
 }
 
 fn read(system: &NesSystem, address: u16) -> u8 {

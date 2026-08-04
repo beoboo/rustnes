@@ -293,6 +293,13 @@ fn report(rom: &Path, outcome: &blargg::Outcome) {
         }
     }
 
+    if !outcome.spinning_at.is_empty() {
+        println!("          spinning in:");
+        for (pc, text) in &outcome.spinning_at {
+            println!("            ${pc:04X}  {text}");
+        }
+    }
+
     if matches!(outcome.status, blargg::Status::NoProtocol) {
         println!("          no $6000 signature, and nothing legible on screen either");
     }

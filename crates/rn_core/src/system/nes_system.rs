@@ -97,6 +97,16 @@ pub struct NesSystem {
 
     /// The memory bus, retained so a cartridge can be attached after construction.
     bus: Rc<RefCell<Bus>>,
+
+    /// Whether reaching a `BRK` should stop the machine.
+    ///
+    /// True only for a hand-assembled program, where `BRK` is how a snippet says it has finished
+    /// and the debugger shows "Program execution finished (hit BRK)". A cartridge is the opposite
+    /// case: `BRK` is an ordinary instruction with a handler behind it, and halting on one stops
+    /// the emulator dead on correct code. `instr_test-v5/15-brk` and `16-special` spent a long time
+    /// recorded as hangs for exactly that reason — the machine had stopped and the program counter
+    /// sat on the `BRK` for the rest of the run.
+    halt_on_brk: bool,
 }
 
 /// A complete machine state, enough to resume exactly where it was left.
@@ -353,6 +363,8 @@ impl NesSystem {
             error_message: None,
             mapper,
             bus,
+            // A bare system is driven by the debugger, which assembles snippets that end in BRK.
+            halt_on_brk: true,
         }
     }
 
@@ -467,6 +479,10 @@ impl NesSystem {
         if rom.prg_rom.is_empty() {
             return Err(NesError::MemoryAccessError(0x8000));
         }
+
+        // A cartridge runs until it is switched off. `BRK` in one is an instruction with a handler
+        // behind it, not a program saying it has finished.
+        self.halt_on_brk = false;
 
         let mirroring = if rom.header.mirroring {
             Mirroring::Vertical
@@ -612,8 +628,13 @@ impl NesSystem {
 
         cpu_cycles = cpu_cycles.saturating_add(self.service_dmc_fetch());
 
-        // Only check for BRK if CPU is active (not during DMA)
-        if !dma_active {
+        // Only check for BRK if the machine is one that stops for it, and the CPU is active.
+        //
+        // Skipped entirely rather than checked and ignored, because the check *reads the bus*. That
+        // read is one hardware never performs, and now that an unmapped read returns the last value
+        // the bus carried, an extra read is not free — it moves the value a later open-bus read
+        // would see.
+        if self.halt_on_brk && !dma_active {
             // Check if we've hit a BRK instruction (end of program)
             // Get the PC before borrowing for read
             let pc = self.cpu.pc();
