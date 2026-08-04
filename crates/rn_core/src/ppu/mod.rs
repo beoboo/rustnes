@@ -49,7 +49,14 @@ pub const STATUS_SPRITE_OVERFLOW: u8 = 0x20; // Sprite overflow occurred
 pub const STATUS_SPRITE_ZERO_HIT: u8 = 0x40; // Sprite 0 hit occurred
 pub const STATUS_VBLANK: u8 = 0x80; // In vblank
 
-pub trait PpuInterface: Addressable {}
+pub trait PpuInterface: Addressable {
+    /// Where OAMADDR ($2003) currently points.
+    ///
+    /// The sprite DMA needs it because hardware's copy begins wherever $2003 happens to point
+    /// rather than at sprite zero. Exposed as a plain read because $2003 is write-only from the
+    /// program's side, so there is no register read that would answer this.
+    fn oam_address(&self) -> u8;
+}
 
 #[derive(Clone, Debug)]
 pub struct PpuWrapper {
@@ -341,7 +348,11 @@ impl Addressable for PpuWrapper {
     }
 }
 
-impl PpuInterface for PpuWrapper {}
+impl PpuInterface for PpuWrapper {
+    fn oam_address(&self) -> u8 {
+        self.ppu.borrow().oam_addr
+    }
+}
 /// The Picture Processing Unit (PPU) for the NES
 ///
 /// This handles all graphics rendering for the NES system.
@@ -2286,9 +2297,24 @@ impl Ppu {
             increment
         );
 
-        // Palette memory reads are not buffered
+        // Palette memory reads are not buffered — the palette answers immediately.
         if addr >= 0x3F00 {
             let result = self.read_palette(addr);
+
+            // The read still happens on the bus, though, and it still fills the buffer.
+            //
+            // Palette RAM sits inside the PPU rather than out on the bus, so a read of $3Fxx is
+            // answered by the palette *and* by whatever the nametable holds at the address the bus
+            // was driving. The palette wins the return value; the nametable byte lands in the read
+            // buffer, where the next $2007 read will find it. $3F00-$3FFF mirrors down into the
+            // nametable region at $2F00-$2FFF, which is the byte that gets buffered.
+            //
+            // Leaving the buffer alone is invisible until a program reads the palette and then
+            // reads VRAM, at which point it gets a byte one read stale. `blargg_ppu_tests/
+            // vram_access` reports it as error 6, "palette read should also read VRAM into read
+            // buffer".
+            self.read_buffer.set(self.read_ppu_memory(addr & 0x2FFF));
+
             log::debug!(
                 "PPU read_data: Direct palette read from ${:04X} = ${:02X}",
                 addr,
@@ -3238,6 +3264,46 @@ mod tests {
             ppu.write_register(0x2000, 0);
             assert!(!ppu.nmi_line.get(), "disabling releases it, round {round}");
         }
+    }
+
+
+    /// Reading the palette also pulls the nametable byte underneath it into the read buffer.
+    ///
+    /// Palette RAM lives inside the PPU, so a $2007 read of $3Fxx is answered immediately rather
+    /// than a read late like every other address. What is easy to miss is that the read still
+    /// happens *on the bus* as well: the palette supplies the value returned, and the nametable
+    /// byte at the mirrored address ($3F00-$3FFF mirrors down to $2F00-$2FFF) lands in the buffer
+    /// for the next read to collect.
+    ///
+    /// Invisible until a program reads the palette and then reads VRAM, which is exactly what
+    /// `blargg_ppu_tests/vram_access` does — it reported this as error 6.
+    #[test]
+    fn reading_the_palette_still_fills_the_read_buffer_from_vram() {
+        let mut ppu = Ppu::new();
+
+        // A distinctive byte in the nametable at $2F00, under the palette's mirror.
+        ppu.write_register(0x2006, 0x2F);
+        ppu.write_register(0x2006, 0x00);
+        ppu.write_register(0x2007, 0x5A);
+
+        // A different one in the palette itself, so the two cannot be confused.
+        ppu.write_register(0x2006, 0x3F);
+        ppu.write_register(0x2006, 0x00);
+        ppu.write_register(0x2007, 0x21);
+
+        // Read the palette. The value comes straight back, not a read late.
+        ppu.write_register(0x2006, 0x3F);
+        ppu.write_register(0x2006, 0x00);
+        assert_eq!(ppu.read_register(0x2007) & 0x3F, 0x21, "the palette answers immediately");
+
+        // And now the buffer holds what the bus was carrying: the nametable byte at $2F00.
+        ppu.write_register(0x2006, 0x00);
+        ppu.write_register(0x2006, 0x00);
+        assert_eq!(
+            ppu.read_register(0x2007),
+            0x5A,
+            "the palette read should have loaded the buffer from $2F00"
+        );
     }
 
     /// The PPU's eight registers repeat every eight bytes up to $3FFF.

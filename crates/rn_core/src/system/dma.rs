@@ -176,18 +176,22 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
             // No OAM write on read cycles
             None
         } else {
-            // Odd transfer cycles: WRITE to OAM
-            let oam_index = byte_index as u8;
+            // Odd transfer cycles: WRITE to OAM, through $2004 alone.
+            //
+            // Hardware's DMA never touches $2003. It performs 256 writes to $2004, and each of
+            // those increments OAMADDR by itself — so the copy starts wherever $2003 happened to
+            // point, wraps round the end of OAM, and after 256 increments leaves $2003 exactly as
+            // it found it. Setting $2003 to the byte index here made every copy start at sprite
+            // zero instead, which is what `blargg_ppu_tests/sprite_ram` reports as error 7: "$4014
+            // DMA copy should start at value in $2003 and wrap".
+            let mut oam_index = byte_index as u8;
 
-            // If we have a PPU reference, write to it
             if let Some(ppu) = &mut self.ppu {
-                // Set OAM address register
-                let _ = ppu.write_byte(0x2003, oam_index);
-                // Write to OAM data register
+                oam_index = ppu.oam_address();
                 let _ = ppu.write_byte(0x2004, self.read_buffer);
             }
 
-            // Return the value to write to OAM
+            // Return the value written and where it actually landed.
             Some((self.read_buffer, oam_index))
         };
 
@@ -229,7 +233,8 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
             None => return Err(NesError::GenericError("PPU missing for DMA transfer".to_string())),
         };
 
-        // For each byte in the 256-byte page (maintain original loop structure)
+        // For each byte in the 256-byte page. As in `tick`, $2003 is left alone: the writes to
+        // $2004 advance OAMADDR themselves, so the copy lands where the program pointed it.
         for i in 0..256 {
             // Calculate the source address
             let source_addr = ((source_high_byte as u16) << 8) | (i as u16);
@@ -237,9 +242,7 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
             // Read from CPU memory
             let value = cpu_ref.read_byte(source_addr)?;
 
-            // Write directly to PPU OAM address and data registers
-            ppu_ref.write_byte(0x2003, i as u8)?; // Set OAM address
-            ppu_ref.write_byte(0x2004, value)?; // Write OAM data
+            ppu_ref.write_byte(0x2004, value)?;
         }
 
         Ok(())
@@ -337,7 +340,11 @@ mod tests {
         }
     }
 
-    impl PpuInterface for MockPpu {}
+    impl PpuInterface for MockPpu {
+        fn oam_address(&self) -> u8 {
+            *self.oam_addr.borrow()
+        }
+    }
 
     impl Addressable for MockPpu {
         fn handles_address(&self, address: u16) -> bool {
@@ -375,6 +382,51 @@ mod tests {
                 _ => Ok(()),
             }
         }
+    }
+
+
+    /// The copy starts at OAMADDR, wraps, and leaves OAMADDR where it found it.
+    ///
+    /// Hardware's DMA writes $2004 two hundred and fifty-six times and never touches $2003, so all
+    /// three of these follow from one fact: each $2004 write advances OAMADDR itself. A game that
+    /// leaves $2003 pointing part way into OAM gets its sprites rotated by that much, which is
+    /// deliberate — it is how a game flickers sprites to change which ones win the priority
+    /// competition, by moving the start of the copy a few sprites along each frame.
+    ///
+    /// `blargg_ppu_tests/sprite_ram` reports this as error 7, "$4014 DMA copy should start at value
+    /// in $2003 and wrap", and error 8 for leaving $2003 intact.
+    #[test]
+    fn dma_starts_at_the_oam_address_and_wraps() -> Result<(), NesError> {
+        let (mut dma, _cpu, mut ppu) = setup_dma();
+
+        // Point OAMADDR part way in, as a game rotating its sprites would.
+        ppu.write_byte(0x2003, 0x20)?;
+        dma.connect_ppu(ppu.clone());
+
+        dma.write_byte(0x4014, 0x02)?;
+        while dma.is_active() {
+            dma.tick();
+        }
+
+        let writes = ppu.oam_writes.borrow();
+        assert_eq!(writes.len(), 256, "a DMA copies the whole page");
+
+        assert_eq!(writes[0].0, 0x20, "the copy starts where $2003 pointed, not at sprite zero");
+        assert_eq!(writes[1].0, 0x21, "and walks on from there");
+
+        // 256 bytes from $20 runs off the end of OAM and comes back round to it.
+        assert_eq!(writes[0xDF].0, 0xFF, "up to the end of OAM");
+        assert_eq!(writes[0xE0].0, 0x00, "then wrapping to the start");
+        assert_eq!(writes[255].0, 0x1F, "and finishing just below where it began");
+
+        drop(writes);
+        assert_eq!(
+            ppu.oam_address(),
+            0x20,
+            "256 increments bring OAMADDR back to where it started, so $2003 is left intact"
+        );
+
+        Ok(())
     }
 
     fn setup_dma() -> (DmaController<MockCpu, MockPpu>, MockCpu, MockPpu) {

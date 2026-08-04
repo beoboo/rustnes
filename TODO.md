@@ -610,11 +610,17 @@ file rather than on anything specific to the suite.
       an on-screen result; they had been passing.
 - [x] mmc3_irq_tests — 5/6, likewise unmeasured until now. The one failure is `5.MMC3_rev_A`, the
       other revision's counter, which is the same gap as `mmc3_test/6-MMC6`.
-- [ ] blargg_ppu_tests — 2/5, and the remaining three are precisely diagnosed by their own codes:
-      - `sprite_ram` $07 — "$4014 DMA copy should start at value in $2003 and wrap"
-      - `vram_access` $06 — "palette read should also read VRAM into the read buffer"
-      - `power_up_palette` $02 — "palette differs from table", which the suite's readme says is
-        expected: those values "are probably unique to my NES". Not a fault to chase.
+- [x] blargg_ppu_tests — 4/5, from 2/5 once its own error codes could be read. Both faults were
+      named by the ROM and fixed the same sitting:
+      - `sprite_ram` $07 — the sprite DMA forced $2003 to each byte's index, so every copy started
+        at sprite zero. Hardware never touches $2003: it writes $2004 256 times and each write
+        advances OAMADDR itself, so the copy begins where the program pointed it, wraps, and leaves
+        $2003 as it found it. That is how a game rotates which sprites win priority.
+      - `vram_access` $06 — a palette read answered from palette RAM and left the read buffer
+        alone. The read still happens on the bus, so the nametable byte under the palette's mirror
+        ($3F00-$3FFF down to $2F00-$2FFF) belongs in the buffer for the next read to collect.
+      - `power_up_palette` $02 — "palette differs from table" and still failing, which the suite's
+        readme says is expected: those values "are probably unique to my NES". Not a fault to chase.
 - [ ] nmi_sync, cpu_timing_test6 — still unmeasured. The `nmi_sync` ROMs are visual demos with no
       verdict to read; `cpu_timing_test6` draws nothing into the first nametable within 600 frames.
 - [ ] cpu_interrupts_v2, cpu_dummy_writes, cpu_exec_space — none yet
