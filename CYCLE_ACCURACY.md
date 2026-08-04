@@ -130,6 +130,64 @@ provide. **The remaining interrupt tests are therefore blocked on the PPU work, 
 work.** The two rewrites are coupled, which was not obvious before and changes their order: there
 is little point attempting `3-nmi_and_irq` or the combined ROM until the PPU runs per dot.
 
+### How Mesen does it, and why ours is harder than it needs to be
+
+Read from the Mesen2 source after a session of reasoning failed to close a one-dot discrepancy.
+Worth writing down because it is *structurally* different from what is here, not a detail.
+
+**Mesen keeps no notion of "the cycle that polls".** Every CPU cycle ends like this:
+
+```cpp
+void NesCpu::EndCpuCycle(bool forRead) {
+    _masterClock += forRead ? (_endClockCount + 1) : (_endClockCount - 1);
+    _console->GetPpu()->Run(_masterClock - _ppuOffset);
+
+    _prevNeedNmi = _needNmi;                                   // one-cycle-delayed shadow
+    if(!_prevNmiFlag && _state.NmiFlag) { _needNmi = true; }   // edge detect, during phi-2
+    _prevNmiFlag = _state.NmiFlag;
+
+    _prevRunIrq = _runIrq;                                     // and the same for IRQ
+    _runIrq = ((_state.IrqFlag & _irqMask) > 0 && !CheckFlag(PSFlags::Interrupt));
+}
+```
+
+and every instruction ends like this:
+
+```cpp
+(this->*_opTable[opCode])();
+if(_prevRunIrq || _prevNeedNmi) { IRQ(); }
+```
+
+The rule "it is the status of the interrupt lines at the end of the second-to-last cycle that
+matters" is not computed from anywhere. It *falls out*: the shadow is one cycle behind, so at the
+end of the instruction it holds what the lines said one cycle earlier. No cycle counting, no
+`poll_at`, nothing that has to know how long an instruction is.
+
+That is the same rule this document already describes, arrived at without the thing that made
+attempts 2 and 3 fail — needing to name a cycle from outside the instruction. **A one-cycle-delayed
+shadow of the interrupt lines, updated by the same clock that advances the PPU, is worth trying in
+place of the computed `poll_at`.** It cannot be wrong about instruction length because it never
+asks.
+
+Two more differences, both measurable:
+
+- **The PPU is advanced around each access, not before it.** NTSC is twelve master clocks a CPU
+  cycle and four a dot. Mesen runs the PPU five clocks in, performs the access, then runs the
+  remaining seven — and for a *write* it is seven then five. Here the whole three dots run and then
+  the access happens, so every read sees a PPU nearly a full cycle further along than it should,
+  and reads and writes see it at the same point when hardware does not.
+- **Interrupts are sampled after the access, not before it.** The access is part of the cycle and
+  can be what changes the lines: writing `$2000` to enable the vblank NMI is exactly that case, and
+  it is what `ppu_vbl_nmi/07-nmi_on_timing` measures.
+
+Tried, and inert — recorded so they are not tried again. Moving our sampling to after the access,
+and collecting the NMI after each of a cycle's three dots rather than after all three, each changed
+nothing at all: not the failing table, not even the instruction count. Both are correct in
+principle and neither is where the dot is going, because the sampling that decides the outcome is
+the one driven from `poll_at` at the end of `step`, not the one in `tick_bus`. The shadow-register
+rewrite above replaces that machinery outright, which is why it is the thing to try rather than
+another adjustment around it.
+
 ### 3. The special cases
 
 Each is a documented exception rather than a consequence of the model, so each needs its own code
