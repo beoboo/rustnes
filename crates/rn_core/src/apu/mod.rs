@@ -102,6 +102,16 @@ pub struct ApuWrapper {
 }
 
 impl ApuWrapper {
+    /// The address the DMC wants a sample byte from, if it is waiting on one.
+    pub fn take_dmc_fetch(&self) -> Option<u16> {
+        self.apu.borrow_mut().take_dmc_fetch()
+    }
+
+    /// Hand the DMC the byte it asked for.
+    pub fn supply_dmc_byte(&self, value: u8) {
+        self.apu.borrow_mut().supply_dmc_byte(value);
+    }
+
     /// Capture the APU's state.
     pub fn save_state(&self) -> ApuState {
         self.apu.borrow().save_state()
@@ -263,6 +273,16 @@ pub struct Apu {
 }
 
 impl Apu {
+    /// The address the DMC wants a sample byte from, if it is waiting on one.
+    pub fn take_dmc_fetch(&mut self) -> Option<u16> {
+        self.dmc.take_pending_fetch()
+    }
+
+    /// Hand the DMC the byte it asked for.
+    pub fn supply_dmc_byte(&mut self, value: u8) {
+        self.dmc.supply_byte(value);
+    }
+
     /// Capture everything that cannot be recomputed.
     pub fn save_state(&self) -> ApuState {
         ApuState {
@@ -391,17 +411,21 @@ impl Apu {
         let clock = self.frame_counter.tick();
         self.apply_frame_clock(clock);
 
-        // Pulse, noise and DMC timers advance once per APU cycle...
+        // Pulse and noise timers advance once per APU cycle...
         if self.apu_cycle {
             self.pulse1.tick();
             self.pulse2.tick();
             self.noise.tick();
-            self.dmc.tick();
         }
 
         // ...while the triangle's sequencer advances every CPU cycle, which is why it can reach
         // frequencies the pulse channels cannot.
         self.triangle.tick();
+
+        // The DMC belongs with the triangle rather than with the pulse channels: its rate table is
+        // quoted in CPU cycles, so clocking it at the APU's half rate played every sample an
+        // octave low and fetched its bytes half as often as hardware does.
+        self.dmc.tick();
 
         self.generate_sample();
     }

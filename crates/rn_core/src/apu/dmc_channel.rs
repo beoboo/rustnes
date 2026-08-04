@@ -25,6 +25,13 @@ pub struct DmcChannel {
 
     // Length counter
     length_counter: LengthCounter,
+
+    /// A sample byte the channel wants fetched, and has not been given yet.
+    ///
+    /// The channel cannot read memory itself: the fetch is a DMA that stalls the CPU, so it has to
+    /// be performed by whatever owns the bus and the cycle count. The channel asks, and carries on
+    /// once it is answered.
+    pending_fetch: Option<u16>,
 }
 
 impl DmcChannel {
@@ -53,6 +60,7 @@ impl DmcChannel {
 
             // Initialize length counter
             length_counter: LengthCounter::new(),
+            pending_fetch: None,
         }
     }
 
@@ -88,6 +96,15 @@ impl DmcChannel {
             return;
         }
 
+        // The memory reader runs independently of the output unit: whenever the buffer is empty
+        // and the sample is not finished, it asks for the next byte. Asking only once the output
+        // unit had run dry meant the *first* byte was never requested — the channel started with
+        // no bits to shift, so the branch that would have asked was never reached and a sample
+        // never began at all.
+        if self.bits_remaining == 0 && self.bytes_remaining > 0 && self.pending_fetch.is_none() {
+            self.load_next_byte();
+        }
+
         // Check if timer_value is zero
         if self.timer_value == 0 {
             // Reset timer to the configured value
@@ -109,10 +126,8 @@ impl DmcChannel {
                     self.sample_buffer -= 2;
                 }
 
-                // If we've processed all bits, try to load the next byte
-                if self.bits_remaining == 0 {
-                    self.load_next_byte();
-                }
+                // The next byte is asked for at the top of the following tick, by the memory
+                // reader above, rather than from inside the output unit here.
             }
         } else {
             // Decrement timer_value
@@ -120,29 +135,45 @@ impl DmcChannel {
         }
     }
 
-    /// Load the next byte from memory
+    /// Ask for the next sample byte, or fall silent if the sample is finished.
+    ///
+    /// The read itself is not done here. On hardware it is a DMA: the CPU is halted for a few
+    /// cycles while the channel takes the bus, and those cycles belong to the CPU's count. Only
+    /// the part of the system that owns both can do that, so this records the address wanted and
+    /// [`supply_byte`](Self::supply_byte) finishes the job.
     fn load_next_byte(&mut self) {
         if self.bytes_remaining > 0 {
-            // TODO: Implement memory reading through the bus
-            // For now, we'll just simulate it with a dummy value
-            self.sample_buffer = self.direct_load; // Use direct load value instead of dummy
-            self.sample_buffer_empty = false;
-            self.bits_remaining = 8;
-            self.shift_register = self.sample_buffer;
-            self.silence_flag = false;
-
-            // Update address and remaining bytes
-            self.current_address = (self.current_address + 1) & 0x7FFF;
-            self.bytes_remaining -= 1;
-
-            // If we've reached the end and loop is enabled, restart
-            if self.bytes_remaining == 0 && self.loop_flag {
-                self.restart();
-            }
+            self.pending_fetch = Some(self.current_address);
         } else {
             // No more bytes to load
             self.sample_buffer_empty = true;
             self.silence_flag = true;
+        }
+    }
+
+    /// The address this channel wants read, if it is waiting on one. Clears the request.
+    pub fn take_pending_fetch(&mut self) -> Option<u16> {
+        self.pending_fetch.take()
+    }
+
+    /// Hand the channel the byte it asked for.
+    pub fn supply_byte(&mut self, value: u8) {
+        self.sample_buffer = value;
+        self.sample_buffer_empty = false;
+        self.bits_remaining = 8;
+        self.shift_register = self.sample_buffer;
+        self.silence_flag = false;
+
+        // The sample address runs up through the top of memory and wraps to $8000, not to zero:
+        // the whole sample lives in cartridge space. Masking it into the low half instead pointed
+        // the channel at work RAM, which is why the byte fetched had to be faked.
+        self.current_address =
+            if self.current_address == 0xFFFF { 0x8000 } else { self.current_address + 1 };
+        self.bytes_remaining -= 1;
+
+        // If we've reached the end and loop is enabled, restart
+        if self.bytes_remaining == 0 && self.loop_flag {
+            self.restart();
         }
     }
 

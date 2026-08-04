@@ -132,6 +132,13 @@ pub struct SaveState {
     apu: Option<crate::apu::ApuState>,
 }
 
+/// CPU cycles a DMC sample fetch halts the processor for.
+///
+/// Four is the usual figure; hardware charges three when the fetch lands on a write cycle and can
+/// charge more if it collides with sprite DMA. Neither refinement is modelled, and both are worth
+/// less than the difference between four and the nothing this used to cost.
+const DMC_STALL_CYCLES: u8 = 4;
+
 /// Bumped whenever the layout changes, so old snapshots are refused rather than misread.
 const SAVE_STATE_VERSION: u32 = 1;
 
@@ -358,6 +365,37 @@ impl NesSystem {
         Ok(())
     }
 
+    /// Fetch the sample byte the DMC is waiting for, and charge the CPU for the wait.
+    ///
+    /// This is a DMA, not a read the channel performs itself: hardware halts the CPU and takes the
+    /// bus for four cycles. Those cycles are the point. They are why a game's carefully counted
+    /// delay loop takes longer while a sample is playing than while one is not, and leaving them
+    /// out makes every such loop finish early — by a few cycles each time, and by a few dozen
+    /// across an interrupt handler.
+    ///
+    /// Serviced at the end of an instruction rather than partway through one. Hardware halts at
+    /// the next read cycle, so the stall can land mid-instruction; the *number* of cycles is the
+    /// same either way, and the placement is within one instruction of correct.
+    ///
+    /// Returns the cycles charged.
+    fn service_dmc_fetch(&mut self) -> u8 {
+        let Some(address) = self.apu.take_dmc_fetch() else {
+            return 0;
+        };
+
+        // Through the CPU's bus, so the sample is read from whichever PRG bank is switched in —
+        // a DMC sample lives in cartridge space and a mapper can move it.
+        let byte = self.cpu.read_byte(address).unwrap_or(0);
+        self.apu.supply_dmc_byte(byte);
+
+        for _ in 0..DMC_STALL_CYCLES {
+            self.tick_cycle();
+        }
+        self.cpu.set_cycles(self.cpu.cycles() + DMC_STALL_CYCLES as u64);
+
+        DMC_STALL_CYCLES
+    }
+
     /// Advance every component other than the CPU by one CPU cycle.
     ///
     /// The PPU runs at three times the CPU's rate and the APU at the same rate, so one CPU cycle
@@ -541,6 +579,8 @@ impl NesSystem {
         for _ in already_run..cpu_cycles {
             self.tick_cycle();
         }
+
+        cpu_cycles = cpu_cycles.saturating_add(self.service_dmc_fetch());
 
         // Only check for BRK if CPU is active (not during DMA)
         if !dma_active {
