@@ -370,6 +370,16 @@ pub struct Ppu {
     /// Set when vblank begins with NMI enabled; cleared when the system collects it.
     nmi_line: Cell<bool>,
 
+    /// Whether rendering is on, as the PPU's own timing sees it — one dot behind `mask`.
+    ///
+    /// A write to $2001 does not reach the rendering hardware in the cycle that performs it. The
+    /// wiki and Mesen agree on a one-cycle delay: "setting it at cycle 5 will render cycle 6 like
+    /// cycle 5 and then take the new settings for cycle 7". Reading `mask` directly makes every
+    /// such write take effect a dot early, which is invisible almost everywhere and is exactly what
+    /// `10-even_odd_timing` measures — it enables the background at a chosen dot and counts the
+    /// clocks in the frame.
+    rendering_enabled: Cell<bool>,
+
     /// Nametable layout, set from the cartridge header.
     mirroring: Mirroring,
 
@@ -708,6 +718,7 @@ impl Ppu {
             write_toggle: Cell::new(false),
             frame_count: 0,
             nmi_line: Cell::new(false),
+            rendering_enabled: Cell::new(false),
             mirroring: Mirroring::default(),
             diagnostics: FrameDiagnostics {
                 last_toggle_scanline: -1,
@@ -832,14 +843,24 @@ impl Ppu {
 
         // A scanline is 341 dots, except the pre-render line of an odd frame with rendering
         // enabled, which is 340: its last dot is skipped.
-        let rendering = (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0;
-        let last_dot = if self.scanline == 261 && self.odd_frame && rendering {
-            339
-        } else {
-            340
-        };
+        //
+        // Two things about this are exact, and `10-even_odd_timing` measures both — it enables the
+        // background at a chosen dot and counts the clocks in the resulting frame, so a dot either
+        // way changes its answer.
+        //
+        // **The decision is taken on dot 339, not on 340.** Skipping by jumping from 339 straight
+        // to 340 is not the same as declining to process 340 once it arrives: the second asks the
+        // question a dot later. That dot used to be cancelled by the other error below, which is
+        // why fixing either one alone changed nothing at all.
+        //
+        // **It reads the delayed flag, not `mask`.** A $2001 write does not reach the rendering
+        // hardware in the cycle that performs it; see [`rendering_enabled`](Self::rendering_enabled).
+        if self.scanline == 261 && self.cycle == 339 && self.odd_frame && self.rendering_enabled.get()
+        {
+            self.cycle = 340;
+        }
 
-        if self.cycle > last_dot {
+        if self.cycle > 340 {
             self.cycle = 0;
             self.scanline += 1;
 
@@ -919,6 +940,12 @@ impl Ppu {
         //         log::info!("Not rendering frame: neither sprites nor background enabled");
         //     }
         // }
+
+        // Last thing in the dot, so that whatever asks during the *next* one sees $2001 as it stood
+        // at the end of this one. That is the whole of the one-cycle delay: a write landing partway
+        // through a dot is not in effect for the rest of it.
+        self.rendering_enabled
+            .set((self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0);
     }
 
     /// Render the current frame using pattern table data

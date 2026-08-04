@@ -279,10 +279,33 @@ right rather than merely tuned:
 - Releasing the line cannot take back an interrupt already detected, and holding it down cannot
   produce a second. Both fall out of edge detection over a persistent signal, and both have a test.
 
-`ppu_vbl_nmi` is 9/11. The combined `ppu_vbl_nmi.nes` now runs to test 10 of 10 and fails there for
-the same single reason `10-even_odd_timing` does — "clock is skipped too late, relative to enabling
-BG", the odd-frame dot skip being decided from the rendering flag at the wrong moment. One cause,
-and the only one left in that suite.
+**`10-even_odd_timing`, and the suite is 11/11.** The odd-frame dot skip was wrong in two ways at
+once, and — this is the point — each was cancelling the other, so fixing either alone changed
+nothing whatsoever. Both were measured that way rather than assumed:
+
+- **The decision was taken on dot 340, not 339.** Declining to process dot 340 once it arrives is
+  not the same as jumping from 339 to 340. The frame comes out the same length either way; the
+  question is asked a dot later.
+- **It read `$2001` directly rather than a delayed copy.** A write to `$2001` does not reach the
+  rendering hardware in the cycle that performs it — the wiki and Mesen agree on one cycle:
+  "setting it at cycle 5 will render cycle 6 like cycle 5 and then take the new settings for cycle
+  7". So the write took effect a dot early.
+
+One dot late and one dot early. `10-even_odd_timing` is built to catch exactly this: it enables the
+background at a chosen dot and counts the PPU clocks in the resulting frame, and it runs the same
+sequence at two sync offsets one clock apart. We passed the first and failed the second — the
+classic signature of a boundary in the right place for the wrong reasons.
+
+Recorded because the measurement is the lesson: the delayed flag on its own left the test
+byte-identical, same instruction count and all, and so did moving the decision to dot 339 on its own.
+Either one looks inert and would have been reverted by this project's own rule about not keeping
+changes that cannot be demonstrated. They are only visible together, and the way to find that out
+was to try both singly and check.
+
+The delayed flag is currently read by the skip and nothing else. Mesen carries the idea further —
+a second copy another cycle behind again, which its scroll and fetch work uses — and that is worth
+doing, but it changes what is drawn rather than only when a frame ends, so it wants the pixel diff
+as its gate rather than this suite.
 
 ### 3. The special cases
 

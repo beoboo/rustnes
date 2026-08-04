@@ -560,13 +560,9 @@ file rather than on anything specific to the suite.
 - [ ] mmc3_test — 5/6 (only `6-MMC6`, which is the other chip's counter behaviour)
 - [ ] apu_test — 5/9, from 4/9
 - [ ] apu_reset — 3/6
-- [ ] ppu_vbl_nmi — 9/11, from 5/11 (the figure here read 2/11 for a while after it was no longer
-      true; re-measured against the commit before the A12 work, which did not move it)
-
-      What is left is one cause, not two. `10-even_odd_timing` fails with "clock is skipped too
-      late, relative to enabling BG" — the odd-frame dot skip is decided from the rendering flag at
-      the wrong moment — and the combined `ppu_vbl_nmi.nes` now runs to test 10 of 10 and fails
-      there for exactly that.
+- [x] ppu_vbl_nmi — 11/11, from 5/11, combined ROM included (the figure here read 2/11 for a while
+      after it was no longer true; re-measured against the commit before the A12 work, which did
+      not move it)
 
       **`05-nmi_timing`, `06-suppression`, `07-nmi_on_timing` and `08-nmi_off_timing` now pass.**
       The last two came from /NMI becoming a level the PPU holds rather than a one-shot latch the
@@ -1277,7 +1273,12 @@ falls — including which pattern table is being read, which is what drives MMC3
 
       Not modelled: the diagonal scan hardware performs after the eighth sprite, which is what
       makes the overflow flag unreliable. Only the flag itself is set, on the ninth sprite.
-- [ ] Vblank flag set and cleared at the exact dot
+- [x] Vblank flag set and cleared at the exact dot, /NMI held as a level while both the flag and
+      the enable bit are set, and the odd-frame dot skip decided on dot 339 from a $2001 that takes
+      effect one cycle after it is written — `ppu_vbl_nmi` passes 11/11
+- [ ] Carry the delayed `$2001` further, as Mesen does: a second copy another cycle behind again,
+      which the scroll and fetch work reads. Changes what is drawn rather than only when a frame
+      ends, so the gate is a pixel diff, not this suite.
 - Acceptance: `ppu_vbl_nmi`, `blargg_ppu_tests`, and — all now passing — ~~`oam_read`~~,
   ~~`oam_stress`~~, ~~`mmc3_test/3-A12_clocking`~~, ~~`mmc3_test/4-scanline_timing`~~
 
