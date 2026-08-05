@@ -568,6 +568,15 @@ Blargg's ROMs write a status byte to $6000 and a message at $6004, so no screen 
       reading of what a ROM drew rather than the ROM's own word for it.
 - [ ] Machine-readable output suitable for CI
 
+### [Testing] Suites never measured until now
+Measured for the first time, and three of them were already passing:
+- [x] vbl_nmi_timing — 7/7
+- [x] instr_test-v3 — 17/17
+- [x] nes_instr_test — 11/11
+- [ ] sprite_hit_tests — 7/11, from 0/11 once CHR RAM worked
+- [ ] sprite_overflow_tests — 3/5 (`3.Timing`, `4.Obscure`)
+- [ ] ppu_open_bus — 0/1, ppu_read_buffer — 0/1, dmc_tests — 0/4, blargg_nes_cpu_test5 — 0/2
+
 ### [Testing] Pass the suites [T8]
 Standing as of the last run. Most of what remains is blocked on the two rewrites at the end of this
 file rather than on anything specific to the suite.
@@ -771,7 +780,8 @@ cropping already exist and this is the piece between them.
 - [ ] Test scrolling functionality
 
 ### [PPU] Advanced Display Features [T9]
-- [ ] Implement sprite zero hit detection
+- [x] Implement sprite zero hit detection — `sprite_hit_tests` 7/11, from 0/11. It was implemented
+      all along; the pattern tables were blank. See the CHR RAM entry below.
 - [ ] Implement sprite overflow
 - [ ] Implement sprite-background interaction
 - [ ] Test advanced PPU features

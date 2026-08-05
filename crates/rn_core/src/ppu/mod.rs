@@ -2547,7 +2547,19 @@ impl Ppu {
         match addr {
             // Pattern Tables (CHR ROM/RAM)
             0x0000..=0x1FFF => {
-                if let Some(cart) = &mut self.cartridge {
+                // Through the mapper, exactly as `read_ppu_memory` reads them. These two had
+                // drifted apart: reads came from the mapper and writes went to the `Cartridge`
+                // that a mapper-loaded ROM does not have, so every write to CHR RAM was dropped
+                // and could never be read back.
+                //
+                // Invisible with CHR ROM, where writes are meant to be ignored — which is most of
+                // what had been tried. Fatal with CHR RAM, where uploading tiles at startup is the
+                // whole point: the pattern tables stayed blank for the entire run. It is why
+                // `sprite_hit_tests` reported "sprite hit isn't working at all". There was nothing
+                // drawn to hit.
+                if let Some(mapper) = &self.mapper {
+                    mapper.borrow_mut().write_chr(addr, value);
+                } else if let Some(cart) = &mut self.cartridge {
                     cart.write_pattern_table(addr, value);
                 }
             },
@@ -3390,6 +3402,36 @@ mod tests {
             0x3C,
             "the write-only register hands back what the last read put on the lines"
         );
+    }
+
+
+    /// A cartridge with CHR RAM can be written to and read back.
+    ///
+    /// A header saying zero CHR banks means the board has character *RAM*, not none, and uploading
+    /// tiles into it at startup is the whole reason such a board exists. Reads went through the
+    /// mapper and writes went to the `Cartridge` that a mapper-loaded ROM does not have, so every
+    /// write was dropped and the pattern tables stayed blank for the entire run — which is why
+    /// `sprite_hit_tests` reported "sprite hit isn't working at all". There was nothing to hit.
+    ///
+    /// Both halves were needed: NROM also had to stop keeping the empty vector the header implied.
+    #[test]
+    fn chr_ram_written_through_2007_reads_back() {
+        use crate::cartridge::create_mapper;
+
+        let mut ppu = Ppu::new();
+        // Zero CHR banks in the header is CHR RAM, which is what an empty vector here means.
+        let mapper = create_mapper(0, vec![0; 16 * 1024], Vec::new(), Mirroring::Horizontal)
+            .expect("NROM is supported");
+        ppu.mapper = Some(Rc::new(RefCell::new(mapper)));
+
+        // Upload two bytes of a tile through $2006/$2007, as a game does at startup.
+        ppu.write_register(0x2006, 0x00);
+        ppu.write_register(0x2006, 0x10);
+        ppu.write_register(0x2007, 0xA5);
+        ppu.write_register(0x2007, 0x3C);
+
+        assert_eq!(ppu.read_ppu_memory(0x0010), 0xA5, "CHR RAM keeps what was written to it");
+        assert_eq!(ppu.read_ppu_memory(0x0011), 0x3C);
     }
 
     /// The PPU's eight registers repeat every eight bytes up to $3FFF.

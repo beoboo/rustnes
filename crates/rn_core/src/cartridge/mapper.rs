@@ -101,6 +101,15 @@ pub struct Nrom {
 
 impl Nrom {
     pub fn new(prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> Self {
+        // A header saying zero CHR banks means the board has CHR *RAM*, not that it has no
+        // character memory. Keeping the empty vector meant every tile read back as blank and every
+        // write to it was silently dropped, so a game that uploads its tiles at startup — which is
+        // what CHR RAM is for — ran with an entirely blank pattern table.
+        //
+        // Invisible in anything with CHR ROM, which is most of what had been tried. Not invisible
+        // in blargg's PPU suites: `sprite_hit_tests` reported "sprite hit isn't working at all"
+        // because nothing was drawn to hit. Every other mapper here already did this.
+        let chr = if chr.is_empty() { vec![0; 8 * 1024] } else { chr };
         Self { prg, chr, mirroring }
     }
 }
