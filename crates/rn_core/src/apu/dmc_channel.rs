@@ -285,6 +285,14 @@ impl DmcChannel {
             if self.bytes_remaining == 0 {
                 self.restart();
             }
+
+            // And the buffer fills *immediately* if it is empty, rather than waiting for the next
+            // clock of the memory reader. `apu_test/7-dmc_basics` says so in as many words — "there
+            // should be a one-byte buffer that's filled immediately if empty" — and it is the
+            // difference between a sample starting on this instruction and on the next one.
+            if self.sample_buffer_empty && self.bytes_remaining > 0 && self.pending_fetch.is_none() {
+                self.load_next_byte();
+            }
         } else {
             // Disabling stops the sample immediately rather than letting it finish. Leaving the
             // count standing kept the channel reporting itself as busy through $4015 forever, so a

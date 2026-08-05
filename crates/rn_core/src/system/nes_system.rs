@@ -321,12 +321,22 @@ impl NesSystem {
                 }
 
                 if phase == ClockPhase::BeforeAccess {
+                    // The APU is advanced *before* the access, not after it, so a read of `$4015`
+                    // sees the state of the cycle it happens in rather than the one before.
+                    //
+                    // Both references do this and we did not: Mesen clocks the APU from
+                    // `StartCpuCycle`, ahead of the memory access, and tetanes' `read_status`
+                    // catches the APU up to the current master clock before reading. Ticking it
+                    // afterwards left our frame counter exactly one CPU cycle behind at every read,
+                    // which is what `cpu_interrupts_v2/5-branch_delays_irq` measures: it walks a
+                    // pair of `$4015` reads across the frame IRQ's three-cycle window, and one
+                    // cycle decides whether the second read finds the flag set again.
+                    apu.tick();
                     return;
                 }
 
-                // The rest of this runs once per CPU cycle, at its end, which is where the
-                // processor reads the interrupt lines.
-                apu.tick();
+                // The rest runs once per CPU cycle, at its end, which is where the processor reads
+                // the interrupt lines.
 
                 // The line as the PPU is holding it, read once a cycle at the cycle's end. The
                 // CPU's own edge detector turns it into an interrupt, so nothing is consumed here

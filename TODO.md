@@ -663,10 +663,20 @@ So at the same instruction, **our frame counter is one CPU cycle behind tetanes'
 cycle decides bit 6 of the second read, which decides `V`, which decides the branch at `$E5A5`, and
 the ROM goes a different way from there.
 
-One cycle, in a counter whose table and window are already identical. The candidates worth checking
-first are the `$4017` write delay — three cycles or four depending on the parity of the cycle the
-write lands on, which this session added and `4-jitter` validates — and the eight settle cycles the
-machine runs before its first instruction, which tick the APU as well as the PPU.
+One cycle, in a counter whose table and window are already identical — and it was neither of the
+candidates guessed at here. **The APU was being clocked after the bus access instead of before it.**
+
+Both references do it the other way and we did not: Mesen clocks the APU from `StartCpuCycle`,
+ahead of the memory access, and tetanes' `read_status` catches the APU up to the current master
+clock before reading. Ticking it afterwards left the frame counter exactly one cycle behind at
+every read — which is the whole of what this entry has been chasing. **`5-branch_delays_irq`
+passes.**
+
+Moving it broke `7-dmc_basics`, and the reason is worth keeping: the DMC only asked for its byte
+while being *clocked*, so with the tick now ahead of the write, a `$4015` that starts a sample no
+longer had a tick behind it in the same instruction and the fetch slipped by one. The ROM says what
+should happen instead — "there should be a one-byte buffer that's filled immediately if empty" — so
+enabling the channel now fills it there and then. Both pass.
 
 Its read and write paths otherwise agree with ours closely — the PPU's write-only registers return
 the PPU's own latch, everything unmapped returns the CPU's, and a write drives the bus either way.
@@ -787,7 +797,7 @@ file rather than on anything specific to the suite.
         readme says is expected: those values "are probably unique to my NES". Not a fault to chase.
 - [ ] nmi_sync, cpu_timing_test6 — still unmeasured. The `nmi_sync` ROMs are visual demos with no
       verdict to read; `cpu_timing_test6` draws nothing into the first nametable within 600 frames.
-- [ ] cpu_interrupts_v2 — 2/6, and no longer hanging anywhere. `3-nmi_and_irq` is closer but not
+- [ ] cpu_interrupts_v2 — 3/6, and no longer hanging anywhere. `3-nmi_and_irq` is closer but not
       passing: an NMI arriving while an IRQ is being vectored now takes the vector, as it should,
       but hardware's window for that is wider than ours — the table alternates where it should hold
       a run of the same value. `2-nmi_and_brk` passes, which is the
