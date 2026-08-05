@@ -85,7 +85,12 @@ fn banked(data: &[u8], bank: usize, bank_size: usize, offset: usize) -> u8 {
         return 0;
     }
     let banks = (data.len() / bank_size).max(1);
-    data[(bank % banks) * bank_size + offset]
+    // Wrapped a second time, against the data rather than the bank count, for the image that is
+    // smaller than one bank of its own mapper. `other/oam3.nes` is AxROM — which switches 32 KB at
+    // a time — with a 16 KB image, so it has no whole bank at all: `banks` falls to one, and the
+    // offset alone runs past the end. Reading its reset vector at `$FFFC` panicked the emulator
+    // outright, which is worse than any wrong answer and took the whole suite run down with it.
+    data[((bank % banks) * bank_size + offset) % data.len()]
 }
 
 /// NROM (mapper 0): no banking at all.
@@ -763,6 +768,28 @@ pub fn create(number: u8, prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> O
 
 #[cfg(test)]
 mod tests {
+
+    /// An image smaller than one of its own mapper's banks is mirrored, not read past the end.
+    ///
+    /// `other/oam3.nes` is AxROM, whose bank is 32 KB, carrying a 16 KB image — so there is no
+    /// whole bank in it. Reading the reset vector at `$FFFC` indexed 32764 bytes into 16384 and
+    /// panicked, which killed the emulator on load and, in a suite run, took every ROM after it
+    /// down as well. A cartridge's address lines have nowhere to send the high bit either: it is
+    /// simply not connected, and the low half answers for both.
+    #[test]
+    fn an_image_smaller_than_one_bank_mirrors_rather_than_running_off_the_end() {
+        let mut prg = vec![0u8; 16 * 1024];
+        prg[0] = 0xAA;
+        prg[16 * 1024 - 4] = 0xFC;
+
+        let mapper = AxRom::new(prg, Vec::new());
+
+        // $8000 and $C000 are the same byte, the image appearing twice across the 32 KB window.
+        assert_eq!(mapper.read_prg(0x8000), 0xAA);
+        assert_eq!(mapper.read_prg(0xC000), 0xAA);
+        // And the reset vector resolves instead of panicking.
+        assert_eq!(mapper.read_prg(0xFFFC), 0xFC);
+    }
 
     /// CNROM switches character banks from any write into cartridge space, and never moves the
     /// program.
