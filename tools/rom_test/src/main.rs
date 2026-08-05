@@ -20,6 +20,7 @@ mod cycles;
 mod frame;
 mod nestest;
 mod screen;
+mod trace;
 
 use std::path::{Path, PathBuf};
 
@@ -99,6 +100,16 @@ enum Command {
         per_dot: bool,
     },
 
+    /// Print one line per instruction, for diffing against another emulator
+    Trace {
+        /// Path to the .nes file
+        rom: PathBuf,
+
+        /// Instructions to trace
+        #[arg(long, default_value_t = 200_000)]
+        instructions: usize,
+    },
+
     /// Print the text a ROM has drawn on screen, for ROMs that report no other way
     Screen {
         /// Path to the .nes file
@@ -134,6 +145,7 @@ fn main() -> Result<()> {
         Command::Frame { rom, frames, out, ascii, state, per_dot } => {
             run_frame(&rom, frames, out.as_deref(), ascii, state.as_deref(), per_dot)
         },
+        Command::Trace { rom, instructions } => trace::report(&rom, instructions),
         Command::Screen { rom, frames, raw } => screen::report(&rom, frames, raw),
         Command::Suite { directory, budget } => run_suite(&directory, budget),
     }

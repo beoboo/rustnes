@@ -804,7 +804,17 @@ impl Ppu {
             scanlines_this_frame: 0,
             toggles_this_frame: 0,
             mapper: None,
-            scanline: -1, // Start at pre-render scanline
+            // Line 0, not -1. The comment here used to say "start at pre-render scanline", but
+            // the pre-render line in this PPU is 261 — `tick` treats it as such and nothing treats
+            // -1 as anything — so -1 was a line that was neither drawn nor pre-render, run once at
+            // power-on and never again. It put the whole machine 341 dots out against a reference
+            // for the rest of the run.
+            //
+            // Found by diffing a per-instruction trace against tetanes: the PPU position was a
+            // constant 336 dots behind at every instruction, which is one scanline less five, and
+            // removing the dead line leaves the five. No suite moves either way — this is here
+            // because it is right and because the trace shows it, not because a ROM asked.
+            scanline: 0,
             cycle: 0,
 
             // Initialize frame buffer (256x240 pixels, 3 bytes per pixel for RGB)
@@ -3862,7 +3872,9 @@ mod tests {
 
         // Check initial internal state
         assert!(!ppu.write_toggle.get());
-        assert_eq!(ppu.scanline, -1);
+        // Line 0. Not -1, which was neither a drawn line nor the pre-render line — see the
+        // comment beside the initialiser.
+        assert_eq!(ppu.scanline, 0);
         assert_eq!(ppu.cycle, 0);
     }
 

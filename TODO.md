@@ -590,6 +590,27 @@ One concrete difference already spotted while comparing, not yet chased: tetanes
 `$4100..=$FFFF`, where this emulator gives it `$8000..=$FFFF` and serves `$6000-$7FFF` from a plain
 RAM component. So `$4100-$5FFF` is open bus here and cartridge space there.
 
+**Differential tracing** — `rom_test trace` against `nesref --trace` — is the technique that came
+out of this, and it is far sharper than reading either source. Both emit a line per instruction in
+nestest's shape; the first differing line is the bug, and everything above it is agreement rather
+than an assumption. What it said the first time, on `5-branch_delays_irq`:
+
+- **The CPU is exact.** Cycle counts agree with tetanes for 8190 consecutive instructions, to a
+  constant offset of seven — their reset sequence, which they count and we do not. No drift at all.
+  That retires a great deal of suspicion in one measurement.
+- **The PPU was a scanline out.** Its position was a constant *336* dots behind at every
+  instruction, which is one scanline less five. The cause was `scanline: -1` at power-on, described
+  in the code as the pre-render line when the pre-render line here is 261 — so it was a line neither
+  drawn nor pre-render, run once and never again. Fixed; no suite moves, and the trace is the
+  demonstration.
+- **Five dots remain, and they are not a bug.** Five is not a multiple of three, so it is a
+  CPU/PPU *phase* difference of two dots, and the power-on phase is genuinely one of three
+  possibilities on hardware. Ours is the one that passes `05-nmi_timing`, `4-scanline_timing` and
+  `4017_timing`, all of which measure to the dot. Theirs is a different legal choice.
+
+So `5-branch_delays_irq` is not an alignment fault, and the next step for it is to keep diffing past
+the point where the two traces still agree.
+
 Its read and write paths otherwise agree with ours closely — the PPU's write-only registers return
 the PPU's own latch, everything unmapped returns the CPU's, and a write drives the bus either way.
 And its MMC3 counter is the same logic as ours, clocked from real PPU bus reads.
