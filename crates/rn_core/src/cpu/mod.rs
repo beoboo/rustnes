@@ -106,7 +106,7 @@ impl CpuWrapper {
     }
 
     /// Install the DMC's DMA. See [`Cpu::dma_halt`].
-    pub fn set_dma_halt(&self, halt: Rc<dyn Fn() -> u8>) {
+    pub fn set_dma_halt(&self, halt: Rc<dyn Fn(DmaHalt) -> u8>) {
         self.cpu.borrow_mut().set_dma_halt(halt);
     }
 
@@ -226,6 +226,20 @@ impl InterruptLines {
 /// `ppu_vbl_nmi/05-nmi_timing` prints which instruction an NMI landed after, one PPU clock later
 /// each line; with the whole cycle run before the access, every transition in its table came out
 /// one line late.
+/// The two halves of a DMA halt. See [`Cpu::dma_halt`].
+///
+/// Two rather than one because the byte is fetched on the *last* of the halt's cycles, not the
+/// first: doing it up front puts the sample in the buffer four cycles early, and `bytes_remaining`
+/// with it — which is what `$4015`'s bit 4 reports, and what a program synchronising itself with
+/// the DMC polls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DmaHalt {
+    /// How many cycles does the DMA want, if any? Must not perform the access.
+    Ask,
+    /// The halt is over: perform the access now.
+    Fetch,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClockPhase {
     /// Before the access: the part of the cycle the access is waiting on.
@@ -262,10 +276,15 @@ pub struct Cpu {
     #[allow(clippy::type_complexity)]
     /// What the DMC's DMA does when it needs a byte, run after every read cycle.
     ///
-    /// Returns how many cycles it halted the processor for, zero if it wanted nothing. When it
-    /// halted, the read that was in progress is performed a second time — see
-    /// [`read_byte`](Self::read_byte).
-    dma_halt: Option<Rc<dyn Fn() -> u8>>,
+    /// Called with [`DmaHalt::Ask`] after every read cycle, and with [`DmaHalt::Fetch`] at the end
+    /// of the halt it asks for. `Ask` returns how many cycles to halt for, zero if the DMA wants
+    /// nothing; `Fetch` performs the access and returns nothing meaningful.
+    ///
+    /// Two phases rather than one because the byte is fetched on the *last* of the halt's cycles,
+    /// not the first. Doing it up front put the sample in the buffer four cycles early, and with it
+    /// everything downstream of `bytes_remaining` — `$4015`'s bit 4, which is what a program
+    /// synchronising with the DMC polls, and the sample's end-of-run interrupt.
+    dma_halt: Option<Rc<dyn Fn(DmaHalt) -> u8>>,
 
     /// Cycles this step has spent halted for a DMA, which the opcode's own length does not count.
     stalled_cycles: Cell<u8>,
@@ -431,11 +450,12 @@ impl Cpu {
         // it is already using, and a write is not interruptible in this way.
         if self.executing.get() {
             if let Some(halt) = &self.dma_halt {
-                let stalled = halt();
+                let stalled = halt(DmaHalt::Ask);
                 if stalled > 0 {
                     for _ in 0..stalled {
                         self.stall_cycle();
                     }
+                    halt(DmaHalt::Fetch);
                     return self.memory().and_then(|memory| memory.read_byte(address));
                 }
             }
@@ -622,7 +642,7 @@ impl Cpu {
     }
 
     /// Install the DMC's DMA. See [`dma_halt`](Self::dma_halt).
-    pub fn set_dma_halt(&mut self, halt: Rc<dyn Fn() -> u8>) {
+    pub fn set_dma_halt(&mut self, halt: Rc<dyn Fn(DmaHalt) -> u8>) {
         self.dma_halt = Some(halt);
     }
 
@@ -1425,13 +1445,12 @@ mod dma_halt {
 
         // Halts once and then never again, which is how a DMC DMA behaves: it wants one byte.
         let remaining = Cell::new(1u8);
-        cpu.set_dma_halt(Rc::new(move || {
-            if remaining.get() > 0 {
+        cpu.set_dma_halt(Rc::new(move |phase| match phase {
+            DmaHalt::Ask if remaining.get() > 0 => {
                 remaining.set(0);
                 stall
-            } else {
-                0
-            }
+            },
+            _ => 0,
         }));
         cpu.set_executing(true);
 
@@ -1459,6 +1478,55 @@ mod dma_halt {
         cpu.read_byte(0x1234).expect("the read after it");
 
         assert_eq!(memory.borrow().reads.borrow().len(), 1);
+    }
+
+    /// The fetch happens at the *end* of the halt, not at its start.
+    ///
+    /// Four cycles apart, and they are four cycles in which the DMC still has a byte outstanding.
+    /// `$4015`'s bit 4 reports exactly that, and a program synchronising itself with the DMC —
+    /// `dmc_dma_during_read4`'s `sync_dmc` is one, and it resolves to a single cycle — polls it.
+    /// Fetching up front hands the byte over before the processor has finished waiting for it.
+    #[test]
+    fn the_fetch_happens_at_the_end_of_the_halt_not_the_start() {
+        let order = Rc::new(RefCell::new(Vec::new()));
+
+        let memory = Rc::new(RefCell::new(CountingRam {
+            ram: Ram::with_range(0x0000, 0xFFFF),
+            reads: RefCell::new(Vec::new()),
+        }));
+
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(memory.clone());
+
+        let clock_order = Rc::clone(&order);
+        cpu.set_clock(Rc::new(move |phase| {
+            if phase == ClockPhase::AfterAccess {
+                clock_order.borrow_mut().push("cycle");
+            }
+        }));
+
+        let halt_order = Rc::clone(&order);
+        let remaining = Cell::new(1u8);
+        cpu.set_dma_halt(Rc::new(move |phase| match phase {
+            DmaHalt::Ask if remaining.get() > 0 => {
+                remaining.set(0);
+                4
+            },
+            DmaHalt::Ask => 0,
+            DmaHalt::Fetch => {
+                halt_order.borrow_mut().push("fetch");
+                0
+            },
+        }));
+        cpu.set_executing(true);
+
+        cpu.read_byte(0x1234).expect("reading");
+
+        assert_eq!(
+            *order.borrow(),
+            vec!["cycle", "cycle", "cycle", "cycle", "cycle", "fetch"],
+            "the read's own cycle, then four halted ones, and only then the fetch"
+        );
     }
 
     /// The halt's cycles are real ones: the rest of the machine advances through them.

@@ -885,11 +885,18 @@ file rather than on anything specific to the suite.
         around "4 DMC wait-states" as a constant, so the stall is a constant four and the parity
         idea can be crossed off rather than retried.
 
-      Neither moving the request nor moving the halt changes where the doubled read lands, and the
-      stall's length is fixed. The offset is in none of the three — worth knowing before a fourth
-      attempt at the same places. What has not been looked at: when `$4015`'s bit 4 clears relative
-      to the fetch, which is what `sync_dmc` actually polls, and therefore what sets the phase of
-      everything the test does afterwards.
+      - Fetching the byte at the *end* of the halt rather than at its start, which is where it
+        happens: the four cycles the processor waits are four cycles in which the DMC still has a
+        byte outstanding, and `$4015`'s bit 4 reports exactly that. This one was a real ordering
+        error and is fixed — the fetch was arriving four cycles early, taking `bytes_remaining`,
+        bit 4 and the end-of-sample interrupt with it — but it moves no column either, so it is
+        pinned by `cpu::dma_halt` rather than by these ROMs.
+
+      Four places the missing clock is not: the request's position within the DMC's tick, the halt's
+      position relative to the read, the stall's length, and the fetch's position within the stall.
+      The last of those was the standing suspicion, because `sync_dmc` polls bit 4 and resolves to a
+      single cycle — so its elimination is worth more than the other three. Whatever remains is not
+      in the DMA's own shape.
 
       The mechanism itself is pinned by `cpu::dma_halt` rather than by these ROMs, which report five
       numbers and can say the halt landed on the wrong run but not whether it doubles the read at

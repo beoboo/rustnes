@@ -7,7 +7,7 @@ use crate::{
     apu::{Apu, ApuWrapper},
     audio::SampleProducer,
     cartridge::{create_mapper, mapper_name, supported_mappers, Cartridge, Mapper, Mirroring, Rom},
-    cpu::{ClockPhase, Cpu, CpuRegisters, CpuWrapper},
+    cpu::{ClockPhase, Cpu, CpuRegisters, CpuWrapper, DmaHalt},
     errors::NesError,
     input::{ControllerHandlerWrapper, ControllerState},
     memory::{Addressable, Ram},
@@ -426,17 +426,19 @@ impl NesSystem {
             // instruction's length rather than being bolted on after it.
             let dmc = apu_for_dmc;
             let dmc_bus = Rc::clone(&bus);
-            cpu.set_dma_halt(Rc::new(move || {
-                let Some(address) = dmc.take_dmc_fetch() else {
-                    return 0;
-                };
-
-                // A real bus access: the sample comes from cartridge space through whichever bank
-                // is switched in, and it leaves its value on the open bus like any other read.
-                let byte = dmc_bus.borrow().read_byte(address).unwrap_or(0);
-                dmc.supply_dmc_byte(byte);
-
-                DMC_STALL_CYCLES
+            cpu.set_dma_halt(Rc::new(move |phase| match phase {
+                DmaHalt::Ask if dmc.wants_dmc_fetch() => DMC_STALL_CYCLES,
+                DmaHalt::Ask => 0,
+                DmaHalt::Fetch => {
+                    if let Some(address) = dmc.take_dmc_fetch() {
+                        // A real bus access: the sample comes from cartridge space through
+                        // whichever bank is switched in, and it leaves its value on the open bus
+                        // like any other read.
+                        let byte = dmc_bus.borrow().read_byte(address).unwrap_or(0);
+                        dmc.supply_dmc_byte(byte);
+                    }
+                    0
+                },
             }));
 
             cpu.set_clock(clock);

@@ -196,6 +196,11 @@ impl DmcChannel {
         self.irq_pending = false;
     }
 
+    /// Whether the channel is waiting on a byte, leaving the request where it is.
+    pub fn wants_fetch(&self) -> bool {
+        self.pending_fetch.is_some()
+    }
+
     /// The address this channel wants read, if it is waiting on one. Clears the request.
     pub fn take_pending_fetch(&mut self) -> Option<u16> {
         self.pending_fetch.take()

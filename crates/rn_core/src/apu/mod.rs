@@ -109,6 +109,14 @@ impl ApuWrapper {
         self.apu.borrow_mut().take_dmc_fetch()
     }
 
+    /// Whether the DMC is waiting on a byte, without taking the request.
+    ///
+    /// The halt has to be decided before it runs and the fetch performed after it, so the question
+    /// gets asked once and answered twice.
+    pub fn wants_dmc_fetch(&self) -> bool {
+        self.apu.borrow().wants_dmc_fetch()
+    }
+
     /// Hand the DMC the byte it asked for.
     pub fn supply_dmc_byte(&self, value: u8) {
         self.apu.borrow_mut().supply_dmc_byte(value);
@@ -284,6 +292,11 @@ impl Apu {
     /// The address the DMC wants a sample byte from, if it is waiting on one.
     pub fn take_dmc_fetch(&mut self) -> Option<u16> {
         self.dmc.take_pending_fetch()
+    }
+
+    /// Whether the DMC is waiting on a byte. See [`ApuWrapper::wants_dmc_fetch`].
+    pub fn wants_dmc_fetch(&self) -> bool {
+        self.dmc.wants_fetch()
     }
 
     /// Hand the DMC the byte it asked for.
