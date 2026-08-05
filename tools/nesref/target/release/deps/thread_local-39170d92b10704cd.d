@@ -1,0 +1,9 @@
+/Users/pietroatzeni/git/rustnes4/tools/nesref/target/release/deps/thread_local-39170d92b10704cd.d: /Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/lib.rs /Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/cached.rs /Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/thread_id.rs
+
+/Users/pietroatzeni/git/rustnes4/tools/nesref/target/release/deps/libthread_local-39170d92b10704cd.rlib: /Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/lib.rs /Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/cached.rs /Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/thread_id.rs
+
+/Users/pietroatzeni/git/rustnes4/tools/nesref/target/release/deps/libthread_local-39170d92b10704cd.rmeta: /Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/lib.rs /Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/cached.rs /Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/thread_id.rs
+
+/Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/lib.rs:
+/Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/cached.rs:
+/Users/pietroatzeni/.asdf/installs/rust/1.93.0/registry/src/index.crates.io-1949cf8c6b5b557f/thread_local-1.1.10/src/thread_id.rs:

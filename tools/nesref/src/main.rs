@@ -8,11 +8,34 @@ use tetanes_core::control_deck::ControlDeck;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let rom = args.next().expect("usage: nesref <rom> [frames]");
+    let rom = args.next().expect("usage: nesref <rom> [frames] [--trace N]");
     let frames: usize = args.next().unwrap_or_else(|| "1800".into()).parse()?;
+
+    // `--trace N`: print one line per instruction for N instructions and stop, in the same shape
+    // `rom_test trace` prints, so the two can be diffed line for line. The first line that differs
+    // is the bug; everything above it is agreement that has been checked rather than assumed.
+    let trace: Option<u64> = match args.next().as_deref() {
+        Some("--trace") => Some(args.next().unwrap_or_else(|| "1000000".into()).parse()?),
+        _ => None,
+    };
 
     let mut deck = ControlDeck::new();
     deck.load_rom_path(&rom)?;
+
+    if let Some(instructions) = trace {
+        // tetanes gates its per-instruction line on `tracing::enabled!(TRACE)` but prints it with
+        // `println!`, so the subscriber only has to answer the question — its own writer is sent to
+        // a sink, or the emulator's internal `trace!` calls would bury the instruction stream.
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(std::io::sink)
+            .init();
+
+        for _ in 0..instructions {
+            deck.clock_instr()?;
+        }
+        return Ok(());
+    }
 
     for _ in 0..frames {
         let _ = deck.clock_frame()?;

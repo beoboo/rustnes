@@ -1,0 +1,1 @@
+{"rustc":2833068300835136146,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[79185768988612603,"build_script_build",false,18115790259796677094]],"local":[{"RerunIfChanged":{"output":"release/build/tetanes-core-a978ebb37c1c2816/output","paths":["src/video/ntsc_palette.rs","build.rs"]}}],"rustflags":[],"config":0,"compile_kind":0}

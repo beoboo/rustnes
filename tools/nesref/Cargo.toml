@@ -8,4 +8,10 @@ publish = false
 [dependencies]
 # A path outside this repository, which is why this crate is excluded from the workspace: it only
 # builds where someone has cloned tetanes, and `cargo build` at the root must not depend on that.
-tetanes-core = { path = "../../../tetanes/tetanes-core" }
+#
+# The `trace` feature is what makes `--trace` possible: it is the only way tetanes emits one line
+# per instruction, and that line is what the differential diff is built on.
+tetanes-core = { path = "../../../tetanes/tetanes-core", features = ["trace"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
