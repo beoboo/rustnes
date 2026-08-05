@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::Cell, cell::RefCell, rc::Rc};
 
 use log::{debug, error, info, warn};
 
@@ -294,6 +294,12 @@ impl NesSystem {
 
         let mapper: MapperSlot = Rc::new(RefCell::new(None));
 
+        // Whether the CPU cycle now running is an odd one. Maintained here rather than read from
+        // the CPU, because the sprite DMA needs it during a write — at which point the CPU is
+        // already mutably borrowed. Toggled once per cycle by the clock below.
+        let odd_cycle = Rc::new(Cell::new(false));
+        dma.connect_cycle_parity(Rc::clone(&odd_cycle));
+
         // Advance everything except the CPU by one CPU cycle, installed into the CPU so that each
         // of an instruction's bus accesses sees the rest of the system where it actually stands.
         //
@@ -312,6 +318,10 @@ impl NesSystem {
                 // is the difference between an NMI being noticed by this cycle's poll or the next
                 // one's. Measured on `ppu_vbl_nmi/05-nmi_timing`: with all three dots ahead of the
                 // access, every transition in its table came out one line late.
+                if phase == ClockPhase::BeforeAccess {
+                    odd_cycle.set(!odd_cycle.get());
+                }
+
                 let dots = match phase {
                     ClockPhase::BeforeAccess => 2,
                     ClockPhase::AfterAccess => 1,
@@ -631,6 +641,7 @@ impl NesSystem {
             // cycles instead of 29781, which is exactly the sort of error that looks like the CPU
             // and PPU being out of step when they are not.
             self.cpu.set_cycles(self.cpu.cycles() + 1);
+
         } else {
             // Either Completed or Inactive, run the CPU
             dma_active = false;

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, fmt::Debug, rc::Rc};
+use std::{cell::Cell, cell::RefCell, fmt::Debug, rc::Rc};
 
 use crate::{cpu::CpuInterface, errors::NesError, memory::Addressable, ppu::PpuInterface};
 
@@ -15,6 +15,11 @@ impl<C: CpuInterface, P: PpuInterface> DmaControllerWrapper<C, P> {
 
     pub fn connect_cpu(&mut self, cpu: C) {
         self.dma.borrow_mut().connect_cpu(cpu);
+    }
+
+    /// Share the CPU cycle parity, for deciding whether a transfer is 513 cycles or 514.
+    pub fn connect_cycle_parity(&mut self, odd: Rc<Cell<bool>>) {
+        self.dma.borrow_mut().odd_cycle = Some(odd);
     }
 
     pub fn connect_ppu(&mut self, ppu: P) {
@@ -75,6 +80,20 @@ pub struct DmaController<C: CpuInterface, P: PpuInterface> {
 
     /// PPU component
     ppu: Option<P>,
+
+    /// How many cycles this transfer was started with — 513 or 514.
+    ///
+    /// Kept because the cycle *within* the transfer is derived from it, and a hardcoded 513 both
+    /// mislabels every cycle of a 514-cycle transfer and underflows on its first one.
+    transfer_length: u16,
+
+    /// Whether the CPU cycle now running is an odd one.
+    ///
+    /// Shared rather than asked of the CPU, because a write to `$4014` arrives while the CPU is
+    /// already mutably borrowed — the same reason the interrupt lines are shared cells. Only the
+    /// parity is wanted: a transfer alternates read and write cycles and can only begin on a read,
+    /// so starting on the wrong one costs an alignment cycle.
+    odd_cycle: Option<Rc<Cell<bool>>>,
 }
 
 impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
@@ -85,6 +104,8 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
             cycles_remaining: 0,
             transfer_active: false,
             read_buffer: 0,
+            transfer_length: 513,
+            odd_cycle: None,
             cpu: None,
             ppu: None,
         }
@@ -123,7 +144,7 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
     /// Returns 0 when not active
     pub fn cycles_elapsed(&self) -> u16 {
         if self.is_active() {
-            513 - self.cycles_remaining()
+            self.transfer_length - self.cycles_remaining()
         } else {
             0
         }
@@ -140,7 +161,7 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
         }
 
         // Calculate the current cycle index (0-512)
-        let current_cycle = 513 - self.cycles_remaining;
+        let current_cycle = self.transfer_length - self.cycles_remaining;
 
         // First cycle (0) is just setup, no data transfer
         if current_cycle == 0 {
@@ -206,14 +227,20 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
         result
     }
 
-    /// Begin a DMA transfer
+    /// Begin a DMA transfer.
+    ///
+    /// 513 cycles, or 514 — one halt cycle, then 256 read/write pairs. The transfer alternates
+    /// reads and writes and can only start on a read cycle, so a `$4014` write landing on the
+    /// wrong parity spends an extra cycle waiting for one. It is a single cycle in five hundred
+    /// and it is measurable: `cpu_interrupts_v2/4-irq_and_dma` walks an IRQ across the whole
+    /// transfer a cycle at a time and reports which instruction it landed after, and a fixed 513
+    /// gets every row right but the one at the very end.
     fn begin_transfer(&mut self, source_high_byte: u8) {
         self.source_high_byte = source_high_byte;
 
-        // DMA takes 513 cycles (1 setup + 256 * 2 for read/write)
-        // In the actual hardware, it could be 514 cycles if starting on an odd cycle
-        // For simplicity, we'll use 513
-        self.cycles_remaining = 513;
+        let odd = self.odd_cycle.as_ref().is_some_and(|odd| odd.get());
+        self.transfer_length = if odd { 514 } else { 513 };
+        self.cycles_remaining = self.transfer_length;
         self.transfer_active = true;
     }
 
@@ -384,6 +411,44 @@ mod tests {
         }
     }
 
+
+
+    /// A transfer started on an odd cycle takes 514 cycles, not 513.
+    ///
+    /// The sprite DMA alternates read and write cycles and can only begin on a read one, so a
+    /// `$4014` write landing on the wrong parity spends a cycle waiting for the right one. One
+    /// cycle in five hundred, and invisible until something counts them.
+    #[test]
+    fn a_transfer_started_on_an_odd_cycle_takes_one_cycle_longer() -> Result<(), NesError> {
+        let odd = Rc::new(Cell::new(false));
+
+        let (mut dma, _cpu, _ppu) = setup_dma();
+        dma.odd_cycle = Some(Rc::clone(&odd));
+
+        odd.set(false);
+        dma.write_byte(0x4014, 0x02)?;
+        assert_eq!(dma.cycles_remaining, 513, "an even cycle starts a transfer at once");
+
+        let mut cycles = 0;
+        while dma.is_active() {
+            dma.tick();
+            cycles += 1;
+        }
+        assert_eq!(cycles, 513);
+
+        odd.set(true);
+        dma.write_byte(0x4014, 0x02)?;
+        assert_eq!(dma.cycles_remaining, 514, "an odd one waits a cycle for a read cycle");
+
+        let mut cycles = 0;
+        while dma.is_active() {
+            dma.tick();
+            cycles += 1;
+        }
+        assert_eq!(cycles, 514);
+
+        Ok(())
+    }
 
     /// The copy starts at OAMADDR, wraps, and leaves OAMADDR where it found it.
     ///

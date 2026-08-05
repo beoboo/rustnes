@@ -801,7 +801,23 @@ file rather than on anything specific to the suite.
       sequence has to leave the shadows clear behind it, or an NMI arriving during its own seven
       cycles — too late to hijack the vector — is serviced the instant the sequence ends and the
       handler never reaches its first instruction. `BRK` already did this; the hardware sequence
-      needed it too. What is left is `4-irq_and_dma` and the combined ROM that runs it. `3-nmi_and_irq` is closer but not
+      needed it too. What is left is `4-irq_and_dma` and the combined ROM that runs it.
+
+      **`4-irq_and_dma` is down to a single row**, and the two obvious causes are ruled out. Its
+      table walks an IRQ across a sprite DMA a cycle at a time, 528 rows of it; every row matches
+      except `+526`, where it wants `8` and we say `9`.
+
+      - **The transfer's length is now right** — 513 cycles, or 514 when the `$4014` write lands on
+        an odd cycle, because the transfer alternates read and write cycles and can only begin on a
+        read. Unit-tested. It did not move the ROM, so whatever `+526` is about, it is not the
+        length.
+      - **Polling the interrupt lines through the DMA's cycles was tried and reverted as inert.**
+        Both references do poll during a transfer — the processor is halted, not switched off — and
+        our shadow stands still for all 513 cycles. Adding it changed the instruction count and
+        moved no row of the table. It could not be tested either: the clock recomputes the IRQ line
+        from the APU and mapper every cycle, so an externally raised IRQ cannot survive to be
+        observed, and a real test needs the APU's frame IRQ arranged to fall inside a transfer.
+        Worth doing properly, but not on a guess. `3-nmi_and_irq` is closer but not
       passing: an NMI arriving while an IRQ is being vectored now takes the vector, as it should,
       but hardware's window for that is wider than ours — the table alternates where it should hold
       a run of the same value. `2-nmi_and_brk` passes, which is the
