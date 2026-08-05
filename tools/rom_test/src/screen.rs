@@ -114,6 +114,11 @@ pub fn report(rom_path: &Path, frames: usize, raw: bool) -> Result<()> {
 /// - The 2005 PPU tests print a result code as `$nn`, of which the readme says "a result code of 1
 ///   always indicates that all tests were passed"; anything else is that test's own error number,
 ///   listed per ROM in the same file.
+/// - `blargg_nes_cpu_test5` says neither. It lists the tests it ran and ends with "All tests
+///   complete", or with "Errors: n" and "Failed". Both endings were produced before this was
+///   written — the failing one by deliberately breaking `ASL`'s carry flag and running the ROM —
+///   rather than inferred from the passing one, because "complete" is not "passed" and a rule that
+///   assumed so would turn a broken emulator green.
 ///
 /// Anything else returns `None` rather than a guess. A wrong verdict read off the screen is worse
 /// than no verdict at all: it would turn an unmeasured ROM into a green one.
@@ -124,6 +129,7 @@ pub fn verdict(text: &str) -> Option<Verdict> {
         return Some(Verdict::Passed);
     }
 
+    // Checked before the completion line below, so a run that somehow printed both is a failure.
     if let Some(rest) = upper.split_once("FAILED").map(|(_, rest)| rest) {
         // "FAILED #3" carries the sub-test number; a bare "FAILED" does not.
         let code = rest
@@ -140,6 +146,12 @@ pub fn verdict(text: &str) -> Option<Verdict> {
             })
             .unwrap_or(0);
         return Some(Verdict::Failed { code });
+    }
+
+    // The instruction-battery form: a list of what ran, and a line saying it got to the end. A
+    // failing run does not reach it — it stops and says "Errors: n" and "Failed" instead.
+    if upper.contains("ALL TESTS COMPLETE") {
+        return Some(Verdict::Passed);
     }
 
     // A result code on its own, as `$nn`.
@@ -182,6 +194,30 @@ mod tests {
         assert_eq!(verdict("$01"), Some(Verdict::Passed));
         assert_eq!(verdict("$06"), Some(Verdict::Failed { code: 6 }));
         assert_eq!(verdict("$0A"), Some(Verdict::Failed { code: 10 }));
+    }
+
+    /// The instruction batteries end with a completion line rather than a verdict.
+    ///
+    /// Both endings were produced from the emulator before this rule was written: the passing one
+    /// by running `blargg_nes_cpu_test5/official` as it stood, the failing one by deliberately
+    /// breaking `ASL`'s carry flag first. Guessing that "complete" meant "passed" would have made
+    /// a broken emulator report green, which is the one outcome worth going out of the way to
+    /// prevent.
+    #[test]
+    fn reads_the_completion_form_and_the_failure_that_replaces_it() {
+        assert_eq!(
+            verdict("01-implied\n02-immediate\nAll tests complete"),
+            Some(Verdict::Passed)
+        );
+        assert_eq!(
+            verdict("01-implied\n02-immediate\nErrors: 5\nFailed"),
+            Some(Verdict::Failed { code: 0 })
+        );
+        // And a failure wins even if both lines somehow appear.
+        assert_eq!(
+            verdict("All tests complete\nFailed"),
+            Some(Verdict::Failed { code: 0 })
+        );
     }
 
     /// The important negative: a screen that says nothing must not be read as saying something.

@@ -585,7 +585,14 @@ Measured for the first time, and three of them were already passing:
       exactly what hardware will not let you do.
 - [ ] ppu_read_buffer — 0/1, but 76 of its 79 sub-tests pass. Failing 57, 60 and 73; 57 is
       "setting PPU address to 3FFF and reading $2007 thrice should give the contents of $0000".
-- [ ] dmc_tests — 0/4, blargg_nes_cpu_test5 — 0/2
+- [x] blargg_nes_cpu_test5 — 2/2, including `cpu.nes`, which covers the unofficial instructions
+      too. It was passing already; it reports by listing what it ran and ending with "All tests
+      complete", which the screen reader could not interpret. The failing form — "Errors: n" and
+      "Failed" — was produced deliberately, by breaking `ASL`'s carry flag, before that rule was
+      written: "complete" is not "passed", and guessing would have turned a broken emulator green.
+- [ ] dmc_tests — 0/4, still unmeasured rather than failing. All four draw nothing at all to the
+      nametable and end on a self-jump at `$E14E`, so they report by some means this runner cannot
+      read — audio, most likely, since the suite is about DMC buffering and latency.
 
 ### [Testing] Pass the suites [T8]
 Standing as of the last run. Most of what remains is blocked on the two rewrites at the end of this
