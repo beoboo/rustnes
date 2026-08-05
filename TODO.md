@@ -608,8 +608,24 @@ than an assumption. What it said the first time, on `5-branch_delays_irq`:
   possibilities on hardware. Ours is the one that passes `05-nmi_timing`, `4-scanline_timing` and
   `4017_timing`, all of which measure to the dot. Theirs is a different legal choice.
 
-So `5-branch_delays_irq` is not an alignment fault, and the next step for it is to keep diffing past
-the point where the two traces still agree.
+So `5-branch_delays_irq` is not an alignment fault. Diffing further, and what it has ruled out:
+
+- **The remaining divergence in the trace is benign.** With the scanline fixed, the first differing
+  instruction moves from 8198 to 42443, and it is a `BIT $2002 / BPL` loop waiting on vblank. Our
+  read lands just after the flag is set and tetanes' just before, so tetanes waits an extra frame.
+  That is the two-dot phase difference doing exactly what a poll sitting on the boundary must do,
+  and both behaviours are legal.
+- **The phase is not the fault either.** Shifting our power-on phase by one dot and by two changes
+  nothing: `5-branch_delays_irq` still fails identically. The test syncs to vblank before measuring,
+  so it is insensitive to where the machine started, which is what one would hope.
+- **Our branch rule already matches tetanes exactly** — same `run_irq && !prev_run_irq` test, same
+  placement before the dummy read. And the sub-test that actually fails is the first one,
+  `test_jmp`, which contains no branches at all. The name is misleading about where the fault is.
+
+What that leaves is interrupt delivery around `JMP`, and the way to get at it is to align the two
+traces on a landmark *after* the vblank sync rather than diffing from the start — the naive diff
+stops at the benign divergence above. That is a refinement of the technique rather than a new idea,
+and it is where the next sitting should begin.
 
 Its read and write paths otherwise agree with ours closely — the PPU's write-only registers return
 the PPU's own latch, everything unmapped returns the CPU's, and a write drives the bus either way.
