@@ -44,6 +44,14 @@ pub const MASK_EMPHASIZE_BLUE: u8 = 0x80; // Emphasize blue
 /// themselves — so ten is both the physical value and one dot clear of the only nearby edge.
 const A12_FILTER_DOTS: u16 = 10;
 
+/// How long a bit of the PPU's I/O latch survives without being refreshed, in frames.
+///
+/// "If a bit isn't refreshed with a 1 for about 600 milliseconds, it will decay to 0 (some decay
+/// sooner, depending on the NES and temperature)." Thirty-six frames is 600ms at the NTSC rate.
+/// `ppu_open_bus` checks both ends of it: that a written value is still there shortly afterwards,
+/// and that it has become zero within a second.
+const IO_LATCH_DECAY_FRAMES: u64 = 36;
+
 // PPUSTATUS ($2002) bits
 pub const STATUS_SPRITE_OVERFLOW: u8 = 0x20; // Sprite overflow occurred
 pub const STATUS_SPRITE_ZERO_HIT: u8 = 0x40; // Sprite 0 hit occurred
@@ -412,6 +420,18 @@ pub struct Ppu {
     /// anywhere near the dummy writes it is named for.
     io_latch: Cell<u8>,
 
+    /// The frame each bit of the I/O latch was last refreshed on.
+    ///
+    /// The latch is a *decay* register: it is dynamic storage with nothing holding it up, so a bit
+    /// that is not refreshed leaks away to zero in about 600 milliseconds. Per bit, because the
+    /// registers refresh different parts of it — reading `$2002` refreshes its top three bits and
+    /// leaves the other five to rot.
+    ///
+    /// Held as the frame a bit was last written rather than counted down every dot: the answer is
+    /// only ever needed when the latch is read, and a countdown on the PPU's hottest path would
+    /// cost eight decrements five million times a second to produce it no sooner.
+    io_latch_refreshed: Cell<[u64; 8]>,
+
     /// Nametable layout, set from the cartridge header.
     mirroring: Mirroring,
 
@@ -752,6 +772,7 @@ impl Ppu {
             nmi_line: Cell::new(false),
             rendering_enabled: Cell::new(false),
             io_latch: Cell::new(0),
+            io_latch_refreshed: Cell::new([0; 8]),
             mirroring: Mirroring::default(),
             diagnostics: FrameDiagnostics {
                 last_toggle_scanline: -1,
@@ -2173,13 +2194,67 @@ impl Ppu {
     // --- PPU Register Access Methods ---
 
     /// Read from a PPU register (mapped at $2000-$2007)
-    pub fn read_register(&self, address: u16) -> u8 {
-        let value = self.read_register_inner(address);
+    /// The I/O latch as it stands, with any bits that have rotted away since they were last
+    /// refreshed taken out of it.
+    fn io_latch(&self) -> u8 {
+        let mut value = self.io_latch.get();
+        let refreshed = self.io_latch_refreshed.get();
 
-        // Every register read refreshes the latch with what came back, so the *next* read of a
-        // write-only register returns this.
+        for (bit, written_on) in refreshed.iter().enumerate() {
+            if self.frame_count.saturating_sub(*written_on) >= IO_LATCH_DECAY_FRAMES {
+                value &= !(1 << bit);
+            }
+        }
+
         self.io_latch.set(value);
         value
+    }
+
+    /// Drive `value` onto the bits of the latch named by `mask`, and restart their decay.
+    ///
+    /// The mask is the whole of what distinguishes the registers from one another. A read of
+    /// `$2002` supplies three bits and refreshes only those; a read of a write-only register
+    /// supplies none and refreshes nothing, which is why holding a value there does not keep it
+    /// alive; a write supplies all eight whatever register it was aimed at.
+    fn refresh_io_latch(&self, value: u8, mask: u8) {
+        let current = self.io_latch();
+        self.io_latch.set((current & !mask) | (value & mask));
+
+        let mut refreshed = self.io_latch_refreshed.get();
+        for (bit, written_on) in refreshed.iter_mut().enumerate() {
+            if mask & (1 << bit) != 0 {
+                *written_on = self.frame_count;
+            }
+        }
+        self.io_latch_refreshed.set(refreshed);
+    }
+
+    pub fn read_register(&self, address: u16) -> u8 {
+        match address & 0x7 {
+            // $2002 defines only its top three bits; the rest of the byte is the latch, and reading
+            // it does not refresh them.
+            0x2 => {
+                let value = self.read_register_inner(address);
+                self.refresh_io_latch(value, 0xE0);
+                value
+            },
+            // $2004 and $2007 answer with real data across the whole byte — except a palette read
+            // through $2007, whose top two bits do not exist and are handled in `read_data`.
+            0x4 => {
+                let value = self.read_register_inner(address);
+                self.refresh_io_latch(value, 0xFF);
+                value
+            },
+            0x7 => {
+                let palette = (self.ppu_addr.get() & 0x3FFF) >= 0x3F00;
+                let value = self.read_register_inner(address);
+                self.refresh_io_latch(value, if palette { 0x3F } else { 0xFF });
+                value
+            },
+            // The write-only registers drive nothing at all, so a read of one returns the latch
+            // and leaves every bit of it to carry on decaying.
+            _ => self.io_latch(),
+        }
     }
 
     fn read_register_inner(&self, address: u16) -> u8 {
@@ -2201,16 +2276,9 @@ impl Ppu {
             },
             0x4 => self.read_oam_data(),
             0x7 => self.read_data(),
-            _ => {
-                // $2000, $2001, $2003, $2005 and $2006 are write-only and drive nothing at all, so
-                // the value on the lines is whatever the latch is still holding.
-                log::debug!(
-                    "Read from write-only register ${:04X}, returning the I/O latch: ${:02X}",
-                    address,
-                    self.io_latch.get()
-                );
-                self.io_latch.get()
-            },
+            // Reached only through `read_register` above, which answers the write-only registers
+            // itself.
+            _ => self.io_latch(),
         }
     }
 
@@ -2219,8 +2287,8 @@ impl Ppu {
         log::debug!("PPU write_register: ${:04X} = ${:02X}", address, value);
 
         // A write puts its value on the PPU's lines whichever register it was aimed at, so it
-        // refreshes the I/O latch too — including for the registers that ignore the write.
-        self.io_latch.set(value);
+        // refreshes every bit of the latch — including for the registers that ignore the write.
+        self.refresh_io_latch(value, 0xFF);
 
         match address & 0x7 {
             0x0 => self.write_control(value),
@@ -2265,7 +2333,7 @@ impl Ppu {
 
         // Only the top three bits of $2002 exist. The other five are not zero and never were —
         // nothing drives them, so they come back holding whatever the I/O latch last saw.
-        let result = (self.status.get() & 0xE0) | (self.io_latch.get() & 0x1F);
+        let result = (self.status.get() & 0xE0) | (self.io_latch() & 0x1F);
 
         // Reading status resets the write toggle
         self.write_toggle.set(false);
@@ -2329,7 +2397,9 @@ impl Ppu {
 
         // Palette memory reads are not buffered — the palette answers immediately.
         if addr >= 0x3F00 {
-            let result = self.read_palette(addr);
+            // Palette entries are six bits wide. The top two do not exist, so they read back from
+            // the latch and are left to decay — `ppu_open_bus` checks both halves of that.
+            let result = (self.read_palette(addr) & 0x3F) | (self.io_latch() & 0xC0);
 
             // The read still happens on the bus, though, and it still fills the buffer.
             //
@@ -3432,6 +3502,70 @@ mod tests {
 
         assert_eq!(ppu.read_ppu_memory(0x0010), 0xA5, "CHR RAM keeps what was written to it");
         assert_eq!(ppu.read_ppu_memory(0x0011), 0x3C);
+    }
+
+
+    /// The I/O latch is a decay register: bits that are not refreshed leak away to zero.
+    ///
+    /// It is dynamic storage with nothing holding it up. `ppu_open_bus` checks both ends — that a
+    /// written value is still there shortly afterwards, and that it has become zero within a
+    /// second — so a latch that never decays and one that decays instantly both fail it.
+    #[test]
+    fn the_io_latch_decays_when_nothing_refreshes_it() {
+        let mut ppu = Ppu::new();
+
+        ppu.write_register(0x2000, 0xFF);
+        assert_eq!(ppu.read_register(0x2000), 0xFF, "just written, so still there");
+
+        // Well inside the window.
+        ppu.frame_count += IO_LATCH_DECAY_FRAMES - 1;
+        assert_eq!(ppu.read_register(0x2000), 0xFF, "not yet");
+
+        // And past it.
+        ppu.frame_count += 1;
+        assert_eq!(ppu.read_register(0x2000), 0x00, "decayed to zero");
+    }
+
+    /// Reading a write-only register does not refresh the latch, so it goes on decaying.
+    ///
+    /// The distinction the whole register table turns on: a read either supplies a bit and keeps it
+    /// alive, or reads it back and leaves it to rot. Holding a value by reading it repeatedly is
+    /// exactly what hardware will not let you do.
+    #[test]
+    fn reading_a_write_only_register_does_not_keep_the_latch_alive() {
+        let mut ppu = Ppu::new();
+
+        ppu.write_register(0x2000, 0xFF);
+
+        // Read it every frame right up to the deadline. On hardware this changes nothing.
+        for _ in 0..IO_LATCH_DECAY_FRAMES {
+            let expected = if ppu.frame_count < IO_LATCH_DECAY_FRAMES { 0xFF } else { 0x00 };
+            assert_eq!(ppu.read_register(0x2000), expected);
+            ppu.frame_count += 1;
+        }
+
+        assert_eq!(ppu.read_register(0x2001), 0x00, "reading it never refreshed it");
+    }
+
+    /// $2002 refreshes its top three bits and leaves the other five decaying.
+    #[test]
+    fn reading_status_refreshes_only_the_bits_it_defines() {
+        let mut ppu = Ppu::new();
+
+        ppu.write_register(0x2000, 0xFF);
+
+        // Read $2002 every frame past the deadline. Its top three bits stay refreshed; the low
+        // five are not its business and rot away.
+        for _ in 0..=IO_LATCH_DECAY_FRAMES {
+            ppu.read_register(0x2002);
+            ppu.frame_count += 1;
+        }
+
+        assert_eq!(
+            ppu.read_register(0x2000) & 0x1F,
+            0x00,
+            "the five bits $2002 does not define have decayed"
+        );
     }
 
     /// The PPU's eight registers repeat every eight bytes up to $3FFF.

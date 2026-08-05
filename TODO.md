@@ -575,7 +575,15 @@ Measured for the first time, and three of them were already passing:
 - [x] nes_instr_test — 11/11
 - [ ] sprite_hit_tests — 7/11, from 0/11 once CHR RAM worked
 - [ ] sprite_overflow_tests — 3/5 (`3.Timing`, `4.Obscure`)
-- [ ] ppu_open_bus — 0/1, ppu_read_buffer — 0/1, dmc_tests — 0/4, blargg_nes_cpu_test5 — 0/2
+- [x] ppu_open_bus — 1/1. The PPU's I/O latch is a *decay* register: dynamic storage with nothing
+      holding it up, so a bit not refreshed leaks to zero in about 600ms. And each register
+      refreshes a different part of it — `$2002` supplies its top three bits and leaves the other
+      five to rot, a palette read through `$2007` supplies six, a write supplies all eight, and a
+      read of a write-only register supplies none, so holding a value by reading it repeatedly is
+      exactly what hardware will not let you do.
+- [ ] ppu_read_buffer — 0/1, but 76 of its 79 sub-tests pass. Failing 57, 60 and 73; 57 is
+      "setting PPU address to 3FFF and reading $2007 thrice should give the contents of $0000".
+- [ ] dmc_tests — 0/4, blargg_nes_cpu_test5 — 0/2
 
 ### [Testing] Pass the suites [T8]
 Standing as of the last run. Most of what remains is blocked on the two rewrites at the end of this
