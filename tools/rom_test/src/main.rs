@@ -89,6 +89,14 @@ enum Command {
         /// Print the frame as ASCII, for judging it in a terminal
         #[arg(long)]
         ascii: bool,
+
+        /// Resume from a save state before running, to reach a scene inside a game
+        #[arg(long, value_name = "FILE")]
+        state: Option<PathBuf>,
+
+        /// Draw pixels from the per-dot path rather than the per-line one
+        #[arg(long)]
+        per_dot: bool,
     },
 
     /// Print the text a ROM has drawn on screen, for ROMs that report no other way
@@ -123,7 +131,9 @@ fn main() -> Result<()> {
         Command::Nestest { rom, log, limit } => run_nestest(&rom, &log, limit),
         Command::Run { rom, budget } => run_one(&rom, budget),
         Command::Cycles { rom, instructions } => cycles::report(&rom, instructions),
-        Command::Frame { rom, frames, out, ascii } => run_frame(&rom, frames, out.as_deref(), ascii),
+        Command::Frame { rom, frames, out, ascii, state, per_dot } => {
+            run_frame(&rom, frames, out.as_deref(), ascii, state.as_deref(), per_dot)
+        },
         Command::Screen { rom, frames, raw } => screen::report(&rom, frames, raw),
         Command::Suite { directory, budget } => run_suite(&directory, budget),
     }
@@ -180,13 +190,23 @@ fn run_one(rom: &Path, budget: usize) -> Result<()> {
     }
 }
 
-fn run_frame(rom: &Path, frames: usize, out: Option<&Path>, ascii: bool) -> Result<()> {
+fn run_frame(
+    rom: &Path,
+    frames: usize,
+    out: Option<&Path>,
+    ascii: bool,
+    state: Option<&Path>,
+    per_dot: bool,
+) -> Result<()> {
     if missing(rom, "ROM") {
+        return Ok(());
+    }
+    if state.is_some_and(|path| missing(path, "save state")) {
         return Ok(());
     }
 
     println!("Running {} for {frames} frames\n", rom.display());
-    let capture = frame::capture(rom, frames)?;
+    let capture = frame::capture(rom, frames, state, per_dot)?;
 
     if let Some(reason) = &capture.stopped {
         println!("  WARNING  {reason}");

@@ -1330,6 +1330,50 @@ falls — including which pattern table is being read, which is what drives MMC3
       - [ ] The interrupt lands on the right cycle, so the split's write burst starts at dot 257
             rather than dot ~190.
 
+            **Re-measured after the CPU/PPU alignment work of 2026-08-04/05, which moved the
+            interrupt poll by a dot, deleted `ADDRESS_BUS_LEAD_DOTS`, closed the cycle/access gap to
+            zero and added the eight settle cycles. It did not fix this, and the current numbers
+            are below.** `rom_test frame --state ... --per-dot` reproduces it in seconds.
+
+            Two things changed, and only one of them is good.
+
+            **The picture is nearly right now.** Switching the per-dot path on changes 71 pixels of
+            61440, against 2356 when it was last reverted, and every one of them is in rows 193 and
+            194 — the split itself. The sprite compositing and hit timing that blocked the second
+            attempt are no longer the problem; this one fault is all that is left.
+
+            **The burst still starts early, and marginally more so.** Measured from the save state:
+
+            ```
+            MMC3 IRQ raised   scanline 191 dot 261   (260 before; ADDRESS_BUS_LEAD_DOTS moved it)
+            $2006 x4          scanline 193 dots 187, 199, 211, 223   — want the first at 257
+            $2001 = $00       scanline 193 dot 235
+            $2006 = $0B,$00   scanline 193 dots 259, 271
+            $2001 = $18       scanline 194 dot 212
+            ```
+
+            IRQ to first write is 608 dots, or 202.7 CPU cycles. It should be 678 dots, 226 cycles.
+            So the burst is **23 CPU cycles early**, against 21 before.
+
+            **And that gap cannot be interrupt delivery latency**, which is the thing this entry has
+            always blamed and the reason the two rewrites were called coupled. The most a 6502 can
+            take between a line being asserted and a handler's first instruction is the rest of the
+            current instruction (at most seven cycles), one for the shadow, and seven for the
+            sequence: about fifteen. With the handler hand-counted at 190 cycles to its first write,
+            190 + 15 = 205 is the *slowest* we could possibly be, and we measure 203. There is no
+            room in the CPU for the missing 23 cycles.
+
+            So one of these is wrong, and the next sitting should find out which before touching any
+            code:
+            - the 190-cycle hand-count of the handler,
+            - the assumption that the first write belongs at dot 257,
+            - or the dot the MMC3 counter reaches zero on, which is a property of what the game
+              programmed into `$C000`/`$C001` and not of the A12 rise this project has already
+              checked twice.
+
+            The third is the least examined and the easiest to test: log the counter reload value
+            and the scanline it hits zero on, and compare against what the game wrote.
+
             Sharpened, since the numbers are exact and worth not re-deriving. The handler's six
             `STX $2006` writes land on dots 194, 206, 218, 230, 266 and 278 — the first four four
             cycles apart, then twelve cycles of other work, then the last pair. First to last is

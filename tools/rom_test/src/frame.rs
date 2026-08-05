@@ -32,7 +32,19 @@ pub struct Capture {
 }
 
 /// Run `rom` for `frames` video frames and capture the final framebuffer.
-pub fn capture(rom_path: &Path, frames: usize) -> Result<Capture> {
+///
+/// `state` resumes from a save state first, which is how a scene deep inside a game can be reached
+/// without playing it: the split in Super Mario Bros 3's status bar is a hundred frames into a
+/// level and cannot be got to by booting and waiting.
+///
+/// `per_dot` selects the per-dot pixel path over the per-line one, so the two can be compared on a
+/// real ROM rather than only on a synthetic scene.
+pub fn capture(
+    rom_path: &Path,
+    frames: usize,
+    state: Option<&Path>,
+    per_dot: bool,
+) -> Result<Capture> {
     let rom = load_rom(rom_path)
         .map_err(|e| anyhow::anyhow!("{e}"))
         .with_context(|| format!("loading {}", rom_path.display()))?;
@@ -42,6 +54,18 @@ pub fn capture(rom_path: &Path, frames: usize) -> Result<Capture> {
         .load_rom(&rom)
         .map_err(|e| anyhow::anyhow!("{e}"))
         .context("loading the ROM into the system")?;
+
+    if let Some(path) = state {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let saved = serde_json::from_str(&text).context("parsing the save state")?;
+        system
+            .load_state(&saved)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .context("restoring the save state")?;
+    }
+
+    system.ppu().set_per_dot_pixels(per_dot);
 
     let target = (CYCLES_PER_FRAME * frames as f64) as u64;
     let mut cycles = 0u64;

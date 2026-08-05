@@ -258,6 +258,15 @@ impl PpuWrapper {
         self.ppu.borrow().nmi_line.get()
     }
 
+    /// Choose which path pixels come from.
+    ///
+    /// The per-dot path is the accurate one and is off by default; see
+    /// [`per_dot_pixels`](Ppu::per_dot_pixels). Exposed so the two can be run against each other on
+    /// a real ROM rather than only on the synthetic scene the unit tests use.
+    pub fn set_per_dot_pixels(&self, per_dot: bool) {
+        self.ppu.borrow_mut().per_dot_pixels = per_dot;
+    }
+
     /// Read a byte of PPU address space, without the side effects a $2007 read would have.
     ///
     /// For looking at what the PPU holds — a nametable, the pattern tables — rather than for
