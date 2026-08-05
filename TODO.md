@@ -879,8 +879,17 @@ file rather than on anything specific to the suite.
       - Deferring the halt by one read cycle, on the grounds that `/RDY` is sampled during a cycle
         and the processor finishes the one it is on. Also moved nothing.
 
-      Neither moving the request nor moving the halt changes where the doubled read lands, which
-      says the offset is in neither — worth knowing before a third attempt at the same two places.
+      - Making the stall 3 cycles or 4 by the get/put parity, as the sprite DMA's length is. This
+        one is not merely inert but *refuted*: with a varying stall the ROM never leaves
+        `sync_dmc`'s fine-sync loop at all, spinning in its delay for good. That loop is written
+        around "4 DMC wait-states" as a constant, so the stall is a constant four and the parity
+        idea can be crossed off rather than retried.
+
+      Neither moving the request nor moving the halt changes where the doubled read lands, and the
+      stall's length is fixed. The offset is in none of the three — worth knowing before a fourth
+      attempt at the same places. What has not been looked at: when `$4015`'s bit 4 clears relative
+      to the fetch, which is what `sync_dmc` actually polls, and therefore what sets the phase of
+      everything the test does afterwards.
 
       The mechanism itself is pinned by `cpu::dma_halt` rather than by these ROMs, which report five
       numbers and can say the halt landed on the wrong run but not whether it doubles the read at
