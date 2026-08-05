@@ -1374,6 +1374,45 @@ falls — including which pattern table is being read, which is what drives MMC3
             The third is the least examined and the easiest to test: log the counter reload value
             and the scanline it hits zero on, and compare against what the game wrote.
 
+            **Traced the handler instruction by instruction, which settles most of it.** From
+            `$F77B`, SMB3's IRQ handler saves registers, dispatches on a state byte at `$0101`,
+            acknowledges the interrupt with `STA $E001`, and then runs a *fixed* delay:
+
+            ```
+            F7D0: A2 0C     LDX #$0C
+            F7D2: EA        NOP
+            F7D3: CA        DEX
+            F7D4: D0 FC     BNE $F7D2     ; 12 iterations, 7 cycles each
+            ```
+
+            Three things follow, and together they move the search away from the CPU:
+
+            1. **The handler polls nothing.** It is straight-line code and a counted delay loop, so
+               sprite-zero hit, `$2002` and every other observable are not involved in its timing.
+               Whatever is wrong, the handler cannot be being misled by the PPU.
+            2. **Its duration is therefore pure cycle counting, and ours is now exact** — every
+               opcode accounts for all of its cycles and `instr_timing` passes 3/3. Entry to first
+               write measures 194 cycles against the 190 hand-counted here, which is agreement.
+            3. **The interrupt is entered 2 cycles after the line is asserted**, which is a
+               legitimate best case and cannot be 23 cycles slower on hardware: the most a 6502 can
+               take is the rest of the current instruction, one cycle for the shadow and seven for
+               the sequence.
+
+            So the missing 23 cycles are not in the CPU at all, and this entry's long-standing claim
+            that the two rewrites are coupled is wrong. **The next sitting should look at when the
+            MMC3 counter reaches zero, not at interrupt delivery.** Specifically: what the game
+            writes to `$C000`/`$C001`, how many times the counter is clocked per frame — this file
+            already records it being clocked 243 times rather than 241 because palette accesses
+            through `$2007` put `$3Fxx` on the bus — and which scanline it therefore fires on.
+
+            **And the flicker is still present on the per-dot path**, measured across five
+            consecutive frames from the save state: rows 193 and 194 change between frames while
+            the per-line path holds them steady. It is the same drift as before — the frame is not
+            a whole number of CPU cycles, so the burst's dot moves a little each frame, and at dot
+            187 that lands inside the visible line where it shows. At dot 257 it would have the
+            whole of hblank to drift in. So the switch stays off, and the 71-pixel figure above is
+            not "nearly right" so much as "wrong in a much smaller place".
+
             Sharpened, since the numbers are exact and worth not re-deriving. The handler's six
             `STX $2006` writes land on dots 194, 206, 218, 230, 266 and 278 — the first four four
             cycles apart, then twelve cycles of other work, then the last pair. First to last is
