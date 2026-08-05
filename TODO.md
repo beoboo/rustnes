@@ -124,7 +124,9 @@ This document provides a detailed task breakdown for developing the RustNES emul
 - [x] Test correct timing ratios between components
 
 ### [Memory] Essential Memory Components [T2]
-- [x] Limit RAM to only handle the main memory region ($0000-$1FFF)
+- [x] Limit RAM to only handle the main memory region ($0000-$1FFF), as two kilobytes mirrored
+      four times across it rather than as eight flat ones — the console decodes only eleven address
+      lines for its work RAM
 - [x] Make RAM configurable with custom address ranges
 - [x] Implement PPU component with registers at $2000-$2007
 - [x] Test basic memory component interactions

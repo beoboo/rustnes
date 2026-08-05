@@ -2376,12 +2376,20 @@ impl Ppu {
 
     /// Read from PPUDATA ($2007)
     fn read_data(&self) -> u8 {
-        let addr = self.ppu_addr.get();
+        // The address register is fifteen bits and the bus is fourteen, so what the PPU is actually
+        // pointing at is `v` with the top bit dropped. Deciding *what kind* of read this is from
+        // the unmasked value made $4000 — which is what $3FFF increments to — look like a palette
+        // address because it is numerically above $3F00, when it mirrors down to $0000 and is an
+        // ordinary buffered read of the first nametable byte.
+        //
+        // `ppu_read_buffer` test 57 is exactly this: "setting PPU address to 3FFF and reading $2007
+        // thrice should give the contents of $0000".
+        let addr = self.ppu_addr.get() & 0x3FFF;
         self.notify_mapper_of_address(addr);
 
-        // Increment address after read
+        // Increment address after read. Fifteen bits, since that is the width of `v`.
         let increment = if (self.ctrl & CTRL_INCREMENT_MODE) != 0 { 32 } else { 1 };
-        self.ppu_addr.set(addr.wrapping_add(increment));
+        self.ppu_addr.set(self.ppu_addr.get().wrapping_add(increment) & 0x7FFF);
 
         // The incremented address goes on the bus as well, and it is a second thing the mapper
         // sees. That is not a detail: a program stepping from $0FFF to $1000 raises bit 12 with

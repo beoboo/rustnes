@@ -46,9 +46,10 @@ impl Bus {
             open_bus_accesses: Cell::new(0),
         };
 
-        // Attach RAM for the main memory region ($0000-$1FFF)
-        // This is the 2KB of RAM that's mirrored throughout this region in the NES
-        bus.attach_component(Box::new(Ram::with_range(0x0000, 0x1FFF)));
+        // Two kilobytes of work RAM, answering across $0000-$1FFF. The console decodes only
+        // eleven address lines for it, so the same storage appears four times over — the comment
+        // here said so for a long time while the RAM behind it was eight flat kilobytes.
+        bus.attach_component(Box::new(Ram::mirrored(0x0000, 0x1FFF, 2 * 1024)));
 
         bus
     }
