@@ -1317,9 +1317,17 @@ falls — including which pattern table is being read, which is what drives MMC3
       the two rewrites meeting again. Reproduce with a save state on that screen and diff the split
       rows frame to frame; a scratch harness for it is straightforward and was thrown away.
 
-      **Reverted for now**, so the picture is right while that is outstanding: pixels come from the
-      per-line renderer again and `emit_pixel` sits behind `per_dot_pixels`, off. What has to be
-      true before it goes back:
+      **Switched back on**, on hardware's evidence rather than on the reasoning above. With the
+      per-dot path enabled `sprite_hit_tests` goes 7/11 to **11/11**, including all four timing
+      ROMs, which measure to the dot when the hit is reported; no other suite moves either way; and
+      on a fresh boot of Super Mario Bros 3 or Donkey Kong the two paths differ on scanline 0 alone,
+      where the per-dot path is again right — sprite evaluation does not run on the pre-render line,
+      so no sprite can appear on the first line and the per-line path drew them there.
+
+      The judgement that follows: the per-line renderer was *concealing* the split fault, not
+      avoiding it, and trading a hidden fault in every game's sprite-zero timing for a visible one
+      in a single game's split is the wrong way round. The conditions below were written when the
+      comparison was between the two paths rather than against hardware.
 
       - [x] The two paths agree pixel for pixel on a static scene. They now do. They did not: the
             shift registers were reloaded *after* the dot's pixel was taken, so the first pixel of
@@ -1371,8 +1379,29 @@ falls — including which pattern table is being read, which is what drives MMC3
               programmed into `$C000`/`$C001` and not of the A12 rise this project has already
               checked twice.
 
-            The third is the least examined and the easiest to test: log the counter reload value
-            and the scanline it hits zero on, and compare against what the game wrote.
+            **Done, and it is not the mapper either.** Traced every clock the MMC3 counter takes.
+            The game writes `$C000 = 192` and `$C001` during vblank; the counter reloads to 192 on
+            the pre-render line, is clocked exactly once a line at dot 261, and reaches zero on
+            line 191 — precisely what the game asked for.
+
+            The 243-clocks-a-frame figure recorded above is real but **harmless**, and here is why
+            it was never the bug: all three extra clocks land in vblank *before* the `$C001`
+            reload, so the reload overwrites whatever they did. That is why suppressing them
+            changed nothing, and it can be struck off.
+
+            So the CPU is ruled out, the handler is ruled out, and the mapper is ruled out. What
+            remains is a 32-cycle disagreement between the handler's measured duration — 194 cycles
+            from entry to its first write, matching the hand-count, and trustworthy now that every
+            opcode accounts for all of its cycles — and the 226 cycles that a first write at dot 257
+            would need.
+
+            One of those numbers is wrong, and **dot 257 is the one that has never been measured**:
+            it was derived here by reasoning that the burst spans 84 dots and hblank is 84 dots.
+            Settling it needs a reference — the same ROM at the same point in Mesen, logging when
+            its MMC3 IRQ fires and where the handler's first `$2006` write lands. That cannot be
+            done from this checkout: Mesen2 is present but wants a .NET toolchain that is not
+            installed, and its save states are its own format, so reaching the same scene means
+            playing the game.
 
             **Traced the handler instruction by instruction, which settles most of it.** From
             `$F77B`, SMB3's IRQ handler saves registers, dispatches on a state byte at `$0101`,

@@ -65,7 +65,9 @@ pub fn capture(
             .context("restoring the save state")?;
     }
 
-    system.ppu().set_per_dot_pixels(per_dot);
+    if per_dot || std::env::var_os("RN_PER_DOT").is_some() {
+        system.ppu().set_per_dot_pixels(true);
+    }
 
     let target = (CYCLES_PER_FRAME * frames as f64) as u64;
     let mut cycles = 0u64;

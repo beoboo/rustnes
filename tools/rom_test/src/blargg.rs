@@ -88,6 +88,11 @@ pub fn run(rom_path: &Path, max_instructions: usize) -> Result<Outcome> {
         .map_err(|e| anyhow::anyhow!("{e}"))
         .context("loading the ROM into the system")?;
 
+    // The per-dot pixel path is off by default; this is how the suites are run against it.
+    if std::env::var_os("RN_PER_DOT").is_some() {
+        system.ppu().set_per_dot_pixels(true);
+    }
+
     let mut signature_seen = false;
     // When the ROM asked to be reset, so the wait can be measured from that moment.
     let mut reset_requested_at: Option<u64> = None;

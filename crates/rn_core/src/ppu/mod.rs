@@ -503,10 +503,23 @@ pub struct Ppu {
 
     /// Whether pixels come from the per-dot path rather than the per-line one.
     ///
-    /// Off, because the per-dot path renders the CPU's mistimed interrupt faithfully and so shows
-    /// a broken line at Super Mario Bros 3's status bar — see [`emit_pixel`](Self::emit_pixel).
-    /// It is a field rather than a deletion so the two paths can be run against each other, which
-    /// is what `the_two_pixel_paths_agree_on_a_static_scene` does and what re-landing it needs.
+    /// **On.** It is the accurate path and hardware says so: with it, `sprite_hit_tests` passes
+    /// 11/11 against 7/11 without, including all four timing ROMs, which measure to the dot when
+    /// the hit is reported. No other suite moves either way. On a fresh boot of Super Mario Bros 3
+    /// or Donkey Kong the two paths differ on scanline 0 alone, where the per-dot path is again the
+    /// correct one — sprite evaluation does not run on the pre-render line, so no sprite can appear
+    /// on the first line, and the per-line path draws them there.
+    ///
+    /// It was off for a long time because it renders Super Mario Bros 3's status-bar split
+    /// faithfully and the split's write burst arrives 23 CPU cycles early, so a line of it
+    /// flickers. That is a real bug which the per-line path *conceals* rather than avoids: it draws
+    /// every line from the address captured at dot 257, so a mid-line `$2006` write cannot affect
+    /// the line it falls in. Correct-looking for the wrong reason, and the reason the fault went
+    /// unexamined for so long. TODO.md carries what is known about it, including that the CPU has
+    /// now been ruled out.
+    ///
+    /// Kept as a field rather than becoming the only path, so the two can still be compared —
+    /// which is what `the_two_pixel_paths_agree_on_a_static_scene` does.
     per_dot_pixels: bool,
 
     /// The pattern address each of the eight output units fetches from.
@@ -751,7 +764,7 @@ impl Ppu {
             a12_low_dots: A12_FILTER_DOTS,
             secondary_oam: [0xFF; 32],
             sprite_eval: SpriteEval::default(),
-            per_dot_pixels: false,
+            per_dot_pixels: true,
             sprite_patterns: [0; 8],
             selected_sprites: Vec::new(),
             line_start_addr: 0,
