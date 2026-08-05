@@ -105,6 +105,11 @@ impl CpuWrapper {
         self.cpu.borrow_mut().set_clock(clock);
     }
 
+    /// Install the DMC's DMA. See [`Cpu::dma_halt`].
+    pub fn set_dma_halt(&self, halt: Rc<dyn Fn() -> u8>) {
+        self.cpu.borrow_mut().set_dma_halt(halt);
+    }
+
     /// Whether bus accesses should drive the clock. Off outside instruction execution.
     pub fn set_executing(&self, executing: bool) {
         self.cpu.borrow().set_executing(executing);
@@ -255,6 +260,16 @@ pub struct Cpu {
     /// Deliberately unable to touch the CPU: it is called while the CPU is borrowed. Interrupts
     /// reach it through the shared lines instead.
     #[allow(clippy::type_complexity)]
+    /// What the DMC's DMA does when it needs a byte, run after every read cycle.
+    ///
+    /// Returns how many cycles it halted the processor for, zero if it wanted nothing. When it
+    /// halted, the read that was in progress is performed a second time — see
+    /// [`read_byte`](Self::read_byte).
+    dma_halt: Option<Rc<dyn Fn() -> u8>>,
+
+    /// Cycles this step has spent halted for a DMA, which the opcode's own length does not count.
+    stalled_cycles: Cell<u8>,
+
     clock: Option<Rc<dyn Fn(ClockPhase)>>,
 
     /// Whether an instruction is being executed, so the clock runs only for its accesses.
@@ -352,6 +367,8 @@ impl Cpu {
             memory: None,
             decoder: InstructionDecoder::new(),
             clock: None,
+            dma_halt: None,
+            stalled_cycles: Cell::new(0),
             executing: Cell::new(false),
             clocked_cycles: Cell::new(0),
             page_cross_access: Cell::new(false),
@@ -404,6 +421,26 @@ impl Cpu {
         self.start_cycle();
         let value = self.memory().and_then(|memory| memory.read_byte(address));
         self.end_cycle();
+
+        // The DMC's DMA halts the processor here, with this address still on the bus — so the read
+        // happens again, and its side effects with it. For RAM that is not observable; for `$4016`
+        // the controller's shift register advances a second time, and for `$2007` the VRAM address
+        // does. `dmc_dma_during_read4` is five ROMs that measure exactly that.
+        //
+        // Only reads, and only while executing: the halt is the CPU being told to wait for the bus
+        // it is already using, and a write is not interruptible in this way.
+        if self.executing.get() {
+            if let Some(halt) = &self.dma_halt {
+                let stalled = halt();
+                if stalled > 0 {
+                    for _ in 0..stalled {
+                        self.stall_cycle();
+                    }
+                    return self.memory().and_then(|memory| memory.read_byte(address));
+                }
+            }
+        }
+
         value
     }
 
@@ -584,6 +621,11 @@ impl Cpu {
         self.clock = Some(clock);
     }
 
+    /// Install the DMC's DMA. See [`dma_halt`](Self::dma_halt).
+    pub fn set_dma_halt(&mut self, halt: Rc<dyn Fn() -> u8>) {
+        self.dma_halt = Some(halt);
+    }
+
     /// Open a cycle: run the rest of the system up to the point its bus access happens.
     ///
     /// Counted so the caller can make up whatever the instruction's cycle count exceeds its bus
@@ -599,6 +641,23 @@ impl Cpu {
             self.clocked_cycles.set(cycle);
             self.total_clocked.set(self.total_clocked.get() + 1);
             clock(ClockPhase::BeforeAccess);
+        }
+    }
+
+    /// Run a cycle the CPU spent halted for a DMA rather than executing.
+    ///
+    /// The clock runs, so the PPU and APU advance exactly as they would for an executing cycle, and
+    /// the cycle is counted. What does *not* happen is `end_cpu_cycle`: the interrupt shadow stands
+    /// still, because the poll that decides this instruction belongs to the instruction's own state
+    /// machine, which is frozen while the processor is halted. The sprite DMA taught that the hard
+    /// way — advancing the shadow across a halt takes the interrupt an instruction early.
+    fn stall_cycle(&self) {
+        if let Some(clock) = &self.clock {
+            self.clocked_cycles.set(self.clocked_cycles.get().saturating_add(1));
+            self.total_clocked.set(self.total_clocked.get() + 1);
+            self.stalled_cycles.set(self.stalled_cycles.get().saturating_add(1));
+            clock(ClockPhase::BeforeAccess);
+            clock(ClockPhase::AfterAccess);
         }
     }
 
@@ -824,8 +883,11 @@ impl Cpu {
     }
 
     pub fn step(&mut self) -> Result<u8, NesError> {
+        self.stalled_cycles.set(0);
+
         // An interrupt takes the place of this step's instruction.
         if let Some(cycles) = self.poll_interrupts()? {
+            let cycles = cycles.saturating_add(self.stalled_cycles.get());
             self.cycles += cycles as u64;
             return Ok(cycles);
         }
@@ -839,8 +901,9 @@ impl Cpu {
         // Execute instruction and update cycle count
         let additional_cycles = self.execute(metadata)?;
 
-        // Calculate total cycles: base cycles from metadata + any additional cycles
-        let total_cycles = metadata.cycles + additional_cycles;
+        // Calculate total cycles: base cycles from metadata, any additional cycles, and any the
+        // DMC's DMA took by halting the processor part way through.
+        let total_cycles = metadata.cycles + additional_cycles + self.stalled_cycles.get();
 
         // A CPU with no clock installed has run no cycles, so nothing has shifted the shadow along
         // and an interrupt raised between steps would never be seen. Unit tests build such a CPU;
@@ -1299,5 +1362,112 @@ mod tests {
             1,
             "one rising edge, one interrupt, however long the line stays down"
         );
+    }
+}
+
+/// A DMA that halts the processor mid-read makes that read happen twice.
+///
+/// The processor is stopped with the address it was reading still on the bus, so the read is
+/// re-issued when it starts again — and *the side effects go with it*. Nothing notices for RAM.
+/// `$4016` notices, because its shift register advances a second time, and `$2007` notices, because
+/// its address does. That is the whole subject of `dmc_dma_during_read4`.
+///
+/// Tested here rather than only through those ROMs because they report a column of five numbers and
+/// nothing else: they can say the halt landed on the wrong run, but not whether the double read
+/// happens at all.
+#[cfg(test)]
+mod dma_halt {
+    use std::{cell::RefCell, rc::Rc};
+
+    use super::*;
+    use crate::memory::{Addressable, Ram};
+
+    /// Memory that counts reads and answers a different byte each time, so the *second* read of an
+    /// address is distinguishable from the first.
+    #[derive(Debug)]
+    struct CountingRam {
+        ram: Ram,
+        reads: RefCell<Vec<u16>>,
+    }
+
+    impl Addressable for CountingRam {
+        fn handles_address(&self, address: u16) -> bool {
+            self.ram.handles_address(address)
+        }
+
+        fn read_byte(&self, address: u16) -> Result<u8, NesError> {
+            self.reads.borrow_mut().push(address);
+            Ok(self.reads.borrow().iter().filter(|&&seen| seen == address).count() as u8)
+        }
+
+        fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {
+            self.ram.write_byte(address, value)
+        }
+    }
+
+    /// A CPU wired to counting memory, with a clock that does nothing but count cycles.
+    fn cpu_with_halt(stall: u8) -> (Cpu, Rc<RefCell<CountingRam>>, Rc<Cell<u32>>) {
+        let memory = Rc::new(RefCell::new(CountingRam {
+            ram: Ram::with_range(0x0000, 0xFFFF),
+            reads: RefCell::new(Vec::new()),
+        }));
+        let cycles = Rc::new(Cell::new(0u32));
+
+        let mut cpu = Cpu::new();
+        cpu.connect_memory(memory.clone());
+
+        let ticked = Rc::clone(&cycles);
+        cpu.set_clock(Rc::new(move |phase| {
+            if phase == ClockPhase::AfterAccess {
+                ticked.set(ticked.get() + 1);
+            }
+        }));
+
+        // Halts once and then never again, which is how a DMC DMA behaves: it wants one byte.
+        let remaining = Cell::new(1u8);
+        cpu.set_dma_halt(Rc::new(move || {
+            if remaining.get() > 0 {
+                remaining.set(0);
+                stall
+            } else {
+                0
+            }
+        }));
+        cpu.set_executing(true);
+
+        (cpu, memory, cycles)
+    }
+
+    #[test]
+    fn a_halted_read_is_performed_again_and_the_second_value_is_the_one_used() {
+        let (cpu, memory, _) = cpu_with_halt(4);
+
+        let value = cpu.read_byte(0x1234).expect("reading");
+
+        let reads = memory.borrow().reads.borrow().clone();
+        assert_eq!(reads, vec![0x1234, 0x1234], "the halted read happens twice, at the same address");
+        assert_eq!(value, 2, "the value from the second read is the one the processor keeps");
+    }
+
+    /// And the read that follows is a single one, because the DMA wanted only the one byte.
+    #[test]
+    fn a_read_with_no_halt_behind_it_happens_once() {
+        let (cpu, memory, _) = cpu_with_halt(4);
+
+        cpu.read_byte(0x1234).expect("the halted read");
+        memory.borrow().reads.borrow_mut().clear();
+        cpu.read_byte(0x1234).expect("the read after it");
+
+        assert_eq!(memory.borrow().reads.borrow().len(), 1);
+    }
+
+    /// The halt's cycles are real ones: the rest of the machine advances through them.
+    #[test]
+    fn the_halt_runs_the_clock_for_every_cycle_it_takes() {
+        let (cpu, _, cycles) = cpu_with_halt(4);
+
+        cpu.read_byte(0x1234).expect("reading");
+
+        assert_eq!(cycles.get(), 5, "one cycle for the read, four more for the halt");
     }
 }

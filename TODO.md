@@ -860,6 +860,32 @@ file rather than on anything specific to the suite.
 - [x] cpu_reset — 2/2. Reset is not power-on: it sets the I flag, subtracts three from the stack
       pointer and does nothing else. A, X, Y and the other flags survive it. The three are the
       interrupt sequence going through the motions of its pushes with the writes suppressed.
+- [ ] dmc_dma_during_read4 — 2/5, and the mechanism these need now exists. The DMC's DMA runs
+      *inside* the instruction rather than after it, which is what lets it land on a read: the
+      processor is halted with that address still on the bus, so the read happens a second time and
+      its side effects with it. Invisible for RAM; `$4016`'s shift register advances again and
+      `$2007`'s address does.
+
+      `dma_4016_read` walks the DMA across a `LDA $4016` one clock per run and prints which run the
+      halt landed on. It went from `08 08 08 08 08` — no double read anywhere — to
+      `08 08 08 07 08`, against hardware's `08 08 07 08 08`. **The double read is right and its
+      alignment is one CPU clock late.**
+
+      Two attempts at that clock, both inert, both worth not repeating:
+
+      - Raising the DMC's byte request at the *end* of its tick rather than the start. The cycle
+        that empties the sample buffer into the shifter ought to be the cycle the reader asks in,
+        and asking first is asking a cycle late — but it moved no column of the table.
+      - Deferring the halt by one read cycle, on the grounds that `/RDY` is sampled during a cycle
+        and the processor finishes the one it is on. Also moved nothing.
+
+      Neither moving the request nor moving the halt changes where the doubled read lands, which
+      says the offset is in neither — worth knowing before a third attempt at the same two places.
+
+      The mechanism itself is pinned by `cpu::dma_halt` rather than by these ROMs, which report five
+      numbers and can say the halt landed on the wrong run but not whether it doubles the read at
+      all.
+
 - [x] cpu_exec_space — 2/2. Both ROMs execute code *from* I/O space and follow where the open bus
       leads, so every wrong bit becomes a wrong opcode. Three separate faults, all of them found by
       differential trace against tetanes rather than by reading our source:

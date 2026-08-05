@@ -353,13 +353,14 @@ impl NesSystem {
         {
             let ppu = ppu.clone();
             let apu = apu.clone();
+            let apu_for_dmc = apu.clone();
             let mapper_slot = Rc::clone(&mapper);
             let lines = interrupts.clone();
             let odd_cycle = Rc::clone(&odd_cycle);
             #[cfg(test)]
             let forced_irq = Rc::clone(&forced_irq);
 
-            cpu.set_clock(Rc::new(move |phase| {
+            let clock: Rc<dyn Fn(ClockPhase)> = Rc::new(move |phase| {
                 // Two of the cycle's three dots run before the access and one after it. The access
                 // happens partway through a 6502 cycle, not at its end, and the dot that follows it
                 // is the difference between an NMI being noticed by this cycle's poll or the next
@@ -410,7 +411,35 @@ impl NesSystem {
                 let forced = false;
 
                 lines.set_irq(apu.irq_pending() || mapper_irq || forced);
+            });
+
+            // The DMC's own DMA, which is not the sprite one: a single byte, fetched when the
+            // sample buffer runs dry, costing the CPU about four cycles.
+            //
+            // Installed into the CPU rather than run between instructions, because *where* it lands
+            // is the whole of what `dmc_dma_during_read4` measures. The processor is halted with
+            // the address of the read it was making still on the bus, so that read happens a second
+            // time — which is invisible for RAM and very visible for `$4016`, whose shift register
+            // advances again, and for `$2007`, whose address does.
+            //
+            // The stall's cycles are run by the CPU, through its own counters, so they land in the
+            // instruction's length rather than being bolted on after it.
+            let dmc = apu_for_dmc;
+            let dmc_bus = Rc::clone(&bus);
+            cpu.set_dma_halt(Rc::new(move || {
+                let Some(address) = dmc.take_dmc_fetch() else {
+                    return 0;
+                };
+
+                // A real bus access: the sample comes from cartridge space through whichever bank
+                // is switched in, and it leaves its value on the open bus like any other read.
+                let byte = dmc_bus.borrow().read_byte(address).unwrap_or(0);
+                dmc.supply_dmc_byte(byte);
+
+                DMC_STALL_CYCLES
             }));
+
+            cpu.set_clock(clock);
         }
 
         // The CPU/PPU alignment: which of a CPU cycle's three dots the machine starts on.
@@ -495,37 +524,6 @@ impl NesSystem {
         self.error_message = None;
         info!("Program loaded at ${:04X}, size: {} bytes", address, program.len());
         Ok(())
-    }
-
-    /// Fetch the sample byte the DMC is waiting for, and charge the CPU for the wait.
-    ///
-    /// This is a DMA, not a read the channel performs itself: hardware halts the CPU and takes the
-    /// bus for four cycles. Those cycles are the point. They are why a game's carefully counted
-    /// delay loop takes longer while a sample is playing than while one is not, and leaving them
-    /// out makes every such loop finish early — by a few cycles each time, and by a few dozen
-    /// across an interrupt handler.
-    ///
-    /// Serviced at the end of an instruction rather than partway through one. Hardware halts at
-    /// the next read cycle, so the stall can land mid-instruction; the *number* of cycles is the
-    /// same either way, and the placement is within one instruction of correct.
-    ///
-    /// Returns the cycles charged.
-    fn service_dmc_fetch(&mut self) -> u8 {
-        let Some(address) = self.apu.take_dmc_fetch() else {
-            return 0;
-        };
-
-        // Through the CPU's bus, so the sample is read from whichever PRG bank is switched in —
-        // a DMC sample lives in cartridge space and a mapper can move it.
-        let byte = self.cpu.read_byte(address).unwrap_or(0);
-        self.apu.supply_dmc_byte(byte);
-
-        for _ in 0..DMC_STALL_CYCLES {
-            self.tick_cycle();
-        }
-        self.cpu.set_cycles(self.cpu.cycles() + DMC_STALL_CYCLES as u64);
-
-        DMC_STALL_CYCLES
     }
 
     /// Run the cycles the CPU spends getting started, before its first instruction.
@@ -770,7 +768,6 @@ impl NesSystem {
             self.tick_cycle();
         }
 
-        cpu_cycles = cpu_cycles.saturating_add(self.service_dmc_fetch());
 
         // Only check for BRK if the machine is one that stops for it, and the CPU is active.
         //
