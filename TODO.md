@@ -1287,7 +1287,30 @@ falls — including which pattern table is being read, which is what drives MMC3
 
       **Outstanding: a flickering line at the status-bar split in Super Mario Bros 3.** Reported
       from the running emulator during a level, and since reproduced exactly, from a save state
-      loaded headlessly. Rows 193 and 194 alternate between mostly black and mostly backdrop.
+      loaded headlessly.
+
+      **Measured, 2026-08-05, and it is far smaller than this entry used to claim.** The sentence
+      here read "rows 193 and 194 alternate between mostly black and mostly backdrop", which was
+      written before most of this file's fixes and is no longer true. Across six consecutive frames
+      from the save state:
+
+      - Row 193 holds 208-216 black pixels and 40-48 of sky. The boundary between them moves by
+        exactly **8 pixels — one tile** — on some frame transitions and not others.
+      - Row 194 changes by 6 pixels on some frames, and those pixels are sprite colours. That is a
+        sprite animating, not the artifact.
+
+      So it is an eight-pixel boundary wobble on a single row, intermittently. It moves in eight-
+      pixel steps because the background is fetched in eight-dot groups: a frame is 29780.67 CPU
+      cycles, the CPU/PPU phase drifts about two dots a frame, and the drift only shows when it
+      crosses a fetch group. On hardware the burst lands in hblank where the same drift moves it
+      harmlessly; here it lands 70 dots earlier, inside the visible line, so the drift moves
+      something visible.
+
+      **Not established: whether row 193's static content is right either.** With the burst 70 dots
+      later the `$2001 = $00` would land around dot 305 rather than 235, so line 193 would render as
+      playfield for its whole visible width rather than being mostly black. That is a prediction
+      from the same arithmetic that gives the 23 cycles, not a measurement, and it needs the same
+      reference trace to settle.
 
       Bisected by loading that state under each commit: it arrives with this one and is unchanged
       by everything after it. The A12 work and the per-dot sprite evaluation are both ruled out —
