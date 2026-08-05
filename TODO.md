@@ -622,10 +622,33 @@ So `5-branch_delays_irq` is not an alignment fault. Diffing further, and what it
   placement before the dummy read. And the sub-test that actually fails is the first one,
   `test_jmp`, which contains no branches at all. The name is misleading about where the fault is.
 
-What that leaves is interrupt delivery around `JMP`, and the way to get at it is to align the two
-traces on a landmark *after* the vblank sync rather than diffing from the start — the naive diff
-stops at the benign divergence above. That is a refinement of the technique rather than a new idea,
-and it is where the next sitting should begin.
+**The refinement, and what it found.** Two changes to the technique, both in the repository now:
+
+- `tools/tracediff.py` diffs two traces *with resynchronisation*. On a mismatch it scans ahead in
+  both for a window that matches again, so a poll loop spinning a different number of times becomes
+  one labelled block instead of the end of the comparison.
+- `RN_RESET_DOTS=19` puts this machine exactly where tetanes starts. Without it the two part company
+  at the first `$2002` poll on the vblank boundary and everything after compares different
+  sub-tests. **It moved the first real divergence from instruction 42,443 to 175,788.**
+
+At 175,788 the fault is visible, and it is not about `JMP` at all:
+
+```
+$E59F  BIT $4015      first read: bit 6 set, V set        (both agree)
+$E5A2  BIT $4015      second read: ours bit 6 clear, tetanes bit 6 SET
+$E5A5  BVC $E590      so ours branches and tetanes does not
+```
+
+Two `BIT $4015` reads four cycles apart, straddling the frame counter's three-cycle IRQ window. The
+first read acknowledges the flag; whether the second sees it set again depends on whether the window
+is still open when that read samples.
+
+**The frame counter itself is not the difference.** tetanes' step table is
+`[7457, 14913, 22371, 29828, 29829, 29830]` with the IRQ asserted from step 3 on — the same three
+cycles as ours, and its half-frame clock is at 29829 as ours is. So what differs is the *phase* of
+the APU against the CPU at the moment of those two reads, or exactly which cycle within `BIT` does
+the sampling. That is the next thing to measure, and it is a much smaller question than the one this
+entry started with.
 
 Its read and write paths otherwise agree with ours closely — the PPU's write-only registers return
 the PPU's own latch, everything unmapped returns the CPU's, and a write drives the bus either way.

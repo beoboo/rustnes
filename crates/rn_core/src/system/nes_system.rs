@@ -460,6 +460,29 @@ impl NesSystem {
     /// long after the effective `$4017` write execution began and expects 9 to 12; without this it
     /// printed 3. Mesen runs eight cycles here for the same reason.
     fn settle_after_reset(&mut self) {
+        // Debug-only, and off unless asked for: run the settle as a number of PPU *dots* rather
+        // than whole CPU cycles, so this machine can be put exactly where another emulator's is.
+        //
+        // Diffing two instruction traces only works while they stay in step, and a two-dot
+        // difference in power-on phase is enough to send them apart at the first `$2002` poll
+        // sitting on the vblank boundary — one waits a frame and the other does not, and
+        // everything after that compares different sub-tests. Matching the other machine's
+        // starting dot took the lockstep on `5-branch_delays_irq` from 42,443 instructions to
+        // 175,788, which was the difference between finding the fault and not.
+        //
+        // `RN_RESET_DOTS=19` matches tetanes. It is not a claim about hardware — see
+        // `RESET_CYCLES`, and the note in TODO.md about the power-on phase being one of three
+        // legal possibilities.
+        if let Some(dots) = std::env::var("RN_RESET_DOTS").ok().and_then(|v| v.parse::<usize>().ok()) {
+            for _ in 0..dots {
+                self.ppu.tick();
+            }
+            for _ in 0..RESET_CYCLES {
+                self.apu.tick();
+            }
+            return;
+        }
+
         for _ in 0..RESET_CYCLES {
             self.tick_cycle();
         }
