@@ -7,9 +7,10 @@ use crate::widgets::pixel_provider::PixelDataProvider;
 /// Widget for displaying pixel data from various sources (memory or PPU)
 pub struct PixelDisplay {
     // Visual settings
-    pixel_size: f32, // Size of each pixel
-    zoom: f32,       // Zoom level
-    show_grid: bool, // Whether to show grid lines
+    pixel_size: f32,   // Size of each pixel
+    zoom: f32,         // Zoom level
+    show_grid: bool,   // Whether to show grid lines
+    show_labels: bool, // Whether to draw the provider's title and description above the image
 
     /// The frame, uploaded once per repaint and drawn as a single image.
     ///
@@ -27,6 +28,7 @@ impl PixelDisplay {
             pixel_size: 2.0, // Smaller default for more practical display sizes
             zoom: 1.0,
             show_grid: true,
+            show_labels: true,
             texture: None,
         }
     }
@@ -37,24 +39,24 @@ impl PixelDisplay {
             pixel_size,
             zoom,
             show_grid,
+            show_labels: true,
             texture: None,
         }
     }
 
     /// Show the pixel display in the given UI
     pub fn ui<P: PixelDataProvider>(&mut self, ui: &mut Ui, provider: &P) -> Result<egui::Response> {
-        ui.heading(provider.title());
-        ui.label(provider.description());
+        if self.show_labels {
+            ui.heading(provider.title());
+            ui.label(provider.description());
+        }
 
         // Get the dimensions
         let width = provider.width();
         let height = provider.height();
 
         // Calculate display size
-        let display_size = Vec2::new(
-            width as f32 * self.pixel_size * self.zoom,
-            height as f32 * self.pixel_size * self.zoom,
-        );
+        let display_size = self.scaled_size(width, height);
 
         // Allocate the drawing area
         let (rect, response) = ui.allocate_exact_size(display_size, Sense::click_and_drag());
@@ -139,6 +141,26 @@ impl PixelDisplay {
         Self::quantise(self.fit(ui.available_width(), width))
     }
 
+    /// On-screen size of a `width` x `height` image at the current settings.
+    ///
+    /// A source pixel occupies `pixel_size * zoom` screen points, not `zoom`: callers that need to
+    /// reason about the drawn size — to centre it, say — must ask rather than assume, because
+    /// forgetting `pixel_size` scales the answer by a factor of two at the default settings.
+    pub fn scaled_size(&self, width: usize, height: usize) -> Vec2 {
+        Vec2::new(
+            width as f32 * self.pixel_size * self.zoom,
+            height as f32 * self.pixel_size * self.zoom,
+        )
+    }
+
+    /// Space to insert before a `pixels`-tall image so it sits centred in `available` points.
+    ///
+    /// Never negative: an image larger than the space is left flush with the top, where at least
+    /// its first scanlines are visible, rather than pulled up so that both ends are cut off.
+    pub fn centering_offset(&self, available: f32, pixels: usize) -> f32 {
+        ((available - pixels as f32 * self.pixel_size * self.zoom) / 2.0).max(0.0)
+    }
+
     fn fit(&self, space: f32, pixels: usize) -> f32 {
         /// Enough clearance that filling the space cannot itself summon a scrollbar.
         const MARGIN: f32 = 16.0;
@@ -167,6 +189,15 @@ impl PixelDisplay {
     /// Set whether to show grid lines
     pub fn set_show_grid(&mut self, show: bool) {
         self.show_grid = show;
+    }
+
+    /// Set whether the provider's title and description are drawn above the image.
+    ///
+    /// Turning them off is what fullscreen wants, and it is also a sizing matter: the labels are
+    /// drawn after the zoom has been measured against the available height, so their height comes
+    /// straight off the bottom of the picture.
+    pub fn set_show_labels(&mut self, show: bool) {
+        self.show_labels = show;
     }
 
     /// Set the zoom level and return self for method chaining
@@ -248,5 +279,38 @@ mod tests {
     fn a_space_too_small_to_fit_still_yields_a_usable_zoom() {
         let display = PixelDisplay::new();
         assert!(PixelDisplay::quantise(display.fit(0.0, 256)) > 0.0);
+    }
+
+    /// The bug this guards against: fullscreen centred the picture with `240.0 * zoom`, leaving
+    /// `pixel_size` out. At the default pixel size of 2 that is half the height the image actually
+    /// occupies, so the offset was twice what centring called for and the picture was pushed down
+    /// until its bottom half fell off the screen — cut in half and not centred at once.
+    #[test]
+    fn centring_leaves_as_much_space_below_the_image_as_above_it() {
+        let mut display = PixelDisplay::new();
+
+        // A 1080p screen with the picture fitted to it, overscan on and off.
+        for lines in [240, 224] {
+            let space = 1080.0;
+            display.set_zoom(PixelDisplay::quantise(display.fit(space, lines)));
+
+            let drawn = display.scaled_size(256, lines).y;
+            let above = display.centering_offset(space, lines);
+            let below = space - above - drawn;
+
+            assert!(below >= 0.0, "{lines} lines: the image overruns the space by {}px", -below);
+            assert!(
+                (above - below).abs() < 1.0,
+                "{lines} lines: {above}px above but {below}px below the picture"
+            );
+        }
+    }
+
+    /// An image too big for the space is left flush with the top, where its first scanlines are
+    /// still visible, rather than pulled up so that both ends are cut off.
+    #[test]
+    fn centring_never_moves_an_oversized_image_off_the_top() {
+        let display = PixelDisplay::new();
+        assert_eq!(display.centering_offset(100.0, 240), 0.0);
     }
 }

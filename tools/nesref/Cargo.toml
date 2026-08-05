@@ -1,0 +1,11 @@
+[package]
+name = "nesref"
+version = "0.1.0"
+edition = "2021"
+description = "Ask a reference emulator what a test ROM says, for comparison against ours"
+publish = false
+
+[dependencies]
+# A path outside this repository, which is why this crate is excluded from the workspace: it only
+# builds where someone has cloned tetanes, and `cargo build` at the root must not depend on that.
+tetanes-core = { path = "../../../tetanes/tetanes-core" }

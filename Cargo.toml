@@ -8,6 +8,10 @@ members = [
     "tools/nes_debugger",
     "tools/rom_test", "tools/waveform_player",
 ]
+
+# Not a member: it depends on a tetanes checkout outside this repository, and a plain
+# `cargo build` here must not require one. See tools/nesref/README.md.
+exclude = ["tools/nesref"]
 resolver = "2"
 
 # Workspace-wide configuration and optimization

@@ -570,6 +570,30 @@ Blargg's ROMs write a status byte to $6000 and a message at $6004, so no screen 
       reading of what a ROM drew rather than the ROM's own word for it.
 - [ ] Machine-readable output suitable for CI
 
+### [Testing] A second opinion — `tools/nesref`
+A tetanes checkout beside this one, driven headlessly through `tetanes-core`, reading the same
+`$6000` protocol our own runner reads. It answers the question that had been costing sittings:
+is a failing ROM a bug of ours, or something obscure that nothing gets right?
+
+Run the first time, it settled five of them at once. **tetanes passes every one of these, so they
+are our bugs and its source is the reference:**
+
+```
+3-nmi_and_irq            PASS
+4-irq_and_dma            PASS
+5-branch_delays_irq      PASS
+cpu_interrupts           PASS
+test_cpu_exec_space_apu  PASS
+```
+
+One concrete difference already spotted while comparing, not yet chased: tetanes gives the mapper
+`$4100..=$FFFF`, where this emulator gives it `$8000..=$FFFF` and serves `$6000-$7FFF` from a plain
+RAM component. So `$4100-$5FFF` is open bus here and cartridge space there.
+
+Its read and write paths otherwise agree with ours closely — the PPU's write-only registers return
+the PPU's own latch, everything unmapped returns the CPU's, and a write drives the bus either way.
+And its MMC3 counter is the same logic as ours, clocked from real PPU bus reads.
+
 ### [Testing] Suites never measured until now
 Measured for the first time, and three of them were already passing:
 - [x] vbl_nmi_timing — 7/7

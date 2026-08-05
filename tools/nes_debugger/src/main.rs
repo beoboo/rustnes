@@ -1346,9 +1346,15 @@ impl App for NesDebugger {
             // screen, so the docked layout is set aside entirely and the display drawn on its own.
             if self.fullscreen {
                 let overscan = if self.context.overscan { 8 } else { 0 };
-                let zoom = self.pixel_display.fit_zoom(ui, 256, 240 - overscan * 2);
-                self.pixel_display.set_zoom(zoom);
+                let visible_lines = 240 - overscan * 2;
+
+                // The heading and description are furniture too, and they are more than untidy
+                // here: they are drawn after the zoom has been measured against the full height,
+                // so their height is taken off the bottom of the picture.
+                self.pixel_display.set_show_labels(false);
                 self.pixel_display.set_show_grid(false);
+                let zoom = self.pixel_display.fit_zoom(ui, 256, visible_lines);
+                self.pixel_display.set_zoom(zoom);
 
                 let system_ref = self.system.clone();
                 let adapter = PpuPixelAdapter::new(move || {
@@ -1357,11 +1363,22 @@ impl App for NesDebugger {
                 .with_overscan(overscan);
 
                 ui.vertical_centered(|ui| {
-                    ui.add_space((ui.available_height() - 240.0 * zoom).max(0.0) / 2.0);
+                    // Ask the display how tall it will draw rather than computing it here: a
+                    // source pixel is pixel_size * zoom points across, and the arithmetic that
+                    // used to live here left pixel_size out, so it reserved half the space the
+                    // picture needed and pushed the rest off the bottom of the screen.
+                    let offset = self.pixel_display.centering_offset(ui.available_height(), visible_lines);
+                    ui.add_space(offset);
                     let _ = self.pixel_display.ui(ui, &adapter);
                 });
                 return;
             }
+
+            // The widget is shared with the docked views, so the chrome fullscreen strips off it
+            // has to be put back — otherwise one visit to fullscreen leaves the windowed displays
+            // without their headings and grid for the rest of the session.
+            self.pixel_display.set_show_labels(true);
+            self.pixel_display.set_show_grid(true);
 
             // Create a tab viewer with references to all components
             let mut tab_viewer = NesTabViewer {
