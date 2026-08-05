@@ -645,10 +645,28 @@ is still open when that read samples.
 
 **The frame counter itself is not the difference.** tetanes' step table is
 `[7457, 14913, 22371, 29828, 29829, 29830]` with the IRQ asserted from step 3 on — the same three
-cycles as ours, and its half-frame clock is at 29829 as ours is. So what differs is the *phase* of
-the APU against the CPU at the moment of those two reads, or exactly which cycle within `BIT` does
-the sampling. That is the next thing to measure, and it is a much smaller question than the one this
-entry started with.
+cycles as ours, and its half-frame clock is at 29829 as ours is.
+
+**Measured, by logging the frame-counter cycle at every `$4015` read in both.** The ROM walks a pair
+of reads four cycles apart across the window's edge, one cycle further each iteration:
+
+```
+ours     (29818,29822) (29819,29823) ... (29822,29826) (29823,29827)   and stops
+tetanes  (29821,29825) (29822,29826) ... (29823,29827) (29824,29828)   one further
+```
+
+Every pair the two share agrees exactly — same cycles, same flag. The difference is that tetanes
+reaches `(29824, 29828)`, where the second read lands *inside* the window and finds the flag set
+again, and we never get there: our scan ends one iteration short, with the second read at 29827.
+
+So at the same instruction, **our frame counter is one CPU cycle behind tetanes'**. That single
+cycle decides bit 6 of the second read, which decides `V`, which decides the branch at `$E5A5`, and
+the ROM goes a different way from there.
+
+One cycle, in a counter whose table and window are already identical. The candidates worth checking
+first are the `$4017` write delay — three cycles or four depending on the parity of the cycle the
+write lands on, which this session added and `4-jitter` validates — and the eight settle cycles the
+machine runs before its first instruction, which tick the APU as well as the PPU.
 
 Its read and write paths otherwise agree with ours closely — the PPU's write-only registers return
 the PPU's own latch, everything unmapped returns the CPU's, and a write drives the bus either way.
