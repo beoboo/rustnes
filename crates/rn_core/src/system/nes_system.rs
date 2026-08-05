@@ -56,6 +56,23 @@ pub enum SystemState {
 }
 
 /// NesSystem coordinates the main components of the NES
+/// Advance the test-only `/IRQ` countdown by one cycle-end, and report whether the line is held.
+///
+/// Once the count reaches zero it stays there, so the line goes on being held — `/IRQ` is level
+/// triggered, and a source that let go after a cycle would be testing the CPU's edge detector
+/// instead of its polling.
+#[cfg(test)]
+fn tick_forced_irq(countdown: &Cell<Option<u64>>) -> bool {
+    match countdown.get() {
+        Some(0) => true,
+        Some(remaining) => {
+            countdown.set(Some(remaining - 1));
+            false
+        },
+        None => false,
+    }
+}
+
 pub struct NesSystem {
     /// The CPU component
     cpu: CpuWrapper,
@@ -74,6 +91,9 @@ pub struct NesSystem {
 
     /// The APU component
     apu: ApuWrapper,
+
+    /// The get/put half of the APU's divider, mirrored for the DMA. See `ApuWrapper::is_odd_cycle`.
+    odd_cycle: Rc<Cell<bool>>,
 
     /// The DMA controller
     dma: DmaControllerWrapper<CpuWrapper, PpuWrapper>,
@@ -97,6 +117,19 @@ pub struct NesSystem {
 
     /// The memory bus, retained so a cartridge can be attached after construction.
     bus: Rc<RefCell<Bus>>,
+
+    /// How many cycle-ends remain before `/IRQ` is raised from outside any device, for tests only.
+    ///
+    /// The devices that really hold the line — the APU's frame counter and the mapper — can only be
+    /// aimed at a cycle by running code that arms them, and their own timing is then part of what
+    /// the test measures. Something like `4-irq_and_dma` is about where the *CPU* looks at the
+    /// line, so the line has to come from somewhere already known to be right.
+    ///
+    /// Counted in cycle-ends rather than from the CPU's cycle total because that is the cadence the
+    /// processor reads the line at, and because the count has to be shared with the clock closure —
+    /// which is where nearly every cycle of an instruction is actually ended.
+    #[cfg(test)]
+    forced_irq: Rc<Cell<Option<u64>>>,
 
     /// Whether reaching a `BRK` should stop the machine.
     ///
@@ -297,6 +330,14 @@ impl NesSystem {
         // Whether the CPU cycle now running is an odd one. Maintained here rather than read from
         // the CPU, because the sprite DMA needs it during a write — at which point the CPU is
         // already mutably borrowed. Toggled once per cycle by the clock below.
+        // Mirrors the APU's divider rather than counting for itself; see `ApuWrapper::is_odd_cycle`.
+        //
+        // It cannot toggle on its own here, because this closure runs once per *bus access* and
+        // there are cycles with no access behind them — the leftover cycles at the end of an
+        // instruction, and every one of a sprite DMA's five hundred odd. A cell that toggled here
+        // was therefore inverted relative to the real divider after every transfer, which decided
+        // the length of the *next* one the wrong way round half the time. That is what
+        // `cpu_interrupts_v2/4-irq_and_dma` had been failing on, by a single row of its table.
         let odd_cycle = Rc::new(Cell::new(false));
         dma.connect_cycle_parity(Rc::clone(&odd_cycle));
 
@@ -306,11 +347,17 @@ impl NesSystem {
         // It captures shared handles only, never the CPU, because the CPU is borrowed while this
         // runs — interrupts reach it through the shared lines instead. The mapper comes from the
         // slot rather than being captured, since no ROM has been loaded yet.
+        #[cfg(test)]
+        let forced_irq: Rc<Cell<Option<u64>>> = Rc::new(Cell::new(None));
+
         {
             let ppu = ppu.clone();
             let apu = apu.clone();
             let mapper_slot = Rc::clone(&mapper);
             let lines = interrupts.clone();
+            let odd_cycle = Rc::clone(&odd_cycle);
+            #[cfg(test)]
+            let forced_irq = Rc::clone(&forced_irq);
 
             cpu.set_clock(Rc::new(move |phase| {
                 // Two of the cycle's three dots run before the access and one after it. The access
@@ -318,10 +365,6 @@ impl NesSystem {
                 // is the difference between an NMI being noticed by this cycle's poll or the next
                 // one's. Measured on `ppu_vbl_nmi/05-nmi_timing`: with all three dots ahead of the
                 // access, every transition in its table came out one line late.
-                if phase == ClockPhase::BeforeAccess {
-                    odd_cycle.set(!odd_cycle.get());
-                }
-
                 let dots = match phase {
                     ClockPhase::BeforeAccess => 2,
                     ClockPhase::AfterAccess => 1,
@@ -342,6 +385,7 @@ impl NesSystem {
                     // pair of `$4015` reads across the frame IRQ's three-cycle window, and one
                     // cycle decides whether the second read finds the flag set again.
                     apu.tick();
+                    odd_cycle.set(apu.is_odd_cycle());
                     return;
                 }
 
@@ -360,7 +404,12 @@ impl NesSystem {
                     mapper_irq = mapper.borrow().irq_pending();
                 }
 
-                lines.set_irq(apu.irq_pending() || mapper_irq);
+                #[cfg(test)]
+                let forced = tick_forced_irq(&forced_irq);
+                #[cfg(not(test))]
+                let forced = false;
+
+                lines.set_irq(apu.irq_pending() || mapper_irq || forced);
             }));
         }
 
@@ -385,15 +434,25 @@ impl NesSystem {
             interrupts,
             ppu,
             apu,
+            odd_cycle,
             dma,
             controller_handler,
             state: SystemState::Ready,
             error_message: None,
             mapper,
             bus,
+            #[cfg(test)]
+            forced_irq,
             // A bare system is driven by the debugger, which assembles snippets that end in BRK.
             halt_on_brk: true,
         }
+    }
+
+    /// Raise `/IRQ` at the end of the cycle `delay` cycles from now, and hold it. See
+    /// [`Self::forced_irq`].
+    #[cfg(test)]
+    fn force_irq_in(&mut self, delay: u64) {
+        self.forced_irq.set(Some(delay));
     }
 
     pub fn cpu(&self) -> CpuWrapper {
@@ -518,6 +577,7 @@ impl NesSystem {
             self.ppu.tick();
         }
         self.apu.tick();
+        self.odd_cycle.set(self.apu.is_odd_cycle());
 
         // The /NMI line as the PPU is driving it. Forwarded through the shared cell rather than by
         // calling into the CPU, so this can run while the CPU is mid-instruction — which is when
@@ -531,7 +591,12 @@ impl NesSystem {
             .borrow()
             .as_ref()
             .is_some_and(|mapper| mapper.borrow().irq_pending());
-        self.interrupts.set_irq(self.apu.irq_pending() || mapper_irq);
+        #[cfg(test)]
+        let forced = tick_forced_irq(&self.forced_irq);
+        #[cfg(not(test))]
+        let forced = false;
+
+        self.interrupts.set_irq(self.apu.irq_pending() || mapper_irq || forced);
     }
 
     /// Load a complete iNES ROM and start execution at its reset vector.
@@ -597,6 +662,14 @@ impl NesSystem {
     }
 
     /// Run a single step of the CPU
+    /// Run one instruction, plus any sprite DMA it triggers.
+    ///
+    /// Returns `u16` rather than `u8` because of that DMA: a transfer is 513 cycles or 514, and it
+    /// belongs to the instruction that started it rather than to the steps after it. Running it as
+    /// separate steps put the whole transfer *between* two instructions instead of inside one, so
+    /// an interrupt raised during it was noticed an instruction later than it should be — which is
+    /// the single row `cpu_interrupts_v2/4-irq_and_dma` disagrees on, and what tetanes does
+    /// differently.
     pub fn step(&mut self) -> Result<u8, NesError> {
         // Return 0 cycles if the system is already in a terminal state
         if self.state == SystemState::Finished {
@@ -1460,5 +1533,188 @@ mod tests {
         assert_eq!(frame_buffer[top_left_idx], 255, "Top-left pixel should be red (R=255)");
         assert_eq!(frame_buffer[top_left_idx + 1], 0, "Top-left pixel should be red (G=0)");
         assert_eq!(frame_buffer[top_left_idx + 2], 0, "Top-left pixel should be red (B=0)");
+    }
+}
+
+/// Where a sprite DMA puts an interrupt that arrives during it.
+///
+/// `cpu_interrupts_v2/4-irq_and_dma` is a table of exactly this, and its source file carries the
+/// answer a real NES gave, as a column of "which instruction the IRQ occurred after" against the
+/// cycle the IRQ arrived. That table is reproduced here rather than trusted from the ROM alone,
+/// because the ROM takes twenty minutes to run and reports a single pass or fail: it can say the
+/// emulator is wrong but not which of five hundred and twenty-eight cycles it is wrong at.
+///
+/// The interrupt is raised from outside any device. The APU's frame counter and the mapper are the
+/// only things that really hold `/IRQ`, and either would fold its own timing into the measurement —
+/// which is the wrong shape for a test about where the *CPU* looks at the line.
+#[cfg(test)]
+mod dma_interrupt_timing {
+    use super::*;
+    use crate::{cartridge::load_rom, memory::Addressable};
+
+    /// Where the instruction under test starts. The PRG image is mirrored, so this is also $C000.
+    const LANDING: u16 = 0xC005;
+    /// Where the IRQ handler sits, far enough from the landing sequence to be unmistakable.
+    const HANDLER: u16 = 0xC100;
+
+    /// `4-irq_and_dma`'s landing sequence, byte for byte, preceded by the `CLI` that arms it.
+    ///
+    /// The offsets in the comments are the ones the ROM prints, and they are byte offsets from
+    /// `landing` — so the number printed is the program counter the interrupt pushed.
+    fn landing_rom(pad: bool) -> std::path::PathBuf {
+        let mut prg = vec![0xEAu8; 16 * 1024];
+        let at = |addr: u16| (addr as usize) - 0xC000;
+
+        prg[at(0xC000)] = 0x58; // CLI
+        // Four bytes of filler before the sequence, worth an odd or an even number of cycles. The
+        // transfer is 513 cycles or 514 depending on which the `$4014` write lands on, so the
+        // sweep is run both ways round rather than at whichever parity this ROM happened to give.
+        prg[at(0xC001)] = if pad { 0x48 } else { 0xEA }; // PHA (3 cycles) or NOP (2)
+        prg[at(LANDING)..at(LANDING) + 11].copy_from_slice(&[
+            0xEA, // 0  NOP
+            0xEA, // 1  NOP
+            0xA9, 0x07, // 2  LDA #$07
+            0x8D, 0x14, 0x40, // 4  STA $4014
+            0xEA, // 7  NOP
+            0xEA, // 8  NOP
+            0xEA, // 9  NOP
+            0x78, // 10 SEI
+        ]);
+        // Both the handler and the end of the sequence spin, so a run that misses the interrupt
+        // ends somewhere obvious rather than off in the weeds.
+        prg[at(HANDLER)..at(HANDLER) + 3].copy_from_slice(&[0x4C, 0x00, 0xC1]);
+        prg[at(LANDING) + 11..at(LANDING) + 14].copy_from_slice(&[0x4C, 0x0E, 0xC0]);
+
+        prg[at(0xFFFA)..].copy_from_slice(&[
+            0x00, 0xC1, // NMI  -> handler
+            0x00, 0xC0, // RESET
+            0x00, 0xC1, // IRQ  -> handler
+        ]);
+
+        let mut image = Vec::new();
+        image.extend_from_slice(b"NES\x1A");
+        image.extend_from_slice(&[1, 1, 0x00, 0x00]);
+        image.extend_from_slice(&[0; 8]);
+        image.extend_from_slice(&prg);
+        image.extend_from_slice(&vec![0u8; 8 * 1024]);
+
+        let path = std::env::temp_dir().join(format!(
+            "rn_irq_and_dma_{}_{}.nes",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(&path, &image).expect("writing the ROM");
+        path
+    }
+
+    /// Run the sequence with `/IRQ` raised `offset` cycles after `LANDING` is reached, and report
+    /// the program counter the interrupt pushed, as an offset from `LANDING`.
+    fn pushed_pc_offset(path: &std::path::Path, offset: u64) -> i32 {
+        let rom = load_rom(path).expect("loading");
+        let mut system = NesSystem::new();
+        system.halt_on_brk = false;
+        system.load_rom(&rom).expect("loading into system");
+
+        // The APU's frame counter holds the line too, and would fire in the middle of a sweep this
+        // long. Inhibited so the only thing on /IRQ is the one being aimed.
+        system.bus.borrow_mut().write_byte(0x4017, 0x40).expect("inhibiting the frame IRQ");
+
+        // Step to the landing sequence first, so the offset is measured from a fixed point rather
+        // than from reset — power-on alignment would otherwise smear the whole table.
+        while system.cpu.pc() != LANDING {
+            system.step().expect("stepping to the landing sequence");
+        }
+        system.force_irq_in(offset);
+
+        // Long enough for the DMA and the sequence, short enough to end rather than hang.
+        for _ in 0..1200 {
+            if system.cpu.pc() == HANDLER {
+                // The sequence pushed PCH, PCL and P, so the return address is just above the
+                // status byte the stack pointer is now resting under.
+                let sp = system.cpu.registers().sp as u16;
+                let lo = system.bus.borrow().read_byte(0x0100 + sp.wrapping_add(2)).unwrap_or(0);
+                let hi = system.bus.borrow().read_byte(0x0100 + sp.wrapping_add(3)).unwrap_or(0);
+                return u16::from_le_bytes([lo, hi]) as i32 - LANDING as i32;
+            }
+            system.step().expect("running the landing sequence");
+        }
+        panic!("the interrupt was never taken with /IRQ raised at +{offset}");
+    }
+
+    /// The table from `4-irq_and_dma.s`, as a run-length encoding of its second column.
+    ///
+    /// Each entry is the printed offset and how many consecutive arrival cycles produce it. The
+    /// widths are the point: an instruction claims one arrival cycle per cycle it runs, so the NOP
+    /// that follows the `STA $4014` claims its own two *plus every cycle of the transfer* — which
+    /// is what makes the run of 8s five hundred and sixteen long rather than two.
+    ///
+    /// The ROM prints its own scale, starting from an arbitrary point; the sweep here starts from
+    /// the landing sequence. The two are pinned together by the instructions *before* the transfer,
+    /// whose boundaries no emulator gets wrong — which puts the sweep's first cycle at the second
+    /// of the ROM's pair of 1s, and is why the table below opens with a single 1 instead of two.
+    const EXPECTED: &[(i32, u64)] = &[(1, 1), (2, 2), (4, 2), (7, 4), (8, 516), (9, 2)];
+
+    /// How many arrival cycles the run of 8s loses when the `$4014` write lands on the other half
+    /// of the APU's divider: the transfer is 513 cycles there rather than 514.
+    const ODD_ALIGNMENT_SAVES: u64 = 1;
+
+    fn sweep(pad: bool) -> Vec<i32> {
+        let path = landing_rom(pad);
+        let width: u64 = EXPECTED.iter().map(|&(_, width)| width).sum();
+        let actual = (0..width).map(|i| pushed_pc_offset(&path, i)).collect();
+        let _ = std::fs::remove_file(&path);
+        actual
+    }
+
+    fn check(pad: bool, expected: &[(i32, u64)]) {
+        let mut want = Vec::new();
+        for &(pc, width) in expected {
+            want.extend(std::iter::repeat_n(pc, width as usize));
+        }
+        let got = sweep(pad);
+
+        let wrong: Vec<String> = want
+            .iter()
+            .zip(&got)
+            .enumerate()
+            .filter(|(_, (want, got))| want != got)
+            .map(|(i, (want, got))| format!("  +{i}: want {want}, got {got}"))
+            .collect();
+        assert!(
+            wrong.is_empty(),
+            "{} of {} arrival cycles wrong (pad = {pad}):\n{}",
+            wrong.len(),
+            want.len(),
+            wrong.join("\n")
+        );
+    }
+
+    /// The transfer's cycles belong to the instruction it halted, not to the one that started it.
+    ///
+    /// Getting this backwards is invisible in a cycle count — the totals are the same either way —
+    /// and shows up only here, as a run of 7s five hundred and seventeen long where hardware has
+    /// four.
+    #[test]
+    fn an_irq_arriving_during_a_sprite_dma_is_taken_after_the_instruction_the_dma_stalled() {
+        check(false, EXPECTED);
+    }
+
+    /// And the transfer is a cycle shorter when it starts on the other half of the divider.
+    ///
+    /// Same sequence, reached one cycle later. Worth its own test because the parity is not
+    /// something the emulator gets to choose: it comes from the divider the APU's frame counter
+    /// runs on, which `apu_test/4-jitter` has already pinned. A second divider counting to its own
+    /// phase — which is what this used to have — drifts out of step with that one at every cycle
+    /// with no bus access behind it, and a transfer is five hundred of those in a row.
+    #[test]
+    fn a_transfer_starting_on_the_other_half_of_the_divider_is_a_cycle_shorter() {
+        let expected: Vec<(i32, u64)> = EXPECTED
+            .iter()
+            .map(|&(pc, width)| (pc, if pc == 8 { width - ODD_ALIGNMENT_SAVES } else { width }))
+            .collect();
+        check(true, &expected);
     }
 }

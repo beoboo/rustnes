@@ -797,49 +797,66 @@ file rather than on anything specific to the suite.
         readme says is expected: those values "are probably unique to my NES". Not a fault to chase.
 - [ ] nmi_sync, cpu_timing_test6 — still unmeasured. The `nmi_sync` ROMs are visual demos with no
       verdict to read; `cpu_timing_test6` draws nothing into the first nametable within 600 frames.
-- [ ] cpu_interrupts_v2 — 4/6, and no longer hanging anywhere. `3-nmi_and_irq` passes: an interrupt
-      sequence has to leave the shadows clear behind it, or an NMI arriving during its own seven
+- [x] cpu_interrupts_v2 — every ROM in the suite passes, singles and combined, and nothing hangs.
+
+      `3-nmi_and_irq` passes: an interrupt sequence has to leave the shadows clear behind it, or an NMI arriving during its own seven
       cycles — too late to hijack the vector — is serviced the instant the sequence ends and the
       handler never reaches its first instruction. `BRK` already did this; the hardware sequence
-      needed it too. What is left is `4-irq_and_dma` and the combined ROM that runs it.
+      needed it too.
 
-      **`4-irq_and_dma` is down to a single row**, and the two obvious causes are ruled out. Its
-      table walks an IRQ across a sprite DMA a cycle at a time, 528 rows of it; every row matches
-      except `+526`, where it wants `8` and we say `9`.
+      **`4-irq_and_dma` passes.** It was down to a single row of its 528 — `+526`, where it wanted
+      `8` and we said `9` — and the cause was neither of the two things this entry spent three
+      attempts on.
 
-      - **The transfer's length is now right** — 513 cycles, or 514 when the `$4014` write lands on
-        an odd cycle, because the transfer alternates read and write cycles and can only begin on a
-        read. Unit-tested. It did not move the ROM, so whatever `+526` is about, it is not the
-        length.
-      - **Polling the interrupt lines through the DMA's cycles was tried twice and reverted twice.**
-        Both references do poll during a transfer — the processor is halted, not switched off — and
-        our shadow stands still for all 513 cycles, so it is very likely right in itself. It moves
-        no row of the table, and by differential trace it makes the two emulators agree for *fewer*
-        instructions rather than more: 453,683 with it against 629,836 without.
+      **There were two dividers where hardware has one.** A sprite DMA takes 513 cycles, or 514
+      when the `$4014` write lands on the wrong half of the CPU's get/put divider. We read that
+      parity off a cell of our own, toggled from the clock closure — which runs once per *bus
+      access*. Every cycle without an access behind it was therefore missed: the leftover cycles at
+      the end of an instruction, and all five hundred odd of every transfer. One DMA is an odd
+      number of cycles, so each transfer inverted the cell against the real divider, and the *next*
+      transfer's length came out wrong half the time. The APU's frame counter has the same divider
+      and keeps it honestly — `apu_test/4-jitter` pins its phase, by measuring the `$4017` write
+      delay on alternating cycles — so the cell now mirrors that one instead of counting for
+      itself, and `Apu::apu_cycle` is taken from the frame counter rather than being a third copy.
+      A soft reset used to clear our copy while deliberately leaving the frame counter's
+      free-running, which put them permanently out of step.
 
-      **What the trace says the fault actually is.** Diffing against tetanes, the streams agree for
-      629,836 instructions and then part company here:
+      **The structural change this entry called for turned out to be inert.** The trace against
+      tetanes showed the transfer running inside the instruction that triggers it, where ours ran
+      as separate steps afterwards, and that looked like the answer:
 
       ```
       ours     $E24F  STA $4014     ... then 513 stalled steps at $E252
       tetanes  $E24F  STA $4014     ... then $E252, then the IRQ handler at $E226
       ```
 
-      **tetanes runs the transfer inside the instruction that triggers it; we run it as separate
-      steps afterwards.** By the time tetanes reaches `$E252` the DMA is over and the IRQ raised
-      during it is taken at that instruction's end. Ours has not started executing `$E252` yet — we
-      are still stalling — so the interrupt lands a whole instruction later.
+      It was rebuilt that way and measured. With the divider fixed, the ROM passes either way: the
+      transfer's cycles land in the same place on the timeline whichever step owns them, and
+      neither structure polls the interrupt shadow across them, so the poll that decides the next
+      instruction sees the same thing. The restructure was reverted. What the trace was really
+      showing was our *trace tool* printing one line per step.
 
-      That is the structural change this entry has wanted all along, and it is now pinned rather
-      than assumed: **the DMA has to happen where the `$4014` write happens**, not between steps.
-      Everything else about it — the 513/514 length, polling during the stall — is detail on top of
-      that, and neither is worth anything until the transfer is in the right place. `3-nmi_and_irq` is closer but not
-      passing: an NMI arriving while an IRQ is being vectored now takes the vector, as it should,
-      but hardware's window for that is wider than ours — the table alternates where it should hold
-      a run of the same value. `2-nmi_and_brk` passes, which is the
-      test CYCLE_ACCURACY.md records as having hung on two previous attempts at interrupt timing;
-      it was the BRK halt above, not the interrupt work. The combined `cpu_interrupts.nes` now
-      fails rather than hangs.
+      **Polling the interrupt lines through the DMA's cycles is wrong, and that is now measured
+      rather than guessed.** It was tried and reverted three times on the grounds that it moved
+      nothing; the third attempt, on top of the restructure, showed what it actually does. The
+      decision about the halted instruction was taken before the halt began — at the end of the
+      `$4014` write's second-to-last cycle — so advancing the shadow across the stall takes the
+      interrupt an instruction early, and turns a four-cycle window in the table into a
+      517-cycle one.
+
+      **The gate for all of this is a unit test, not the ROM.** `4-irq_and_dma` takes twenty
+      minutes and reports one word. `dma_interrupt_timing` in `nes_system.rs` reproduces the ROM's
+      landing sequence byte for byte, sweeps `/IRQ` across every arrival cycle, and asserts the
+      table from the ROM's own source comment — which is a recording from real hardware. It runs in
+      a tenth of a second and names the cycle. `/IRQ` is raised from outside any device for it,
+      because the APU and the mapper are the only things that really hold the line and either would
+      fold its own timing into the measurement.
+
+      `3-nmi_and_irq` is closer but not
+      `2-nmi_and_brk` passes, which is the test CYCLE_ACCURACY.md records as having hung on two
+      previous attempts at interrupt timing; it was the BRK halt above, not the interrupt work.
+      **The combined `cpu_interrupts.nes` now says "All 5 tests passed."** `4-nmi_and_dma` has no
+      ROM in this checkout — only its source — so the five singles that exist are the whole suite.
 - [x] cpu_reset — 2/2. Reset is not power-on: it sets the I flag, subtracts three from the stack
       pointer and does nothing else. A, X, Y and the other flags survive it. The three are the
       interrupt sequence going through the motions of its pushes with the writes suppressed.

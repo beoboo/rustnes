@@ -141,6 +141,16 @@ impl ApuWrapper {
         self.apu.borrow_mut().tick();
     }
 
+    /// Which half of the divide-by-two the CPU cycle just run fell on.
+    ///
+    /// The APU is clocked at half the CPU rate, and this is the divider that does it. Sprite DMA
+    /// needs the same signal — a transfer alternates read and write cycles and costs an alignment
+    /// cycle when it starts on the wrong one — and on hardware it is the same divider, not a second
+    /// one that happens to run at the same rate.
+    pub fn is_odd_cycle(&self) -> bool {
+        self.apu.borrow().apu_cycle
+    }
+
     /// Connect an audio output device
     pub fn connect_audio_output(&self, audio_output: Box<dyn SampleProducer<f32>>) {
         self.apu.borrow_mut().connect_audio_output(audio_output);
@@ -435,10 +445,15 @@ impl Apu {
     /// ~240 Hz. The divider below is what keeps those three domains apart.
     pub fn tick(&mut self) {
         self.cycle_counter += 1;
-        self.apu_cycle = !self.apu_cycle;
 
         // Frame sequencer. Rates depend on the mode selected through $4017.
         let clock = self.frame_counter.tick();
+
+        // Taken from the frame counter rather than counted here, because there is one divider in
+        // the machine and not two. Counting separately meant a reset — which clears this but
+        // deliberately leaves the frame counter's free-running — put the two permanently out of
+        // step, and the sprite DMA reads its 513-or-514 decision off this one.
+        self.apu_cycle = self.frame_counter.is_apu_cycle();
         self.apply_frame_clock(clock);
 
         // Pulse and noise timers advance once per APU cycle...

@@ -107,7 +107,14 @@ pub struct FrameCounter {
     ///
     /// Free-running: never reset by a `$4017` write, because the APU's divider is not what the
     /// write restarts.
+    ///
+    /// The phase is not arbitrary. `apu_test/4-jitter` pins it, by measuring the `$4017` delay on
+    /// alternating cycles — which makes this the one divider in the machine whose alignment is
+    /// backed by evidence, and the reason [`Apu::apu_cycle`](super::Apu) is kept equal to it rather
+    /// than counting to its own phase.
     apu_cycle: bool,
+
+    
 }
 
 impl Default for FrameCounter {
@@ -182,6 +189,11 @@ impl FrameCounter {
             Mode::FiveStep => FrameClock::BOTH,
             Mode::FourStep => FrameClock::NONE,
         }
+    }
+
+    /// Which half of the divide-by-two the CPU cycle just ticked fell on.
+    pub fn is_apu_cycle(&self) -> bool {
+        self.apu_cycle
     }
 
     /// Advance one CPU cycle and report what should be clocked.

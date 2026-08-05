@@ -322,6 +322,39 @@ Either one looks inert and would have been reverted by this project's own rule a
 changes that cannot be demonstrated. They are only visible together, and the way to find that out
 was to try both singly and check.
 
+**`cpu_interrupts_v2` is complete, and the last row of it was not an interrupt bug at all.**
+`4-irq_and_dma` walks an IRQ across a sprite DMA one cycle at a time — 528 rows — and every row
+matched except `+526`. The cause was that the machine had **two dividers where hardware has one**.
+A transfer is 513 cycles, or 514 when the `$4014` write lands on the wrong half of the CPU's
+get/put divider, and we read that parity off a cell of our own toggled from the clock closure —
+which runs once per *bus access*. Cycles with no access behind them were missed: the leftover ones
+at the end of an instruction, and all five hundred odd of every transfer. A transfer is an odd
+number of cycles, so each one inverted the cell against the real divider and the *next* transfer's
+length came out wrong half the time. The APU's frame counter runs the same divider and its phase is
+pinned by evidence — `apu_test/4-jitter` measures the `$4017` write delay on alternating cycles —
+so the parity now comes from there, and `Apu::apu_cycle` is taken from the frame counter rather
+than kept as a third copy that a soft reset could knock out of step.
+
+Two things were tried on the way and both are recorded as not-the-answer, because each looked
+compelling:
+
+- **Running the transfer inside the instruction that triggers it** — which is what tetanes does, and
+  what a differential trace appeared to show. It was built and measured: with the divider right, the
+  ROM passes either way. The transfer's cycles land in the same place on the timeline whichever step
+  owns them. Reverted. What the trace was really showing was our own trace tool printing a line per
+  step.
+- **Polling the interrupt shadow through the transfer's cycles.** Tried and reverted three times.
+  The third attempt finally measured what it does rather than only noting that it moved no row: it
+  takes the interrupt an instruction early, turning a four-cycle window in the table into a
+  517-cycle one. The decision about the halted instruction was taken before the halt began.
+
+The gate for this is `dma_interrupt_timing` in `nes_system.rs`, not the ROM. It reproduces the
+ROM's landing sequence byte for byte, raises `/IRQ` from outside any device — the APU and the
+mapper are the only real sources and either would fold its own timing into the measurement — sweeps
+every arrival cycle, and asserts the table printed in the ROM source's header comment, which is a
+recording from a real NES. A tenth of a second against twenty minutes, and it names the cycle
+instead of saying "Failed".
+
 The delayed flag is currently read by the skip and nothing else. Mesen carries the idea further —
 a second copy another cycle behind again, which its scroll and fetch work uses — and that is worth
 doing, but it changes what is drawn rather than only when a frame ends, so it wants the pixel diff
@@ -340,7 +373,7 @@ Expected to fix `2-nmi_and_brk`, `3-nmi_and_irq` and `5-branch_delays_irq`.
 
 ## How it will be judged
 
-`cpu_interrupts_v2` (0/6), `instr_timing` (1/3), `branch_timing_tests` (0/3), `cpu_dummy_writes`
+`cpu_interrupts_v2` (was 0/6, now every ROM in it passes), `instr_timing` (1/3), `branch_timing_tests` (0/3), `cpu_dummy_writes`
 (0/2), `cpu_exec_space` (0/2). nestest must stay at 8991/8991 throughout — it is the check that the
 added accesses have not changed what instructions compute, only when they touch the bus.
 
