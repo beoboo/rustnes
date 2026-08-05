@@ -811,13 +811,29 @@ file rather than on anything specific to the suite.
         an odd cycle, because the transfer alternates read and write cycles and can only begin on a
         read. Unit-tested. It did not move the ROM, so whatever `+526` is about, it is not the
         length.
-      - **Polling the interrupt lines through the DMA's cycles was tried and reverted as inert.**
+      - **Polling the interrupt lines through the DMA's cycles was tried twice and reverted twice.**
         Both references do poll during a transfer — the processor is halted, not switched off — and
-        our shadow stands still for all 513 cycles. Adding it changed the instruction count and
-        moved no row of the table. It could not be tested either: the clock recomputes the IRQ line
-        from the APU and mapper every cycle, so an externally raised IRQ cannot survive to be
-        observed, and a real test needs the APU's frame IRQ arranged to fall inside a transfer.
-        Worth doing properly, but not on a guess. `3-nmi_and_irq` is closer but not
+        our shadow stands still for all 513 cycles, so it is very likely right in itself. It moves
+        no row of the table, and by differential trace it makes the two emulators agree for *fewer*
+        instructions rather than more: 453,683 with it against 629,836 without.
+
+      **What the trace says the fault actually is.** Diffing against tetanes, the streams agree for
+      629,836 instructions and then part company here:
+
+      ```
+      ours     $E24F  STA $4014     ... then 513 stalled steps at $E252
+      tetanes  $E24F  STA $4014     ... then $E252, then the IRQ handler at $E226
+      ```
+
+      **tetanes runs the transfer inside the instruction that triggers it; we run it as separate
+      steps afterwards.** By the time tetanes reaches `$E252` the DMA is over and the IRQ raised
+      during it is taken at that instruction's end. Ours has not started executing `$E252` yet — we
+      are still stalling — so the interrupt lands a whole instruction later.
+
+      That is the structural change this entry has wanted all along, and it is now pinned rather
+      than assumed: **the DMA has to happen where the `$4014` write happens**, not between steps.
+      Everything else about it — the 513/514 length, polling during the stall — is detail on top of
+      that, and neither is worth anything until the transfer is in the right place. `3-nmi_and_irq` is closer but not
       passing: an NMI arriving while an IRQ is being vectored now takes the vector, as it should,
       but hardware's window for that is wider than ours — the table alternates where it should hold
       a run of the same value. `2-nmi_and_brk` passes, which is the
