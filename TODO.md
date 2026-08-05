@@ -568,6 +568,23 @@ Blargg's ROMs write a status byte to $6000 and a message at $6004, so no screen 
       fourteen now report, and the three that do not are marked as such rather than as failures.
       A verdict read this way is labelled `[screen]` in the output, because it is this runner's
       reading of what a ROM drew rather than the ROM's own word for it.
+- [x] Frame baselines that live in the repository — `rom_test baselines`. The rule is that anything
+      touching rendering is gated on a pixel diff against a saved frame, never on a summary
+      statistic, and the rule was being followed. The *storage* was not: the saved frames sat in
+      `/tmp`, where nothing checks them and nothing keeps them. One was found to disagree with an
+      unmodified build, so it had stopped being a gate at some earlier commit and had gone on
+      reading as evidence ever since. A gate that can go stale in silence is worse than no gate.
+
+      The frames cannot be committed — they are pictures of commercial games — but hashes can, and
+      each baseline stores one per scanline as well as one for the whole frame. That is what keeps
+      it a diff rather than a statistic: a mismatch says *which rows*, and "192-194 differ" is most
+      of a diagnosis. To see the pixels, re-render with `rom_test frame --out`.
+
+      Proved against the bug the practice exists for, by rotating the frame buffer sixteen pixels
+      sideways — the shift a coverage percentage once hid. All three baselines report it, naming the
+      rows, and the command exits non-zero so it can gate rather than merely inform. A ROM that is
+      not in the checkout is a skip and exits zero: nobody else has these files.
+
 - [ ] Machine-readable output suitable for CI
 
 ### [Testing] A second opinion — `tools/nesref`

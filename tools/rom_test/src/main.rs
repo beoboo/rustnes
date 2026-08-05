@@ -15,6 +15,7 @@
 //! command therefore exits cleanly with a clear message when its input is missing, so a checkout
 //! without ROMs stays green.
 
+mod baseline;
 mod blargg;
 mod cycles;
 mod frame;
@@ -124,6 +125,20 @@ enum Command {
         raw: bool,
     },
 
+    /// Check rendered frames against the hashes committed beside this tool
+    Baselines {
+        /// Directory holding the games the baselines name
+        roms: PathBuf,
+
+        /// Rewrite the hashes from what the emulator draws now, instead of checking them
+        #[arg(long)]
+        update: bool,
+
+        /// The baselines file, if not the one beside this tool
+        #[arg(long, value_name = "FILE")]
+        file: Option<PathBuf>,
+    },
+
     /// Run every .nes file under a directory and summarise
     Suite {
         /// Directory to search, recursively
@@ -147,6 +162,20 @@ fn main() -> Result<()> {
         },
         Command::Trace { rom, instructions } => trace::report(&rom, instructions),
         Command::Screen { rom, frames, raw } => screen::report(&rom, frames, raw),
+        Command::Baselines { roms, update, file } => {
+            let path = file.unwrap_or_else(baseline::default_path);
+            if missing(&path, "the baselines file") {
+                return Ok(());
+            }
+            if update {
+                baseline::update(&path, &roms)
+            } else if baseline::report(&path, &roms)? {
+                Ok(())
+            } else {
+                // A non-zero exit, so this can gate a change rather than only inform about one.
+                anyhow::bail!("a rendered frame no longer matches its committed baseline")
+            }
+        },
         Command::Suite { directory, budget } => run_suite(&directory, budget),
     }
 }
