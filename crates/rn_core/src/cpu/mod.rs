@@ -772,6 +772,21 @@ impl Cpu {
         self.set_flag(CpuFlag::InterruptDisable, true);
         self.registers.pc = self.read_word(vector)?;
 
+        // An interrupt sequence does no polling of its own, so at least one instruction of the
+        // handler always runs before another interrupt is taken.
+        //
+        // Clearing the shadows in `poll_interrupts` before the sequence is not enough: the
+        // sequence's own seven cycles run `end_cpu_cycle` like any others, so an NMI arriving
+        // during them — too late to hijack the vector — fills the shadow again and is serviced the
+        // instant the sequence ends, with the handler never reaching its first instruction.
+        //
+        // `BRK` already did this for the same reason. The hardware sequence needs it just as much,
+        // and `cpu_interrupts_v2/3-nmi_and_irq` is where it shows: an IRQ is taken, an NMI arrives
+        // during its vectoring, and the ROM expects the NMI *after* the handler's `SEC` rather than
+        // instead of it — the difference between the carry flag being set in the pushed status and
+        // not, which is the whole of what that test records.
+        self.clear_pending_interrupt_shadow();
+
         Ok(INTERRUPT_CYCLES)
     }
 

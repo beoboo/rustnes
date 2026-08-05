@@ -797,7 +797,11 @@ file rather than on anything specific to the suite.
         readme says is expected: those values "are probably unique to my NES". Not a fault to chase.
 - [ ] nmi_sync, cpu_timing_test6 — still unmeasured. The `nmi_sync` ROMs are visual demos with no
       verdict to read; `cpu_timing_test6` draws nothing into the first nametable within 600 frames.
-- [ ] cpu_interrupts_v2 — 3/6, and no longer hanging anywhere. `3-nmi_and_irq` is closer but not
+- [ ] cpu_interrupts_v2 — 4/6, and no longer hanging anywhere. `3-nmi_and_irq` passes: an interrupt
+      sequence has to leave the shadows clear behind it, or an NMI arriving during its own seven
+      cycles — too late to hijack the vector — is serviced the instant the sequence ends and the
+      handler never reaches its first instruction. `BRK` already did this; the hardware sequence
+      needed it too. What is left is `4-irq_and_dma` and the combined ROM that runs it. `3-nmi_and_irq` is closer but not
       passing: an NMI arriving while an IRQ is being vectored now takes the vector, as it should,
       but hardware's window for that is wider than ours — the table alternates where it should hold
       a run of the same value. `2-nmi_and_brk` passes, which is the
@@ -1267,7 +1271,8 @@ work, so nothing measuring them can pass.
 - [x] Interrupts sampled before the last cycle — `1-cli_latency` passes, the first in that suite
 - [x] The computed `poll_at` replaced by a one-cycle-delayed shadow of both lines, and the poll
       moved from the instant of the bus access to the end of the cycle, one dot later
-- [x] NMI hijacking BRK, and no polling inside an interrupt sequence
+- [x] NMI hijacking BRK, and no polling inside an interrupt sequence — including that the sequence
+      leaves no shadow behind it, so the handler's first instruction always runs
 - [x] Branch polling: a taken branch ignores an IRQ that only became eligible during its own last
       cycle, so the instruction at the target runs first. The last of the three documented
       exceptions, and the only part of the sampling rule that does not fall out of the shadow.
