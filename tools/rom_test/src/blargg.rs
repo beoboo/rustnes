@@ -227,8 +227,14 @@ fn distinct_in_order(window: &[u16], system: &NesSystem) -> Vec<(u16, String)> {
         .collect()
 }
 
+/// Peek, never read.
+///
+/// This runner looks at `$6000` after every single instruction. Doing that through a real read put
+/// the status byte on the open bus each time, which almost every ROM cannot tell — and
+/// `cpu_exec_space` can, because it executes what an undriven read returns. It reported "Failed #2"
+/// against an emulator that was getting the answer right; the runner was supplying the wrong one.
 fn read(system: &NesSystem, address: u16) -> u8 {
-    system.cpu().read_byte(address).unwrap_or(0)
+    system.cpu().peek_byte(address).unwrap_or(0)
 }
 
 fn read_signature(system: &NesSystem) -> [u8; 3] {

@@ -48,6 +48,12 @@ impl<C: CpuInterface, P: PpuInterface> Addressable for DmaControllerWrapper<C, P
         self.dma.borrow().handles_address(address)
     }
 
+    /// Forwarded, not inherited. The default would take this wrapper's own `handles_address` —
+    /// which claims nothing, `$4014` being write-only — and drop every write to it on the floor.
+    fn handles_write(&self, address: u16) -> bool {
+        self.dma.borrow().handles_write(address)
+    }
+
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         self.dma.borrow().read_byte(address)
     }
@@ -277,13 +283,25 @@ impl<C: CpuInterface, P: PpuInterface> DmaController<C, P> {
 }
 
 impl<C: CpuInterface, P: PpuInterface> Addressable for DmaController<C, P> {
-    fn handles_address(&self, address: u16) -> bool {
-        address == 0x4014 // DMA controller only responds to $4014
+    fn handles_address(&self, _address: u16) -> bool {
+        // Nothing. `$4014` is write-only, and claiming it for reads too meant a read of it answered
+        // with the last page written instead of falling through to the CPU's open bus.
+        //
+        // `cpu_exec_space/test_cpu_exec_space_apu` is built on exactly that. It executes code *from*
+        // the APU's register space: `JMP $4014` leaves `$40` — its own target's high byte — as the
+        // last value on the bus, so the opcode fetched at `$4014` is `$40`, which is `RTI`, which
+        // returns to the address pushed before the jump. We answered the fetch with the last DMA
+        // page instead, and ran off into whatever that decoded to.
+        false
+    }
+
+    fn handles_write(&self, address: u16) -> bool {
+        address == 0x4014
     }
 
     fn read_byte(&self, _address: u16) -> Result<u8, NesError> {
-        // Reading from DMA register returns the last value written
-        Ok(self.source_high_byte)
+        // Never reached: the bus asks `handles_address` first, and this claims nothing.
+        Ok(0)
     }
 
     fn write_byte(&mut self, _address: u16, value: u8) -> Result<(), NesError> {

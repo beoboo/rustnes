@@ -245,6 +245,17 @@ impl Addressable for ControllerHandler {
         address == 0x4016 || address == 0x4017
     }
 
+    /// The top three lines of a controller port are not driven at all.
+    ///
+    /// The port puts its shift register's output on the bottom bits and leaves bits 5, 6 and 7
+    /// floating, so they hold whatever the bus last carried. Games that read `$4016` mask the
+    /// button bit out and never notice; `cpu_exec_space/test_cpu_exec_space_apu` notices, because
+    /// it jumps to `$4016` and executes what comes back — which on hardware is `$40`, the high byte
+    /// of its own `JMP` target, and therefore `RTI`.
+    fn open_bus_mask(&self, _address: u16) -> u8 {
+        0xE0
+    }
+
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         match address {
             0x4016 => Ok(self.controller1.read_button(self.strobe.get())),
@@ -315,6 +326,10 @@ impl ControllerHandlerWrapper {
 impl Addressable for ControllerHandlerWrapper {
     fn handles_address(&self, address: u16) -> bool {
         self.handler.borrow().handles_address(address)
+    }
+
+    fn open_bus_mask(&self, address: u16) -> u8 {
+        self.handler.borrow().open_bus_mask(address)
     }
 
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {

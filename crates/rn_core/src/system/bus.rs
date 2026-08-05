@@ -157,10 +157,25 @@ impl Addressable for Bus {
             .any(|component| component.handles_address(address))
     }
 
+    /// Likewise for writes, which are not the same set.
+    ///
+    /// Needed as soon as a component claims an address in one direction only. `$4014` is the case
+    /// that found it: the DMA controller takes writes there and nothing takes reads, so a bus that
+    /// answered this from `handles_address` alone reported the address unhandled and dropped every
+    /// sprite DMA the moment reads of it were given back to the open bus.
+    fn handles_write(&self, address: u16) -> bool {
+        self.components
+            .iter()
+            .any(|component| component.handles_write(address))
+    }
+
     fn read_byte(&self, address: u16) -> Result<u8, NesError> {
         // Find the component that handles this address
         if let Some(component) = self.find_component_for_address(address) {
-            let value = component.read_byte(address)?;
+            // Only the lines the component actually drives come from it; the rest still hold what
+            // the bus last carried. See `Addressable::open_bus_mask`.
+            let mask = component.open_bus_mask(address);
+            let value = (component.read_byte(address)? & !mask) | (self.open_bus.get() & mask);
             self.open_bus.set(value);
             return Ok(value);
         }
@@ -168,6 +183,20 @@ impl Addressable for Bus {
         // Nothing drives these lines, so they still hold whatever was last put on them.
         self.open_bus_accesses.set(self.open_bus_accesses.get().saturating_add(1));
         Ok(self.open_bus.get())
+    }
+
+    /// Look without touching. See [`Addressable::peek_byte`].
+    ///
+    /// The open bus is deliberately neither read from nor written to here. `rom_test`'s runner
+    /// polls `$6000` after every instruction to see whether a ROM has finished, and doing that
+    /// through a real read left the status byte sitting on the lines — which is invisible to almost
+    /// every ROM and fatal to `cpu_exec_space`, whose whole subject is what an undriven read
+    /// returns. It reported a failure the emulator was not making.
+    fn peek_byte(&self, address: u16) -> Result<u8, NesError> {
+        match self.find_component_for_address(address) {
+            Some(component) => component.peek_byte(address),
+            None => Ok(self.open_bus.get()),
+        }
     }
 
     fn write_byte(&mut self, address: u16, value: u8) -> Result<(), NesError> {

@@ -153,6 +153,12 @@ impl Addressable for CpuWrapper {
         self.cpu.borrow().read_byte(addr)
     }
 
+    /// Forwarded, not inherited. The default is a real read — clock, open bus and all — which is
+    /// the one thing a peek must not be.
+    fn peek_byte(&self, addr: u16) -> Result<u8, NesError> {
+        self.cpu.borrow().peek_byte(addr)
+    }
+
     fn write_byte(&mut self, addr: u16, value: u8) -> Result<(), NesError> {
         self.cpu.borrow_mut().write_byte(addr, value)
     }
@@ -416,7 +422,7 @@ impl Cpu {
     /// an index crossed a page, say. Hardware reads that operand once; reading it a second time to
     /// answer a question about it would invent a bus cycle that does not exist.
     pub fn peek_byte(&self, address: u16) -> Result<u8, NesError> {
-        self.memory()?.read_byte(address)
+        self.memory()?.peek_byte(address)
     }
 
     /// Read a word without driving the clock. See [`peek_byte`](Self::peek_byte).

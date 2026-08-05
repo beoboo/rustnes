@@ -860,13 +860,39 @@ file rather than on anything specific to the suite.
 - [x] cpu_reset — 2/2. Reset is not power-on: it sets the I flag, subtracts three from the stack
       pointer and does nothing else. A, X, Y and the other flags survive it. The three are the
       interrupt sequence going through the motions of its pushes with the writes suppressed.
-- [ ] cpu_exec_space — 1/2. `ppuio` passes: the PPU has an I/O latch of its own, so a read of one
-      of its five write-only registers returns whatever its lines last carried, and `$2002`
-      supplies only its top three bits with the latch supplying the other five. The APU's
-      write-only registers now fall through to the CPU's open bus for the same reason, which moved
-      `test_cpu_exec_space_apu` from landing at $0234 to $1634 but not to the end. It executes code
-      *from* $4000 and follows where the open bus leads; what our bus returns there is evidently
-      still not what hardware returns.
+- [x] cpu_exec_space — 2/2. Both ROMs execute code *from* I/O space and follow where the open bus
+      leads, so every wrong bit becomes a wrong opcode. Three separate faults, all of them found by
+      differential trace against tetanes rather than by reading our source:
+
+      - **`$4014` is write-only, and we answered reads of it** with the last page written to it.
+        The trick the test turns on is that `JMP $4014` leaves `$40` — its own target's high byte —
+        as the last value on the bus, so the opcode fetched at `$4014` is `$40`, which is `RTI`,
+        which returns to where the jump came from. We handed back the DMA page and ran off into
+        whatever that decoded to.
+      - **A controller port does not drive its top three lines.** `$4016` and `$4017` put the shift
+        register's output on the bottom bits and leave bits 5, 6 and 7 floating, so they hold what
+        the bus last carried — the same `$40`, by the same route. Games mask the button bit out and
+        never notice. This wanted a seam rather than a special case, so `Addressable` grew
+        `open_bus_mask`: which bits a component does *not* drive, with the bus merging the rest.
+      - **Our own runner was breaking the ROM.** `rom_test` peeks `$6000` after every instruction to
+        see whether a ROM has finished, and did it through a real read — which left the status byte
+        on the open bus each time. Invisible to every other ROM in the tree; fatal to this one. It
+        reported `Failed #2` against an emulator that was getting the answer right, and it is why
+        the trace and the ROM disagreed for a long time: `rom_test trace` does not poll, so under
+        tracing we ran in step with tetanes for 2.5 million instructions while `rom_test run`
+        insisted we had failed at 286,000. `Addressable` now has a real `peek_byte`, which the bus
+        implements without touching the open bus at all.
+
+      Each was checked by reverting it alone: any one of the three puts the ROM back to `FAIL(02)`.
+
+      Two things in the plumbing are worth keeping in mind, because both failed silently:
+
+      - `Bus` needed its own `handles_write`. Inheriting it from `handles_address` meant that as
+        soon as a component claimed an address in one direction only, the bus reported that address
+        unhandled and dropped the write — which silently disabled every sprite DMA.
+      - `CpuWrapper` and the DMA wrapper have to *forward* `peek_byte` and `handles_write` rather
+        than inherit them. The default `peek_byte` is a real read, which is the one thing a peek
+        must not be, and the first attempt at the fix changed nothing at all because of it.
 - [x] cpu_dummy_writes — 2/2. A read-modify-write makes *two* writes: the processor has nowhere to
       hold the result while it computes, so it spends that cycle putting back what it just read.
       `INC` and `DEC` had this right through `modify_memory`; every shift and rotate with a memory

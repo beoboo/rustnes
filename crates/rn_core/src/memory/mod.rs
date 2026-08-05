@@ -28,6 +28,32 @@ pub trait Addressable: Debug {
         self.handles_address(address)
     }
 
+    /// Read without any of the consequences of reading.
+    ///
+    /// A real read is an event: it moves the value on the open bus, clears `$2002`'s vblank flag,
+    /// steps `$2007`'s address, acknowledges the frame IRQ. A peek is for looking — a debugger
+    /// window, a test runner checking a status byte — and must leave the machine exactly as it
+    /// found it, because the thing being inspected is usually the thing under test.
+    ///
+    /// The default forwards to [`read_byte`](Self::read_byte), which is right for storage and wrong
+    /// for anything with a side effect; those override it. The bus's own peek is what keeps the
+    /// open bus out of it, so a component only has to worry about its own registers.
+    fn peek_byte(&self, address: u16) -> Result<u8, NesError> {
+        self.read_byte(address)
+    }
+
+    /// Which bits of a read from `address` this component does not drive.
+    ///
+    /// Zero for almost everything — a component that answers an address usually drives all eight
+    /// lines. The controller ports do not: `$4016` and `$4017` put the shift register's output on
+    /// the bottom bits and leave the top three floating, so those keep whatever the bus last
+    /// carried. Reading `$4016` right after a `JMP $4016` therefore returns `$40`, the jump's own
+    /// high address byte, and `cpu_exec_space/test_cpu_exec_space_apu` is built on that: it
+    /// executes the byte it gets back, and `$40` is `RTI`.
+    fn open_bus_mask(&self, _address: u16) -> u8 {
+        0
+    }
+
     /// Read a byte from the specified address
     ///
     /// # Arguments
