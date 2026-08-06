@@ -755,6 +755,31 @@ Measured for the first time, and three of them were already passing:
       complete", which the screen reader could not interpret. The failing form — "Errors: n" and
       "Failed" — was produced deliberately, by breaking `ASL`'s carry flag, before that rule was
       written: "complete" is not "passed", and guessing would have turned a broken emulator green.
+- [x] read_joy3 — `thorough_test` passes, from hanging outright, and the bug it found was an
+      unsigned underflow rather than anything about timing. Found 2026-08-06 by the first full
+      sweep of every suite, which is also how it came to light that this file's "every failure is
+      one of three documented non-bugs" was untrue: nothing had ever triaged this suite.
+
+      The ROM hung ours in `sync_dmc`'s `BIT $4015 / BNE` — waiting for a sample to finish that
+      never did. The DMC ledger showed why in one line: our fetches walked `DB52, DB53, DB54...`
+      up through memory for ever, where tetanes refetched `C000` every time. A one-byte looping
+      sample restarts in place; ours was playing 65535 bytes.
+
+      **`$4015 = 0` zeroes `bytes_remaining`, but a DMA already asked for is still in flight**, and
+      the byte lands afterwards. `supply_byte` counted it, taking a `u16` counter from zero to
+      65535 — a sample that never ends, with `$4015` bit 4 stuck set, so any program waiting on
+      that bit waits for good. `sync_dmc` is such a program, which is why this ROM and nothing
+      else caught it. A byte with no sample to belong to now changes nothing: not the buffer, not
+      the address, not the counter, and it neither loops nor raises the end-of-sample interrupt,
+      because the sample was aborted rather than finished. tetanes guards `load_buffer` the same
+      way.
+
+      The other three are not failures of ours. `test_buttons` wants a human — it prints "Press
+      indicated buttons". `count_errors` and `count_errors_fast` *count* rather than judge, and
+      some errors are the point: ours reports 52/1000 conflicts and 12/1000 errors, against
+      tetanes' 15/1000 and the `status.txt` reference emulators' 72/1000 and 7/1000, which both
+      mark FAIL. Comparing those numbers needs a tolerance nobody has established; they should
+      not be counted as failures until one is.
 - [~] dmc_tests — 0/4, and now known to be audio-only rather than assumed. All four render a
       picture **structurally identical** to tetanes': one flat backdrop and nothing else. So they
       report by sound alone and cannot be judged here until there is something to compare audio

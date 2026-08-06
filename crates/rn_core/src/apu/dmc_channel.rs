@@ -256,6 +256,20 @@ impl DmcChannel {
 
     /// Hand the channel the byte it asked for.
     pub fn supply_byte(&mut self, value: u8) {
+        // A byte can arrive for a sample that has already been called off: `$4015 = 0` zeroes the
+        // count, but a DMA it asked for beforehand is in flight and lands afterwards. Such a byte
+        // changes nothing — not the buffer, not the address, not the count — because there is no
+        // longer a sample for it to belong to.
+        //
+        // Counting it anyway took `bytes_remaining` from zero to 65535, and a channel with 65535
+        // bytes to play never stops: it walks its address up through memory for the rest of the
+        // run with `$4015` bit 4 stuck set, so a program waiting for the sample to end waits for
+        // good. `read_joy3/thorough_test` is one — `sync_dmc` disables the channel and then polls
+        // that bit — and it hung here.
+        if self.bytes_remaining == 0 {
+            return;
+        }
+
         // Into the buffer only. The output unit takes it when its own shifter empties, which is
         // what makes this a buffer rather than a hand-off.
         self.sample_buffer = value;
@@ -660,6 +674,48 @@ mod tests {
                 "one idle cycle before enabling must move the refill by exactly one cycle; if it \
                  moves by zero the timer only ran while enabled"
             );
+        }
+
+        /// A byte that arrives after the channel was switched off is dropped whole.
+        ///
+        /// `$4015 = 0` sets `bytes_remaining` to zero, but a DMA it had already asked for is
+        /// still in flight and lands afterwards. Counting that byte decrements a counter that is
+        /// already zero, and on a `u16` in a release build that is 65535 — a sample that plays
+        /// for the rest of time, walking its address up through memory, with `$4015` bit 4 stuck
+        /// set. `read_joy3/thorough_test` hangs on exactly that: `sync_dmc` disables the channel
+        /// and then polls bit 4 for a sample that can never end. The address is the tell — ours
+        /// walked `DB52, DB53, DB54...` where the reference refetched `C000` every time.
+        ///
+        /// So the arriving byte changes nothing at all: not the buffer, not the address, not the
+        /// counter, and it neither loops nor raises the end-of-sample interrupt, because the
+        /// sample was aborted rather than finished. tetanes guards the whole of `load_buffer`
+        /// the same way.
+        #[test]
+        fn a_byte_that_arrives_after_the_channel_was_disabled_is_discarded() {
+            let mut channel = programmed();
+            channel.write_register(0, 0x40); // loop on, as thorough_test sets it
+            channel.set_enabled(true, true);
+            while !channel.wants_fetch() {
+                channel.tick();
+            }
+            // The DMA has taken the request and is fetching, and `$4015 = 0` lands before the
+            // byte comes back.
+            channel.take_pending_fetch().expect("a fetch was outstanding");
+            channel.set_enabled(false, true);
+            assert!(!channel.has_bytes_remaining(), "disabling stops the sample at once");
+
+            channel.supply_byte(0xAA);
+
+            assert_eq!(
+                channel.bytes_remaining, 0,
+                "the byte must not decrement a counter that is already zero — 65535 here is a \
+                 sample that never ends and a `$4015` bit 4 that never clears"
+            );
+            assert!(
+                !channel.has_bytes_remaining(),
+                "$4015 bit 4 must read clear, or a program waiting for the sample to end hangs"
+            );
+            assert!(!channel.irq_pending(), "an aborted sample raises no end-of-sample interrupt");
         }
 
         /// The refill is requested in the same cycle the shifter takes the buffer, not on the
