@@ -33,9 +33,22 @@ fn press(sys: &mut NesSystem, button: ControllerButton, frames: u64) {
 #[test]
 fn gameplay_frames_do_not_alternate() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../nes-roms/super-mario-3.nes");
-    // Commercial ROMs cannot live in this repository, so skip cleanly without one.
+    // Commercial ROMs cannot live in this repository, so this has to skip without one — and a
+    // skipped test in `cargo test` is indistinguishable from a passing one, which is the whole
+    // problem. `println!` here is captured and shown to nobody.
+    //
+    // So: skipping is the default, and setting `RN_REQUIRE_ROMS` turns a missing ROM into a
+    // failure. Anyone with the ROMs can export it once and stop wondering whether this ran. The
+    // same fault, in a different shape, cost a frame baseline its meaning: it sat in /tmp
+    // disagreeing with the emulator for weeks while still reading as evidence.
     if !path.exists() {
-        println!("SKIP: no ROM at {}", path.display());
+        assert!(
+            std::env::var_os("RN_REQUIRE_ROMS").is_none(),
+            "RN_REQUIRE_ROMS is set but there is no ROM at {} — this test measures nothing without \
+             it, and silently passing would say otherwise",
+            path.display()
+        );
+        eprintln!("SKIP: no ROM at {} (set RN_REQUIRE_ROMS to make this a failure)", path.display());
         return;
     }
     let rom = load_rom(&path).unwrap();

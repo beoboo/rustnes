@@ -1962,10 +1962,21 @@ falls — including which pattern table is being read, which is what drives MMC3
       `--locked`, and the tests a second time because the failures that come from tests running in
       parallel are the ones a single green run is worst at catching.
 
-      Two things to know about it. It has never actually run, because the repository has no git
-      remote — the commands are verified locally, the workflow is not. And it deliberately does
-      not run `cargo fmt --check`: the tree is not formatted to its own `.rustfmt.toml`, and that
+      **It runs.** This paragraph used to say "it has never actually run, because the repository has
+      no git remote", and that was read off this file and repeated as fact for a whole working
+      session before anybody ran `git remote -v`. The remote is github.com/beoboo/rustnes, CI has
+      been green there since 2026-08-04, and the workflow is verified rather than merely written.
+
+      It deliberately does not run `cargo fmt --check`: the tree is not formatted to its own `.rustfmt.toml`, and that
       file asks for options only nightly rustfmt understands, so the check would fail on every
       commit for reasons unrelated to the commit. Worth fixing and worth adding then; a check
       nobody can make pass is a check everyone learns to ignore.
-- [ ] `crates/rn_core/tests/frame_alternation.rs` depends on a local ROM path and skips silently
+- [x] `frame_alternation.rs` and `nametable_map.rs` depend on local ROM paths and skipped silently.
+      A skipped test and a passing one are indistinguishable in `cargo test`, and `println!` in a
+      passing test is captured and shown to nobody — so both had been measuring nothing, invisibly,
+      on any machine without the ROMs. Setting `RN_REQUIRE_ROMS` now turns a missing ROM into a
+      failure, so a machine that has them can say so once and stop wondering. The default is still
+      to skip, because nobody else can have these files.
+
+      Same fault as the frame baselines that lived in `/tmp`: a check that quietly stops checking
+      goes on reading as evidence.

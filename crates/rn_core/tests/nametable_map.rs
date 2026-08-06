@@ -3,11 +3,18 @@ use rn_core::{cartridge::load_rom, system::NesSystem};
 /// The nametable map should show real content and mark the viewport.
 #[test]
 fn map_renders_content_and_marks_the_viewport() {
-    // Commercial ROMs cannot live in this repository, so the test skips cleanly without one
-    // rather than failing on a machine that has none.
+    // Commercial ROMs cannot live in this repository, so the test skips cleanly without one rather
+    // than failing on a machine that has none. `RN_REQUIRE_ROMS` turns the skip into a failure, for
+    // a machine that does have them: a skipped test and a passing one look identical in `cargo
+    // test`, and one that quietly measures nothing is worse than one that is not there.
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../nes-roms/donkey-kong.nes");
     if !path.exists() {
-        println!("SKIP: no ROM at {}", path.display());
+        assert!(
+            std::env::var_os("RN_REQUIRE_ROMS").is_none(),
+            "RN_REQUIRE_ROMS is set but there is no ROM at {}",
+            path.display()
+        );
+        eprintln!("SKIP: no ROM at {} (set RN_REQUIRE_ROMS to make this a failure)", path.display());
         return;
     }
     let path = path.as_path();
