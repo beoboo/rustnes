@@ -1808,7 +1808,8 @@ falls — including which pattern table is being read, which is what drives MMC3
             same three-cycle loop and the same phase drift exist on a real console, so the edge must
             move there as well unless the blank span is positioned so that nine dots of movement
             fall somewhere invisible. Answering it needs a reference at this scene, which needs an
-            input route into a level — `--into-level` currently reaches the world map and stops.
+            input route into a level — `--into-level` reached only the world map when this was
+            written; the route was completed and the question answered in the close below.
 
             **The handler's timing is fixed code, so the fault is not the CPU's.** Traced from the
             save state, 2026-08-06. The in-level handler at `$F77B` ends with:
@@ -2042,6 +2043,47 @@ falls — including which pattern table is being read, which is what drives MMC3
               changes neither `mmc3_test` nor the dot the burst starts on, so it is left alone and
               recorded here as a question: whether a palette access should reach the cartridge at
               all is worth settling, but it is not this bug.
+
+            **Closed, 2026-08-06, by the comparison the previous sitting asked for — and the
+            answer was in neither the CPU, the handler, the mapper, nor the IRQ. It was in the
+            clock.** `--into-level` now actually enters level 1-1 in both emulators (the four
+            Starts only reached the world map; Right, Up, A were missing — each step read off a
+            frame dump), and at the identical scene, same frame, same Goomba:
+
+            - Ours wobbles: row 194 alternates between two images 16 pixels apart. tetanes is
+              pixel-identical for ten straight frames.
+            - But tetanes' `$2001 = $00` write *jitters exactly as ours does* — dots 263, 266,
+              271 of line 193 on successive frames, the same 0-3 cycle spread from the spin loop
+              at `$96F4`. The jitter is authentic. It is invisible there because all of those
+              dots are in hblank.
+            - The instruction streams from `$F77B` to the write are identical — same PCs, same
+              206 CPU cycles, handler entered at the same dot (~290 of line 191) in both. Yet
+              tetanes' PPU advances **659 dots** in those 206 cycles against our 618. That is
+              3.2 dots per CPU cycle: **PAL**. `super-mario-3-eu.nes` is a PAL cart; tetanes'
+              game database says so and clocks it accordingly (the iNES header claims NTSC —
+              byte 9 is 0 — and tetanes rightly ignores it). We clock everything NTSC.
+
+            So the `LDX #$0C` delay was tuned by the developers for 3.2 dots a cycle, and at
+            that rate the whole burst sits in hblank with room for the jitter. Run at 3.0 it
+            lands 41 dots early — mid-scanline, where the jitter paints the wobble. The "23
+            cycles early", "21 cycles early" and "58 dots are in when the MMC3 IRQ fires" claims
+            above were all this same number seen from different places, and "the first write
+            belongs at dot 257" was NTSC arithmetic applied to a PAL calibration. Nothing was
+            ever missing from the IRQ.
+
+            **On the NTSC US ROM the split is already right.** Measured at the same scene:
+            `$2001` off at 193:7-17, on at 193:331-194:0, and the split rows' interior is
+            pixel-identical across ten consecutive frames. The only motion is 6 pixels (ours) /
+            8-14 pixels (tetanes) at columns 10-23 of row 194 — the well-known SMB3 garbage
+            shimmer above the status bar, which the reference shows too and hardware is famous
+            for. Guarded by `crates/rn_core/tests/status_bar_split.rs`, which drives the US ROM
+            into the level and asserts the band still — pointed at the EU ROM it fails at row
+            194, which is the proof it can see the wobble.
+
+            What would make the EU ROM right is PAL support — the 3.2 ratio, 312 scanlines, the
+            PAL APU — which is a feature with its own entry to write, not a split bug. The
+            per-dot switch question is likewise no longer blocked on this: the split was never
+            wrong on the region this emulator implements.
 
       Also waiting on the same switch: a transparent pixel should show the backdrop as it stands at
       that dot rather than the colour the frame was cleared to. `emit_pixel` does it; the per-line

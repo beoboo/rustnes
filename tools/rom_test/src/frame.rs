@@ -75,9 +75,14 @@ pub fn into_a_level(system: &mut NesSystem) {
         tap(system, ControllerButton::Start, 68);
     }
     run(system, 120);
-    // ...and A from the map enters the first level, which is the scene wanted: its status bar is
-    // split with `$2006` writes, where the map's is split with `$2005`, and only the first goes
-    // wrong.
+    // ...where Mario stands on the START panel, on which A does nothing — measured, not assumed:
+    // this sequence used to tap A alone here and its frame dump was still the world map. Right
+    // and then Up walk him onto the level 1 panel — each step read off a frame dump, not recalled
+    // from the game...
+    tap(system, ControllerButton::Right, 60);
+    tap(system, ControllerButton::Up, 60);
+    // ...and A enters it, which is the scene wanted: its status bar is split with `$2006` writes,
+    // where the map's is split with `$2005`, and only the first goes wrong.
     tap(system, ControllerButton::A, 240);
     run(system, 180);
 }

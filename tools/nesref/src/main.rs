@@ -56,6 +56,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         deck.clock_frame()?;
     }
 
+    // The identical sequence `rom_test frame --into-level` runs: four Starts to the world map,
+    // then Right, Up, A to walk onto the level 1 panel and enter it. It exists because a save
+    // state reaches that scene in a second and only the other emulator can read one — so the only
+    // way to get a reference picture of the scene its status-bar split goes wrong in is to drive
+    // both there by the same route. Every step here was read off a frame dump, not recalled from
+    // the game — the sequence once ended at the world map while claiming to reach a level.
+    if into_level {
+        let mut run = |deck: &mut ControlDeck, count: usize| -> Result<(), Box<dyn std::error::Error>> {
+            for _ in 0..count {
+                deck.clock_frame()?;
+            }
+            Ok(())
+        };
+        let mut tap = |deck: &mut ControlDeck,
+                       button: JoypadBtn,
+                       after: usize|
+         -> Result<(), Box<dyn std::error::Error>> {
+            deck.joypad_mut(Player::One).set_button(button, true);
+            for _ in 0..8 {
+                deck.clock_frame()?;
+            }
+            deck.joypad_mut(Player::One).set_button(button, false);
+            for _ in 0..after {
+                deck.clock_frame()?;
+            }
+            Ok(())
+        };
+        run(&mut deck, 240)?;
+        for _ in 0..4 {
+            tap(&mut deck, JoypadBtn::Start, 68)?;
+        }
+        run(&mut deck, 120)?;
+        tap(&mut deck, JoypadBtn::Right, 60)?;
+        tap(&mut deck, JoypadBtn::Up, 60)?;
+        tap(&mut deck, JoypadBtn::A, 240)?;
+        run(&mut deck, 180)?;
+    }
+
+    // After `--skip-frames` and `--into-level`, deliberately: tracing from the boot screen was
+    // never wanted, and for one session this ran first and silently traced the wrong scene.
     if let Some(instructions) = trace {
         // tetanes gates its per-instruction line on `tracing::enabled!(TRACE)` but prints it with
         // `println!`, so the subscriber only has to answer the question — its own writer is sent to
@@ -69,28 +109,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             deck.clock_instr()?;
         }
         return Ok(());
-    }
-
-    // The identical sequence `rom_test frame --into-level` runs: Start, four times, with pauses,
-    // which carries Super Mario Bros 3 from its title screen into a level. It exists because a save
-    // state reaches that scene in a second and only the other emulator can read one — so the only
-    // way to get a reference picture of the scene its status-bar split goes wrong in is to drive
-    // both there by the same route.
-    if into_level {
-        let mut run = |deck: &mut ControlDeck, count: usize| -> Result<(), Box<dyn std::error::Error>> {
-            for _ in 0..count {
-                deck.clock_frame()?;
-            }
-            Ok(())
-        };
-        run(&mut deck, 240)?;
-        for _ in 0..4 {
-            deck.joypad_mut(Player::One).set_button(JoypadBtn::Start, true);
-            run(&mut deck, 8)?;
-            deck.joypad_mut(Player::One).set_button(JoypadBtn::Start, false);
-            run(&mut deck, 68)?;
-        }
-        run(&mut deck, 120)?;
     }
 
     for _ in 0..frames {
