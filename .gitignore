@@ -1,3 +1,6 @@
 .idea
-/target
+# Any crate's build output, not only the workspace root's. `tools/nesref` is outside the
+# workspace and so has a target directory of its own, which was tracked for months — 2950 files
+# that turned every build into hundreds of spurious modifications in `git status`.
+target/
 /tmp
