@@ -973,9 +973,37 @@ file rather than on anything specific to the suite.
 
       Five places the missing clock is not: the request's position within the DMC's tick, the
       halt's position relative to the read, the stall's length, the fetch's position within the
-      stall, and the timer's phase against the APU divider. The fourth was the standing suspicion,
-      because `sync_dmc` polls `$4015` bit 4 and resolves to a single cycle. Whatever remains is
-      neither in the DMA's shape nor in when the DMC asks.
+      stall, and the timer's phase against the APU divider.
+
+      **What the fault actually is, localised 2026-08-06 by differential trace against tetanes.**
+      The ROM times a DMA onto a `LDA $4016`, which is four read cycles — opcode, operand low,
+      operand high, then the data read that clocks the controller's shift register. Each of its five
+      runs moves the DMA one clock later, so each run doubles a different one of those four reads,
+      and only the run that doubles the *data* read changes the count the ROM prints. Instrumenting
+      which address gets doubled gives this:
+
+      ```
+      iter 1  $E20D   opcode fetch
+      iter 2  $E20E   operand low
+      iter 3  $E20F   operand high
+      iter 4  $4016   the data read      <-- ours prints 07 here
+      iter 5  $E210   next opcode
+      ```
+
+      Hardware prints 07 on iteration **3**. So the halt lands exactly one read cycle later than it
+      should, and every earlier description of this as "one clock" was right without being usable —
+      the useful form is that the doubled read is one position too far along the instruction.
+
+      Two more things this ruled out. Deferring the halt by a read moves nothing: the doubled
+      address is identical either way, which is worth knowing before someone tries it a third time.
+      And the two emulators agree on the *cycle count* of the stalled instruction — both take 8
+      cycles for that `LDA`, so the stall itself is placed and sized correctly; only which read it
+      attaches to is wrong.
+
+      Also measured and unexplained: tetanes takes a constant 20,543 cycles between runs of the
+      test, where this emulator takes 15,367, 18,853 and 22,235 — roughly one extra pass of
+      `sync_dmc`'s 3,425-cycle fine-sync loop each time. Locking the DMC's timer to the APU divider
+      does not change those numbers at all, which is what rules the divider out.
 
       The mechanism itself is pinned by `cpu::dma_halt` rather than by these ROMs, which report five
       numbers and can say the halt landed on the wrong run but not whether it doubles the read at
