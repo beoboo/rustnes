@@ -759,7 +759,14 @@ file rather than on anything specific to the suite.
       that happens to be longer. Invisible against RAM, which is why it went unnoticed; not
       invisible against a register, where `NOP $4015,X` acknowledges the APU's frame IRQ exactly as
       `LDA $4015,X` would.
-- [ ] mmc3_test — 5/6 (only `6-MMC6`, which is the other chip's counter behaviour)
+- [~] mmc3_test — 5/6 and mmc3_test_2 — 5/6, both failing only their MMC6 test. **Deliberately not
+      done.** MMC6 is a different chip: same scanline counter, but 1 KB of on-cartridge work RAM
+      with per-half write protection through `$8000`/`$A001` instead of MMC3's 8 KB. Two games use
+      it — Startropics and its sequel — and nothing else here needs it. `mmc3_irq_tests/5.MMC3_rev_A`
+      is the same shape of gap: the counter as the *earlier* revision of MMC3 implemented it, which
+      differs in when a reload of zero fires. Both are worth doing if either game is ever run, and
+      neither is evidence of anything wrong with the MMC3 that is here. Recorded so they stop
+      reading as five open failures.
 - [x] apu_test — 9/9, from 4/9, combined ROM included. Two faults in the frame counter. Its IRQ
       flag went up for one cycle at the sequence wrap where hardware holds it across the last
       *three* cycles, 29828 to 29830, so a program reading `$4015` inside that window clears it and
@@ -832,10 +839,20 @@ file rather than on anything specific to the suite.
       - `vram_access` $06 — a palette read answered from palette RAM and left the read buffer
         alone. The read still happens on the bus, so the nametable byte under the palette's mirror
         ($3F00-$3FFF down to $2F00-$2FFF) belongs in the buffer for the next read to collect.
-      - `power_up_palette` $02 — "palette differs from table" and still failing, which the suite's
-        readme says is expected: those values "are probably unique to my NES". Not a fault to chase.
+      - `power_up_palette` $02 — "palette differs from table", and **not a fault**: the suite's own
+        readme says those values "are probably unique to my NES". It is a recording of one console's
+        power-on palette RAM, which is indeterminate hardware. Nothing to chase, and it will fail
+        for ever. Left in rather than skipped because, unlike the PAL suite, it is one ROM and its
+        reason is written on it.
 - [x] cpu_timing_test6 — passes. Recorded here as "draws nothing into the first nametable within
       600 frames" and therefore unmeasurable; re-measured 2026-08-06 and it reports PASS.
+- [x] pal_apu_tests — skipped by the runner, not failed. It is `blargg_apu_2005.07.30` with PAL
+      timings, so on an NTSC emulator every one of its ten ROMs fails by design; they had been
+      putting ten permanent red marks in every sweep, which is the kind of noise that teaches people
+      to skim a failure list rather than read it. Recognised by path rather than by header, and that
+      is a heuristic where one would rather have a fact: the PAL ROMs' iNES headers are byte for
+      byte their NTSC siblings', flags 9 and 10 both zero. Only the directory says which is which.
+
 - [ ] nmi_sync — 0/2, and still unmeasurable rather than failing: both ROMs are visual demos with
       no verdict to read. Judging them needs someone to look at the screen, or a reference capture
       to diff against.

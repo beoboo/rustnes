@@ -330,7 +330,14 @@ fn run_suite(directory: &Path, budget: usize) -> Result<()> {
     println!("Running {} ROM(s) from {}\n", roms.len(), directory.display());
 
     let mut failures = 0;
+    let mut skipped = 0;
     for rom in &roms {
+        if let Some(reason) = not_for_this_machine(rom) {
+            skipped += 1;
+            println!("  SKIP     {}  ({reason})", rom.file_name().unwrap_or_default().to_string_lossy());
+            continue;
+        }
+
         match blargg::run(rom, budget) {
             Ok(outcome) => {
                 if !matches!(outcome.status, blargg::Status::Passed) {
@@ -345,11 +352,32 @@ fn run_suite(directory: &Path, budget: usize) -> Result<()> {
         }
     }
 
-    println!("\n{} passed, {failures} failed", roms.len() - failures);
+    let run = roms.len() - skipped;
+    print!("\n{} passed, {failures} failed", run - failures);
+    if skipped > 0 {
+        print!(", {skipped} skipped");
+    }
+    println!();
     if failures > 0 {
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// Why this ROM cannot be judged on this emulator, if it cannot.
+///
+/// `pal_apu_tests` is the case that exists: the same suite as `blargg_apu_2005.07.30` with the
+/// timings a PAL console has. This emulator is NTSC, so every one of them fails by design, and
+/// counting them as failures put eleven permanent red marks in every sweep — the kind of noise that
+/// teaches people to skim a failure list rather than read it.
+///
+/// Recognised by path and not by header, which is worth saying plainly because it is a heuristic
+/// where one would rather have a fact: the PAL ROMs' iNES headers are byte-identical to their NTSC
+/// siblings', flags 9 and 10 both zero. Only the directory says which is which.
+fn not_for_this_machine(rom: &Path) -> Option<&'static str> {
+    rom.components()
+        .any(|part| part.as_os_str().to_string_lossy().starts_with("pal_"))
+        .then_some("PAL timings; this emulator is NTSC")
 }
 
 fn report(rom: &Path, outcome: &blargg::Outcome) {
