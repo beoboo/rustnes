@@ -732,8 +732,10 @@ Measured for the first time, and three of them were already passing:
       five to rot, a palette read through `$2007` supplies six, a write supplies all eight, and a
       read of a write-only register supplies none, so holding a value by reading it repeatedly is
       exactly what hardware will not let you do.
-- [ ] ppu_read_buffer — 0/1, but 76 of its 79 sub-tests pass. Failing 57, 60 and 73; 57 is
-      "setting PPU address to 3FFF and reading $2007 thrice should give the contents of $0000".
+- [x] ppu_read_buffer — passes. This line claimed 0/1 with 76 of 79 sub-tests passing and named
+      57, 60 and 73 as the failures; re-measured 2026-08-06 and the ROM reports PASS outright.
+      Whatever fixed it was not aimed at it — a reminder that a suite unmeasured for a while is a
+      claim, not a fact.
 - [x] blargg_nes_cpu_test5 — 2/2, including `cpu.nes`, which covers the unofficial instructions
       too. It was passing already; it reports by listing what it ran and ending with "All tests
       complete", which the screen reader could not interpret. The failing form — "Errors: n" and
@@ -832,8 +834,11 @@ file rather than on anything specific to the suite.
         ($3F00-$3FFF down to $2F00-$2FFF) belongs in the buffer for the next read to collect.
       - `power_up_palette` $02 — "palette differs from table" and still failing, which the suite's
         readme says is expected: those values "are probably unique to my NES". Not a fault to chase.
-- [ ] nmi_sync, cpu_timing_test6 — still unmeasured. The `nmi_sync` ROMs are visual demos with no
-      verdict to read; `cpu_timing_test6` draws nothing into the first nametable within 600 frames.
+- [x] cpu_timing_test6 — passes. Recorded here as "draws nothing into the first nametable within
+      600 frames" and therefore unmeasurable; re-measured 2026-08-06 and it reports PASS.
+- [ ] nmi_sync — 0/2, and still unmeasurable rather than failing: both ROMs are visual demos with
+      no verdict to read. Judging them needs someone to look at the screen, or a reference capture
+      to diff against.
 - [x] cpu_interrupts_v2 — every ROM in the suite passes, singles and combined, and nothing hangs.
 
       `3-nmi_and_irq` passes: an interrupt sequence has to leave the shadows clear behind it, or an NMI arriving during its own seven
@@ -929,11 +934,17 @@ file rather than on anything specific to the suite.
         bit 4 and the end-of-sample interrupt with it — but it moves no column either, so it is
         pinned by `cpu::dma_halt` rather than by these ROMs.
 
-      Four places the missing clock is not: the request's position within the DMC's tick, the halt's
-      position relative to the read, the stall's length, and the fetch's position within the stall.
-      The last of those was the standing suspicion, because `sync_dmc` polls bit 4 and resolves to a
-      single cycle — so its elimination is worth more than the other three. Whatever remains is not
-      in the DMA's own shape.
+      - Clocking the DMC's timer from the APU's divider rather than at CPU rate, so its fetches are
+        locked to one half of it as hardware's are. Every entry in the rate table is even, so the
+        period halves exactly and the pitch does not move — only the phase. Tried *both* halves;
+        the table is unchanged by either, which rules out the phase rather than merely one choice
+        of it.
+
+      Five places the missing clock is not: the request's position within the DMC's tick, the
+      halt's position relative to the read, the stall's length, the fetch's position within the
+      stall, and the timer's phase against the APU divider. The fourth was the standing suspicion,
+      because `sync_dmc` polls `$4015` bit 4 and resolves to a single cycle. Whatever remains is
+      neither in the DMA's shape nor in when the DMC asks.
 
       The mechanism itself is pinned by `cpu::dma_halt` rather than by these ROMs, which report five
       numbers and can say the halt landed on the wrong run but not whether it doubles the read at
