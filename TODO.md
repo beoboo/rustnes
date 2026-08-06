@@ -1779,6 +1779,39 @@ falls — including which pattern table is being read, which is what drives MMC3
       - [ ] The interrupt lands on the right cycle, so the split's write burst starts at dot 257
             rather than dot ~190.
 
+            **The handler's timing is fixed code, so the fault is the interrupt's.** Traced from the
+            save state, 2026-08-06. The in-level handler at `$F77B` ends with:
+
+            ```
+            $F7CD  STA $E001      ; acknowledge the MMC3 IRQ
+            $F7D0  LDX #$0C       ; a hard-coded delay of twelve
+            $F7D2  NOP
+            $F7D3  DEX
+            $F7D4  BNE $F7D2
+            ```
+
+            A fixed delay, not a poll — the developers tuned that twelve so the `$2006` burst lands
+            in hblank on real hardware. Nothing about it can vary between emulators. The handler
+            enters at scanline 191 dot 288 and reaches its first completed `$2006` write 593 dots
+            later, at 193:199; for that write to land at 193:257 the handler would have to enter 58
+            dots later, at about 192:5, which needs the IRQ at about 191:325 rather than 191:261.
+
+            So the whole 58 dots are in **when the MMC3 IRQ fires**, and none of it is in the CPU or
+            the handler. That retires "the CPU is too slow to the write", which this entry has
+            carried as one of two possibilities since it was opened.
+
+            What that does *not* explain: the A12 rise really does look right. `address_on_bus`
+            derives the address from the actual fetches — `CTRL_BACKGROUND_PATTERN` for background
+            and the real `sprite_patterns` for sprites — so a game with the two tables swapped gets
+            its rise at dot 321 rather than 261 without anything being special-cased. Dot 261 is
+            also what Mesen computes. The next thing to measure is the counter itself: which
+            scanline the latch is aimed at, and whether the reload and the decrement agree with
+            hardware about the line the IRQ belongs to.
+
+            **The map screen is not the fault and can stop being looked at.** Its split handler is a
+            different routine at `$A83C`, writes `$2005` rather than `$2006`, and runs entirely in
+            hblank at dots 277-338. Only the in-level path at `$F77B` goes wrong.
+
             **The means to see this is now committed rather than rebuilt each time.** Every
             completed `$2006` write is recorded with the dot it landed on, and `rom_test frame`
             prints them, saying for each whether it fell in the visible picture, in hblank, or in
