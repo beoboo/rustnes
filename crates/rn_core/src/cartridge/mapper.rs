@@ -99,6 +99,9 @@ fn banked(data: &[u8], bank: usize, bank_size: usize, offset: usize) -> u8 {
 /// which is what makes its reset vector at `$FFFC` resolve.
 #[derive(Debug)]
 pub struct Nrom {
+    /// Whether this board's character memory is RAM. A header saying zero CHR banks means
+    /// CHR RAM, and only RAM accepts writes; ROM ignores them.
+    chr_is_ram: bool,
     prg: Vec<u8>,
     chr: Vec<u8>,
     mirroring: Mirroring,
@@ -114,8 +117,9 @@ impl Nrom {
         // Invisible in anything with CHR ROM, which is most of what had been tried. Not invisible
         // in blargg's PPU suites: `sprite_hit_tests` reported "sprite hit isn't working at all"
         // because nothing was drawn to hit. Every other mapper here already did this.
-        let chr = if chr.is_empty() { vec![0; 8 * 1024] } else { chr };
-        Self { prg, chr, mirroring }
+        let chr_is_ram = chr.is_empty();
+        let chr = if chr_is_ram { vec![0; 8 * 1024] } else { chr };
+        Self { prg, chr, chr_is_ram, mirroring }
     }
 }
 
@@ -137,7 +141,15 @@ impl Mapper for Nrom {
     }
 
     fn write_chr(&mut self, address: u16, value: u8) {
-        // Only cartridges with CHR RAM accept this; those with CHR ROM ignore it.
+        // Only a board with CHR *RAM* accepts this; one with CHR ROM ignores it. The comment here
+        // said so for a long time while the code wrote regardless, and that is not harmless: a
+        // cartridge whose tiles are in ROM, running a program that clears all of VRAM at startup,
+        // had its own character data overwritten with zeros and drew a blank screen for ever
+        // after. `ny2011` is such a program — its nametables and attributes were right, its
+        // pattern fetches all zero — and it is why this is now checked rather than described.
+        if !self.chr_is_ram {
+            return;
+        }
         let index = address as usize & 0x1FFF;
         if index < self.chr.len() {
             self.chr[index] = value;
@@ -156,6 +168,9 @@ impl Mapper for Nrom {
 /// Castlevania and many others.
 #[derive(Debug)]
 pub struct UxRom {
+    /// Whether this board's character memory is RAM. A header saying zero CHR banks means
+    /// CHR RAM, and only RAM accepts writes; ROM ignores them.
+    chr_is_ram: bool,
     prg: Vec<u8>,
     chr: Vec<u8>,
     bank: usize,
@@ -165,8 +180,10 @@ pub struct UxRom {
 impl UxRom {
     pub fn new(prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> Self {
         // CHR is usually RAM on these boards.
-        let chr = if chr.is_empty() { vec![0; 8 * 1024] } else { chr };
+        let chr_is_ram = chr.is_empty();
+        let chr = if chr_is_ram { vec![0; 8 * 1024] } else { chr };
         Self {
+            chr_is_ram,
             prg,
             chr,
             bank: 0,
@@ -195,6 +212,15 @@ impl Mapper for UxRom {
     }
 
     fn write_chr(&mut self, address: u16, value: u8) {
+        // Only a board with CHR *RAM* accepts this; one with CHR ROM ignores it. The comment here
+        // said so for a long time while the code wrote regardless, and that is not harmless: a
+        // cartridge whose tiles are in ROM, running a program that clears all of VRAM at startup,
+        // had its own character data overwritten with zeros and drew a blank screen for ever
+        // after. `ny2011` is such a program — its nametables and attributes were right, its
+        // pattern fetches all zero — and it is why this is now checked rather than described.
+        if !self.chr_is_ram {
+            return;
+        }
         let index = address as usize & 0x1FFF;
         if index < self.chr.len() {
             self.chr[index] = value;
@@ -219,6 +245,9 @@ impl Mapper for UxRom {
 /// masking by the number of banks the cartridge actually has is what keeps both working.
 #[derive(Debug)]
 pub struct CnRom {
+    /// Whether this board's character memory is RAM. A header saying zero CHR banks means
+    /// CHR RAM, and only RAM accepts writes; ROM ignores them.
+    chr_is_ram: bool,
     prg: Vec<u8>,
     chr: Vec<u8>,
     bank: usize,
@@ -228,8 +257,10 @@ pub struct CnRom {
 impl CnRom {
     pub fn new(prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> Self {
         // CHR ROM is the point of this board, but a cartridge without any still has to answer.
-        let chr = if chr.is_empty() { vec![0; 8 * 1024] } else { chr };
+        let chr_is_ram = chr.is_empty();
+        let chr = if chr_is_ram { vec![0; 8 * 1024] } else { chr };
         Self {
+            chr_is_ram,
             prg,
             chr,
             bank: 0,
@@ -261,9 +292,19 @@ impl Mapper for CnRom {
         banked(&self.chr, self.bank, 8 * 1024, address as usize & 0x1FFF)
     }
 
-    fn write_chr(&mut self, _address: u16, _value: u8) {
-        // CHR is ROM on this board. Writes are ignored rather than accepted into a buffer nobody
-        // reads back, so a program that writes here sees the ROM it wrote over unchanged.
+    fn write_chr(&mut self, address: u16, value: u8) {
+        // CHR is ROM on this board in almost every case, and writes to ROM are ignored rather
+        // than accepted into a buffer nobody reads back — so a program that writes here sees the
+        // ROM it wrote over unchanged. A header declaring zero CHR banks means the board carries
+        // RAM instead, and then the write lands, through the same bank the read would use.
+        if !self.chr_is_ram {
+            return;
+        }
+        let bank = self.bank;
+        let index = bank * 8 * 1024 + (address as usize & 0x1FFF);
+        if index < self.chr.len() {
+            self.chr[index] = value;
+        }
     }
 
     fn mirroring(&self) -> Mirroring {
@@ -279,6 +320,9 @@ impl Mapper for CnRom {
 /// resets the sequence — which is how a game recovers from an interrupted write.
 #[derive(Debug)]
 pub struct Mmc1 {
+    /// Whether this board's character memory is RAM. A header saying zero CHR banks means
+    /// CHR RAM, and only RAM accepts writes; ROM ignores them.
+    chr_is_ram: bool,
     prg: Vec<u8>,
     chr: Vec<u8>,
 
@@ -294,8 +338,10 @@ pub struct Mmc1 {
 
 impl Mmc1 {
     pub fn new(prg: Vec<u8>, chr: Vec<u8>) -> Self {
-        let chr = if chr.is_empty() { vec![0; 8 * 1024] } else { chr };
+        let chr_is_ram = chr.is_empty();
+        let chr = if chr_is_ram { vec![0; 8 * 1024] } else { chr };
         Self {
+            chr_is_ram,
             prg,
             chr,
             shift: 0,
@@ -421,6 +467,15 @@ impl Mapper for Mmc1 {
     }
 
     fn write_chr(&mut self, address: u16, value: u8) {
+        // Only a board with CHR *RAM* accepts this; one with CHR ROM ignores it. The comment here
+        // said so for a long time while the code wrote regardless, and that is not harmless: a
+        // cartridge whose tiles are in ROM, running a program that clears all of VRAM at startup,
+        // had its own character data overwritten with zeros and drew a blank screen for ever
+        // after. `ny2011` is such a program — its nametables and attributes were right, its
+        // pattern fetches all zero — and it is why this is now checked rather than described.
+        if !self.chr_is_ram {
+            return;
+        }
         let bank = self.chr_bank_for(address);
         let banks = (self.chr.len() / (4 * 1024)).max(1);
         let index = (bank % banks) * 4 * 1024 + (address as usize & 0x0FFF);
@@ -445,6 +500,9 @@ impl Mapper for Mmc1 {
 /// program bank and which nametable the whole screen uses.
 #[derive(Debug)]
 pub struct AxRom {
+    /// Whether this board's character memory is RAM. A header saying zero CHR banks means
+    /// CHR RAM, and only RAM accepts writes; ROM ignores them.
+    chr_is_ram: bool,
     prg: Vec<u8>,
     chr: Vec<u8>,
     bank: usize,
@@ -453,8 +511,10 @@ pub struct AxRom {
 
 impl AxRom {
     pub fn new(prg: Vec<u8>, chr: Vec<u8>) -> Self {
-        let chr = if chr.is_empty() { vec![0; 8 * 1024] } else { chr };
+        let chr_is_ram = chr.is_empty();
+        let chr = if chr_is_ram { vec![0; 8 * 1024] } else { chr };
         Self {
+            chr_is_ram,
             prg,
             chr,
             bank: 0,
@@ -479,6 +539,15 @@ impl Mapper for AxRom {
     }
 
     fn write_chr(&mut self, address: u16, value: u8) {
+        // Only a board with CHR *RAM* accepts this; one with CHR ROM ignores it. The comment here
+        // said so for a long time while the code wrote regardless, and that is not harmless: a
+        // cartridge whose tiles are in ROM, running a program that clears all of VRAM at startup,
+        // had its own character data overwritten with zeros and drew a blank screen for ever
+        // after. `ny2011` is such a program — its nametables and attributes were right, its
+        // pattern fetches all zero — and it is why this is now checked rather than described.
+        if !self.chr_is_ram {
+            return;
+        }
         let index = address as usize & 0x1FFF;
         if index < self.chr.len() {
             self.chr[index] = value;
@@ -501,6 +570,9 @@ impl Mapper for AxRom {
 /// status bar is exactly that.
 #[derive(Debug)]
 pub struct Mmc3 {
+    /// Whether this board's character memory is RAM. A header saying zero CHR banks means
+    /// CHR RAM, and only RAM accepts writes; ROM ignores them.
+    chr_is_ram: bool,
     prg: Vec<u8>,
     chr: Vec<u8>,
 
@@ -521,8 +593,10 @@ pub struct Mmc3 {
 
 impl Mmc3 {
     pub fn new(prg: Vec<u8>, chr: Vec<u8>, mirroring: Mirroring) -> Self {
-        let chr = if chr.is_empty() { vec![0; 8 * 1024] } else { chr };
+        let chr_is_ram = chr.is_empty();
+        let chr = if chr_is_ram { vec![0; 8 * 1024] } else { chr };
         Self {
+            chr_is_ram,
             prg,
             chr,
             bank_select: 0,
@@ -628,6 +702,15 @@ impl Mapper for Mmc3 {
     }
 
     fn write_chr(&mut self, address: u16, value: u8) {
+        // Only a board with CHR *RAM* accepts this; one with CHR ROM ignores it. The comment here
+        // said so for a long time while the code wrote regardless, and that is not harmless: a
+        // cartridge whose tiles are in ROM, running a program that clears all of VRAM at startup,
+        // had its own character data overwritten with zeros and drew a blank screen for ever
+        // after. `ny2011` is such a program — its nametables and attributes were right, its
+        // pattern fetches all zero — and it is why this is now checked rather than described.
+        if !self.chr_is_ram {
+            return;
+        }
         let bank = self.chr_bank_for(address);
         let banks = (self.chr.len() / CHR_BANK).max(1);
         let index = (bank % banks) * CHR_BANK + (address as usize & 0x03FF);
@@ -1164,5 +1247,41 @@ mod tests {
             create(99, vec![0; 16 * 1024], vec![], Mirroring::Horizontal).is_none(),
             "an unknown mapper must not silently fall back to NROM"
         );
+    }
+
+    /// CHR ROM ignores writes; CHR RAM accepts them. A header saying zero CHR banks is the only
+    /// thing that tells the two apart, which is why the loader leaves that vector empty rather
+    /// than filling it with eight kilobytes of zeros — filled in, every board looks like RAM.
+    ///
+    /// Getting this wrong is not harmless. A cartridge whose tiles live in ROM, running a program
+    /// that clears the whole of VRAM at startup, had its own character data overwritten with
+    /// zeros and drew a blank screen for ever after. `ny2011` is such a program: its nametables
+    /// and attributes read back correctly the whole time, and every pattern fetch came back zero.
+    #[test]
+    fn chr_rom_ignores_writes_and_chr_ram_accepts_them() {
+        for number in [0u8, 1, 2, 3, 4, 7] {
+            // A board with real CHR ROM: one non-zero byte, which a write must not disturb.
+            let mut chr = vec![0u8; 8 * 1024];
+            chr[0] = 0xA5;
+            let mut rom = create(number, vec![0; 32 * 1024], chr, Mirroring::Horizontal)
+                .expect("mapper is supported");
+            rom.write_chr(0x0000, 0x00);
+            assert_eq!(
+                rom.read_chr(0x0000),
+                0xA5,
+                "mapper {number}: a write to CHR ROM must be ignored, not overwrite the tile"
+            );
+
+            // The same board declared with CHR RAM — an empty vector — must take the write.
+            let mut ram = create(number, vec![0; 32 * 1024], Vec::new(), Mirroring::Horizontal)
+                .expect("mapper is supported");
+            ram.write_chr(0x0000, 0x5A);
+            assert_eq!(
+                ram.read_chr(0x0000),
+                0x5A,
+                "mapper {number}: CHR RAM must accept writes, or a game that uploads its tiles \
+                 at startup renders nothing"
+            );
+        }
     }
 }

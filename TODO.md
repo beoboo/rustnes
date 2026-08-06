@@ -755,6 +755,35 @@ Measured for the first time, and three of them were already passing:
       complete", which the screen reader could not interpret. The failing form — "Errors: n" and
       "Failed" — was produced deliberately, by breaking `ASL`'s carry flag, before that rule was
       written: "complete" is not "passed", and guessing would have turned a broken emulator green.
+- [x] ny2011 — drew a blank screen and now draws its picture. **CHR ROM was writable**, which is
+      the kind of fault that hides for months: it needs a cartridge whose tiles are in ROM *and* a
+      program that writes to pattern space, and most programs have no reason to.
+
+      This one has: it clears the whole of VRAM at startup, as plenty of demos do. On hardware
+      those writes fall on ROM and do nothing. Here they landed, so the game zeroed its own
+      character data and every pattern fetch afterwards came back empty — while its nametables and
+      attributes stayed correct, which is exactly why the screen reader could still print the text
+      it had written and the picture was still blank. The probe that settled it read
+      `last_nt=2B last_pat_lo=00`: a valid tile index whose pattern bytes were zero, against a
+      `2B` in the file holding `AB F2 85 8E ...`.
+
+      `Nrom::write_chr` had carried the comment "Only cartridges with CHR RAM accept this; those
+      with CHR ROM ignore it" while the code wrote regardless. Five of the six mappers did the
+      same. What made it invisible is that the *loader* filled an absent CHR ROM with eight
+      kilobytes of zeros, so by the time any mapper saw it there was nothing left to tell RAM from
+      ROM — and CHR RAM only worked *because* the write went through unconditionally. The loader
+      now leaves that vector empty, which is the honest representation, and each mapper records
+      whether its character memory is RAM and honours it.
+
+      Pinned by `chr_rom_ignores_writes_and_chr_ram_accepts_them`, which checks both directions
+      across all six mappers and fails on the first without the guard. `sprite_hit_tests` is the
+      suite that would break if the RAM half regressed — it is CHR RAM and reported "sprite hit
+      isn't working at all" the last time this went wrong — and it stands at 11/11.
+
+      What is left is animation phase: the falling snow sits differently after 600 frames, so the
+      frames are 11.3% apart structurally while both hold the same 7 colours and the picture is
+      the reference's. Two emulators only agree on such a thing if everything upstream is
+      cycle-identical, and nothing here needs them to.
 - [~] full_palette — 0/3 to a picture that matches the reference's layout, by fixing two PPU gaps
       the demo-ROM triage of 2026-08-06 turned up. Not yet an exact match, and the reason is
       understood; see the end.

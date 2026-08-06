@@ -114,10 +114,14 @@ pub fn load_rom(path: &Path) -> Result<Rom, RomLoadError> {
     let mut prg_rom = vec![0u8; parsed.prg_rom_size * 16 * 1024];
     file.read_exact(&mut prg_rom)?;
 
-    // A CHR size of zero means the cartridge uses CHR RAM rather than ROM.
+    // A CHR size of zero means the cartridge uses CHR RAM rather than ROM, and that is left as an
+    // *empty* vector rather than eight kilobytes of zeros. The two are indistinguishable once
+    // filled in, and the mappers need to tell them apart: RAM accepts writes and ROM ignores them.
+    // Filling it here meant every board looked like RAM, so a cartridge with CHR ROM could have
+    // its own tiles overwritten — see `Nrom::write_chr`. Each mapper allocates the 8 KB itself.
     let chr_rom_size = parsed.chr_rom_size * 8 * 1024;
     let chr_rom = if chr_rom_size == 0 {
-        vec![0u8; 8192]
+        Vec::new()
     } else {
         let mut chr_rom = vec![0u8; chr_rom_size];
         file.read_exact(&mut chr_rom)?;
