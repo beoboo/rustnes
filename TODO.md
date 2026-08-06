@@ -799,6 +799,21 @@ Measured for the first time, and three of them were already passing:
       frames are 11.3% apart structurally while both hold the same 7 colours and the picture is
       the reference's. Two emulators only agree on such a thing if everything upstream is
       cycle-identical, and nothing here needs them to.
+- [ ] blargg_litewall/litewall5 — **one pixel**, at x=255 on scanline 192, the last dot of the
+      line: ours takes a palette colour where the reference takes black. Everything else in the
+      frame agrees, both draw the same 9 colours, and the structural mismatch is 1 of 61440.
+
+      It appeared when pixels started being emitted with rendering off (see `full_palette` below),
+      and that is worth being precise about rather than calling it a regression: this ROM is
+      another user of the backdrop hack — it turns rendering off mid-line at dot ~234 and writes
+      `$2006 = $3F01`, a palette address, in hblank, which is how a "light wall" of colour bars is
+      drawn at all. Emitting nothing there used to match by accident. Emitting the palette entry is
+      right, and what it newly exposes is a **one-dot disagreement about when a `$2001` write takes
+      effect**, landing on the one dot of the line where it can still be seen.
+
+      That is the open box below about carrying the delayed `$2001` a second cycle behind, as Mesen
+      does, now with a one-pixel test case attached to it. Worth doing when that is done; not worth
+      a special case of its own.
 - [~] full_palette — 0/3 to a picture that matches the reference's layout, by fixing two PPU gaps
       the demo-ROM triage of 2026-08-06 turned up. Not yet an exact match, and the reason is
       understood; see the end.
