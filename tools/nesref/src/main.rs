@@ -6,6 +6,10 @@
 
 use tetanes_core::control_deck::ControlDeck;
 
+/// The NES picture, which is not negotiable.
+const WIDTH: usize = 256;
+const HEIGHT: usize = 240;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let rom = args.next().expect("usage: nesref <rom> [frames] [--trace N]");
@@ -14,10 +18,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `--trace N`: print one line per instruction for N instructions and stop, in the same shape
     // `rom_test trace` prints, so the two can be diffed line for line. The first line that differs
     // is the bug; everything above it is agreement that has been checked rather than assumed.
-    let trace: Option<u64> = match args.next().as_deref() {
-        Some("--trace") => Some(args.next().unwrap_or_else(|| "1000000".into()).parse()?),
-        _ => None,
-    };
+    // `--frame <file>`: write what tetanes drew, as a PPM, so it can be diffed against ours pixel
+    // for pixel. The reason this exists is the ROMs that report visually and say nothing a runner
+    // can read — `nmi_sync` is two of them, `dmc_tests` four more. A reference picture is the only
+    // verdict they have.
+    let mut trace: Option<u64> = None;
+    let mut frame: Option<String> = None;
+    while let Some(flag) = args.next() {
+        match flag.as_str() {
+            "--trace" => trace = Some(args.next().unwrap_or_else(|| "1000000".into()).parse()?),
+            "--frame" => frame = args.next(),
+            other => return Err(format!("unknown option {other}").into()),
+        }
+    }
 
     let mut deck = ControlDeck::new();
     deck.load_rom_path(&rom)?;
@@ -39,6 +52,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for _ in 0..frames {
         let _ = deck.clock_frame()?;
+    }
+
+    if let Some(path) = frame {
+        // tetanes hands back RGBA; a PPM is RGB, which is what `rom_test frame --out` writes and
+        // so what a diff expects.
+        let rgba = deck.frame_buffer();
+        let mut ppm = format!("P6\n{WIDTH} {HEIGHT}\n255\n").into_bytes();
+        ppm.extend(rgba.chunks_exact(4).flat_map(|px| [px[0], px[1], px[2]]));
+        std::fs::write(&path, ppm)?;
+        println!("Wrote {path}");
+        return Ok(());
     }
 
     // Blargg's ROMs put their status at $6000 and a message at $6004. Read straight off the bus

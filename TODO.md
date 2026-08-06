@@ -755,13 +755,15 @@ Measured for the first time, and three of them were already passing:
       complete", which the screen reader could not interpret. The failing form — "Errors: n" and
       "Failed" — was produced deliberately, by breaking `ASL`'s carry flag, before that rule was
       written: "complete" is not "passed", and guessing would have turned a broken emulator green.
-- [ ] dmc_tests — 0/4, still unmeasured rather than failing. All four draw nothing at all to the
-      nametable and end on a self-jump at `$E14E`, so they report by some means this runner cannot
-      read — audio, most likely, since the suite is about DMC buffering and latency.
+- [~] dmc_tests — 0/4, and now *known* to be audio-only rather than assumed to be. `nesref --frame`
+      captures what tetanes draws, and diffing against it settles what the screen was never going to
+      say: both emulators render a flat backdrop and nothing else. The pictures differ in every
+      pixel, and only because the backdrop colour differs — ours grey 117,117,117 against tetanes'
+      83,83,83 — which is power-on palette RAM, the indeterminate hardware `power_up_palette` exists
+      to document. The palette *tables* agree, as `nmi_sync` below shows.
 
-### [Testing] Pass the suites [T8]
-Standing as of the last run. Most of what remains is blocked on the two rewrites at the end of this
-file rather than on anything specific to the suite.
+      So these four report by sound alone and cannot be judged here at all until there is something
+      to compare audio against. Not a failure, and it should stop being counted as four.
 - [x] nestest.nes — 8991/8991
 - [x] instr_test-v5 — 18/18. The last four were not failures at all: the system peeked at the next
       opcode after every step and, on seeing `$00`, declared the program Finished and switched the
@@ -867,9 +869,15 @@ file rather than on anything specific to the suite.
       is a heuristic where one would rather have a fact: the PAL ROMs' iNES headers are byte for
       byte their NTSC siblings', flags 9 and 10 both zero. Only the directory says which is which.
 
-- [ ] nmi_sync — 0/2, and still unmeasurable rather than failing: both ROMs are visual demos with
-      no verdict to read. Judging them needs someone to look at the screen, or a reference capture
-      to diff against.
+- [~] nmi_sync — measurable now, and close. Both ROMs are visual demos with no verdict to read, so
+      `nesref --frame` was added to capture tetanes' picture and diff against it. `demo_ntsc` at 240
+      frames differs by **11 pixels of 61440**: one at row 0 column 255, and ten forming a pair of
+      columns at rows 119-123. They are isolated markers in slightly different places rather than a
+      broken picture, which is the difference between "unmeasurable" and "0.02% out and here is
+      where". `demo_pal` is PAL and not applicable.
+
+      What the 11 pixels mean needs knowing what the demo draws, which nobody has looked up yet.
+      Recorded as a number rather than a verdict for that reason.
 - [x] cpu_interrupts_v2 — every ROM in the suite passes, singles and combined, and nothing hangs.
 
       `3-nmi_and_irq` passes: an interrupt sequence has to leave the shadows clear behind it, or an NMI arriving during its own seven
