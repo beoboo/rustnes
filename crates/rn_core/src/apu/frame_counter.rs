@@ -196,6 +196,29 @@ impl FrameCounter {
         self.apu_cycle
     }
 
+    /// Whether the *next* tick will clock the length counters.
+    ///
+    /// A register write is on the bus after the APU has been advanced for its cycle, so "a write
+    /// landing on the length clock" is, from here, a write landing on the cycle before it. The
+    /// question has to be asked ahead rather than behind — see `LengthCounter::set_halt`.
+    pub fn clocks_length_next(&self) -> bool {
+        let (sequence, length): (&[(u64, FrameClock)], u64) = match self.mode {
+            Mode::FourStep => (&FOUR_STEP, FOUR_STEP_LENGTH),
+            Mode::FiveStep => (&FIVE_STEP, FIVE_STEP_LENGTH),
+        };
+
+        // A pending `$4017` reset restarts the sequence, so what comes next is not simply the next
+        // cycle of it. Nothing is imminent in that case; the reset lands first.
+        if matches!(self.pending_reset, Some(0)) {
+            return false;
+        }
+
+        let next = if self.cycle == length { 1 } else { self.cycle + 1 };
+        sequence
+            .iter()
+            .any(|(cycle, clock)| *cycle == next && clock.half_frame)
+    }
+
     /// Advance one CPU cycle and report what should be clocked.
     pub fn tick(&mut self) -> FrameClock {
         // Apply a deferred $4017 reset before advancing, so the restarted sequence begins on the

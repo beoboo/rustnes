@@ -114,6 +114,11 @@ impl NoiseChannel {
     }
 
     /// Process a half frame for length counter (called at 120Hz rate)
+    /// Close a CPU cycle for the length counter. See `LengthCounter::end_cycle`.
+    pub fn end_length_cycle(&mut self, clock_imminent: bool) {
+        self.length_counter.end_cycle(clock_imminent);
+    }
+
     pub fn tick_length_counter(&mut self) {
         // Let the length counter handle the tick
         self.length_counter.tick();

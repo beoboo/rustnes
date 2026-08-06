@@ -469,6 +469,15 @@ impl Apu {
         self.apu_cycle = self.frame_counter.is_apu_cycle();
         self.apply_frame_clock(clock);
 
+        // Close the cycle for the length counters, telling them whether the clock they care about
+        // comes next. A register write reaches the bus after this, so this is how a write can tell
+        // that it is landing on the length clock — see `LengthCounter::end_cycle`.
+        let imminent = self.frame_counter.clocks_length_next();
+        self.pulse1.end_length_cycle(imminent);
+        self.pulse2.end_length_cycle(imminent);
+        self.triangle.end_length_cycle(imminent);
+        self.noise.end_length_cycle(imminent);
+
         // Pulse and noise timers advance once per APU cycle...
         if self.apu_cycle {
             self.pulse1.tick();
@@ -1258,5 +1267,115 @@ mod tests {
         apu.set_muted(true);
         apu.set_muted(false);
         Ok(())
+    }
+}
+
+
+/// What a register write does when it lands on the length counter's clock.
+///
+/// Two rules from `blargg_apu_2005.07.30`, whose readme states them in a sentence each and whose
+/// ROMs report a single number:
+///
+/// - "Changes to length counter halt occur after clocking length, not before."
+/// - "Write to length counter reload should be ignored when made during length counter clocking
+///   and the length counter is not zero."
+///
+/// Both turn on a coincidence one CPU cycle wide, and the ROMs take ten minutes to say `$03`. These
+/// sweep the cycles either side of the clock and say which one is wrong.
+#[cfg(test)]
+mod length_clock_timing {
+    use super::*;
+    use crate::memory::Addressable;
+
+    /// Mode 0's second step, where the length counter is clocked, in this harness's own count. The
+    /// suite's readme calls it 14915; the two differ by the `$4017` write delay, which is why the
+    /// tests below asserted relative positions rather than this number.
+    const CLOCK: u64 = 14916;
+
+    /// A pulse channel loaded with a long length, its frame counter just restarted.
+    fn armed_at(cycle: u64) -> Apu {
+        let mut apu = Apu::new();
+        apu.power_on();
+
+        apu.write_byte(0x4015, 0x01).unwrap(); // enable pulse 1
+        apu.write_byte(0x4000, 0x00).unwrap(); // not halted
+        apu.write_byte(0x4002, 0x00).unwrap();
+        apu.write_byte(0x4003, 0x08).unwrap(); // length index 1: 254
+        apu.write_byte(0x4017, 0x00).unwrap(); // mode 0, restarting the sequence
+
+        for _ in 0..cycle {
+            apu.tick();
+        }
+        apu
+    }
+
+    /// Write to `register` `cycle` ticks in, then run past the clock, and report the length left.
+    fn write_at(cycle: u64, register: u16, value: u8) -> u8 {
+        let mut apu = armed_at(cycle);
+        apu.write_byte(register, value).unwrap();
+        for _ in cycle..CLOCK + 4 {
+            apu.tick();
+        }
+        apu.pulse1.length_counter_value()
+    }
+
+    /// Halting the channel stops the clock — right up until the cycle the clock is on, where it is
+    /// too late and the counter is decremented one last time.
+    ///
+    /// The APU is advanced before the bus access it shares a cycle with, so a write "on" the clock
+    /// arrives, from the emulator's side, on the cycle before it. That is what the rule is about:
+    /// the change is seen, and applied after the clock rather than instead of it.
+    #[test]
+    fn a_halt_written_on_the_clock_is_too_late_to_stop_it() {
+        assert_eq!(write_at(CLOCK - 2, 0x4000, 0x20), 254, "halted two cycles early: not clocked");
+        assert_eq!(write_at(CLOCK - 1, 0x4000, 0x20), 253, "halted on the clock: clocked anyway");
+        assert_eq!(write_at(CLOCK, 0x4000, 0x20), 253, "halted after it: clocked, and stays halted");
+    }
+
+    /// And the counter really does stop afterwards — the halt was applied, not discarded.
+    #[test]
+    fn a_halt_written_on_the_clock_still_takes_effect_for_the_next_one() {
+        let mut apu = armed_at(CLOCK - 1);
+        apu.write_byte(0x4000, 0x20).unwrap();
+        // Two full frame-counter sequences, which would clock the length several times over.
+        for _ in 0..60_000u32 {
+            apu.tick();
+        }
+        assert_eq!(apu.pulse1.length_counter_value(), 253, "clocked once, then held");
+    }
+
+    /// A reload landing on the clock is ignored, unless there was nothing left to clock.
+    #[test]
+    fn a_reload_on_the_clock_is_ignored_only_while_the_counter_has_something_left() {
+        // Just before: the reload lands, then the clock takes one off it.
+        assert_eq!(write_at(CLOCK - 2, 0x4003, 0x08), 253);
+        // On it: ignored outright, so what remains is the old value clocked once.
+        assert_eq!(write_at(CLOCK - 1, 0x4003, 0x08), 253, "ignored, and the old value clocked");
+        // Just after: the clock has happened, and the reload replaces the result.
+        assert_eq!(write_at(CLOCK, 0x4003, 0x08), 254, "the reload lands intact");
+    }
+
+    /// With the counter already at zero the reload is accepted — and the clock that was about to
+    /// happen decided against the zero it found, so it does not take one off the reloaded value.
+    #[test]
+    fn a_reload_on_the_clock_is_accepted_whole_when_the_counter_has_run_out() {
+        let mut apu = armed_at(CLOCK - 1);
+
+        // Empty the counter without disturbing the frame counter: disabling clears it, and
+        // re-enabling leaves it at zero.
+        apu.write_byte(0x4015, 0x00).unwrap();
+        apu.write_byte(0x4015, 0x01).unwrap();
+        assert_eq!(apu.pulse1.length_counter_value(), 0, "empty before the reload");
+
+        apu.write_byte(0x4003, 0x08).unwrap();
+        for _ in CLOCK - 1..CLOCK + 4 {
+            apu.tick();
+        }
+
+        assert_eq!(
+            apu.pulse1.length_counter_value(),
+            254,
+            "reloaded whole: the clock had nothing to take one off"
+        );
     }
 }

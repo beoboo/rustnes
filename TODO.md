@@ -938,6 +938,29 @@ file rather than on anything specific to the suite.
       numbers and can say the halt landed on the wrong run but not whether it doubles the read at
       all.
 
+- [x] blargg_apu_2005.07.30 — 11/11, from 9/11. `10.len_halt_timing` and `11.len_reload_timing`
+      are one sentence each from the suite's own readme, and both turn on a coincidence a single
+      CPU cycle wide:
+
+      - "Changes to length counter halt occur after clocking length, not before." A halt written on
+        the clock cycle is too late to stop that clock; the counter is decremented one last time and
+        the halt applies after.
+      - "Write to length counter reload should be ignored when made during length counter clocking
+        and the length counter is not zero." With something left to clock the reload is dropped.
+        With the counter already at zero it is accepted — *and the clock that was about to happen
+        decided against the zero it found, so it must not take one off the reloaded value*. That
+        last clause is the whole difference between failing test 4 and passing.
+
+      **The direction is the part worth remembering.** The APU is advanced before the bus access it
+      shares a cycle with, so a write hardware sees as landing *on* the length clock arrives, from
+      this emulator's side, on the cycle *before* it. The first attempt asked the question backwards
+      — a flag set by the clock just past — and moved the ROM from failing test 4 to failing test 3,
+      trading one wrong answer for another. It has to be asked ahead: `clocks_length_next`.
+
+      Found by sweeping the cycles either side of the clock in a harness, not by reading the ROM's
+      verdict: each run takes ten minutes and reports `$03`. Four unit tests hold it, three of which
+      fail without the change.
+
 - [x] cpu_exec_space — 2/2. Both ROMs execute code *from* I/O space and follow where the open bus
       leads, so every wrong bit becomes a wrong opcode. Three separate faults, all of them found by
       differential trace against tetanes rather than by reading our source:

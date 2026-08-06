@@ -10,6 +10,31 @@ pub struct LengthCounter {
 
     // Whether the channel is enabled at all
     enabled: bool,
+
+    /// Whether the clock that would decrement this counter comes on the next cycle.
+    ///
+    /// A register write reaches the bus after the APU has been advanced for its cycle, so a write
+    /// that hardware sees as landing *on* the length clock is, from here, one landing the cycle
+    /// before it. Both of the rules below are about that coincidence:
+    ///
+    /// - a reload is ignored, unless the counter had already run down to zero
+    ///   (`blargg_apu_2005.07.30/11.len_reload_timing`);
+    /// - a change to the halt flag applies *after* the clock rather than before it, so the counter
+    ///   is clocked one last time either way (`10.len_halt_timing`).
+    ///
+    /// Transient, so a save state need not carry it.
+    #[serde(default, skip_serializing)]
+    clock_imminent: bool,
+
+    /// A halt flag written while the clock was imminent, to be applied once it has happened.
+    #[serde(default, skip_serializing)]
+    pending_halt: Option<bool>,
+
+    /// Set when a reload is accepted on the imminent clock, which only happens with the counter at
+    /// zero. That clock decides against the value it found — zero — so it must not decrement the
+    /// value the reload has just put there.
+    #[serde(default, skip_serializing)]
+    reloaded_on_the_clock: bool,
 }
 
 /// The length counter load values
@@ -27,6 +52,9 @@ impl LengthCounter {
             counter: 0,
             halt: false,
             enabled: false,
+            clock_imminent: false,
+            pending_halt: None,
+            reloaded_on_the_clock: false,
         }
     }
 
@@ -37,9 +65,37 @@ impl LengthCounter {
         self.enabled = false;
     }
 
+    /// Close a CPU cycle: apply anything the clock was holding up, and look one cycle ahead.
+    ///
+    /// Run after the frame counter has had its say, so a halt written while the clock was imminent
+    /// takes effect only once that clock has happened — which is the whole of what "changes to
+    /// length counter halt occur after clocking length, not before" means.
+    pub fn end_cycle(&mut self, clock_imminent: bool) {
+        if let Some(halt) = self.pending_halt.take() {
+            self.halt = halt;
+        }
+        // If the clock that was imminent never came, the note about it is stale.
+        if !self.clock_imminent {
+            self.reloaded_on_the_clock = false;
+        }
+        self.clock_imminent = clock_imminent;
+    }
+
     /// Load a new length value from the timer high register (bits 3-7)
     /// This is used when writing to the 4th register of a channel ($4003, $4007, etc.)
     pub fn load(&mut self, value: u8) {
+        // A reload landing on the very cycle the counter is clocked is ignored — but only if there
+        // was something left to clock. With the counter already at zero the write goes through as
+        // usual, which is the difference `11.len_reload_timing` tests 4 and 5 turn on.
+        if self.clock_imminent {
+            if self.counter > 0 {
+                return;
+            }
+            // Accepted, because there was nothing left to clock — and the clock about to happen
+            // decided that against the zero it found, so it must leave the reloaded value alone.
+            self.reloaded_on_the_clock = true;
+        }
+
         // Only load if the channel is enabled
         if self.enabled {
             // Get the 5-bit value from the register (bits 3-7)
@@ -53,7 +109,11 @@ impl LengthCounter {
     /// Set the halt flag (controls whether the length counter decrements)
     /// This is typically bit 5 of the first register for a channel ($4000, $4004, etc.)
     pub fn set_halt(&mut self, halt: bool) {
-        self.halt = halt;
+        if self.clock_imminent {
+            self.pending_halt = Some(halt);
+        } else {
+            self.halt = halt;
+        }
     }
 
     /// Set the enabled state for the channel
@@ -67,13 +127,20 @@ impl LengthCounter {
         }
     }
 
+    /// The counter itself, for tests that measure exactly when it moves.
+    #[cfg(test)]
+    pub fn value(&self) -> u8 {
+        self.counter
+    }
+
     /// Process a half-frame clock tick (at 120Hz)
     /// Returns whether the counter reached zero after this tick
     pub fn tick(&mut self) -> bool {
         // Only decrement if counter > 0 and not halted
-        if self.counter > 0 && !self.halt {
+        if self.counter > 0 && !self.halt && !self.reloaded_on_the_clock {
             self.counter -= 1;
         }
+        self.reloaded_on_the_clock = false;
 
         // Return whether the counter is now zero
         self.counter == 0
