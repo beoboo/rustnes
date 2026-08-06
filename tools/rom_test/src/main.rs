@@ -99,6 +99,10 @@ enum Command {
         /// Draw pixels from the per-dot path rather than the per-line one
         #[arg(long)]
         per_dot: bool,
+
+        /// Press Start into a Super Mario Bros 3 level first, matching `nesref --into-level`
+        #[arg(long)]
+        into_level: bool,
     },
 
     /// Print one line per instruction, for diffing against another emulator
@@ -109,6 +113,18 @@ enum Command {
         /// Instructions to trace
         #[arg(long, default_value_t = 200_000)]
         instructions: usize,
+
+        /// Resume from a save state first, to reach a scene inside a game
+        #[arg(long, value_name = "FILE")]
+        state: Option<PathBuf>,
+
+        /// Run this many frames before tracing, for a scene too far in to trace from the start
+        #[arg(long, default_value_t = 0)]
+        skip_frames: usize,
+
+        /// Press Start into a Super Mario Bros 3 level first, matching `nesref --into-level`
+        #[arg(long)]
+        into_level: bool,
     },
 
     /// Print the text a ROM has drawn on screen, for ROMs that report no other way
@@ -166,10 +182,16 @@ fn main() -> Result<()> {
         Command::Nestest { rom, log, limit } => run_nestest(&rom, &log, limit),
         Command::Run { rom, budget } => run_one(&rom, budget),
         Command::Cycles { rom, instructions } => cycles::report(&rom, instructions),
-        Command::Frame { rom, frames, out, ascii, state, per_dot } => {
-            run_frame(&rom, frames, out.as_deref(), ascii, state.as_deref(), per_dot)
+        Command::Frame { rom, frames, out, ascii, state, per_dot, into_level } => {
+            run_frame(&rom, frames, out.as_deref(), ascii, state.as_deref(), per_dot, into_level)
         },
-        Command::Trace { rom, instructions } => trace::report(&rom, instructions),
+        Command::Trace {
+            rom,
+            instructions,
+            state,
+            skip_frames,
+            into_level,
+        } => trace::report(&rom, instructions, state.as_deref(), skip_frames, into_level),
         Command::Screen { rom, frames, raw } => screen::report(&rom, frames, raw),
         Command::Baselines { roms, update, file } => {
             let path = file.unwrap_or_else(baseline::default_path);
@@ -266,6 +288,7 @@ fn run_frame(
     ascii: bool,
     state: Option<&Path>,
     per_dot: bool,
+    into_level: bool,
 ) -> Result<()> {
     if missing(rom, "ROM") {
         return Ok(());
@@ -275,7 +298,7 @@ fn run_frame(
     }
 
     println!("Running {} for {frames} frames\n", rom.display());
-    let capture = frame::capture(rom, frames, state, per_dot)?;
+    let capture = frame::capture(rom, frames, state, per_dot, into_level)?;
 
     if let Some(reason) = &capture.stopped {
         println!("  WARNING  {reason}");

@@ -5,6 +5,7 @@
 //! obscure; one that tetanes passes is a bug of ours with a readable reference beside it.
 
 use tetanes_core::control_deck::{Config, ControlDeck};
+use tetanes_core::input::{JoypadBtn, Player};
 use tetanes_core::video::VideoFilter;
 
 /// The NES picture, which is not negotiable.
@@ -25,10 +26,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // verdict they have.
     let mut trace: Option<u64> = None;
     let mut frame: Option<String> = None;
+    let mut into_level = false;
+    let mut skip_frames: usize = 0;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--trace" => trace = Some(args.next().unwrap_or_else(|| "1000000".into()).parse()?),
             "--frame" => frame = args.next(),
+            "--into-level" => into_level = true,
+            "--skip-frames" => skip_frames = args.next().unwrap_or_default().parse()?,
             other => return Err(format!("unknown option {other}").into()),
         }
     }
@@ -44,6 +49,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut deck = ControlDeck::with_config(config);
     deck.load_rom_path(&rom)?;
 
+    // Run to a scene before tracing. A split partway down a frame a thousand frames in cannot be
+    // traced from the start — the trace would be tens of millions of lines — and this is the only
+    // way to line two emulators up at it, since neither can read the other's save states.
+    for _ in 0..skip_frames {
+        deck.clock_frame()?;
+    }
+
     if let Some(instructions) = trace {
         // tetanes gates its per-instruction line on `tracing::enabled!(TRACE)` but prints it with
         // `println!`, so the subscriber only has to answer the question — its own writer is sent to
@@ -57,6 +69,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             deck.clock_instr()?;
         }
         return Ok(());
+    }
+
+    // The identical sequence `rom_test frame --into-level` runs: Start, four times, with pauses,
+    // which carries Super Mario Bros 3 from its title screen into a level. It exists because a save
+    // state reaches that scene in a second and only the other emulator can read one — so the only
+    // way to get a reference picture of the scene its status-bar split goes wrong in is to drive
+    // both there by the same route.
+    if into_level {
+        let mut run = |deck: &mut ControlDeck, count: usize| -> Result<(), Box<dyn std::error::Error>> {
+            for _ in 0..count {
+                deck.clock_frame()?;
+            }
+            Ok(())
+        };
+        run(&mut deck, 240)?;
+        for _ in 0..4 {
+            deck.joypad_mut(Player::One).set_button(JoypadBtn::Start, true);
+            run(&mut deck, 8)?;
+            deck.joypad_mut(Player::One).set_button(JoypadBtn::Start, false);
+            run(&mut deck, 68)?;
+        }
+        run(&mut deck, 120)?;
     }
 
     for _ in 0..frames {

@@ -10,7 +10,12 @@
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use rn_core::{apu::CPU_CLOCK_RATE, cartridge::load_rom, system::NesSystem};
+use rn_core::{
+    apu::CPU_CLOCK_RATE,
+    cartridge::load_rom,
+    input::{ControllerButton, ControllerState},
+    system::NesSystem,
+};
 
 const WIDTH: usize = 256;
 const HEIGHT: usize = 240;
@@ -39,11 +44,50 @@ pub struct Capture {
 ///
 /// `per_dot` selects the per-dot pixel path over the per-line one, so the two can be compared on a
 /// real ROM rather than only on a synthetic scene.
+/// Carry Super Mario Bros 3 from its title screen into a level: Start, four times, with pauses.
+///
+/// Hard-coded rather than made scriptable, because it is not a general facility — it is the one
+/// sequence needed to reach the one scene two emulators have to be compared at. `nesref` carries
+/// the identical sequence, which is the whole point: a save state reaches this scene in a second
+/// but only this emulator can read one, and that is exactly why no reference picture of it existed.
+pub fn into_a_level(system: &mut NesSystem) {
+    let run = |system: &mut NesSystem, frames: u64| {
+        let target = system.ppu().frame_count() + frames;
+        while system.ppu().frame_count() < target {
+            if system.step().is_err() {
+                return;
+            }
+        }
+    };
+
+    let tap = |system: &mut NesSystem, button: ControllerButton, after: u64| {
+        let mut pressed = ControllerState::new();
+        pressed.set_button(button, true);
+        system.set_controller1_state(pressed);
+        run(system, 8);
+        system.set_controller1_state(ControllerState::new());
+        run(system, after);
+    };
+
+    run(system, 240);
+    // Four Starts carry the title screen through to the world map...
+    for _ in 0..4 {
+        tap(system, ControllerButton::Start, 68);
+    }
+    run(system, 120);
+    // ...and A from the map enters the first level, which is the scene wanted: its status bar is
+    // split with `$2006` writes, where the map's is split with `$2005`, and only the first goes
+    // wrong.
+    tap(system, ControllerButton::A, 240);
+    run(system, 180);
+}
+
 pub fn capture(
     rom_path: &Path,
     frames: usize,
     state: Option<&Path>,
     per_dot: bool,
+    into_level: bool,
 ) -> Result<Capture> {
     let rom = load_rom(rom_path)
         .map_err(|e| anyhow::anyhow!("{e}"))
@@ -54,6 +98,10 @@ pub fn capture(
         .load_rom(&rom)
         .map_err(|e| anyhow::anyhow!("{e}"))
         .context("loading the ROM into the system")?;
+
+    if into_level {
+        into_a_level(&mut system);
+    }
 
     if let Some(path) = state {
         let text = std::fs::read_to_string(path)
