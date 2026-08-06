@@ -755,6 +755,42 @@ Measured for the first time, and three of them were already passing:
       complete", which the screen reader could not interpret. The failing form — "Errors: n" and
       "Failed" — was produced deliberately, by breaking `ASL`'s carry flag, before that rule was
       written: "complete" is not "passed", and guessing would have turned a broken emulator green.
+- [~] full_palette — 0/3 to a picture that matches the reference's layout, by fixing two PPU gaps
+      the demo-ROM triage of 2026-08-06 turned up. Not yet an exact match, and the reason is
+      understood; see the end.
+
+      The triage itself is the point: these ROMs report by picture alone, so `rom_test` called all
+      three failures and nobody had looked. Ours drew a **black screen** where tetanes drew all 64
+      colours. Two things were missing, and the first is the one worth remembering:
+
+      **Pixels must be emitted even when rendering is off** — that is *how* the screen goes blank,
+      and the blanking colour is not always the backdrop. Ours emitted none at all: `emit_pixel`
+      is called from `advance_background_fetch`, and `tick` only calls that `if rendering_now`.
+      tetanes says it in a comment — "Pixels should be put even if rendering is disabled, as this
+      is what blanks out the screen. Rendering disabled just means we don't evaluate/read
+      bg/sprite info."
+
+      **And with rendering off, a `v` left inside `$3F00-$3FFF` is shown instead of the backdrop.**
+      The PPU has no fetched pixel, so what reaches the screen is whatever palette entry the
+      address register points at. That is the whole of how this ROM paints: it never turns
+      rendering on once — 65 writes of `$2001 = $00` in a frame and not one that enables it — and
+      steps `v` through palette memory.
+
+      **Colour emphasis was declared and never applied.** `MASK_EMPHASIZE_RED`/`GREEN`/`BLUE` had
+      sat in this file as constants nothing read. The ROM writes `$2001 = $20` between bands to
+      show more than 64 colours at once, so without emphasis ours drew 52 distinct colours against
+      the reference's 426. Applying the documented attenuation — a channel is darkened when a bit
+      it is not named by is set, 0.746 as 191/256 — brings it to 223.
+
+      **What is left is the palette table, not the mechanism.** Layout now agrees to 0.72% of
+      horizontal edge positions and 1.67% of vertical ones, measured as an edge map so the
+      comparison does not depend on which RGB either emulator gives an entry. Ours has *fewer*
+      edges (2611 against 2793), which is the tell: reference emulators carry a measured 512-entry
+      table — 64 colours by 8 emphasis combinations — where this is a 64-entry approximation with
+      a formula over it, so entries they separate collapse together here. `rom_test compare` still
+      reports a mismatch and will keep doing so until the table is measured rather than
+      approximated; that is its own piece of work, and worth doing for every ROM's colours rather
+      than for this one.
 - [x] read_joy3 — `thorough_test` passes, from hanging outright, and the bug it found was an
       unsigned underflow rather than anything about timing. Found 2026-08-06 by the first full
       sweep of every suite, which is also how it came to light that this file's "every failure is

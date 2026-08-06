@@ -883,6 +883,23 @@ impl Ppu {
         let rendering_now = (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0;
         let on_a_rendered_line = (0..240).contains(&self.scanline) || self.scanline == 261;
 
+        // Pixels are still put when rendering is off — that is *how* the screen goes blank, and
+        // the blanking colour is not always the backdrop. What rendering off actually stops is
+        // the fetching: no tiles, no sprites, no scroll advance. So the emission is here rather
+        // than only inside `advance_background_fetch`, which does not run at all in that case.
+        //
+        // `full_palette` is the ROM that needs it, and it drew a black screen without it: it
+        // never turns rendering on once — 65 writes of `$2001 = $00` in a frame and not one that
+        // enables it — and paints by leaving `v` inside palette memory, which `emit_pixel` then
+        // shows entry by entry. With no pixels emitted at all there was nothing to show it with.
+        if !rendering_now
+            && self.per_dot_pixels
+            && (1..=256).contains(&self.cycle)
+            && (0..240).contains(&self.scanline)
+        {
+            self.emit_pixel();
+        }
+
         if rendering_now && on_a_rendered_line {
             self.advance_background_fetch();
 
@@ -1641,6 +1658,7 @@ impl Ppu {
         let x = (self.cycle - 1) as usize;
         let y = self.scanline as usize;
 
+        let rendering_now = (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0;
         let showing_background = (self.mask & MASK_SHOW_BACKGROUND) != 0
             // The leftmost eight pixels have their own mask, used to hide what scrolling exposes
             // at the edge.
@@ -1673,6 +1691,25 @@ impl Ppu {
             // transparent — including the eight leftmost pixels of every line, which the left-hand
             // mask blanks.
             None => self.read_palette(0x3F00),
+        };
+
+        // With rendering off, a `v` left inside palette memory is shown *instead of* the backdrop:
+        // the PPU has no fetched pixel to draw, so what reaches the screen is whatever palette
+        // entry the address register happens to point at, entry by entry as `v` moves.
+        //
+        // This is the whole of how `full_palette` works, and it is why it drew a black screen
+        // here: the ROM never turns rendering on at all — 65 writes of `$2001 = $00` in a frame
+        // and not one that enables it — and paints by stepping `v` through `$3F00-$3FFF` with
+        // `$2007` writes. Without this it has nothing to show but `$3F00`, which is black.
+        //
+        // Only when rendering is off. With it on, `v` is the fetch address and sweeps the
+        // nametables past `$3F00` constantly; honouring it then would paint the picture over with
+        // palette entries.
+        let colour = if !rendering_now && (0x3F00..=0x3FFF).contains(&(self.ppu_addr.get() & 0x3FFF))
+        {
+            self.read_palette(self.ppu_addr.get() & 0x3FFF)
+        } else {
+            colour
         };
 
         let rgb = self.palette_to_rgb(colour);
@@ -2065,6 +2102,34 @@ impl Ppu {
             palette_entry
         };
 
+        let rgb = Self::palette_rgb(palette_entry);
+
+        // Colour emphasis ($2001 bits 5-7) darkens the channels a bit is *not* set for: emphasise
+        // red and green and blue are attenuated, and so on, with all three set darkening
+        // everything. Games use it for damage flashes and fades, and `full_palette` uses it to
+        // show more than 64 colours at once — it writes `$2001 = $20` between bands, which is why
+        // ours drew 52 distinct colours where the reference drew 426.
+        //
+        // The constants were only ever *declared* here; nothing read them. Reference emulators
+        // carry a measured 512-entry table (64 colours by 8 combinations) rather than a formula.
+        // This palette is already an approximation, so the documented attenuation is applied to
+        // it instead — 0.746, as ~191/256 to keep it in integers.
+        let emphasis = self.mask & (MASK_EMPHASIZE_RED | MASK_EMPHASIZE_GREEN | MASK_EMPHASIZE_BLUE);
+        if emphasis == 0 {
+            return rgb;
+        }
+
+        let attenuate = |channel: u8| ((channel as u16 * 191) / 256) as u8;
+        let [r, g, b] = rgb;
+        [
+            if emphasis & (MASK_EMPHASIZE_GREEN | MASK_EMPHASIZE_BLUE) != 0 { attenuate(r) } else { r },
+            if emphasis & (MASK_EMPHASIZE_RED | MASK_EMPHASIZE_BLUE) != 0 { attenuate(g) } else { g },
+            if emphasis & (MASK_EMPHASIZE_RED | MASK_EMPHASIZE_GREEN) != 0 { attenuate(b) } else { b },
+        ]
+    }
+
+    /// The NES palette, before greyscale or colour emphasis are applied to it.
+    fn palette_rgb(palette_entry: u8) -> [u8; 3] {
         // Simple NES palette conversion
         // These are approximate RGB values for the NES palette
         match palette_entry & 0x3F {
