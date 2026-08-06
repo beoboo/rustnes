@@ -1,3 +1,28 @@
+diff --git a/tetanes-core/src/bus.rs b/tetanes-core/src/bus.rs
+index 7ad35ee..bb52199 100644
+--- a/tetanes-core/src/bus.rs
++++ b/tetanes-core/src/bus.rs
+@@ -336,7 +336,19 @@ impl Bus {
+             }
+             0x2002 => self.ppu.read_status(),
+             0x2004 => self.ppu.read_oamdata(),
+-            0x2007 => self.read_data(),
++            0x2007 => {
++                // RN probe: every $2007 read, with the buffer and VRAM address it saw.
++                static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
++                if *TRACE.get_or_init(|| std::env::var_os("RN_2007_TRACE").is_some()) {
++                    eprintln!(
++                        "R2007 cyc={} v={:04X} buf={:02X}",
++                        self.cpu.cycle,
++                        self.ppu.scroll.addr(),
++                        self.ppu.vram_buffer
++                    );
++                }
++                self.read_data()
++            }
+             0x4015 => self.apu.read_status(),
+             0x4016 => self.input_read(Player::One),
+             0x4017 => self.input_read(Player::Two),
 diff --git a/tetanes-core/src/cpu.rs b/tetanes-core/src/cpu.rs
 index d37fc75..6ba3946 100644
 --- a/tetanes-core/src/cpu.rs

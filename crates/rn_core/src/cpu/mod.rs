@@ -455,8 +455,27 @@ impl Cpu {
                     if crate::apu::dmc_trace() {
                         eprintln!("DMC HALTADDR addr={address:04X}");
                     }
-                    for _ in 0..stalled {
-                        self.stall_cycle();
+                    // The address stays on the bus for the whole halt, so those cycles are reads
+                    // too, with their side effects. Two of the halt's cycles are spoken for: one
+                    // is the DMC's own fetch, and one is the resumed read below — which is
+                    // performed without a cycle of its own, because this halt already charged for
+                    // it. So `stalled - 2` of them re-drive the address.
+                    //
+                    // That number is what `dma_2007_read` counts, and both stall lengths land in
+                    // its accepted range: a 4-cycle halt gives two extra reads and prints
+                    // `44 55`, a 3-cycle halt gives one and prints `33 44`. Driving every cycle
+                    // but the fetch gives three, and prints `55 66`, which is off the table.
+                    //
+                    // The controller ports are the exception, and it is not a special case so much
+                    // as what makes their test readable: `$4016` is clocked by the halt's repeat
+                    // alone, never by these, so `dma_4016_read` sees exactly one doubled read where
+                    // `$2007` sees three. tetanes carries the same exemption, as
+                    // `skip_dummy_reads = addr == 0x4016 || addr == 0x4017`.
+                    let driven =
+                        if matches!(address, 0x4016 | 0x4017) { None } else { Some(address) };
+                    let extra_reads = stalled.saturating_sub(2);
+                    for cycle in 0..stalled {
+                        self.stall_cycle_driving(if cycle < extra_reads { driven } else { None });
                     }
                     halt(DmaHalt::Fetch);
                     return self.memory().and_then(|memory| memory.read_byte(address));
@@ -674,12 +693,23 @@ impl Cpu {
     /// still, because the poll that decides this instruction belongs to the instruction's own state
     /// machine, which is frozen while the processor is halted. The sprite DMA taught that the hard
     /// way — advancing the shadow across a halt takes the interrupt an instruction early.
-    fn stall_cycle(&self) {
+    /// A stalled cycle that still drives an address on the bus, and so still performs its read.
+    ///
+    /// The halted processor does not let go of the bus: it holds the address it was reading for
+    /// every cycle of the halt, and each of those cycles is a real read with real side effects.
+    /// Invisible for RAM; for `$2007` each one advances the VRAM address and rotates the read
+    /// buffer, which is what `dma_2007_read` counts — hardware performs two to three of these
+    /// *extra* reads before the real one, where doing none made a halted `LDX $2007` see the
+    /// second byte of VRAM instead of the fourth.
+    fn stall_cycle_driving(&self, address: Option<u16>) {
         if let Some(clock) = &self.clock {
             self.clocked_cycles.set(self.clocked_cycles.get().saturating_add(1));
             self.total_clocked.set(self.total_clocked.get() + 1);
             self.stalled_cycles.set(self.stalled_cycles.get().saturating_add(1));
             clock(ClockPhase::BeforeAccess);
+            if let Some(address) = address {
+                let _ = self.memory().and_then(|memory| memory.read_byte(address));
+            }
             clock(ClockPhase::AfterAccess);
         }
     }
@@ -1460,15 +1490,62 @@ mod dma_halt {
         (cpu, memory, cycles)
     }
 
+    /// A halted read is performed again, and the processor keeps the last value.
+    ///
+    /// "Again" is more than twice: the halted processor holds the address for every cycle of the
+    /// halt, and each of those is a read. Two of the halt's cycles are spoken for — the DMC's own
+    /// fetch, and the resumed read, which is charged here rather than given a cycle of its own —
+    /// so a 4-cycle halt drives the address twice more, for four reads in all.
+    ///
+    /// `dma_2007_read` is what counts them: it halts an `LDX $2007`, where every read rotates the
+    /// PPU's buffer, and prints the byte the instruction ended up with. Two reads leaves it two
+    /// bytes short of hardware and prints `22 33`; four gives `44 55`, which is on its accepted
+    /// list, as is the `33 44` a 3-cycle halt produces.
     #[test]
-    fn a_halted_read_is_performed_again_and_the_second_value_is_the_one_used() {
+    fn a_halted_read_is_performed_for_every_cycle_of_the_halt_that_is_not_spoken_for() {
         let (cpu, memory, _) = cpu_with_halt(4);
 
         let value = cpu.read_byte(0x1234).expect("reading");
 
         let reads = memory.borrow().reads.borrow().clone();
-        assert_eq!(reads, vec![0x1234, 0x1234], "the halted read happens twice, at the same address");
-        assert_eq!(value, 2, "the value from the second read is the one the processor keeps");
+        assert_eq!(
+            reads,
+            vec![0x1234; 4],
+            "a 4-cycle halt reads the held address four times: the original, two driven during \
+             the halt, and the resumed one"
+        );
+        assert_eq!(value, 4, "the value from the last read is the one the processor keeps");
+    }
+
+    /// A shorter halt drives the address fewer times, one for one.
+    #[test]
+    fn a_three_cycle_halt_drives_one_fewer_read_than_a_four_cycle_one() {
+        let (cpu, memory, _) = cpu_with_halt(3);
+
+        cpu.read_byte(0x1234).expect("reading");
+
+        assert_eq!(memory.borrow().reads.borrow().len(), 3);
+    }
+
+    /// The controller ports are exempt: they see the halt's repeat and nothing else.
+    ///
+    /// Without this `$4016`'s shift register would advance on every cycle of the halt, and
+    /// `dma_4016_read` — which counts the bits a halted `LDA $4016` consumes — would report the
+    /// port clocked three times where hardware clocks it twice. tetanes carries the same
+    /// exemption as `skip_dummy_reads = addr == 0x4016 || addr == 0x4017`.
+    #[test]
+    fn the_controller_ports_are_not_clocked_by_the_halts_driven_reads() {
+        for port in [0x4016u16, 0x4017] {
+            let (cpu, memory, _) = cpu_with_halt(4);
+
+            cpu.read_byte(port).expect("reading");
+
+            assert_eq!(
+                memory.borrow().reads.borrow().clone(),
+                vec![port; 2],
+                "${port:04X} is read exactly twice — the original and the resumed read"
+            );
+        }
     }
 
     /// And the read that follows is a single one, because the DMA wanted only the one byte.

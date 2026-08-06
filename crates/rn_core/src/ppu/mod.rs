@@ -2471,6 +2471,18 @@ impl Ppu {
 
     /// Read from PPUDATA ($2007)
     fn read_data(&self) -> u8 {
+        // RN probe: every $2007 read, with the address and buffer it saw. Mirrors the ledger the
+        // nesref patch prints, so the two emulators' read bursts can be counted against each
+        // other — which is the whole measurement `dma_2007_read` makes. Latched once rather than
+        // read from the environment per access: this is a hot path.
+        static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *TRACE.get_or_init(|| std::env::var_os("RN_2007_TRACE").is_some()) {
+            eprintln!(
+                "R2007 v={:04X} buf={:02X}",
+                self.ppu_addr.get() & 0x3FFF,
+                self.read_buffer.get()
+            );
+        }
         // The address register is fifteen bits and the bus is fourteen, so what the PPU is actually
         // pointing at is `v` with the top bit dropped. Deciding *what kind* of read this is from
         // the unmasked value made $4000 — which is what $3FFF increments to — look like a palette

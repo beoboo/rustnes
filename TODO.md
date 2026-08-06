@@ -945,8 +945,9 @@ Measured for the first time, and three of them were already passing:
 - [x] cpu_reset — 2/2. Reset is not power-on: it sets the I flag, subtracts three from the stack
       pointer and does nothing else. A, X, Y and the other flags survive it. The three are the
       interrupt sequence going through the motions of its pushes with the writes suppressed.
-- [x] dmc_dma_during_read4 — 3/5, `dma_4016_read` fixed and the last two shared with the
-      reference; see the close at the end of this entry. The DMC's DMA runs
+- [x] dmc_dma_during_read4 — 4/5 by the readme's own accepted outputs; only `double_2007_read`
+      is left, and it is a PPU question rather than a DMC one. See the two closes at the end of
+      this entry. The DMC's DMA runs
       *inside* the instruction rather than after it, which is what lets it land on a read: the
       processor is halted with that address still on the bus, so the read happens a second time and
       its side effects with it. Invisible for RAM; `$4016`'s shift register advances again and
@@ -1095,6 +1096,67 @@ Measured for the first time, and three of them were already passing:
       results "depend on CPU-PPU synchronization at reset", which is a different axis from the
       DMC and one the reference has not solved either. A future sitting needs a reference that
       passes them before there is anything to compare against.
+
+      **`dma_2007_read` is correct as of 2026-08-06, and "blocked on a reference" above was
+      written off eight lines of its source.** Read in full, both ROMs list *several* accepted
+      outputs, so the question was never "does it print what tetanes prints" but "is what it
+      prints on the list". Ours was not:
+
+      ```
+      accepted:  11 22 / 11 22 / 33 44 or 44 55 / 11 22 / 11 22   crc 159A7A8F or 5E3DF9C4
+      ours:      11 22 / 11 22 / 22 33          / 11 22 / 11 22   crc 7036EAAC
+      now:       11 22 / 11 22 / 44 55          / 11 22 / 11 22   crc 5E3DF9C4
+      ```
+
+      **The halted processor keeps driving the address**, and every cycle of the halt is another
+      read with its side effects — the thing this file recorded as "tetanes has
+      `skip_dummy_reads`; we don't model dummy reads at all" and left there. For `$2007` each one
+      rotates the read buffer, so a halted `LDX $2007` should come away two to three bytes
+      further along than an unhalted one. Ours performed exactly one extra read.
+
+      The count came from a `$2007` ledger (`RN_2007_TRACE`, in both emulators) rather than from
+      arithmetic, and the arithmetic would have got it wrong: tetanes' burst is four reads at
+      T, T+1, T+2, T+4 — the gap being its DMC fetch — and driving every halt cycle but the fetch
+      gives *five*, which prints `55 66` and is off the table. Both emulators spend the same five
+      cycles on the halted read; they divide them differently. tetanes spends one on the real
+      read, where this emulator performs the resumed read without a cycle of its own because the
+      halt has already been charged for it. So two of the halt's cycles are spoken for, and
+      `stalled - 2` of them drive the address. Both our stall lengths then land on the list: a
+      4-cycle halt prints `44 55`, a 3-cycle halt `33 44`.
+
+      Pinned by `cpu::dma_halt`, which gained the read count for both stall lengths and the
+      `$4016`/`$4017` exemption — the last being what keeps `dma_4016_read`'s two reads at two.
+      The old test asserted exactly two reads at any address and failed on this change, which is
+      the test doing its job; it now encodes the rule instead.
+
+      **Neither of these two ROMs can ever print "Passed"**, which is worth knowing before
+      anyone chases their `NOPROTO` again: unlike `dma_4016_read` they end in `jsr print_crc` /
+      `rts` with no `check_crc` and no `tests_passed`. They are informational — the verdict is
+      the printed table against the readme's list, and the runner has no channel for that.
+
+      **`double_2007_read` is decoded but not fixed, and it is not a DMC test at all** — it
+      includes `shell.inc` rather than `common.inc`, so no DMA runs in it. It reads
+      `lda $20F7,x` with `x=$10`, which page-crosses: the 6502 reads the unfixed address `$2007`
+      and then the real `$2107`, and both mirror to `$2007`. Two reads on consecutive cycles.
+
+      ```
+      accepted line 2:  22 44 55 66 77 | 22 33 44 55 66 | 02 44 55 66 77 | 32 44 55 66 77
+      ours:             33 44 55 66 77
+      ```
+
+      Ours advances the buffer fully on both reads, so `LDA` keeps `$33`. Hardware keeps `$22`:
+      the second read sees the buffer *before* the first read's VRAM fetch landed, while the
+      address still increments twice. The `02`/`32` variants are that fetch caught mid-flight —
+      `$32` is the high nibble of `$33` with the low nibble of `$22` — and `22 33 44 55 66` is
+      the second read being dropped outright.
+
+      **What blocks it is that the fix cannot be a rule about consecutive reads**, because
+      `dma_2007_read` has consecutive `$2007` reads too and needs each one to advance fully. The
+      two ROMs differ only in which PPU dots their reads land on, which is exactly what both
+      headers mean by "depends on CPU-PPU synchronization". Fixing it means modelling the VRAM
+      fetch's latency in dots so the outcome falls out of alignment — a real piece of PPU work,
+      and one neither reference emulator has done: tetanes prints our exact wrong line, CRC
+      included. Worth doing on its own terms, not as a one-line special case.
 
 - [x] sprdma_and_dmc_dma — 2/2, from 0/2, closed 2026-08-06 in the sitting after the ledger work
       above, with the same instruments. Three mechanisms, each measured before written:
