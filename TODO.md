@@ -1022,6 +1022,20 @@ Measured for the first time, and three of them were already passing:
       APU is clocked before the bus access it shares a cycle with, so a request raised on cycle T is
       already visible to the read on cycle T, which is the earliest it can be seen at all.
 
+      **Eighth attempt, and it explains why two earlier ones were inert.** tetanes checks its
+      `DMA_HALT` flag *before* spending the read's cycle — `read()` calls `handle_dma(addr)` first,
+      and that re-drives the same address for the halt — where this emulator asked after the cycle.
+      Matching its shape changes nothing, and cannot: nothing happens between `end_cycle` of one
+      read and `start_cycle` of the next, so "ask before read N" and "ask after read N-1" are the
+      same instant. Both pick the first read after the request is visible. That is a structural
+      fact about this clock, not a measurement, and it retires the whole family of "move the check"
+      ideas — three of the eight attempts were versions of it.
+
+      One thing worth stealing from tetanes regardless, when this is next opened: its `handle_dma`
+      carries `let skip_dummy_reads = addr == 0x4016 || addr == 0x4017`. It knows the controller
+      ports must not be clocked by the DMA's *dummy* reads, only by the halt's repeat. Nothing here
+      models dummy reads at all, so it does not bite yet.
+
       That points the remaining cycle at the APU's alignment against the CPU, not at anything in the
       DMC or the DMA. And that alignment is what `apu_test` 9/9, `apu_reset` 6/6 and
       `blargg_apu_2005.07.30` 11/11 currently pin — `4-jitter` measures it directly, by writing
