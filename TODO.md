@@ -1,5 +1,19 @@
 # RustNES Implementation Checklist 📋
 
+> **Where the live work is.** This file mixes two things, and reading it as one list is misleading.
+> Roughly 240 of its ~270 open boxes are in *Additional Important Areas*, *Milestone 10* and
+> *Milestone 11* — packaging, WebAssembly, netplay, audio visualisation and so on. Those are a
+> wishlist, not work in progress, and several of them are listed twice.
+>
+> What is actually being worked on is **Milestone 8 (Conformance & Test ROMs)** and the section
+> *The two rewrites everything else is waiting on*, together about thirty boxes.
+>
+> **And treat every number here as a claim until it is re-run.** Four entries were found wrong in
+> two days: CI recorded as never set up when it had been running for days, `sprite_hit_tests` at
+> 7/11 when it was 11/11, `ppu_read_buffer` at 0/1 when it passes, and `cpu_timing_test6` recorded
+> as unmeasurable when it passes. Each was repeated in conversation as fact before anyone re-ran it.
+> A suite left alone for a while is a claim, not a measurement.
+
 This document provides a detailed task breakdown for developing the RustNES emulator alongside writing the book, organized by learning tracks.
 
 ## Track System Legend
@@ -1064,7 +1078,8 @@ for anything else is refused by name at load time rather than run with silently 
       had. Not saved, deliberately: the output device's sample rate and resampling accumulator,
       which belong to the sound card a snapshot is restored *onto*, and the output filter's
       memory, which settles inaudibly in milliseconds.
-- [ ] CNROM (3), MMC2 (9), Color Dreams (11) — each small, none needed by anything tried so far
+- [ ] MMC2 (9), Color Dreams (11) — each small, none needed by anything tried so far. CNROM (3) is
+      done and was listed here as outstanding long after it landed.
 - [x] MMC3's A12 timing: the counter is clocked from the real PPU address bus, not from a count of
       scanlines. `3-A12_clocking` and `4-scanline_timing` both pass, the latter to PPU-clock
       accuracy. See the fetch pipeline below for what made it possible.
@@ -1498,8 +1513,11 @@ work, so nothing measuring them can pass.
       exceptions, and the only part of the sampling rule that does not fall out of the shadow.
       Proved by a unit test rather than by `5-branch_delays_irq`, which does not move on it: that
       ROM fails in its first sub-test, which measures `JMP` and never reaches the branch cases.
-- [ ] The rest of `cpu_interrupts_v2` is blocked on the PPU, not on the CPU: those tests spin in a
-      vblank synchronisation loop that needs cycle-exact CPU/PPU alignment
+- [x] The rest of `cpu_interrupts_v2` — done. This line said the remaining tests were "blocked on
+      the PPU, not on the CPU", waiting on cycle-exact CPU/PPU alignment. That alignment landed, and
+      the suite is 6/6 as of 2026-08-06: all five singles and the combined ROM. The last of them
+      turned out not to be a CPU/PPU alignment question at all but two dividers where hardware has
+      one — see `4-irq_and_dma` above.
 - Acceptance: `cpu_interrupts_v2`, `instr_timing`, `branch_timing_tests`, `cpu_dummy_writes`,
   `cpu_exec_space`
 
