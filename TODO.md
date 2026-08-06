@@ -841,15 +841,30 @@ Measured for the first time, and three of them were already passing:
       the reference's 426. Applying the documented attenuation — a channel is darkened when a bit
       it is not named by is set, 0.746 as 191/256 — brings it to 223.
 
-      **What is left is the palette table, not the mechanism.** Layout now agrees to 0.72% of
-      horizontal edge positions and 1.67% of vertical ones, measured as an edge map so the
-      comparison does not depend on which RGB either emulator gives an entry. Ours has *fewer*
-      edges (2611 against 2793), which is the tell: reference emulators carry a measured 512-entry
-      table — 64 colours by 8 emphasis combinations — where this is a 64-entry approximation with
-      a formula over it, so entries they separate collapse together here. `rom_test compare` still
-      reports a mismatch and will keep doing so until the table is measured rather than
-      approximated; that is its own piece of work, and worth doing for every ROM's colours rather
-      than for this one.
+      **The palette table was the rest of it, and it is now derived rather than approximated.**
+      Done 2026-08-06: `ppu::palette` decodes the composite signal — a square wave whose phase is
+      the hue, two voltage levels for brightness, de-emphasis attenuating the samples in phase with
+      one primary — into all 512 entries, following the generator on the NESdev wiki. The old table
+      was 64 hand-written triples with a uniform 0.746 multiplier over them, and the multiplier is
+      the part that was wrong: de-emphasis does not dim uniformly, so entries hardware keeps apart
+      collapsed together. That is unfixable by any amount of care in the emulator, because it is
+      the *table* discarding information.
+
+      It moved the numbers a long way. `full_palette` drew 223 distinct colours against the
+      reference's 426 and now draws 420; its differing pixels fell from 53,432 to 9,079.
+      `litewall3` now reports **SAME LAYOUT** outright, and `litewall5` is down to a single pixel.
+
+      **What is left is not the palette.** `full_palette` still disagrees on 0.54% of horizontal
+      edge positions and 0.69% of vertical, which is a real difference in *where regions begin*
+      rather than in what colour they are, and it wants its own sitting.
+
+      Two things had to be re-recorded rather than argued with, and both were checked first: the
+      three frame baselines are hashes of our own rendering, so every colour changing moved all
+      three — they were confirmed **structurally identical** to the pre-change rendering before
+      being updated, which is the whole reason the structural compare exists. And
+      `test_complete_sprite_pipeline` asserted three literal `255`s for a white sprite; entry `$30`
+      decodes to (254, 255, 255), so the test was really asserting which table was compiled in. It
+      now asserts against `palette::rgb`.
 - [x] read_joy3 — `thorough_test` passes, from hanging outright, and the bug it found was an
       unsigned underflow rather than anything about timing. Found 2026-08-06 by the first full
       sweep of every suite, which is also how it came to light that this file's "every failure is

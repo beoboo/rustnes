@@ -4,6 +4,8 @@ use std::{
     rc::Rc,
 };
 
+pub mod palette;
+
 use crate::{
     cartridge::{Cartridge, Mapper},
     errors::NesError,
@@ -2092,113 +2094,14 @@ impl Ppu {
         visible_sprites
     }
 
-    /// Convert a palette entry to RGB values
+    /// Convert a palette entry to RGB, through the mask that supplies greyscale and de-emphasis.
+    ///
+    /// The table is derived from the composite signal rather than tabulated — see
+    /// [`palette`](palette). It replaced 64 hand-written triples plus a uniform
+    /// attenuation, which collapsed entries hardware keeps distinct and so made a
+    /// palette-independent frame comparison impossible to satisfy.
     fn palette_to_rgb(&self, palette_entry: u8) -> [u8; 3] {
-        // Greyscale mode ($2001 bit 0) forces every colour onto the palette's grey column. Games
-        // use it for fades and flashes, so ignoring it leaves those effects fully coloured.
-        let palette_entry = if (self.mask & MASK_GRAYSCALE) != 0 {
-            palette_entry & 0x30
-        } else {
-            palette_entry
-        };
-
-        let rgb = Self::palette_rgb(palette_entry);
-
-        // Colour emphasis ($2001 bits 5-7) darkens the channels a bit is *not* set for: emphasise
-        // red and green and blue are attenuated, and so on, with all three set darkening
-        // everything. Games use it for damage flashes and fades, and `full_palette` uses it to
-        // show more than 64 colours at once — it writes `$2001 = $20` between bands, which is why
-        // ours drew 52 distinct colours where the reference drew 426.
-        //
-        // The constants were only ever *declared* here; nothing read them. Reference emulators
-        // carry a measured 512-entry table (64 colours by 8 combinations) rather than a formula.
-        // This palette is already an approximation, so the documented attenuation is applied to
-        // it instead — 0.746, as ~191/256 to keep it in integers.
-        let emphasis = self.mask & (MASK_EMPHASIZE_RED | MASK_EMPHASIZE_GREEN | MASK_EMPHASIZE_BLUE);
-        if emphasis == 0 {
-            return rgb;
-        }
-
-        let attenuate = |channel: u8| ((channel as u16 * 191) / 256) as u8;
-        let [r, g, b] = rgb;
-        [
-            if emphasis & (MASK_EMPHASIZE_GREEN | MASK_EMPHASIZE_BLUE) != 0 { attenuate(r) } else { r },
-            if emphasis & (MASK_EMPHASIZE_RED | MASK_EMPHASIZE_BLUE) != 0 { attenuate(g) } else { g },
-            if emphasis & (MASK_EMPHASIZE_RED | MASK_EMPHASIZE_GREEN) != 0 { attenuate(b) } else { b },
-        ]
-    }
-
-    /// The NES palette, before greyscale or colour emphasis are applied to it.
-    fn palette_rgb(palette_entry: u8) -> [u8; 3] {
-        // Simple NES palette conversion
-        // These are approximate RGB values for the NES palette
-        match palette_entry & 0x3F {
-            0x00 => [0x75, 0x75, 0x75], // Gray
-            0x01 => [0x27, 0x1B, 0x8F], // Dark Blue
-            0x02 => [0x00, 0x00, 0xAB], // Blue
-            0x03 => [0x47, 0x00, 0x9F], // Purple
-            0x04 => [0x8F, 0x00, 0x77], // Pink
-            0x05 => [0xAB, 0x00, 0x13], // Red
-            0x06 => [0xA7, 0x00, 0x00], // Dark Red
-            0x07 => [0x7F, 0x0B, 0x00], // Brown
-            0x08 => [0x43, 0x2F, 0x00], // Dark Brown
-            0x09 => [0x00, 0x47, 0x00], // Green
-            0x0A => [0x00, 0x51, 0x00], // Dark Green
-            0x0B => [0x00, 0x3F, 0x17], // Teal
-            0x0C => [0x1B, 0x3F, 0x5F], // Dark Cyan
-            0x0D => [0x00, 0x00, 0x00], // Black
-            0x0E => [0x00, 0x00, 0x00], // Black
-            0x0F => [0x00, 0x00, 0x00], // Black
-            0x10 => [0xBC, 0xBC, 0xBC], // Light Gray
-            0x11 => [0x00, 0x73, 0xEF], // Light Blue
-            0x12 => [0x23, 0x3B, 0xEF], // Bright Blue
-            0x13 => [0x83, 0x00, 0xF3], // Bright Purple
-            0x14 => [0xBF, 0x00, 0xBF], // Magenta
-            0x15 => [0xE7, 0x00, 0x5B], // Pink Red
-            0x16 => [0xDB, 0x2B, 0x00], // Orange Red
-            0x17 => [0xCB, 0x4F, 0x0F], // Orange
-            0x18 => [0x8B, 0x73, 0x00], // Light Brown
-            0x19 => [0x00, 0x97, 0x00], // Light Green
-            0x1A => [0x00, 0xAB, 0x00], // Bright Green
-            0x1B => [0x00, 0x93, 0x3B], // Sea Green
-            0x1C => [0x00, 0x83, 0x8B], // Light Cyan
-            0x1D => [0x00, 0x00, 0x00], // Black
-            0x1E => [0x00, 0x00, 0x00], // Black
-            0x1F => [0x00, 0x00, 0x00], // Black
-            0x20 => [0xFF, 0xFF, 0xFF], // White
-            0x21 => [0x3F, 0xBF, 0xFF], // Sky Blue
-            0x22 => [0x5F, 0x97, 0xFF], // Light Blue
-            0x23 => [0xA7, 0x8B, 0xFD], // Lavender
-            0x24 => [0xF7, 0x7B, 0xFF], // Light Pink
-            0x25 => [0xFF, 0x77, 0xB7], // Light Red
-            0x26 => [0xFF, 0x77, 0x63], // Light Orange
-            0x27 => [0xFF, 0x9B, 0x3B], // Peach
-            0x28 => [0xF3, 0xBF, 0x3F], // Yellow
-            0x29 => [0x83, 0xD3, 0x13], // Light Green
-            0x2A => [0x4F, 0xDF, 0x4B], // Bright Green
-            0x2B => [0x58, 0xF8, 0x98], // Seafoam Green
-            0x2C => [0x00, 0xEB, 0xDB], // Light Cyan
-            0x2D => [0x00, 0x00, 0x00], // Black
-            0x2E => [0x00, 0x00, 0x00], // Black
-            0x2F => [0x00, 0x00, 0x00], // Black
-            0x30 => [0xFF, 0xFF, 0xFF], // White
-            0x31 => [0xAB, 0xE7, 0xFF], // Pale Blue
-            0x32 => [0xC7, 0xD7, 0xFF], // Pale Lavender
-            0x33 => [0xD7, 0xCB, 0xFF], // Pale Purple
-            0x34 => [0xFF, 0xC7, 0xFF], // Pale Pink
-            0x35 => [0xFF, 0xC7, 0xDB], // Pale Red
-            0x36 => [0xFF, 0xBF, 0xB3], // Pale Orange
-            0x37 => [0xFF, 0xDB, 0xAB], // Pale Yellow
-            0x38 => [0xFF, 0xE7, 0xA3], // Pale Yellow Green
-            0x39 => [0xE3, 0xFF, 0xA3], // Pale Green
-            0x3A => [0xAB, 0xF3, 0xBF], // Pale Sea Green
-            0x3B => [0xB3, 0xFF, 0xCF], // Pale Cyan
-            0x3C => [0x9F, 0xFF, 0xF3], // Pale Blue Green
-            0x3D => [0x00, 0x00, 0x00], // Black
-            0x3E => [0x00, 0x00, 0x00], // Black
-            0x3F => [0x00, 0x00, 0x00], // Black
-            _ => [0x00, 0x00, 0x00],    // Default to black
-        }
+        palette::rgb(palette_entry, self.mask)
     }
 
     /// Get the current frame buffer
@@ -4430,23 +4333,24 @@ mod tests {
         let frame_buffer = ppu.frame_buffer();
         let pixel_index = (101 * 256 + 100) * 3; // RGB format
 
-        // Verify that the sprite is rendered at the expected position (100, 100)
-        // Since we have a white sprite (palette value 0x30 = white),
-        // all RGB values should be 255
+        // Verify that the sprite is rendered at the expected position (100, 100).
+        //
+        // Asserted against the palette rather than against literal 255s. The sprite's colour is
+        // entry `$30`, the top of the grey column, and what that *is* in RGB is the palette's
+        // business — it is derived from the composite signal and comes out (254, 255, 255), not a
+        // flat white. Three hardcoded 255s were really asserting which palette table was compiled
+        // in, and broke the moment it was replaced by a more accurate one.
+        let white = palette::rgb(0x30, ppu.mask);
         assert_eq!(
-            frame_buffer[pixel_index], 255,
-            "Sprite R value should be 255 at (100,101)"
+            [
+                frame_buffer[pixel_index],
+                frame_buffer[pixel_index + 1],
+                frame_buffer[pixel_index + 2]
+            ],
+            white,
+            "the sprite at (100,101) should be palette entry $30"
         );
-        assert_eq!(
-            frame_buffer[pixel_index + 1],
-            255,
-            "Sprite G value should be 255 at (100,100)"
-        );
-        assert_eq!(
-            frame_buffer[pixel_index + 2],
-            255,
-            "Sprite B value should be 255 at (100,100)"
-        );
+        assert_ne!(white, [0, 0, 0], "entry $30 is the brightest grey, not black");
     }
 
     #[test]

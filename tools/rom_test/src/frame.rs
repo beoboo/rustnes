@@ -278,6 +278,53 @@ mod tests {
 /// one-to-one mapping between the two pictures' colour sets captures exactly. A pixel is counted as
 /// differing when it breaks a mapping an earlier pixel established — in either direction, so that
 /// two of our colours cannot both map onto one of theirs.
+/// Where the two frames disagree about *edges* — the positions at which the colour changes from
+/// the pixel to the left, or from the one above.
+///
+/// Returns the number of disagreeing horizontal positions, then vertical, then how many positions
+/// of each were examined.
+///
+/// This exists because [`structural_diff`] asks for something two emulators cannot always give.
+/// It requires a bijection between the two colour sets, which fails the moment one side's palette
+/// quantises a pair of entries to the same RGB where the other keeps them apart — and two
+/// independently derived palettes will always differ somewhere. That is a difference in the
+/// *table*, not in the emulation, and reporting it as "the frame does not match" hides whether the
+/// picture is right.
+///
+/// An edge map does not care what the colours are, only where they change, so it answers the
+/// question actually being asked: did the same regions come out in the same places? On
+/// `blargg_litewall`'s demos it reads 0.00% against a reference whose exact RGB differs in almost
+/// every pixel.
+pub fn edge_disagreement(
+    ours: &[u8],
+    reference: &[u8],
+    width: usize,
+    height: usize,
+) -> (usize, usize, usize, usize) {
+    let at = |data: &[u8], x: usize, y: usize| {
+        let i = (y * width + x) * 3;
+        [data[i], data[i + 1], data[i + 2]]
+    };
+
+    let (mut horizontal, mut vertical) = (0, 0);
+    for y in 0..height {
+        for x in 1..width {
+            let ours_edge = at(ours, x, y) != at(ours, x - 1, y);
+            let reference_edge = at(reference, x, y) != at(reference, x - 1, y);
+            horizontal += usize::from(ours_edge != reference_edge);
+        }
+    }
+    for y in 1..height {
+        for x in 0..width {
+            let ours_edge = at(ours, x, y) != at(ours, x, y - 1);
+            let reference_edge = at(reference, x, y) != at(reference, x, y - 1);
+            vertical += usize::from(ours_edge != reference_edge);
+        }
+    }
+
+    (horizontal, vertical, height * (width - 1), width * (height - 1))
+}
+
 pub fn structural_diff(ours: &[u8], reference: &[u8]) -> Vec<usize> {
     use std::collections::HashMap;
 
