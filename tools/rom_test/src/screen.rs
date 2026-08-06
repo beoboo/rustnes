@@ -154,14 +154,23 @@ pub fn verdict(text: &str) -> Option<Verdict> {
         return Some(Verdict::Passed);
     }
 
-    // A result code on its own, as `$nn`.
-    let code = upper
-        .split_once('$')
-        .map(|(_, rest)| rest.trim_start())
-        .and_then(|rest| {
-            let digits: String = rest.chars().take_while(char::is_ascii_hexdigit).collect();
-            (!digits.is_empty()).then(|| u8::from_str_radix(&digits, 16).ok())?
-        })?;
+    // A result code on its own, as `$nn` — and *on its own* is the whole of the rule. These ROMs
+    // print the code as the only thing on its line, which is what tells it apart from a dollar sign
+    // that happens to fall out of a screen this runner cannot read.
+    //
+    // `MMC1_A12/mmc1_a12.nes` is why the rule is this strict. It draws with its own character set
+    // rather than ASCII, so the nametable decodes to noise — "42$ 4;# +;1 3." and the like — and a
+    // search for `$` anywhere in the text found one and reported `FAILED #2` for a ROM whose screen
+    // says nothing this runner understands. A wrong verdict is worse than no verdict in either
+    // direction: a false pass hides a bug, and a false failure sends someone after one that is not
+    // there.
+    let code = upper.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix('$')?;
+        let digits: String = rest.chars().take_while(char::is_ascii_hexdigit).collect();
+        // Nothing after the digits, or it was not a bare code.
+        (!digits.is_empty() && digits.len() == rest.len())
+            .then(|| u8::from_str_radix(&digits, 16).ok())?
+    })?;
 
     Some(if code == 1 { Verdict::Passed } else { Verdict::Failed { code } })
 }
@@ -194,6 +203,8 @@ mod tests {
         assert_eq!(verdict("$01"), Some(Verdict::Passed));
         assert_eq!(verdict("$06"), Some(Verdict::Failed { code: 6 }));
         assert_eq!(verdict("$0A"), Some(Verdict::Failed { code: 10 }));
+        // The ROMs print a title above it, so the code is a line rather than the whole screen.
+        assert_eq!(verdict("PALETTE_RAM\n$01"), Some(Verdict::Passed));
     }
 
     /// The instruction batteries end with a completion line rather than a verdict.
@@ -218,6 +229,29 @@ mod tests {
             verdict("All tests complete\nFailed"),
             Some(Verdict::Failed { code: 0 })
         );
+    }
+
+    /// A screen this runner cannot read must not be turned into a verdict by a stray dollar sign.
+    ///
+    /// `MMC1_A12/mmc1_a12.nes` draws with its own character set, so its nametable decodes to noise.
+    /// The text below is what this runner actually read off it, and a search for `$` anywhere in
+    /// the text found one and called the ROM `FAILED #2`. It is worth a test of its own because the
+    /// failure mode is silent: a wrong verdict looks exactly like a right one in a summary line.
+    #[test]
+    fn a_screen_of_noise_is_not_a_result_code() {
+        let noise = "   ,,\"  61 , #(2 !+$ 2\" -+(-$\n         \".4-3$1 3$23\n\
+                     42$ 4;# +;1 3.  #)423 #$+ 8";
+        assert_eq!(verdict(noise), None);
+    }
+
+    /// And the form it has to be distinguished from: the code alone on its line, which is exactly
+    /// what `blargg_ppu_tests_2005.09.15b` prints — the whole screen is `$01`.
+    #[test]
+    fn a_bare_code_on_its_own_line_still_reads() {
+        assert_eq!(verdict("  $01"), Some(Verdict::Passed));
+        assert_eq!(verdict("VBL_CLEAR_TIME\n$06"), Some(Verdict::Failed { code: 6 }));
+        // But not one with anything else on the line with it.
+        assert_eq!(verdict("COST $06 EACH"), None);
     }
 
     /// The important negative: a screen that says nothing must not be read as saying something.

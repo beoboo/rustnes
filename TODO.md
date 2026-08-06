@@ -938,6 +938,19 @@ file rather than on anything specific to the suite.
       numbers and can say the halt landed on the wrong run but not whether it doubles the read at
       all.
 
+- [ ] MMC1_A12/mmc1_a12 — unmeasured, and until now *falsely reported as failing*. It draws with
+      its own character set rather than ASCII, so its nametable decodes to noise — "42$ 4;# +;1 3."
+      and the like. The screen reader searched for `$` anywhere in the text, found one in the noise,
+      and called the ROM `FAILED #2`. Reading a result code now requires it to be alone on its line,
+      which is how the ROMs that really use that form print it: `blargg_ppu_tests_2005.09.15b`'s
+      whole screen is `$01`.
+
+      Worth recording as its own lesson. `screen.rs` already said "a wrong verdict read off the
+      screen is worse than no verdict at all", and had the rule pointed only at false *passes*. A
+      false failure is the same fault facing the other way: it sends someone after a bug that is not
+      there, and it looks exactly like a real failure in a summary line. Reading this ROM at all
+      needs its character set decoded, which nothing here does yet.
+
 - [x] blargg_apu_2005.07.30 — 11/11, from 9/11. `10.len_halt_timing` and `11.len_reload_timing`
       are one sentence each from the suite's own readme, and both turn on a coincidence a single
       CPU cycle wide:
