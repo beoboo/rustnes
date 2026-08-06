@@ -95,6 +95,12 @@ pub struct NesSystem {
     /// The get/put half of the APU's divider, mirrored for the DMA. See `ApuWrapper::is_odd_cycle`.
     odd_cycle: Rc<Cell<bool>>,
 
+    /// Set when a sprite DMA ends with a DMC fetch still pending — one that came due in the
+    /// transfer's final pair, too late to take a slot inside it. The stall that then serves it is
+    /// two cycles short of a cold one, because the transfer's cycles already stood in for the
+    /// halt and dummy read. Shared with the CPU's `dma_halt` closure, which consumes it.
+    dmc_tail_fetch: Rc<Cell<bool>>,
+
     /// The DMA controller
     dma: DmaControllerWrapper<CpuWrapper, PpuWrapper>,
 
@@ -345,6 +351,7 @@ impl NesSystem {
         // the length of the *next* one the wrong way round half the time. That is what
         // `cpu_interrupts_v2/4-irq_and_dma` had been failing on, by a single row of its table.
         let odd_cycle = Rc::new(Cell::new(false));
+        let dmc_tail_fetch_shared = Rc::new(Cell::new(false));
         dma.connect_cycle_parity(Rc::clone(&odd_cycle));
 
         // Advance everything except the CPU by one CPU cycle, installed into the CPU so that each
@@ -432,16 +439,23 @@ impl NesSystem {
             // instruction's length rather than being bolted on after it.
             let dmc = apu_for_dmc;
             let dmc_bus = Rc::clone(&bus);
+            let tail_fetch_in_closure = Rc::clone(&dmc_tail_fetch_shared);
             cpu.set_dma_halt(Rc::new(move |phase| match phase {
                 DmaHalt::Ask if dmc.wants_dmc_fetch() => {
                     if crate::apu::dmc_trace() {
                         eprintln!("DMC HALT cyc={}", dmc.cycle_counter());
                     }
-                    if dmc.cycle_counter() & 1 == 0 {
+                    let stall = if dmc.cycle_counter() & 1 == 1 {
                         DMC_STALL_CYCLES_EVEN
                     } else {
                         DMC_STALL_CYCLES_ODD
-                    }
+                    };
+                    // A fetch that came due in a sprite DMA's final pair could not take a slot
+                    // inside it, but the transfer's own cycles have already stood in for the
+                    // halt and the dummy read — so the stall that serves it now is two cycles
+                    // short of a cold one. `sprdma_and_dmc_dma_512` lands the fetch exactly
+                    // there and reads 524 where a cold stall gives 526.
+                    if tail_fetch_in_closure.replace(false) { stall - 2 } else { stall }
                 },
                 DmaHalt::Ask => 0,
                 DmaHalt::Fetch => {
@@ -484,6 +498,7 @@ impl NesSystem {
             ppu,
             apu,
             odd_cycle,
+            dmc_tail_fetch: dmc_tail_fetch_shared,
             dma,
             controller_handler,
             state: SystemState::Ready,
@@ -722,17 +737,56 @@ impl NesSystem {
         if self.dma.is_active() {
             // DMA is active, don't run the CPU this tick
             debug!("DMA active: {} cycles", cpu_cycles);
-            // Advance the DMA controller state
-            self.dma.tick();
 
-            // The cycle still belongs to the CPU, which is stalled rather than idle, so it has to
-            // reach the cycle counter. The rest of the system is already advanced below, by the
-            // same `tick_cycle` an instruction's cycles use — it was only the count that was
-            // missing, and a sprite DMA is 513 of them. That made a frame appear to cost 29263 CPU
-            // cycles instead of 29781, which is exactly the sort of error that looks like the CPU
-            // and PPU being out of step when they are not.
-            self.cpu.set_cycles(self.cpu.cycles() + 1);
+            if crate::apu::dmc_trace() && self.dma.cycles_elapsed() == 0 {
+                eprintln!(
+                    "DMC OAMSTART len={} cyc={}",
+                    self.dma.cycles_remaining(),
+                    self.apu.cycle_counter()
+                );
+            }
 
+            // A DMC fetch that comes due while the sprite DMA holds the bus is served from
+            // *inside* it, not queued behind it. The transfer's own cycles stand in for the halt
+            // and dummy reads a standalone stall performs, the fetch takes one read slot, and one
+            // alignment cycle puts the transfer back on its read/write cadence — two cycles, not
+            // the three or four of a standalone stall, and the sprite DMA stretches by exactly
+            // that. `sprdma_and_dmc_dma` walks the collision across sixteen alignments and
+            // measures the total; serving the fetch after the transfer instead read 528 for every
+            // row, where hardware varies between 525 and 528.
+            if self.apu.wants_dmc_fetch() && self.apu.cycle_counter() & 1 == 1 && self.dma.cycles_remaining() > 2 {
+                if let Some(address) = self.apu.take_dmc_fetch() {
+                    if crate::apu::dmc_trace() {
+                        eprintln!("DMC STEAL addr={address:04X} cyc={}", self.apu.cycle_counter());
+                    }
+                    let byte = self.bus.borrow().read_byte(address).unwrap_or(0);
+                    self.apu.supply_dmc_byte(byte);
+                }
+                cpu_cycles = 2;
+                self.cpu.set_cycles(self.cpu.cycles() + 2);
+            } else {
+                // Advance the DMA controller state
+                self.dma.tick();
+                if !self.dma.is_active() {
+                    if crate::apu::dmc_trace() {
+                        eprintln!("DMC OAMEND cyc={}", self.apu.cycle_counter());
+                    }
+                    // A fetch still pending as the transfer ends came due inside its final pair
+                    // — too late for a slot of its own, but the halt and dummy read are already
+                    // paid. The CPU's stall closure reads this and charges two cycles less.
+                    if self.apu.wants_dmc_fetch() {
+                        self.dmc_tail_fetch.set(true);
+                    }
+                }
+
+                // The cycle still belongs to the CPU, which is stalled rather than idle, so it
+                // has to reach the cycle counter. The rest of the system is already advanced
+                // below, by the same `tick_cycle` an instruction's cycles use — it was only the
+                // count that was missing, and a sprite DMA is 513 of them. That made a frame
+                // appear to cost 29263 CPU cycles instead of 29781, which is exactly the sort of
+                // error that looks like the CPU and PPU being out of step when they are not.
+                self.cpu.set_cycles(self.cpu.cycles() + 1);
+            }
         } else {
             // Either Completed or Inactive, run the CPU
             dma_active = false;

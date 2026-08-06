@@ -52,8 +52,9 @@ pub struct DmcChannel {
     /// once it is answered.
     pending_fetch: Option<u16>,
 
-    /// Ticks left before a `$4015`-started fetch may be requested: 2 if the write landed on an
-    /// even CPU cycle, 3 if odd, so the request always surfaces on the same parity.
+    /// Ticks left before a `$4015`-started fetch may be requested: 2 or 3 depending on the
+    /// parity of the CPU cycle the write landed on, so the request always surfaces on the same
+    /// parity.
     ///
     /// Hardware inserts this delay, and the parity it normalises to is what makes the *start* of
     /// a sample stall the CPU 3 cycles where a mid-sample refill stalls it 4 — see the stall in
@@ -88,9 +89,17 @@ impl DmcChannel {
             current_address: 0,
             bytes_remaining: 0,
             // Power-on `$4010` is zero, whose rate is 428 — the free-running timer needs its real
-            // period from the first cycle, not a zero that would expire every tick.
+            // period from the first cycle, not a zero that would expire every tick. The 1 is the
+            // timer's power-on *phase*, and it is one cycle rather than zero for a measurable
+            // reason: the phase fixes which CPU-cycle parity the whole expiry grid — and so every
+            // mid-sample refill DMA — lands on, relative to the APU's get/put divider. At zero,
+            // `sprdma_and_dmc_dma`'s every measurement came out one T+ row shifted from
+            // hardware's table; at one, both its ROMs pass. tetanes carries the same one-cycle
+            // reset nudge with a FIXME saying DMA tests fail without it. The delays in
+            // `start_delay` and the stall parities in `nes_system` are calibrated against this
+            // phase — the three only work jointly.
             timer: 428,
-            timer_value: 0,
+            timer_value: 1,
 
             // Initialize length counter
             length_counter: LengthCounter::new(),
@@ -120,7 +129,7 @@ impl DmcChannel {
         self.current_address = 0;
         self.bytes_remaining = 0;
         self.timer = 428;
-        self.timer_value = 0;
+        self.timer_value = 1; // The power-on phase, same as `new` — see the comment there.
         self.start_delay = 0;
 
         // Reset length counter
@@ -338,7 +347,13 @@ impl DmcChannel {
             // one, landing on a fixed parity either way. `dma_4016_read` is what tells the two
             // apart — an instant request stalls its timed `LDA $4016` one CPU clock late.
             if self.sample_buffer_empty && self.bytes_remaining > 0 && self.pending_fetch.is_none() {
-                self.start_delay = if on_even_cycle { 2 } else { 3 };
+                // 3-from-even and 2-from-odd, in this emulator's cycle numbering. The labels are
+                // conventions — what hardware fixes is that both delays land the request on ONE
+                // parity, the one whose stall is 3, opposite to the parity the timer grid puts
+                // refills on. Which numbering label that is depends on the grid's power-on phase
+                // above; this pair is calibrated with it against `dma_4016_read` (07 on
+                // iteration 3) and both `sprdma_and_dmc_dma` ROMs at once.
+                self.start_delay = if on_even_cycle { 3 } else { 2 };
             }
         } else {
             // Disabling stops the sample immediately rather than letting it finish. Leaving the
@@ -427,7 +442,9 @@ mod tests {
         // 428 — rate index 0, what a zeroed `$4010` selects — because the timer free-runs from
         // power-on and needs its real period, not a zero that would expire every cycle.
         assert_eq!(channel.timer, 428);
-        assert_eq!(channel.timer_value, 0);
+        // 1, not 0: the timer's power-on phase decides which cycle parity the expiry grid — and
+        // every refill DMA — sits on. See `new`.
+        assert_eq!(channel.timer_value, 1);
     }
 
     #[test]
@@ -469,9 +486,9 @@ mod tests {
         assert!(channel.silence_flag);
         assert_eq!(channel.current_address, 0);
         assert_eq!(channel.bytes_remaining, 0);
-        // Reset restores the power-on period, same as `new` — see above.
+        // Reset restores the power-on period and phase, same as `new` — see above.
         assert_eq!(channel.timer, 428);
-        assert_eq!(channel.timer_value, 0);
+        assert_eq!(channel.timer_value, 1);
     }
 
     #[test]
@@ -575,14 +592,18 @@ mod tests {
             channel
         }
 
-        /// A `$4015`-started fetch surfaces 2 cycles after an even write and 3 after an odd one —
-        /// never on the write itself. Both delays land the request on the same parity, which is
-        /// what lets a starting sample's stall be deterministically one cycle shorter than a
-        /// refill's. Requested instantly — as this code did before 2026-08-06 — every run of
-        /// `dma_4016_read`'s timed `LDA $4016` sees the halt one CPU clock late.
+        /// A `$4015`-started fetch surfaces 2 cycles after a write on one parity and 3 after the
+        /// other — never on the write itself. Both delays land the request on the same parity,
+        /// which is what lets a starting sample's stall be deterministically one cycle shorter
+        /// than a refill's. Requested instantly — as this code did before 2026-08-06 — every run
+        /// of `dma_4016_read`'s timed `LDA $4016` sees the halt one CPU clock late.
+        ///
+        /// Which parity gets which delay is a calibration, made jointly with the timer's
+        /// power-on phase against `dma_4016_read` and both `sprdma_and_dmc_dma` ROMs; this test
+        /// pins the calibrated pair so it cannot drift by accident.
         #[test]
-        fn a_started_fetch_surfaces_two_cycles_after_an_even_write_and_three_after_an_odd() {
-            for (even, expected) in [(true, 2u32), (false, 3u32)] {
+        fn a_started_fetch_surfaces_after_a_parity_normalising_delay_of_two_or_three() {
+            for (even, expected) in [(true, 3u32), (false, 2u32)] {
                 let mut channel = programmed();
                 channel.set_enabled(true, even);
                 assert!(

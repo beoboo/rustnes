@@ -758,7 +758,9 @@ Measured for the first time, and three of them were already passing:
 - [~] dmc_tests — 0/4, and now known to be audio-only rather than assumed. All four render a
       picture **structurally identical** to tetanes': one flat backdrop and nothing else. So they
       report by sound alone and cannot be judged here until there is something to compare audio
-      against. Not a failure, and it should stop being counted as four.
+      against. Not a failure, and it should stop being counted as four. Corroborated 2026-08-06:
+      the nes-test-roms repository's own `status.txt` marks all four `???? Not sure yet` — even
+      its maintainers have no verdict channel for them.
 
       An earlier version of this entry said the two emulators' backdrops differed — ours grey
       117,117,117 against tetanes' 83,83,83 — and put that down to power-on palette RAM. **That was
@@ -1061,8 +1063,10 @@ Measured for the first time, and three of them were already passing:
       What hardware does, read off tetanes' ledger and its source together, is a *pair* of parity
       rules that only work jointly:
 
-      - A `$4015`-started fetch is requested 2 cycles after an even write and 3 after an odd one,
-        so the request always surfaces on one parity.
+      - A `$4015`-started fetch is requested 2 cycles after a write on one parity and 3 after the
+        other, so the request always surfaces on one parity. (Which delay goes with which parity
+        label is a calibration, and it was recalibrated together with the timer's power-on phase
+        when `sprdma_and_dmc_dma` was closed later the same day — see that entry.)
       - The fetch itself must land on a fixed parity, so the halt costs 3 cycles from one parity
         and 4 from the other. With the request parity pinned by the first rule, a *starting*
         sample stalls a deterministic 3 while a mid-sample refill stalls 4.
@@ -1091,6 +1095,43 @@ Measured for the first time, and three of them were already passing:
       results "depend on CPU-PPU synchronization at reset", which is a different axis from the
       DMC and one the reference has not solved either. A future sitting needs a reference that
       passes them before there is anything to compare against.
+
+- [x] sprdma_and_dmc_dma — 2/2, from 0/2, closed 2026-08-06 in the sitting after the ledger work
+      above, with the same instruments. Three mechanisms, each measured before written:
+
+      **The collision itself was not modelled.** A DMC fetch that comes due while the sprite DMA
+      holds the bus is served from *inside* it — the transfer's cycles stand in for the halt and
+      dummy reads, the fetch takes one read slot, and one alignment cycle restores the cadence:
+      two cycles, stretching the transfer, instead of a 3-4 cycle stall queued behind it. Without
+      this the ROM read `528` for every T+ row where hardware varies 525-528.
+
+      **The DMC timer's power-on phase is a hardware constant, and ours was the wrong one.** With
+      the steal in place, every measurement came out exactly one T+ row shifted from hardware's
+      table. The ledger decomposed it: both emulators pick the long (514) sprite DMA on the same
+      *divider* parity, but the same program point lands on opposite absolute parity — because
+      the program is synced to the DMC grid and the grid-vs-divider phase differed by one. That
+      phase is `timer_value: 1` at power-on (tetanes' `timer.cycle += 1` FIXME is the same
+      constant), and moving it flips which parity refills land on, so the start-delay pair and
+      the stall mapping had to be relabelled *with* it — the wrongly-paired flips were each tried
+      and each hung a different sync loop or brought back `08 08 08 07 08`. The consistent triple
+      passes `dma_4016_read`, both sprdma ROMs and `cpu_interrupts_v2` at once.
+
+      Also measured on the way: flipping the sprite DMA's 513/514 parity *alone* trades
+      `sprdma_and_dmc_dma` for `4-irq_and_dma` — the two ROMs read the same physical parity
+      through different anchors, `4-irq_and_dma` from a fixed boot-relative write and sprdma
+      through the DMC grid. The grid phase is what reconciles them; the length rule was never
+      wrong.
+
+      **A fetch due in the transfer's final pair costs `stall - 2`.** It cannot take a slot
+      inside the transfer, but the transfer's cycles have already paid its halt and dummy read,
+      so the stall that serves it right after is two short of a cold one. `_512` lands the fetch
+      exactly there and reads 524 where a cold stall gave 526; blocking the steal without the
+      discount read 526, with the steal 525, hardware 524.
+
+      Not pinned by a unit test: all three mechanisms are system-level interleavings visible only
+      through these ROMs, which cannot be committed. The `dma_placement` tests pin the parity
+      machinery they calibrate against, and `RN_REQUIRE_ROMS` makes the ROM gate enforceable
+      where the ROMs exist.
 
 - [x] MMC1_A12/mmc1_a12 — **the emulation is right.** Its picture is structurally identical to
       tetanes', so nothing here is wrong with it; what fails is our ability to *read* its screen. It
