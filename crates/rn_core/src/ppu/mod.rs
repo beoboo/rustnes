@@ -559,6 +559,9 @@ pub struct Ppu {
     /// would tear and a headless capture would silently truncate.
     working_frame: Vec<u8>,
     scroll_changes_this_frame: Vec<(u16, u16, u8)>,
+
+    /// `$2006` writes that completed this frame: `(scanline, dot, address)`. See `write_address`.
+    address_writes_this_frame: Vec<(i16, u16, u16)>,
     sprite_zero_hit_this_frame: i16,
     vram_writes_this_frame: u32,
     vram_writes_during_render_this_frame: u32,
@@ -633,6 +636,14 @@ pub struct FrameDiagnostics {
     /// effect — and those differ by design, since a $2005 write does not reach `v` until the
     /// pre-render line while a $2006 write reaches it at once.
     pub scroll_changes: Vec<(u16, u16, u8)>,
+    /// Every `$2006` write that completed in the most recent frame: `(scanline, dot, address)`.
+    ///
+    /// The dot is the point of it. A write in hblank moves the scroll cleanly; the same write a
+    /// hundred dots earlier redraws the rest of a visible line from the new address. Which of those
+    /// happened is not visible in the picture alone — the difference is eight pixels on one row —
+    /// and it is the measurement Super Mario Bros 3's split flicker turns on.
+    pub address_writes: Vec<(i16, u16, u16)>,
+
     /// Scanline where sprite zero overlapped the background, or -1 if it did not.
     ///
     /// Games use this to find a known point partway down the picture and change the scroll there.
@@ -825,6 +836,7 @@ impl Ppu {
             // Initialize frame buffer (256x240 pixels, 3 bytes per pixel for RGB)
             working_frame: vec![0; 256 * 240 * 3],
             scroll_changes_this_frame: Vec::new(),
+            address_writes_this_frame: Vec::new(),
             sprite_zero_hit_this_frame: -1,
             vram_writes_this_frame: 0,
             vram_writes_during_render_this_frame: 0,
@@ -1068,6 +1080,7 @@ impl Ppu {
         self.diagnostics.frames += 1;
         self.diagnostics.scanlines_rendered = self.scanlines_this_frame;
         self.diagnostics.scroll_changes = std::mem::take(&mut self.scroll_changes_this_frame);
+        self.diagnostics.address_writes = std::mem::take(&mut self.address_writes_this_frame);
         self.diagnostics.sprite_zero_hit_scanline = self.sprite_zero_hit_this_frame;
         self.sprite_zero_hit_this_frame = -1;
         self.diagnostics.vram_writes = self.vram_writes_this_frame;
@@ -2617,6 +2630,18 @@ impl Ppu {
             // watches: bit 12 rising is what clocks its counter, whether a scanline caused it or
             // the program did.
             self.notify_mapper_of_address(self.temp_addr);
+
+            // Where on the picture this landed. A `$2006` write is the one thing that moves the
+            // scroll mid-frame, so *when* it happens decides which part of the line is drawn from
+            // the new address — and a write that lands in the visible part of a line corrupts the
+            // rest of it, on hardware as here.
+            //
+            // Recorded rather than derived on demand because it has been derived on demand three
+            // times, by a scratch harness thrown away each time. Super Mario Bros 3's status-bar
+            // split is the case in point: its handler's burst lands at scanline 193 dot ~187 here
+            // and wants to be in hblank, and every attempt at it has started by rebuilding the
+            // means to see that.
+            self.address_writes_this_frame.push((self.scanline, self.cycle, self.temp_addr));
         }
 
         self.write_toggle.set(!self.write_toggle.get());

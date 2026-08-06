@@ -1681,10 +1681,29 @@ falls — including which pattern table is being read, which is what drives MMC3
       - [ ] The interrupt lands on the right cycle, so the split's write burst starts at dot 257
             rather than dot ~190.
 
+            **The means to see this is now committed rather than rebuilt each time.** Every
+            completed `$2006` write is recorded with the dot it landed on, and `rom_test frame`
+            prints them, saying for each whether it fell in the visible picture, in hblank, or in
+            vblank where nothing is drawn. This entry has been opened three times and each time
+            began by writing a scratch harness and throwing it away; the dot is the whole
+            measurement, and it should not have to be re-derived. Current output from the save
+            state, 2026-08-06:
+
+            ```
+            scanline 193  dot 199  -> $0000   VISIBLE — redraws the rest of the line from here
+            scanline 193  dot 223  -> $0000   VISIBLE — redraws the rest of the line from here
+            scanline 193  dot 271  -> $0B00   hblank
+            ```
+
+            Everything else in the frame is a vblank write and harmless. Two writes land inside
+            line 193 and one makes it to hblank; the flicker is those first two moving as the
+            CPU/PPU phase drifts.
+
             **Re-measured after the CPU/PPU alignment work of 2026-08-04/05, which moved the
             interrupt poll by a dot, deleted `ADDRESS_BUS_LEAD_DOTS`, closed the cycle/access gap to
-            zero and added the eight settle cycles. It did not fix this, and the current numbers
-            are below.** `rom_test frame --state ... --per-dot` reproduces it in seconds.
+            zero and added the eight settle cycles, and again after the interrupt, DMA and sprite
+            evaluation work of 2026-08-06. None of it fixed this.** Rows 193 and 194 still wobble by
+            eight pixels between frames.
 
             Two things changed, and only one of them is good.
 

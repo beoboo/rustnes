@@ -277,6 +277,30 @@ fn run_frame(
         println!("  BLANK — the PPU drew a single flat colour, so nothing was rendered");
     }
 
+    // Where the game moved the scroll, and — the part that matters — at which dot. A `$2006` write
+    // in hblank moves the split cleanly; the same write inside the visible line redraws the rest of
+    // that line from the new address. Only the dot tells the two apart.
+    let writes = &capture.diagnostics.address_writes;
+    if !writes.is_empty() {
+        println!("\n  $2006 writes ({} in the frame)", writes.len());
+        for &(scanline, dot, address) in writes.iter().take(16) {
+            // Only scanlines 0-239 draw anything, so a write during vblank is harmless whatever
+            // dot it lands on — most of a game's video memory is written there. Within a visible
+            // line, dots 1-256 are the picture and everything after is hblank.
+            let where_ = if !(0..240).contains(&scanline) {
+                "vblank"
+            } else if dot <= 256 {
+                "VISIBLE — redraws the rest of the line from here"
+            } else {
+                "hblank"
+            };
+            println!("    scanline {scanline:3}  dot {dot:3}  -> ${address:04X}   {where_}");
+        }
+        if writes.len() > 16 {
+            println!("    ... and {} more", writes.len() - 16);
+        }
+    }
+
     if ascii {
         println!("\n{}", frame::to_ascii(&capture.pixels, 64, 30));
     }
