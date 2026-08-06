@@ -723,6 +723,11 @@ struct SpriteEval {
     zero_found: bool,
     /// The byte evaluation last put on the bus, which is what $2004 reads while it runs.
     bus: u8,
+    /// Bytes still to be read after a ninth sprite was found, before the scan moves on.
+    ///
+    /// Hardware reads the whole of the overflowing sprite even though it has nowhere to put it,
+    /// which costs three more cycles and so shifts everything the scan does afterwards.
+    overflow_reads: u8,
 }
 
 /// Struct to hold processed sprite data for rendering
@@ -1257,11 +1262,33 @@ impl Ppu {
             return;
         }
 
+        // The three cycles spent reading an overflowing sprite that has nowhere to go.
+        if eval.overflow_reads > 0 {
+            self.sprite_eval.bus = self.oam[entry.wrapping_add(eval.m as usize) & 0xFF];
+            self.sprite_eval.m = (eval.m + 1) & 3;
+            if self.sprite_eval.m == 0 {
+                self.sprite_eval.n += 1;
+            }
+            self.sprite_eval.overflow_reads -= 1;
+            if self.sprite_eval.overflow_reads == 0 {
+                self.sprite_eval.n += 1;
+            }
+            return;
+        }
+
         // Examining a sprite is reading its Y and asking whether this line crosses it. Object
         // memory holds the line *before* the sprite's first row, so a sprite found while line N is
         // scanned is one that appears on line N+1 — which is why evaluation runs a line ahead, and
         // why hardware can never show a sprite on scanline 0.
-        let y = self.oam[entry & 0xFF];
+        //
+        // Once eight are found the byte read is `m` into the sprite rather than its first, and `m`
+        // advances with `n` instead of being reset — the sprite-overflow hardware bug. So the
+        // ninth sprite's *X* is compared against the scanline, the tenth's tile, the eleventh's
+        // attributes, and so on around. It is not a rounding error to be tidied away: it is why
+        // the flag is unusable for counting sprites, and `sprite_overflow_tests/4.Obscure` is
+        // seven tests that check each byte in turn gets misread as a Y coordinate.
+        let offset = if eval.found >= 8 { eval.m as usize } else { 0 };
+        let y = self.oam[entry.wrapping_add(offset) & 0xFF];
         self.sprite_eval.bus = y;
 
         let height = if (self.ctrl & CTRL_SPRITE_SIZE) != 0 { 16 } else { 8 };
@@ -1279,12 +1306,21 @@ impl Ppu {
         }
 
         if in_range {
-            // A ninth sprite on the line. Hardware then reads on with *both* indices advancing,
-            // which is what makes this flag famously unreliable; only the flag is modelled here,
-            // not the diagonal scan that follows it.
+            // A ninth sprite on the line, and the flag hardware sets for it is famously unreliable
+            // — see the scan above, which is why the byte just compared may not have been a Y
+            // coordinate at all. Reading the rest of the sprite costs three more cycles before the
+            // scan moves on, and `sprite_overflow_tests/3.Timing` measures the flag to within a
+            // CPU cycle or two, so they are spent rather than skipped.
             self.status.set(self.status.get() | STATUS_SPRITE_OVERFLOW);
+            self.sprite_eval.overflow_reads = 3;
+            return;
         }
 
+        // Not in range. With eight already found, `m` advances alongside `n` and does not carry
+        // into it — the diagonal that makes the next comparison read one byte further along.
+        if eval.found >= 8 {
+            self.sprite_eval.m = (eval.m + 1) & 3;
+        }
         self.sprite_eval.n += 1;
     }
 
@@ -5147,6 +5183,81 @@ mod tests {
 
     /// Empty slots fetch, but they never reach the list the renderer walks.
     ///
+    /// After eight sprites, the byte compared against the scanline is not a Y coordinate.
+    ///
+    /// The sprite-overflow hardware reads `m` bytes into each following sprite instead of its
+    /// first, and advances `m` alongside `n` rather than resetting it — so the ninth sprite's *X*
+    /// is compared against the line, the tenth's tile index, the eleventh's attributes, and so on
+    /// around. It is the reason the flag cannot be used to count sprites.
+    ///
+    /// Set up so that no sprite after the eighth is really on the line, but the *tile index* of one
+    /// of them is a value that would be. A PPU reading Y coordinates sees nothing and leaves the
+    /// flag clear; hardware misreads that tile index and sets it. `sprite_overflow_tests/4.Obscure`
+    /// is seven tests of this shape, one per byte position, and reports only pass or fail — hence
+    /// this, which says which byte was misread.
+    #[test]
+    fn the_overflow_scan_misreads_a_later_byte_as_a_y_coordinate() {
+        // Eight sprites on the line, then one whose byte at `offset` is on it and whose Y is not.
+        // Returns whether the overflow flag came up.
+        let overflow_from = |offset: usize| {
+            let mut ppu = ppu_with_solid_tile();
+            ppu.oam = [0xFF; 256];
+
+            // Eight sprites squarely on line 51, which fill secondary OAM.
+            for i in 0..8usize {
+                ppu.oam[i * 4] = 50;
+                ppu.oam[i * 4 + 1] = 1;
+                ppu.oam[i * 4 + 2] = 0;
+                ppu.oam[i * 4 + 3] = (i as u8) * 8;
+            }
+
+            // Sprite 8 is the first the overflow scan examines, and its Y is read as a Y — so it
+            // must be off the line, or the flag would be set for an honest reason.
+            //
+            // The scan then advances one byte per sprite: sprite 9 is read at byte 1, sprite 10 at
+            // byte 2, and so on. `offset` picks which of those is given an on-line value.
+            let sprite = 8 + offset;
+            ppu.oam[sprite * 4 + offset] = 50;
+
+            run_to(&mut ppu, 51, 260);
+            ppu.status.get() & STATUS_SPRITE_OVERFLOW != 0
+        };
+
+        // Byte 0 of sprite 8 is a real Y coordinate, read as one.
+        assert!(overflow_from(0), "the first sprite past the eighth is read at its own Y");
+
+        // And the three after it are read at bytes that are not Y coordinates at all.
+        assert!(overflow_from(1), "sprite 9 is compared at byte 1, its X");
+        assert!(overflow_from(2), "sprite 10 at byte 2, its attributes");
+        assert!(overflow_from(3), "sprite 11 at byte 3, its tile index");
+    }
+
+    /// And nothing at all if none of those bytes is on the line — the scan is diagonal, not a
+    /// search that reads every byte of every sprite.
+    #[test]
+    fn the_overflow_scan_reads_one_byte_per_sprite_and_not_four() {
+        let mut ppu = ppu_with_solid_tile();
+        ppu.oam = [0xFF; 256];
+
+        for i in 0..8usize {
+            ppu.oam[i * 4] = 50;
+            ppu.oam[i * 4 + 1] = 1;
+            ppu.oam[i * 4 + 2] = 0;
+            ppu.oam[i * 4 + 3] = (i as u8) * 8;
+        }
+
+        // Sprite 9's byte 0 is on the line — but the scan reads sprite 9 at byte *1*, so it must
+        // not notice. A PPU that scanned every byte of every sprite would set the flag here.
+        ppu.oam[9 * 4] = 50;
+
+        run_to(&mut ppu, 51, 260);
+        assert_eq!(
+            ppu.status.get() & STATUS_SPRITE_OVERFLOW,
+            0,
+            "byte 0 of sprite 9 is never looked at: by then the scan is reading byte 1"
+        );
+    }
+
     /// This is a performance invariant as much as a correctness one. The drawing list is walked
     /// once per *pixel* — some 61,000 times a frame — so padding it out to eight entries whatever
     /// the line holds cost a third of the emulator's speed. The addresses the empty slots fetch

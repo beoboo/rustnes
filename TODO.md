@@ -705,7 +705,26 @@ Measured for the first time, and three of them were already passing:
 - [x] instr_test-v3 — 17/17
 - [x] nes_instr_test — 11/11
 - [ ] sprite_hit_tests — 7/11, from 0/11 once CHR RAM worked
-- [ ] sprite_overflow_tests — 3/5 (`3.Timing`, `4.Obscure`)
+- [x] sprite_overflow_tests — 5/5, from 3/5. `3.Timing` and `4.Obscure` were the same omission,
+      which the code named in a comment and declined to implement: "only the flag is modelled here,
+      not the diagonal scan that follows it".
+
+      Once eight sprites are found, the overflow hardware goes on reading object memory — but it
+      reads `m` bytes into each following sprite instead of its first, and advances `m` alongside
+      `n` rather than resetting it. So the ninth sprite's *X* is compared against the scanline, the
+      tenth's attributes, the eleventh's tile index, and so on around. That is the whole reason the
+      overflow flag cannot be used to count sprites, and `4.Obscure` is seven tests of it, one per
+      byte position.
+
+      `3.Timing` fell out of the same change without being aimed at. Its failing test was #12, "set
+      too late when the 9th sprite is way after the 8th", and the missing cycles were the three
+      hardware spends reading the rest of an overflowing sprite it has nowhere to put — a detail
+      that only shows up in a test measuring the flag to within a CPU cycle or two.
+
+      Pinned by `the_overflow_scan_misreads_a_later_byte_as_a_y_coordinate`, which sets up sprites
+      whose *Y* is off the line and whose byte at the scanned offset is on it, one offset at a time.
+      A PPU reading real Y coordinates leaves the flag clear for every one of them. The ROMs report
+      only pass or fail; the test says which byte was misread.
 - [x] ppu_open_bus — 1/1. The PPU's I/O latch is a *decay* register: dynamic storage with nothing
       holding it up, so a bit not refreshed leaks to zero in about 600ms. And each register
       refreshes a different part of it — `$2002` supplies its top three bits and leaves the other
