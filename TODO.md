@@ -704,7 +704,8 @@ Measured for the first time, and three of them were already passing:
 - [x] vbl_nmi_timing — 7/7
 - [x] instr_test-v3 — 17/17
 - [x] nes_instr_test — 11/11
-- [ ] sprite_hit_tests — 7/11, from 0/11 once CHR RAM worked
+- [x] sprite_hit_tests — 11/11, from 0/11 once CHR RAM worked. The 7/11 this line used to
+      claim was stale; re-measured 2026-08-06.
 - [x] sprite_overflow_tests — 5/5, from 3/5. `3.Timing` and `4.Obscure` were the same omission,
       which the code named in a comment and declined to implement: "only the flag is modelled here,
       not the diagonal scan that follows it".
@@ -1300,7 +1301,9 @@ line carries a track tag.
 - [ ] Create automated test suite for all components
 - [ ] Implement integration tests with real-world ROMs
 - [ ] Add benchmark suite for performance comparisons
-- [ ] Set up continuous integration pipeline
+- [x] Set up continuous integration pipeline — `.github/workflows/ci.yml`, running against
+      github.com/beoboo/rustnes since 2026-08-04: build, clippy, and the test suite twice over so
+      an order-dependent failure has a chance to show.
 - [ ] Add regression testing framework
 - [ ] Implement test coverage reporting
 - [ ] Create visual verification tests for rendering accuracy
