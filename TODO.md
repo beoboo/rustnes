@@ -811,9 +811,18 @@ Measured for the first time, and three of them were already passing:
       right, and what it newly exposes is a **one-dot disagreement about when a `$2001` write takes
       effect**, landing on the one dot of the line where it can still be seen.
 
-      That is the open box below about carrying the delayed `$2001` a second cycle behind, as Mesen
-      does, now with a one-pixel test case attached to it. Worth doing when that is done; not worth
-      a special case of its own.
+      **The delayed-`$2001` explanation was tried and is refuted.** The pixel path did read `mask`
+      directly where it should read the one-dot-delayed `rendering_enabled` — tetanes reads its
+      delayed copy in `render_pixel` — so pointing `emit_pixel` and the rendering-off emission gate
+      at the delayed flag looked like the answer. It is **inert**: the pixel stays, and so does
+      every other number, `full_palette` at 9,079 differing pixels and `litewall2` at 29,184 and
+      the three baselines unmoved. Reverted rather than kept, since nothing demonstrates it.
+
+      So the cause is still unknown, and it is *not* the mask arriving a dot early. What is known:
+      it is the last visible dot of the line (x=255 is cycle 256, the dot the vertical position is
+      incremented on), and the demo turns rendering off at dot ~234 and writes `$2006 = $3F01` in
+      hblank. The next attempt should probe `v` and the mask at that exact dot in both emulators
+      rather than reason about which flag is read, which is what this one did.
 - [~] full_palette — 0/3 to a picture that matches the reference's layout, by fixing two PPU gaps
       the demo-ROM triage of 2026-08-06 turned up. Not yet an exact match, and the reason is
       understood; see the end.
