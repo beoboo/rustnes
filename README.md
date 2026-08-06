@@ -172,9 +172,15 @@ The same measurements run as tests in `crates/rn_core/tests/audio_pipeline.rs`.
 
 ## Book
 
-[book/src](book/src) holds an mdBook scaffold. It is **deferred** — the text will be written later
-by reverse-engineering the finished emulator, so nothing in the code should be shaped around it for
-now. `book.toml` is empty and the book does not build.
+**The book is the point of this project**; the emulator is the vehicle. The plan is
+[BOOK_PLAN.md](BOOK_PLAN.md).
+
+Everything currently under [book/src](book/src) is being **rewritten from scratch** and should not
+be read as a draft. The approach it came from — defer the text, then reverse-engineer it from the
+finished emulator — produced 4,412 words across 47 files, 39 of them a bare heading, and nothing at
+all in the 335 commits since March 2025. What replaces it: the book gets its own code in
+`book/code/`, written in book order, and the emulator in [crates/](crates) becomes the reference
+implementation that code is checked against.
 
 ## License
 

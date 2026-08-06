@@ -1,5 +1,20 @@
 # RustNES Implementation Checklist 📋
 
+> **The book is the deliverable; the emulator is the vehicle.** That was always the intent and this
+> file had stopped reflecting it. See **[BOOK_PLAN.md](BOOK_PLAN.md)**, which supersedes every
+> book-related box below and everything currently under `book/src` — the text is being rewritten
+> from scratch.
+>
+> The strategy that failed, recorded so it is not chosen again: the book was "deferred, to be
+> written later by reverse-engineering the finished emulator". Measured 2026-08-06, that produced
+> **4,412 words across 47 files — 39 of them a single heading — and nothing at all in 335 commits**
+> since `32dc3d0` (2025-03-08). Meanwhile TODO.md itself grew to 24,485 words of exactly the
+> material the book needs. The book now gets its own code, written in book order, and this
+> emulator becomes the reference implementation it is checked against.
+>
+> **Next step is the war-story harvest** — BOOK_PLAN.md step 1 — because that material decays and
+> nothing else does.
+
 > **Where the live work is.** This file mixes two things, and reading it as one list is misleading.
 > Roughly 240 of its ~270 open boxes are in *Additional Important Areas*, *Milestone 10* and
 > *Milestone 11* — packaging, WebAssembly, netplay, audio visualisation and so on. Those are a
