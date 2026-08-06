@@ -51,6 +51,18 @@ pub struct DmcChannel {
     /// be performed by whatever owns the bus and the cycle count. The channel asks, and carries on
     /// once it is answered.
     pending_fetch: Option<u16>,
+
+    /// Ticks left before a `$4015`-started fetch may be requested: 2 if the write landed on an
+    /// even CPU cycle, 3 if odd, so the request always surfaces on the same parity.
+    ///
+    /// Hardware inserts this delay, and the parity it normalises to is what makes the *start* of
+    /// a sample stall the CPU 3 cycles where a mid-sample refill stalls it 4 — see the stall in
+    /// `nes_system`. Without it, `dma_4016_read` reports the doubled read one CPU clock late, on
+    /// iteration 4 of 5 against hardware's 3. Measured against tetanes' cycle ledger 2026-08-06:
+    /// the two emulators' DMC refills agreed to the cycle (request at write+3406 in both) and the
+    /// whole one-cycle error was this start-up stall.
+    #[serde(default)]
+    start_delay: u8,
 }
 
 impl DmcChannel {
@@ -75,13 +87,16 @@ impl DmcChannel {
             silence_flag: true,
             current_address: 0,
             bytes_remaining: 0,
-            timer: 0,
+            // Power-on `$4010` is zero, whose rate is 428 — the free-running timer needs its real
+            // period from the first cycle, not a zero that would expire every tick.
+            timer: 428,
             timer_value: 0,
 
             // Initialize length counter
             length_counter: LengthCounter::new(),
             irq_pending: false,
             pending_fetch: None,
+            start_delay: 0,
         }
     }
 
@@ -104,8 +119,9 @@ impl DmcChannel {
         self.silence_flag = true;
         self.current_address = 0;
         self.bytes_remaining = 0;
-        self.timer = 0;
+        self.timer = 428;
         self.timer_value = 0;
+        self.start_delay = 0;
 
         // Reset length counter
         self.length_counter.reset();
@@ -113,8 +129,18 @@ impl DmcChannel {
 
     /// Process a single DMC channel cycle
     pub fn tick(&mut self) {
-        if !self.enabled {
-            return;
+        // No early return when disabled: the timer and output unit free-run from power-on, as
+        // hardware's do — `$4015` gates only the memory reader, through `bytes_remaining`. This
+        // is not audible (a disabled channel shifts silence), but it is *visible* in the DMA's
+        // timing: the timer's period is even, so its phase fixes which CPU-cycle parity every
+        // shifter reload — and so every mid-sample refill DMA — lands on, for the whole run.
+        // A timer that only ran while enabled took its phase from when the game last enabled the
+        // channel, and `sync_dmc`'s calibrated loops hung whenever that phase came out wrong.
+
+        // A `$4015`-started fetch waits out the parity-normalising delay before it may be
+        // requested. Mid-sample refills never arm this, so they pass straight through.
+        if self.start_delay > 0 {
+            self.start_delay -= 1;
         }
 
         // The memory reader runs independently of the output unit: the moment the buffer is empty
@@ -122,7 +148,11 @@ impl DmcChannel {
         // unit had run dry meant the *first* byte was never requested — a channel that has just
         // started has no bits to shift, so the branch that would have asked was never reached and
         // a sample never began at all.
-        if self.sample_buffer_empty && self.bytes_remaining > 0 && self.pending_fetch.is_none() {
+        if self.start_delay == 0
+            && self.sample_buffer_empty
+            && self.bytes_remaining > 0
+            && self.pending_fetch.is_none()
+        {
             self.load_next_byte();
         }
 
@@ -162,6 +192,15 @@ impl DmcChannel {
                     self.silence_flag = false;
                     self.shift_register = self.sample_buffer;
                     self.sample_buffer_empty = true;
+                    // The refill is requested in this same cycle, not left for the reader check
+                    // on the next one. The cycle matters because the stall's length is decided by
+                    // the halt's parity: the timer's period is even, so every reload shares one
+                    // parity and every mid-sample refill stalls the same 4 cycles — which is the
+                    // constant `sync_dmc` is calibrated around. Requested a tick later, refills
+                    // land on the other parity, stall 3, and that loop never converges.
+                    if self.bytes_remaining > 0 && self.pending_fetch.is_none() {
+                        self.load_next_byte();
+                    }
                 }
             }
         } else {
@@ -280,8 +319,9 @@ impl DmcChannel {
         self.output_level
     }
 
-    /// Set the enabled state
-    pub fn set_enabled(&mut self, enabled: bool) {
+    /// Set the enabled state. `on_even_cycle` is the parity of the CPU cycle the write landed on,
+    /// which decides the start-up delay — see [`Self::start_delay`].
+    pub fn set_enabled(&mut self, enabled: bool, on_even_cycle: bool) {
         self.enabled = enabled;
 
         if enabled {
@@ -291,12 +331,14 @@ impl DmcChannel {
                 self.restart();
             }
 
-            // And the buffer fills *immediately* if it is empty, rather than waiting for the next
-            // clock of the memory reader. `apu_test/7-dmc_basics` says so in as many words — "there
-            // should be a one-byte buffer that's filled immediately if empty" — and it is the
-            // difference between a sample starting on this instruction and on the next one.
+            // And the buffer fills if it is empty, rather than waiting for the output unit —
+            // `apu_test/7-dmc_basics` says "there should be a one-byte buffer that's filled
+            // immediately if empty". "Immediately" is within a couple of cycles, not on the write
+            // itself: the request surfaces 2 cycles later from an even write and 3 from an odd
+            // one, landing on a fixed parity either way. `dma_4016_read` is what tells the two
+            // apart — an instant request stalls its timed `LDA $4016` one CPU clock late.
             if self.sample_buffer_empty && self.bytes_remaining > 0 && self.pending_fetch.is_none() {
-                self.load_next_byte();
+                self.start_delay = if on_even_cycle { 2 } else { 3 };
             }
         } else {
             // Disabling stops the sample immediately rather than letting it finish. Leaving the
@@ -382,7 +424,9 @@ mod tests {
         assert!(channel.silence_flag);
         assert_eq!(channel.current_address, 0);
         assert_eq!(channel.bytes_remaining, 0);
-        assert_eq!(channel.timer, 0);
+        // 428 — rate index 0, what a zeroed `$4010` selects — because the timer free-runs from
+        // power-on and needs its real period, not a zero that would expire every cycle.
+        assert_eq!(channel.timer, 428);
         assert_eq!(channel.timer_value, 0);
     }
 
@@ -425,7 +469,8 @@ mod tests {
         assert!(channel.silence_flag);
         assert_eq!(channel.current_address, 0);
         assert_eq!(channel.bytes_remaining, 0);
-        assert_eq!(channel.timer, 0);
+        // Reset restores the power-on period, same as `new` — see above.
+        assert_eq!(channel.timer, 428);
         assert_eq!(channel.timer_value, 0);
     }
 
@@ -468,8 +513,9 @@ mod tests {
         // Channel should be silent when disabled
         assert_eq!(channel.output(), 0);
 
-        // Enable the channel
-        channel.set_enabled(true);
+        // Enable the channel. The parity only times a fetch's request, which this test never gets
+        // to — either value works here.
+        channel.set_enabled(true, true);
 
         // The output is the DAC level, wherever the level came from.
         channel.output_level = 0x40;
@@ -509,5 +555,118 @@ mod tests {
         // Test length register ($4013)
         channel.write_register(3, 0x20);
         assert_eq!(channel.length, 0x20);
+    }
+
+    /// The three behaviours that place a DMC DMA on the right CPU cycle. Each was measured
+    /// against tetanes' cycle ledger on 2026-08-06, after `dma_4016_read` reported our doubled
+    /// read one CPU clock late — iteration 4 of its five runs against hardware's 3 — and eight
+    /// reasoned attempts had been reverted. The ledger showed the two emulators' DMC refills
+    /// agreeing to the cycle and the whole error in how a *starting* sample's stall lands; these
+    /// pin the mechanism that fixed it, because the ROMs that measure it cannot run in CI.
+    mod dma_placement {
+        use super::*;
+
+        /// A channel with a one-byte sample programmed, as `sync_dmc` sets one up.
+        fn programmed() -> DmcChannel {
+            let mut channel = DmcChannel::new();
+            channel.write_register(0, 0x00); // rate 428, no loop, no IRQ
+            channel.write_register(2, 0x00); // sample at $C000
+            channel.write_register(3, 0x00); // length 1 byte
+            channel
+        }
+
+        /// A `$4015`-started fetch surfaces 2 cycles after an even write and 3 after an odd one —
+        /// never on the write itself. Both delays land the request on the same parity, which is
+        /// what lets a starting sample's stall be deterministically one cycle shorter than a
+        /// refill's. Requested instantly — as this code did before 2026-08-06 — every run of
+        /// `dma_4016_read`'s timed `LDA $4016` sees the halt one CPU clock late.
+        #[test]
+        fn a_started_fetch_surfaces_two_cycles_after_an_even_write_and_three_after_an_odd() {
+            for (even, expected) in [(true, 2u32), (false, 3u32)] {
+                let mut channel = programmed();
+                channel.set_enabled(true, even);
+                assert!(
+                    !channel.wants_fetch(),
+                    "the request must not surface on the write cycle itself"
+                );
+                let mut ticks = 0;
+                while !channel.wants_fetch() {
+                    channel.tick();
+                    ticks += 1;
+                    assert!(ticks < 10, "the started fetch never surfaced");
+                }
+                assert_eq!(
+                    ticks, expected,
+                    "an {} write should surface its fetch after exactly {expected} cycles",
+                    if even { "even" } else { "odd" }
+                );
+            }
+        }
+
+        /// The timer free-runs from power-on: `$4015` gates only the memory reader. Two channels
+        /// whose enables differ by one idle cycle must reload — and so request their refills — on
+        /// cycles one apart, because the phase accumulated while disabled. A timer that only ran
+        /// while enabled erased that difference, which let the refill's parity float with when
+        /// the game last enabled the channel — and `sync_dmc`'s loops, calibrated around a
+        /// constant 4-cycle refill stall, hung whenever it floated wrong.
+        #[test]
+        fn the_timer_keeps_its_phase_while_the_channel_is_disabled() {
+            let refill_tick = |idle: u32| {
+                let mut channel = programmed();
+                channel.write_register(3, 0x01); // 17 bytes, so a refill follows the first fetch
+                for _ in 0..idle {
+                    channel.tick(); // disabled: only the free-running timer moves
+                }
+                channel.set_enabled(true, true);
+                while !channel.wants_fetch() {
+                    channel.tick();
+                }
+                channel.take_pending_fetch();
+                channel.supply_byte(0xAA);
+                let mut ticks = 0u32;
+                while !channel.wants_fetch() {
+                    channel.tick();
+                    ticks += 1;
+                    assert!(ticks < 5000, "no refill was ever requested");
+                }
+                ticks
+            };
+
+            let (base, shifted) = (refill_tick(0), refill_tick(1));
+            assert_eq!(
+                base,
+                shifted + 1,
+                "one idle cycle before enabling must move the refill by exactly one cycle; if it \
+                 moves by zero the timer only ran while enabled"
+            );
+        }
+
+        /// The refill is requested in the same cycle the shifter takes the buffer, not on the
+        /// next one. There must be no cycle in which the buffer sits empty with bytes remaining
+        /// and no request out — one such cycle flips the parity every refill DMA lands on.
+        #[test]
+        fn the_refill_is_requested_in_the_cycle_the_shifter_reloads() {
+            let mut channel = programmed();
+            channel.write_register(3, 0x01); // 17 bytes
+            channel.set_enabled(true, true);
+            while !channel.wants_fetch() {
+                channel.tick();
+            }
+            channel.take_pending_fetch();
+            channel.supply_byte(0xAA);
+
+            for tick in 0..5000 {
+                channel.tick();
+                if channel.sample_buffer_empty {
+                    assert!(
+                        channel.wants_fetch(),
+                        "tick {tick}: the buffer emptied into the shifter but the refill was not \
+                         requested in the same cycle"
+                    );
+                    return;
+                }
+            }
+            panic!("the shifter never reloaded");
+        }
     }
 }

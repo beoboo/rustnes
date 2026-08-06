@@ -117,6 +117,11 @@ impl ApuWrapper {
         self.apu.borrow().wants_dmc_fetch()
     }
 
+    /// CPU cycles since power-on, as the APU counts them. For the `RN_DMC_TRACE` ledger.
+    pub fn cycle_counter(&self) -> u64 {
+        self.apu.borrow().cycle_counter()
+    }
+
     /// Hand the DMC the byte it asked for.
     pub fn supply_dmc_byte(&self, value: u8) {
         self.apu.borrow_mut().supply_dmc_byte(value);
@@ -288,10 +293,39 @@ pub struct Apu {
     frame_counter: FrameCounter,
 }
 
+/// Whether `RN_DMC_TRACE` asks for the DMC's cycle ledger: every `$4015` write, fetch request,
+/// halt and fetch, each stamped with the APU's CPU-cycle counter, on stderr. It exists to be
+/// diffed against the identical ledger from tetanes — the alignment of the DMC's DMA against the
+/// CPU is one digit of one ROM (`dma_4016_read` prints 07 on iteration 4, hardware on 3) and it
+/// cannot be read off any smaller observation.
+pub(crate) fn dmc_trace() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("RN_DMC_TRACE").is_some())
+}
+
+/// The previous value of `wants_dmc_fetch`, for the ledger to log the raising edge.
+static PROBE_PREV_WANTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 impl Apu {
     /// The address the DMC wants a sample byte from, if it is waiting on one.
     pub fn take_dmc_fetch(&mut self) -> Option<u16> {
         self.dmc.take_pending_fetch()
+    }
+
+    /// CPU cycles since power-on, as this APU counts them. For the `RN_DMC_TRACE` ledger.
+    pub fn cycle_counter(&self) -> u64 {
+        self.cycle_counter
+    }
+
+    /// Log the fetch request's raising edge, if the ledger is on.
+    fn probe_req_edge(&self) {
+        if dmc_trace() {
+            let wants = self.dmc.wants_fetch();
+            let prev = PROBE_PREV_WANTS.swap(wants, std::sync::atomic::Ordering::Relaxed);
+            if wants && !prev {
+                eprintln!("DMC REQ cyc={}", self.cycle_counter);
+            }
+        }
     }
 
     /// Whether the DMC is waiting on a byte. See [`ApuWrapper::wants_dmc_fetch`].
@@ -493,6 +527,7 @@ impl Apu {
         // quoted in CPU cycles, so clocking it at the APU's half rate played every sample an
         // octave low and fetched its bytes half as often as hardware does.
         self.dmc.tick();
+        self.probe_req_edge();
 
         self.generate_sample();
     }
@@ -692,12 +727,16 @@ impl Addressable for Apu {
             },
             // APU status register ($4015)
             APU_STATUS => {
+                if dmc_trace() {
+                    eprintln!("DMC W4015={value:02X} cyc={}", self.cycle_counter);
+                }
                 // Update channel enable states
                 self.pulse1.set_enabled((value & 0x01) != 0);
                 self.pulse2.set_enabled((value & 0x02) != 0);
                 self.triangle.set_enabled((value & 0x04) != 0);
                 self.noise.set_enabled((value & 0x08) != 0);
-                self.dmc.set_enabled((value & 0x10) != 0);
+                self.dmc.set_enabled((value & 0x10) != 0, self.cycle_counter & 1 == 0);
+                self.probe_req_edge();
                 // Writing the register clears the DMC's interrupt, whatever else the write does.
                 self.dmc.acknowledge_irq();
                 self.status = value;

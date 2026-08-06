@@ -175,12 +175,18 @@ pub struct SaveState {
     apu: Option<crate::apu::ApuState>,
 }
 
-/// CPU cycles a DMC sample fetch halts the processor for.
+/// CPU cycles a DMC sample fetch halts the processor for, by the parity of the cycle the halt
+/// begins on: the fetch itself must land on a fixed parity, so the halt is 3 cycles from one
+/// parity and 4 from the other.
 ///
-/// Four is the usual figure; hardware charges three when the fetch lands on a write cycle and can
-/// charge more if it collides with sprite DMA. Neither refinement is modelled, and both are worth
-/// less than the difference between four and the nothing this used to cost.
-const DMC_STALL_CYCLES: u8 = 4;
+/// This only produces a *deterministic* 3 because the DMC normalises the parity of a
+/// `$4015`-started fetch request with its 2-or-3 cycle start delay — see `DmcChannel`. Varying
+/// the stall without that delay was tried and refuted: `sync_dmc`'s fine-sync loop is calibrated
+/// around "4 DMC wait-states" and hangs when its refills flip between 3 and 4. With the delay,
+/// sample starts stall 3 and mid-sample refills stall 4, which is the one-cycle difference
+/// `dma_4016_read` measures. Not modelled: the extra cycles a collision with the sprite DMA adds.
+const DMC_STALL_CYCLES_EVEN: u8 = 3;
+const DMC_STALL_CYCLES_ODD: u8 = 4;
 
 /// Cycles the CPU spends starting up, before its first instruction.
 ///
@@ -427,10 +433,22 @@ impl NesSystem {
             let dmc = apu_for_dmc;
             let dmc_bus = Rc::clone(&bus);
             cpu.set_dma_halt(Rc::new(move |phase| match phase {
-                DmaHalt::Ask if dmc.wants_dmc_fetch() => DMC_STALL_CYCLES,
+                DmaHalt::Ask if dmc.wants_dmc_fetch() => {
+                    if crate::apu::dmc_trace() {
+                        eprintln!("DMC HALT cyc={}", dmc.cycle_counter());
+                    }
+                    if dmc.cycle_counter() & 1 == 0 {
+                        DMC_STALL_CYCLES_EVEN
+                    } else {
+                        DMC_STALL_CYCLES_ODD
+                    }
+                },
                 DmaHalt::Ask => 0,
                 DmaHalt::Fetch => {
                     if let Some(address) = dmc.take_dmc_fetch() {
+                        if crate::apu::dmc_trace() {
+                            eprintln!("DMC FETCH addr={address:04X} cyc={}", dmc.cycle_counter());
+                        }
                         // A real bus access: the sample comes from cartridge space through
                         // whichever bank is switched in, and it leaves its value on the open bus
                         // like any other read.

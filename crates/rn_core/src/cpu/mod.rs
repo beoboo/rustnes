@@ -452,6 +452,9 @@ impl Cpu {
             if let Some(halt) = &self.dma_halt {
                 let stalled = halt(DmaHalt::Ask);
                 if stalled > 0 {
+                    if crate::apu::dmc_trace() {
+                        eprintln!("DMC HALTADDR addr={address:04X}");
+                    }
                     for _ in 0..stalled {
                         self.stall_cycle();
                     }

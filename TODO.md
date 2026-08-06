@@ -943,7 +943,8 @@ Measured for the first time, and three of them were already passing:
 - [x] cpu_reset — 2/2. Reset is not power-on: it sets the I flag, subtracts three from the stack
       pointer and does nothing else. A, X, Y and the other flags survive it. The three are the
       interrupt sequence going through the motions of its pushes with the writes suppressed.
-- [ ] dmc_dma_during_read4 — 2/5, and the mechanism these need now exists. The DMC's DMA runs
+- [x] dmc_dma_during_read4 — 3/5, `dma_4016_read` fixed and the last two shared with the
+      reference; see the close at the end of this entry. The DMC's DMA runs
       *inside* the instruction rather than after it, which is what lets it land on a read: the
       processor is halted with that address still on the bus, so the read happens a second time and
       its side effects with it. Invisible for RAM; `$4016`'s shift register advances again and
@@ -1046,6 +1047,50 @@ Measured for the first time, and three of them were already passing:
       The mechanism itself is pinned by `cpu::dma_halt` rather than by these ROMs, which report five
       numbers and can say the halt landed on the wrong run but not whether it doubles the read at
       all.
+
+      **Closed, 2026-08-06, by the cycle-level trace the last sitting asked for — and the missing
+      clock was in none of the eight places already ruled out. It was the stall's own length.**
+      Both emulators now carry an `RN_DMC_TRACE` ledger (ours committed; tetanes' a local
+      uncommitted patch in that checkout) that stamps every `$4015` write, fetch request, halt and
+      fetch with a CPU-cycle count. Diffed at `dma_4016_read`'s test section, the two agreed to
+      the cycle on everything the previous sittings had suspected — the refill request fires 3406
+      cycles after the restart write in both — and disagreed on exactly one number: the restart's
+      stall. Ours spent 4 cycles; tetanes spent 3. One cycle, and the doubled read lands one read
+      later, which is the whole 08-08-08-07-08.
+
+      What hardware does, read off tetanes' ledger and its source together, is a *pair* of parity
+      rules that only work jointly:
+
+      - A `$4015`-started fetch is requested 2 cycles after an even write and 3 after an odd one,
+        so the request always surfaces on one parity.
+      - The fetch itself must land on a fixed parity, so the halt costs 3 cycles from one parity
+        and 4 from the other. With the request parity pinned by the first rule, a *starting*
+        sample stalls a deterministic 3 while a mid-sample refill stalls 4.
+      - And the refill's own parity is only stable because the DMC timer free-runs from power-on
+        (`$4015` gates the memory reader, not the timer) with the refill requested in the same
+        cycle the shifter reloads — its period is even, so every reload shares one parity for the
+        whole run. tetanes carries a `timer.cycle += 1` at reset with a FIXME saying DMA tests
+        fail without it: that is this phase being pinned.
+
+      This vindicates the old refutation rather than contradicting it: a 3-or-4 stall *without*
+      the other two rules lets the refill parity float with when the game last enabled the
+      channel, and `sync_dmc`'s loops — calibrated around "4 DMC wait-states" — hang the moment a
+      refill comes up 3. That was re-measured on the way here: each partial mechanism hung the
+      ROM in a different sync loop, and only the full pair passed it. `08 08 07 08 08 Passed`,
+      hardware's column.
+
+      The suites this was feared to trade against did not move: apu_test 9/9, apu_reset 6/6,
+      blargg_apu 11/11, cpu_interrupts_v2 6/6, nestest 8991, baselines MATCH. The mechanism is
+      pinned in CI by `apu::dmc_channel::tests::dma_placement` — three tests, each proven to fail
+      with its rule reverted — since the ROMs cannot be committed.
+
+      Of the two still failing, both now fail *identically to tetanes*: `double_2007_read` prints
+      byte-for-byte the same output including its CRC (`22 33 44 55 66 / 33 44 55 66 77 /
+      D84F6815`), and `dma_2007_read` gets one of five reset-alignment reruns wrong just as
+      tetanes does (a different rerun — ours `22 33`, tetanes `44 55`). Their own sources say the
+      results "depend on CPU-PPU synchronization at reset", which is a different axis from the
+      DMC and one the reference has not solved either. A future sitting needs a reference that
+      passes them before there is anything to compare against.
 
 - [x] MMC1_A12/mmc1_a12 — **the emulation is right.** Its picture is structurally identical to
       tetanes', so nothing here is wrong with it; what fails is our ability to *read* its screen. It
