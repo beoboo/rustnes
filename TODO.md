@@ -1779,7 +1779,38 @@ falls — including which pattern table is being read, which is what drives MMC3
       - [ ] The interrupt lands on the right cycle, so the split's write burst starts at dot 257
             rather than dot ~190.
 
-            **The handler's timing is fixed code, so the fault is the interrupt's.** Traced from the
+            **What is actually happening — and the entry above this one had it wrong.** The
+            `$2006` writes landing in the middle of line 193 do *not* corrupt it, because nothing is
+            being drawn there: the game turns rendering **off** for that span. Measured 2026-08-06
+            with a new `$2001` diagnostic, over three consecutive frames from the save state:
+
+            ```
+            frame 3   scanline 193 dot 235 -> $00 rendering OFF   scanline 194 dot 212 -> $18 ON
+            frame 4   scanline 193 dot 233 -> $00 rendering OFF   scanline 194 dot 210 -> $18 ON
+            frame 5   scanline 193 dot 241 -> $00 rendering OFF   scanline 194 dot 218 -> $18 ON
+            ```
+
+            Forced blanking, which is how a game buys itself video-memory time outside vblank. The
+            black span on row 193 is deliberate, and the eight-pixel wobble is *that edge* moving —
+            235, 233, 241 — not a corrupted fetch. Everything this entry previously said about a
+            mid-line `$2006` write redrawing the rest of the line was describing a mechanism that
+            is not in play here.
+
+            Where the wobble comes from is now a much smaller question. The MMC3 IRQ is PPU-locked
+            and fires at 191:261 every single frame — verified by logging every A12 rise, all of
+            them at dot 261 from `$1FF7`, a sprite fetch. So the handler starts at a fixed PPU
+            position. What is *not* fixed is the CPU's latency in taking it: the game is spinning in
+            a three-cycle loop at `$96F4`, so the interrupt is taken up to three cycles — nine dots
+            — after it fires, and which of those three the CPU is on drifts as the CPU/PPU phase
+            does. Nine dots is the observed spread.
+
+            That leaves a real question rather than a guess: **does hardware wobble here too?** The
+            same three-cycle loop and the same phase drift exist on a real console, so the edge must
+            move there as well unless the blank span is positioned so that nine dots of movement
+            fall somewhere invisible. Answering it needs a reference at this scene, which needs an
+            input route into a level — `--into-level` currently reaches the world map and stops.
+
+            **The handler's timing is fixed code, so the fault is not the CPU's.** Traced from the
             save state, 2026-08-06. The in-level handler at `$F77B` ends with:
 
             ```

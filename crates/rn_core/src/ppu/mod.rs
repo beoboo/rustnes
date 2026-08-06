@@ -562,6 +562,9 @@ pub struct Ppu {
 
     /// `$2006` writes that completed this frame: `(scanline, dot, address)`. See `write_address`.
     address_writes_this_frame: Vec<(i16, u16, u16)>,
+
+    /// `$2001` writes this frame: `(scanline, dot, value)`. See `FrameDiagnostics::mask_writes`.
+    mask_writes_this_frame: Vec<(i16, u16, u8)>,
     sprite_zero_hit_this_frame: i16,
     vram_writes_this_frame: u32,
     vram_writes_during_render_this_frame: u32,
@@ -636,6 +639,15 @@ pub struct FrameDiagnostics {
     /// effect — and those differ by design, since a $2005 write does not reach `v` until the
     /// pre-render line while a $2006 write reaches it at once.
     pub scroll_changes: Vec<(u16, u16, u8)>,
+    /// Every `$2001` write in the most recent frame: `(scanline, dot, value)`.
+    ///
+    /// Turning rendering off partway down a frame is *forced blanking*, and games use it to buy
+    /// themselves time for video memory writes that would otherwise have to wait for vblank. Super
+    /// Mario Bros 3 does it around its status-bar split, which is why that split survives `$2006`
+    /// writes landing in the middle of a visible line: nothing is being drawn there. Where the
+    /// blanking starts and stops is then a visible edge, and *which dot* decides where it falls.
+    pub mask_writes: Vec<(i16, u16, u8)>,
+
     /// Every `$2006` write that completed in the most recent frame: `(scanline, dot, address)`.
     ///
     /// The dot is the point of it. A write in hblank moves the scroll cleanly; the same write a
@@ -837,6 +849,7 @@ impl Ppu {
             working_frame: vec![0; 256 * 240 * 3],
             scroll_changes_this_frame: Vec::new(),
             address_writes_this_frame: Vec::new(),
+            mask_writes_this_frame: Vec::new(),
             sprite_zero_hit_this_frame: -1,
             vram_writes_this_frame: 0,
             vram_writes_during_render_this_frame: 0,
@@ -1081,6 +1094,7 @@ impl Ppu {
         self.diagnostics.scanlines_rendered = self.scanlines_this_frame;
         self.diagnostics.scroll_changes = std::mem::take(&mut self.scroll_changes_this_frame);
         self.diagnostics.address_writes = std::mem::take(&mut self.address_writes_this_frame);
+        self.diagnostics.mask_writes = std::mem::take(&mut self.mask_writes_this_frame);
         self.diagnostics.sprite_zero_hit_scanline = self.sprite_zero_hit_this_frame;
         self.sprite_zero_hit_this_frame = -1;
         self.diagnostics.vram_writes = self.vram_writes_this_frame;
@@ -2549,6 +2563,10 @@ impl Ppu {
     fn write_mask(&mut self, value: u8) {
         let old_mask = self.mask;
         self.mask = value;
+
+        // Where on the picture this landed. Turning rendering off partway down a line is a visible
+        // edge, and the dot decides where it falls — see `FrameDiagnostics::mask_writes`.
+        self.mask_writes_this_frame.push((self.scanline, self.cycle, value));
 
         // Log detailed mask state changes for debugging
         log::debug!(

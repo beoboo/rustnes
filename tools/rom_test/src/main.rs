@@ -328,6 +328,21 @@ fn run_frame(
         println!("  BLANK — the PPU drew a single flat colour, so nothing was rendered");
     }
 
+    // Where the game turned rendering off and on, which is a visible edge when it happens partway
+    // down a line.
+    let masks = &capture.diagnostics.mask_writes;
+    let toggles: Vec<_> = masks
+        .iter()
+        .filter(|&&(scanline, _, _)| (0..240).contains(&scanline))
+        .collect();
+    if !toggles.is_empty() {
+        println!("\n  $2001 writes during the visible picture ({} of {} in the frame)", toggles.len(), masks.len());
+        for &&(scanline, dot, value) in toggles.iter().take(12) {
+            let showing = if value & 0b0001_1000 != 0 { "rendering ON " } else { "rendering OFF" };
+            println!("    scanline {scanline:3}  dot {dot:3}  -> ${value:02X}  {showing}");
+        }
+    }
+
     // Where the game moved the scroll, and — the part that matters — at which dot. A `$2006` write
     // in hblank moves the split cleanly; the same write inside the visible line redraws the rest of
     // that line from the new address. Only the dot tells the two apart.
