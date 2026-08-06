@@ -755,15 +755,18 @@ Measured for the first time, and three of them were already passing:
       complete", which the screen reader could not interpret. The failing form — "Errors: n" and
       "Failed" — was produced deliberately, by breaking `ASL`'s carry flag, before that rule was
       written: "complete" is not "passed", and guessing would have turned a broken emulator green.
-- [~] dmc_tests — 0/4, and now *known* to be audio-only rather than assumed to be. `nesref --frame`
-      captures what tetanes draws, and diffing against it settles what the screen was never going to
-      say: both emulators render a flat backdrop and nothing else. The pictures differ in every
-      pixel, and only because the backdrop colour differs — ours grey 117,117,117 against tetanes'
-      83,83,83 — which is power-on palette RAM, the indeterminate hardware `power_up_palette` exists
-      to document. The palette *tables* agree, as `nmi_sync` below shows.
+- [~] dmc_tests — 0/4, and now known to be audio-only rather than assumed. All four render a
+      picture **structurally identical** to tetanes': one flat backdrop and nothing else. So they
+      report by sound alone and cannot be judged here until there is something to compare audio
+      against. Not a failure, and it should stop being counted as four.
 
-      So these four report by sound alone and cannot be judged here at all until there is something
-      to compare audio against. Not a failure, and it should stop being counted as four.
+      An earlier version of this entry said the two emulators' backdrops differed — ours grey
+      117,117,117 against tetanes' 83,83,83 — and put that down to power-on palette RAM. **That was
+      wrong twice over.** tetanes defaults to an NTSC composite filter, so the reference frames were
+      filtered; and with the filter off the remaining difference is that the two ship different NES
+      palette tables, ours rendering black as 0,0,0 and tetanes as 3,3,3. Nothing to do with palette
+      RAM. Comparing frames between emulators has to ignore which RGB each gives a palette entry,
+      which is what `rom_test compare` now does.
 - [x] nestest.nes — 8991/8991
 - [x] instr_test-v5 — 18/18. The last four were not failures at all: the system peeked at the next
       opcode after every step and, on seeing `$00`, declared the program Finished and switched the
@@ -869,15 +872,14 @@ Measured for the first time, and three of them were already passing:
       is a heuristic where one would rather have a fact: the PAL ROMs' iNES headers are byte for
       byte their NTSC siblings', flags 9 and 10 both zero. Only the directory says which is which.
 
-- [~] nmi_sync — measurable now, and close. Both ROMs are visual demos with no verdict to read, so
-      `nesref --frame` was added to capture tetanes' picture and diff against it. `demo_ntsc` at 240
-      frames differs by **11 pixels of 61440**: one at row 0 column 255, and ten forming a pair of
-      columns at rows 119-123. They are isolated markers in slightly different places rather than a
-      broken picture, which is the difference between "unmeasurable" and "0.02% out and here is
-      where". `demo_pal` is PAL and not applicable.
+- [~] nmi_sync — measurable now, and very close. Both ROMs are visual demos with no verdict to
+      read, so `nesref --frame` captures tetanes' picture and `rom_test compare` diffs it ignoring
+      palette. `demo_ntsc` at 240 frames differs by **2 pixels of 61440**, one on row 0 and one on
+      row 121. `demo_pal` is PAL and not applicable.
 
-      What the 11 pixels mean needs knowing what the demo draws, which nobody has looked up yet.
-      Recorded as a number rather than a verdict for that reason.
+      An earlier run of this said 11 pixels; that was against a frame tetanes had put its NTSC
+      composite filter through. What the 2 mean needs knowing what the demo draws, which nobody has
+      looked up — recorded as a number, not a verdict.
 - [x] cpu_interrupts_v2 — every ROM in the suite passes, singles and combined, and nothing hangs.
 
       `3-nmi_and_irq` passes: an interrupt sequence has to leave the shadows clear behind it, or an NMI arriving during its own seven
@@ -1031,19 +1033,16 @@ Measured for the first time, and three of them were already passing:
       numbers and can say the halt landed on the wrong run but not whether it doubles the read at
       all.
 
-- [ ] MMC1_A12/mmc1_a12 — unmeasured, and until now *falsely reported as failing*. It draws with
-      its own character set rather than ASCII, so its nametable decodes to noise — "42$ 4;# +;1 3."
-      and the like. The screen reader searched for `$` anywhere in the text, found one in the noise,
-      and called the ROM `FAILED #2`. Reading a result code now requires it to be alone on its line,
-      which is how the ROMs that really use that form print it: `blargg_ppu_tests_2005.09.15b`'s
-      whole screen is `$01`.
+- [x] MMC1_A12/mmc1_a12 — **the emulation is right.** Its picture is structurally identical to
+      tetanes', so nothing here is wrong with it; what fails is our ability to *read* its screen. It
+      draws with its own character set rather than ASCII, so the nametable decodes to noise —
+      "42$ 4;# +;1 3." and the like — and the screen reader used to search that noise for a `$`,
+      find one, and report `FAILED #2`. Reading a result code now requires it alone on its line.
 
-      Worth recording as its own lesson. `screen.rs` already said "a wrong verdict read off the
-      screen is worse than no verdict at all", and had the rule pointed only at false *passes*. A
-      false failure is the same fault facing the other way: it sends someone after a bug that is not
-      there, and it looks exactly like a real failure in a summary line. Reading this ROM at all
-      needs its character set decoded, which nothing here does yet.
-
+      Worth keeping as its own lesson: `screen.rs` already said "a wrong verdict read off the screen
+      is worse than no verdict at all", and had the rule aimed only at false *passes*. A false
+      failure is the same fault facing the other way — it sends someone after a bug that is not
+      there, and looks exactly like a real failure in a summary line. This one was chased today.
 - [x] blargg_apu_2005.07.30 — 11/11, from 9/11. `10.len_halt_timing` and `11.len_reload_timing`
       are one sentence each from the suite's own readme, and both turn on a coincidence a single
       CPU cycle wide:

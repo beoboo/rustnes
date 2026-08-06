@@ -139,6 +139,15 @@ enum Command {
         file: Option<PathBuf>,
     },
 
+    /// Compare a captured frame against a reference one, ignoring palette differences
+    Compare {
+        /// The frame this emulator drew, from `rom_test frame --out`
+        ours: PathBuf,
+
+        /// The reference frame, from `nesref --frame`
+        reference: PathBuf,
+    },
+
     /// Run every .nes file under a directory and summarise
     Suite {
         /// Directory to search, recursively
@@ -175,6 +184,25 @@ fn main() -> Result<()> {
                 // A non-zero exit, so this can gate a change rather than only inform about one.
                 anyhow::bail!("a rendered frame no longer matches its committed baseline")
             }
+        },
+        Command::Compare { ours, reference } => {
+            if missing(&ours, "the captured frame") || missing(&reference, "the reference frame") {
+                return Ok(());
+            }
+            let ours_pixels = frame::read_ppm(&ours)?;
+            let reference_pixels = frame::read_ppm(&reference)?;
+            let differing = frame::structural_diff(&ours_pixels, &reference_pixels);
+
+            if differing.is_empty() {
+                println!("IDENTICAL in structure — the same regions took the same palette entries");
+                return Ok(());
+            }
+
+            let rows: std::collections::BTreeSet<usize> =
+                differing.iter().map(|pixel| pixel / 256).collect();
+            println!("{} of {} pixels differ, across {} row(s)", differing.len(), ours_pixels.len() / 3, rows.len());
+            println!("  rows: {:?}", rows.iter().take(20).collect::<Vec<_>>());
+            anyhow::bail!("the frame does not match its reference")
         },
         Command::Suite { directory, budget } => run_suite(&directory, budget),
     }

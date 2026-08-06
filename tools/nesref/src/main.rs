@@ -4,7 +4,8 @@
 //! passes the ROMs we still fail — rather than to be part of the emulator. A ROM we both fail is
 //! obscure; one that tetanes passes is a bug of ours with a readable reference beside it.
 
-use tetanes_core::control_deck::ControlDeck;
+use tetanes_core::control_deck::{Config, ControlDeck};
+use tetanes_core::video::VideoFilter;
 
 /// The NES picture, which is not negotiable.
 const WIDTH: usize = 256;
@@ -32,7 +33,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let mut deck = ControlDeck::new();
+    // Pixellate, not tetanes' default. Its default is an NTSC composite simulation — what a CRT
+    // would have shown — which blends neighbouring pixels and shifts every colour. Comparing a
+    // filtered picture against this emulator's unfiltered one says every pixel differs and means
+    // nothing by it. That mistake was made and published before it was caught: a flat grey backdrop
+    // came out 83,83,83 against our 117,117,117 and was written up as differing power-on palette
+    // RAM, when it was the filter.
+    let mut config = Config::default();
+    config.filter = VideoFilter::Pixellate;
+    let mut deck = ControlDeck::with_config(config);
     deck.load_rom_path(&rom)?;
 
     if let Some(instructions) = trace {

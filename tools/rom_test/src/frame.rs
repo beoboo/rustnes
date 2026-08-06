@@ -213,3 +213,80 @@ mod tests {
         assert_eq!(written.len(), 15 + WIDTH * HEIGHT * 3);
     }
 }
+
+/// Compare two captured frames, ignoring which RGB each emulator gives a palette entry.
+///
+/// Two emulators ship different NES palette tables. This one renders black as `0,0,0` and tetanes
+/// as `3,3,3`, so a byte-for-byte comparison of the same picture reports all 61,440 pixels as
+/// differing and means nothing by it. That mistake was made and published before it was caught: a
+/// pair of flat backdrops differing only in shade was written up as differing power-on palette RAM.
+///
+/// What matters is whether the same regions got the same palette *entry*, which a consistent
+/// one-to-one mapping between the two pictures' colour sets captures exactly. A pixel is counted as
+/// differing when it breaks a mapping an earlier pixel established — in either direction, so that
+/// two of our colours cannot both map onto one of theirs.
+pub fn structural_diff(ours: &[u8], reference: &[u8]) -> Vec<usize> {
+    use std::collections::HashMap;
+
+    let mut forward: HashMap<[u8; 3], [u8; 3]> = HashMap::new();
+    let mut backward: HashMap<[u8; 3], [u8; 3]> = HashMap::new();
+    let mut differing = Vec::new();
+
+    for (pixel, (a, b)) in ours.chunks_exact(3).zip(reference.chunks_exact(3)).enumerate() {
+        let (a, b) = ([a[0], a[1], a[2]], [b[0], b[1], b[2]]);
+        let consistent =
+            *forward.entry(b).or_insert(a) == a && *backward.entry(a).or_insert(b) == b;
+        if !consistent {
+            differing.push(pixel);
+        }
+    }
+
+    differing
+}
+
+/// Read a PPM written by [`write_ppm`] or by `nesref --frame`, returning its pixels.
+pub fn read_ppm(path: &Path) -> Result<Vec<u8>> {
+    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+
+    // Three header lines — magic, dimensions, maximum value — then the pixels.
+    let mut start = 0;
+    for _ in 0..3 {
+        start += bytes[start..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .context("truncated PPM header")?
+            + 1;
+    }
+
+    Ok(bytes[start..].to_vec())
+}
+
+#[cfg(test)]
+mod palette_independent_diff {
+    use super::*;
+
+    /// The same picture in two palettes is the same picture.
+    #[test]
+    fn a_different_palette_for_the_same_regions_is_not_a_difference() {
+        let ours = [0, 0, 0, 255, 255, 255, 0, 0, 0];
+        let theirs = [3, 3, 3, 250, 250, 250, 3, 3, 3];
+        assert!(structural_diff(&ours, &theirs).is_empty());
+    }
+
+    /// But a region that changed colour is, even if both palettes are otherwise consistent.
+    #[test]
+    fn a_region_that_took_a_different_entry_is_a_difference() {
+        let ours = [0, 0, 0, 255, 255, 255, 0, 0, 0];
+        let theirs = [3, 3, 3, 250, 250, 250, 250, 250, 250];
+        assert_eq!(structural_diff(&ours, &theirs), vec![2]);
+    }
+
+    /// And two of ours mapping onto one of theirs is a difference, not a match. Without checking
+    /// both directions, a picture that lost a colour entirely would compare as identical.
+    #[test]
+    fn two_colours_collapsing_into_one_is_a_difference() {
+        let ours = [0, 0, 0, 128, 128, 128];
+        let theirs = [3, 3, 3, 3, 3, 3];
+        assert_eq!(structural_diff(&ours, &theirs), vec![1]);
+    }
+}
