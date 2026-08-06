@@ -1,0 +1,80 @@
+diff --git a/tetanes-core/src/cpu.rs b/tetanes-core/src/cpu.rs
+index d37fc75..6ba3946 100644
+--- a/tetanes-core/src/cpu.rs
++++ b/tetanes-core/src/cpu.rs
+@@ -33,6 +33,13 @@ use tracing::trace;
+ 
+ pub mod instr;
+ 
++/// RN probe: whether `RN_DMC_TRACE` asks for the DMC cycle ledger, in the same format rustnes4
++/// emits, so the two can be diffed. Temporary instrumentation; not part of tetanes.
++fn rn_dmc_trace() -> bool {
++    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
++    *ON.get_or_init(|| std::env::var_os("RN_DMC_TRACE").is_some())
++}
++
+ bitflags! {
+     /// Interrupt and DMA state, kept as one byte because it is tested on every cycle.
+     ///
+@@ -523,6 +530,10 @@ impl Bus {
+         let dma_pending_apu = self.apu.dma_pending();
+ 
+         if dma_pending_apu {
++            // RN probe: DMC cycle ledger.
++            if rn_dmc_trace() {
++                eprintln!("DMC REQ cyc={}", self.cpu.cycle);
++            }
+             self.apu.clear_dma_pending();
+             self.cpu
+                 .irq_flags
+@@ -605,6 +616,11 @@ impl Bus {
+     #[inline(never)]
+     fn handle_dma(&mut self, addr: u16) {
+         trace!("Starting DMA - CYC:{}", self.cpu.cycle);
++        // RN probe: DMC cycle ledger. Logged only for DMC halts (not pure OAM DMA) to match
++        // rustnes4's ledger, which has no OAM entries.
++        if self.cpu.irq_flags(IrqFlags::DMA_DMC) && rn_dmc_trace() {
++            eprintln!("DMC HALT addr={addr:04X} cyc={}", self.cpu.cycle);
++        }
+ 
+         self.start_cycle(self.cpu.start_cycles - 1);
+         self.cpu_bus_read(addr);
+@@ -637,6 +653,10 @@ impl Bus {
+                         "Loaded DMC DMA byte. ${dma_addr:04X}: {read_val} - CYC:{}",
+                         self.cpu.cycle
+                     );
++                    // RN probe: DMC cycle ledger.
++                    if rn_dmc_trace() {
++                        eprintln!("DMC FETCH addr={dma_addr:04X} cyc={}", self.cpu.cycle);
++                    }
+                     self.end_cycle(self.cpu.start_cycles + 1);
+                     self.apu.dmc.load_buffer(read_val);
+                     self.cpu.clear_irq_flags(IrqFlags::DMA_DMC);
+@@ -668,6 +688,10 @@ impl Bus {
+                 oam_dma_count += 1;
+                 if oam_dma_count == 0x200 {
+                     self.cpu.dma_oam_addr.take();
++                    // RN probe: DMC cycle ledger.
++                    if rn_dmc_trace() {
++                        eprintln!("DMC OAMEND cyc={}", self.cpu.cycle);
++                    }
+                 }
+             } else {
+                 // Align to read cycle before starting OAM DMA (or align to perform DMC read)
+@@ -754,8 +778,16 @@ impl Bus {
+     /// Write a byte, spending a full CPU cycle - which clocks the PPU, the APU and the board.
+     #[inline(always)]
+     pub fn write(&mut self, addr: u16, val: u8) {
++        // RN probe: DMC cycle ledger, same format as rustnes4's RN_DMC_TRACE.
++        if addr == 0x4015 && rn_dmc_trace() {
++            eprintln!("DMC W4015={val:02X} cyc={}", self.cpu.cycle);
++        }
+         self.start_cycle(self.cpu.start_cycles + 1);
+         if addr == 0x4014 {
++            // RN probe: DMC cycle ledger.
++            if rn_dmc_trace() {
++                eprintln!("DMC OAMSTART cyc={}", self.cpu.cycle);
++            }
+             self.cpu.start_oam_dma(u16::from(val) << 8);
+         } else {
+             self.cpu_bus_write(addr, val);

@@ -30,6 +30,23 @@ Blargg's later ROMs write a status byte to `$6000`, a signature at `$6001`, and 
 the same verdict our own runner would. ROMs that predate that protocol report `NO PROTOCOL`; for
 those, `rom_test screen` reads the screen instead and there is nothing here to compare against yet.
 
+## The DMC cycle ledger
+
+`tetanes-dmc-probe.patch` adds four `eprintln!`s to tetanes' `cpu.rs` that stamp every `$4015`
+write, DMC fetch request, halt, fetch and OAM-DMA start/end with a CPU-cycle count, in the same
+format `RN_DMC_TRACE=1` makes this emulator print. Diffing the two ledgers at the same ROM is how
+`dma_4016_read` and both `sprdma_and_dmc_dma` ROMs were fixed: each time, the two agreed on
+everything that had been suspected for weeks and differed on exactly one number.
+
+```sh
+cd ../../tetanes && git apply ../rustnes4/tools/nesref/tetanes-dmc-probe.patch
+RN_DMC_TRACE=1 cargo run --manifest-path tools/nesref/Cargo.toml -- <rom.nes> 600 2> tet.log
+RN_DMC_TRACE=1 ./target/release/rom_test run <rom.nes> 2> ours.log
+```
+
+Kept as a patch rather than left uncommitted in the tetanes checkout, where a `git pull` would
+silently discard it — and rebuilding it from memory cost most of a sitting the first time.
+
 ## What it found the first time it was run
 
 Five ROMs this emulator fails and tetanes passes — so five bugs of ours, not five obscurities:
