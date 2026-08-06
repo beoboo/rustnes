@@ -1005,6 +1005,20 @@ file rather than on anything specific to the suite.
       `sync_dmc`'s 3,425-cycle fine-sync loop each time. Locking the DMC's timer to the APU divider
       does not change those numbers at all, which is what rules the divider out.
 
+      **Where this leaves it, and why it is being stopped rather than continued.** Seven changes
+      have been tried and reverted. The doubled read has to move one position *earlier*, so the
+      DMC's request has to be raised one CPU cycle sooner — and there is no cycle to find inside the
+      DMC. Its period is 428 and the request is already raised the instant the buffer empties; the
+      APU is clocked before the bus access it shares a cycle with, so a request raised on cycle T is
+      already visible to the read on cycle T, which is the earliest it can be seen at all.
+
+      That points the remaining cycle at the APU's alignment against the CPU, not at anything in the
+      DMC or the DMA. And that alignment is what `apu_test` 9/9, `apu_reset` 6/6 and
+      `blargg_apu_2005.07.30` 11/11 currently pin — `4-jitter` measures it directly, by writing
+      `$4017` on alternating cycles. So one digit of one ROM is in tension with three suites that
+      pass, and moving it blind would trade twenty-six passing tests for one. Worth returning to
+      with a cycle-level APU trace from tetanes to compare against; not worth another guess.
+
       The mechanism itself is pinned by `cpu::dma_halt` rather than by these ROMs, which report five
       numbers and can say the halt landed on the wrong run but not whether it doubles the read at
       all.
