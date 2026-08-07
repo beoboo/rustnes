@@ -863,9 +863,23 @@ Measured for the first time, and three of them were already passing:
       reference's 426 and now draws 420; its differing pixels fell from 53,432 to 9,079.
       `litewall3` now reports **SAME LAYOUT** outright, and `litewall5` is down to a single pixel.
 
-      **What is left is not the palette.** `full_palette` still disagrees on 0.54% of horizontal
-      edge positions and 0.69% of vertical, which is a real difference in *where regions begin*
-      rather than in what colour they are, and it wants its own sitting.
+      **What is left is not the palette, and it is now localised.** `full_palette` disagrees on
+      0.54% of horizontal edge positions and 0.69% of vertical, and those are not spread over the
+      picture: they sit in **six columns**, x=1,2,3 at the left edge and 252-254 at the right.
+      Pixel by pixel, the reference holds one *more* black pixel at the start of each line than we
+      do — so our palette-hack colour changes a dot earlier than its. `litewall5`'s single wrong
+      pixel is the same effect at the other end of the line, at x=255.
+
+      **A one-dot lag was tried on 2026-08-07 and is not the answer**, though it is close enough
+      to be worth the numbers. Holding `v` a dot before showing it — kept exactly as
+      `rendering_enabled` is — makes `litewall5` **IDENTICAL** and leaves `litewall3` edge-perfect,
+      and takes `full_palette` from 0.54% to **7.87%** horizontal edge disagreement. It helps two
+      ROMs and badly hurts the third, so it is not a blanket rule and was reverted.
+
+      What that narrows it to: the lag is real for some source of a `v` change and not for
+      another. `full_palette` steps `v` with `$2007` writes while the litewall demos set it with
+      `$2006`, which is the obvious next thing to separate — and the next attempt should measure
+      those two paths rather than delay everything at once, which is what this one did.
 
       Two things had to be re-recorded rather than argued with, and both were checked first: the
       three frame baselines are hashes of our own rendering, so every colour changing moved all
