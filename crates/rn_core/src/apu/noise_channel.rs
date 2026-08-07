@@ -3,6 +3,10 @@ use super::{envelope::Envelope, length_counter::LengthCounter};
 /// Represents the noise channel in the APU
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NoiseChannel {
+    /// Which console's period table to use. See [`Region`](crate::region::Region).
+    #[serde(default)]
+    region: crate::region::Region,
+
     // Registers
     control: u8,
     timer_lo: u8,
@@ -29,10 +33,16 @@ const TIMER_PERIOD: [u16; 16] = [
     4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
 ];
 
+/// The same sixteen periods on PAL, which are their own table rather than the NTSC ones rescaled.
+const TIMER_PERIOD_PAL: [u16; 16] = [
+    4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778,
+];
+
 impl NoiseChannel {
     /// Create a new noise channel
     pub fn new() -> Self {
         Self {
+            region: crate::region::Region::default(),
             // Initialize all registers to 0
             control: 0,
             timer_lo: 0,
@@ -56,6 +66,18 @@ impl NoiseChannel {
     }
 
     /// Reset the noise channel to initial state
+    /// The timer period currently selected.
+    #[cfg(test)]
+    pub fn period(&self) -> u16 {
+        self.timer
+    }
+
+    /// Point this channel at a console. The period is re-derived on the next `$400E` write, which
+    /// is when a game next chooses one.
+    pub fn set_region(&mut self, region: crate::region::Region) {
+        self.region = region;
+    }
+
     pub fn reset(&mut self) {
         // Reset all registers to 0
         self.control = 0;
@@ -128,7 +150,10 @@ impl NoiseChannel {
     pub fn update_timer(&mut self) {
         // Timer period is looked up from a table based on the low 4 bits of timer_lo
         let period_index = self.timer_lo & 0x0F;
-        self.timer = TIMER_PERIOD[period_index as usize];
+        self.timer = match self.region {
+            crate::region::Region::Ntsc => TIMER_PERIOD[period_index as usize],
+            crate::region::Region::Pal => TIMER_PERIOD_PAL[period_index as usize],
+        };
     }
 
     /// Update noise channel properties from control register

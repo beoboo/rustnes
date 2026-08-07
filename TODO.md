@@ -2410,9 +2410,18 @@ falls — including which pattern table is being read, which is what drives MMC3
             exactly the 2-and-1 it always was. 528 tests, nestest 8991, baselines MATCH and every
             timing suite unmoved.
 
-            **Not yet done: the PAL APU.** Its frame counter runs on different periods and its DMC
-            and noise tables differ, so PAL audio is still NTSC audio. Self-contained, and the
-            next piece.
+            **The PAL APU followed on 2026-08-07, so the region is now whole.** Three tables move
+            with it, and none is a rescaling of the others — on hardware each is its own list, and
+            they are carried that way here: the frame sequencer's steps (8313/16627/24939/33253,
+            wrapping at 33254 against NTSC's 29830), the DMC's sixteen rates (398 down to 50
+            against 428 down to 54) and the noise channel's sixteen periods. Taken from the
+            reference emulator rather than from memory.
+
+            Pinned by three tests that drive the APU through `write_byte` and `tick` rather than
+            reading the constants back — a table that exists but is never *selected* is the
+            failure this guards against, and reading the constant would not catch it. NTSC is
+            unmoved: apu_test 9/9, apu_reset 6/6, blargg_apu 11/11, apu_mixer 4/4, sprdma 2/2,
+            dmc_dma_during_read4 unchanged, 531 tests, baselines MATCH.
 
       Also waiting on the same switch: a transparent pixel should show the backdrop as it stands at
       that dot rather than the colour the frame was cleared to. `emit_pixel` does it; the per-line

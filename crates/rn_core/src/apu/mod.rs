@@ -117,6 +117,11 @@ impl ApuWrapper {
         self.apu.borrow().wants_dmc_fetch()
     }
 
+    /// Point the APU at a console. See [`Apu::set_region`].
+    pub fn set_region(&self, region: crate::region::Region) {
+        self.apu.borrow_mut().set_region(region);
+    }
+
     /// CPU cycles since power-on, as the APU counts them. For the `RN_DMC_TRACE` ledger.
     pub fn cycle_counter(&self) -> u64 {
         self.apu.borrow().cycle_counter()
@@ -310,6 +315,29 @@ impl Apu {
     /// The address the DMC wants a sample byte from, if it is waiting on one.
     pub fn take_dmc_fetch(&mut self) -> Option<u16> {
         self.dmc.take_pending_fetch()
+    }
+
+    /// Point the APU at a console: NTSC or PAL.
+    ///
+    /// Three things move together and none of them is a rescaling of the others — the frame
+    /// sequencer's step table, the DMC's rate table and the noise channel's period table are each
+    /// their own list on hardware, and this carries them the same way.
+    pub fn set_region(&mut self, region: crate::region::Region) {
+        self.frame_counter.set_region(region);
+        self.dmc.set_region(region);
+        self.noise.set_region(region);
+    }
+
+    /// The DMC's current timer period, in CPU cycles. For tests that check which table is in use.
+    #[cfg(test)]
+    pub fn dmc_period(&self) -> u16 {
+        self.dmc.period()
+    }
+
+    /// The noise channel's current timer period. Same purpose.
+    #[cfg(test)]
+    pub fn noise_period(&self) -> u16 {
+        self.noise.period()
     }
 
     /// CPU cycles since power-on, as this APU counts them. For the `RN_DMC_TRACE` ledger.

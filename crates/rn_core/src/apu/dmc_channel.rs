@@ -64,6 +64,10 @@ pub struct DmcChannel {
     /// whole one-cycle error was this start-up stall.
     #[serde(default)]
     start_delay: u8,
+
+    /// Which console's rate table to use. See [`Region`](crate::region::Region).
+    #[serde(default)]
+    region: crate::region::Region,
 }
 
 impl DmcChannel {
@@ -106,7 +110,20 @@ impl DmcChannel {
             irq_pending: false,
             pending_fetch: None,
             start_delay: 0,
+            region: crate::region::Region::default(),
         }
+    }
+
+    /// Point this channel at a console, and re-derive its period from the new table.
+    pub fn set_region(&mut self, region: crate::region::Region) {
+        self.region = region;
+        self.update_timer();
+    }
+
+    /// The timer period currently selected, in CPU cycles.
+    #[cfg(test)]
+    pub fn period(&self) -> u16 {
+        self.timer
     }
 
     /// Reset the DMC channel to initial state
@@ -304,28 +321,19 @@ impl DmcChannel {
 
     /// Update the DMC channel timer from control register
     fn update_timer(&mut self) {
-        // Timer value is based on the frequency bits (bits 0-3)
-        let freq_bits = self.control & 0x0F;
-        let timer_value = match freq_bits {
-            0 => 428, // NTSC
-            1 => 380,
-            2 => 340,
-            3 => 320,
-            4 => 286,
-            5 => 254,
-            6 => 226,
-            7 => 214,
-            8 => 190,
-            9 => 160,
-            10 => 142,
-            11 => 128,
-            12 => 106,
-            13 => 84,
-            14 => 72,
-            15 => 54,
-            _ => 428, // Default to NTSC
+        // Rates are quoted in CPU cycles, and a PAL CPU runs slower, so the table is a different
+        // one rather than the NTSC figures scaled — which is how hardware carries it. Taken from
+        // the reference emulator rather than from memory.
+        const NTSC: [u16; 16] =
+            [428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54];
+        const PAL: [u16; 16] =
+            [398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50];
+
+        let table = match self.region {
+            crate::region::Region::Ntsc => &NTSC,
+            crate::region::Region::Pal => &PAL,
         };
-        self.timer = timer_value;
+        self.timer = table[(self.control & 0x0F) as usize];
     }
 
     /// The channel's current DAC level, 0..=127 (the DMC has a 7-bit DAC).

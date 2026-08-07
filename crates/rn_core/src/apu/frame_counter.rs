@@ -77,6 +77,37 @@ const FIVE_STEP: [(u64, FrameClock); 4] = [
 /// Where the 5-step sequence wraps.
 const FIVE_STEP_LENGTH: u64 = 37282;
 
+// The same four sequences for PAL. A PAL CPU is slower and its frame is longer, so the sequencer
+// counts further before each clock — the steps are not the NTSC ones rescaled at run time but a
+// table of their own, which is how hardware carries them and how the reference emulator does.
+// Taken from tetanes rather than from memory: [8313, 16627, 24939, 33252/33253/33254] and
+// [8313, 16627, 24939, 33253, 41565, 41566].
+
+/// 4-step sequence on PAL.
+const FOUR_STEP_PAL: [(u64, FrameClock); 4] = [
+    (8313, FrameClock::QUARTER),
+    (16627, FrameClock::BOTH),
+    (24939, FrameClock::QUARTER),
+    (33253, FrameClock::BOTH),
+];
+
+/// Where PAL's 4-step sequence wraps.
+const FOUR_STEP_LENGTH_PAL: u64 = 33254;
+
+/// PAL's three-cycle IRQ window, positioned against its own last clock exactly as NTSC's is.
+const FOUR_STEP_IRQ_PAL: std::ops::RangeInclusive<u64> = 33252..=33254;
+
+/// 5-step sequence on PAL.
+const FIVE_STEP_PAL: [(u64, FrameClock); 4] = [
+    (8313, FrameClock::QUARTER),
+    (16627, FrameClock::BOTH),
+    (24939, FrameClock::QUARTER),
+    (41565, FrameClock::BOTH),
+];
+
+/// Where PAL's 5-step sequence wraps.
+const FIVE_STEP_LENGTH_PAL: u64 = 41566;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Mode {
     FourStep,
@@ -85,6 +116,10 @@ pub enum Mode {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FrameCounter {
+    /// Which console's step table to count against. A PAL sequencer counts further before each
+    /// clock, because its CPU is slower and its frame longer.
+    #[serde(default)]
+    region: crate::region::Region,
     mode: Mode,
     /// CPU cycles since the sequence last restarted.
     cycle: u64,
@@ -124,8 +159,33 @@ impl Default for FrameCounter {
 }
 
 impl FrameCounter {
+    /// Point this counter at a console. Resets nothing: the sequence keeps running, which is what
+    /// hardware does — the region is a property of the board, not something a game switches.
+    pub fn set_region(&mut self, region: crate::region::Region) {
+        self.region = region;
+    }
+
+    /// The step table and wrap point for the current mode and console.
+    fn sequence(&self) -> (&'static [(u64, FrameClock)], u64) {
+        match (self.mode, self.region) {
+            (Mode::FourStep, crate::region::Region::Ntsc) => (&FOUR_STEP, FOUR_STEP_LENGTH),
+            (Mode::FiveStep, crate::region::Region::Ntsc) => (&FIVE_STEP, FIVE_STEP_LENGTH),
+            (Mode::FourStep, crate::region::Region::Pal) => (&FOUR_STEP_PAL, FOUR_STEP_LENGTH_PAL),
+            (Mode::FiveStep, crate::region::Region::Pal) => (&FIVE_STEP_PAL, FIVE_STEP_LENGTH_PAL),
+        }
+    }
+
+    /// The three cycles the 4-step sequence holds its IRQ up for, on this console.
+    fn four_step_irq_window(&self) -> std::ops::RangeInclusive<u64> {
+        match self.region {
+            crate::region::Region::Ntsc => FOUR_STEP_IRQ,
+            crate::region::Region::Pal => FOUR_STEP_IRQ_PAL,
+        }
+    }
+
     pub fn new() -> Self {
         Self {
+            region: crate::region::Region::default(),
             mode: Mode::FourStep,
             cycle: 0,
             irq_inhibit: false,
@@ -202,10 +262,7 @@ impl FrameCounter {
     /// landing on the length clock" is, from here, a write landing on the cycle before it. The
     /// question has to be asked ahead rather than behind — see `LengthCounter::set_halt`.
     pub fn clocks_length_next(&self) -> bool {
-        let (sequence, length): (&[(u64, FrameClock)], u64) = match self.mode {
-            Mode::FourStep => (&FOUR_STEP, FOUR_STEP_LENGTH),
-            Mode::FiveStep => (&FIVE_STEP, FIVE_STEP_LENGTH),
-        };
+        let (sequence, length) = self.sequence();
 
         // A pending `$4017` reset restarts the sequence, so what comes next is not simply the next
         // cycle of it. Nothing is imminent in that case; the reset lands first.
@@ -235,10 +292,7 @@ impl FrameCounter {
         self.cycle += 1;
         self.apu_cycle = !self.apu_cycle;
 
-        let (sequence, length): (&[(u64, FrameClock)], u64) = match self.mode {
-            Mode::FourStep => (&FOUR_STEP, FOUR_STEP_LENGTH),
-            Mode::FiveStep => (&FIVE_STEP, FIVE_STEP_LENGTH),
-        };
+        let (sequence, length) = self.sequence();
 
         let clock = sequence
             .iter()
@@ -250,7 +304,7 @@ impl FrameCounter {
         // raises one at all.
         if matches!(self.mode, Mode::FourStep)
             && !self.irq_inhibit
-            && FOUR_STEP_IRQ.contains(&self.cycle)
+            && self.four_step_irq_window().contains(&self.cycle)
         {
             self.irq_pending = true;
         }

@@ -145,3 +145,77 @@ mod tests {
         assert_eq!(Region::default(), Region::Ntsc);
     }
 }
+
+/// The APU's region-dependent tables, checked where they are used rather than only where they are
+/// declared — a table that exists but is never selected is the failure mode worth testing for.
+#[cfg(test)]
+mod apu_tables {
+    use crate::apu::Apu;
+    use crate::memory::Addressable;
+    use crate::region::Region;
+
+    /// Writing `$4010` picks a DMC rate from the table for the console the APU is set to. Rate 0
+    /// is 428 CPU cycles on NTSC and 398 on PAL — a PAL CPU is slower, so the same audible pitch
+    /// needs fewer of its cycles, and the table is its own list rather than the NTSC one scaled.
+    #[test]
+    fn the_dmc_rate_table_follows_the_region() {
+        let period = |region: Region, rate: u8| {
+            let mut apu = Apu::new();
+            apu.set_region(region);
+            apu.write_byte(0x4010, rate).unwrap();
+            apu.dmc_period()
+        };
+
+        assert_eq!(period(Region::Ntsc, 0x00), 428);
+        assert_eq!(period(Region::Pal, 0x00), 398);
+        assert_eq!(period(Region::Ntsc, 0x0F), 54);
+        assert_eq!(period(Region::Pal, 0x0F), 50);
+    }
+
+    /// And the noise channel's, which is a different list again.
+    #[test]
+    fn the_noise_period_table_follows_the_region() {
+        let period = |region: Region, index: u8| {
+            let mut apu = Apu::new();
+            apu.set_region(region);
+            apu.write_byte(0x400E, index).unwrap();
+            apu.noise_period()
+        };
+
+        assert_eq!(period(Region::Ntsc, 0x0F), 4068);
+        assert_eq!(period(Region::Pal, 0x0F), 3778);
+        assert_eq!(period(Region::Ntsc, 0x02), 16);
+        assert_eq!(period(Region::Pal, 0x02), 14);
+    }
+
+    /// The frame sequencer's IRQ arrives later on PAL, because its sequence is longer: 33254 CPU
+    /// cycles against 29830. Driven through `tick` rather than read off a constant, so this fails
+    /// if the table exists but nothing selects it.
+    #[test]
+    fn the_frame_sequencer_is_longer_on_pal() {
+        let cycles_to_irq = |region: Region| {
+            let mut apu = Apu::new();
+            apu.set_region(region);
+            // 4-step mode with the IRQ allowed.
+            apu.write_byte(0x4017, 0x00).unwrap();
+            for cycle in 1..60_000u64 {
+                apu.tick();
+                if apu.irq_pending() {
+                    return cycle;
+                }
+            }
+            0
+        };
+
+        let (ntsc, pal) = (cycles_to_irq(Region::Ntsc), cycles_to_irq(Region::Pal));
+        assert!(ntsc > 0 && pal > 0, "the frame IRQ never arrived: NTSC {ntsc}, PAL {pal}");
+        assert!(
+            pal > ntsc,
+            "PAL's sequence is ~11% longer, so its frame IRQ must come later: NTSC {ntsc}, PAL {pal}"
+        );
+        assert!(
+            (pal as f64 / ntsc as f64 - 33254.0 / 29830.0).abs() < 0.01,
+            "the two should differ by the ratio of their sequence lengths: NTSC {ntsc}, PAL {pal}"
+        );
+    }
+}

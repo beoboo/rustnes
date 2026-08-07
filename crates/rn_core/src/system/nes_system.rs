@@ -549,6 +549,7 @@ impl NesSystem {
     /// rather than 3 — so this is the only way to set it.
     pub fn set_region(&mut self, region: crate::region::Region) {
         self.ppu.set_region(region);
+        self.apu.set_region(region);
         *self.clock_dots.borrow_mut() = crate::region::DotClock::new(region);
     }
 
