@@ -3,13 +3,19 @@
 A Nintendo Entertainment System emulator written in Rust, built test-first, with every subsystem
 inspectable live through a debugger UI while it runs.
 
-A book teaching how to build one is the eventual goal — in the spirit of *Crafting Interpreters* and
-*The Ray Tracer Challenge* — but it is deferred and will be written later from the finished code.
+**A book teaching how to build one is the point of the project**, in the spirit of *Crafting
+Interpreters*. The emulator is the vehicle. It is no longer deferred and is no longer going to be
+reverse-engineered out of the finished code — see [BOOK_PLAN.md](BOOK_PLAN.md) for why that failed
+and what replaces it.
 
+- **[BOOK_PLAN.md](BOOK_PLAN.md)** — the book: thesis, structure, production pipeline, sequencing
+- **[book/field-notes/](book/field-notes/)** — one real debugging story each, the book's best material
+- **[TODO.md](TODO.md)** — the live task list, and only that
+- **[docs/research-log.md](docs/research-log.md)** — how every accuracy bug was found and fixed
+- **[IDEAS.md](IDEAS.md)** — someday-maybe, explicitly not planned
 - **[PLAN.md](PLAN.md)** — project vision, learning tracks, phases, milestones, success criteria
-- **[TODO.md](TODO.md)** — the detailed task checklist, organised by track and milestone
 - **[AUDIO_PLAN.md](AUDIO_PLAN.md)** — diagnosis and repair of the audio pipeline (done)
-- **[CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)** — validating against the NES test ROMs (next)
+- **[CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)** — validating against the NES test ROMs (done)
 
 ## Status
 
