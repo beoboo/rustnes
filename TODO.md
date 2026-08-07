@@ -2392,10 +2392,27 @@ falls — including which pattern table is being read, which is what drives MMC3
             into the level and asserts the band still — pointed at the EU ROM it fails at row
             194, which is the proof it can see the wobble.
 
-            What would make the EU ROM right is PAL support — the 3.2 ratio, 312 scanlines, the
-            PAL APU — which is a feature with its own entry to write, not a split bug. The
-            per-dot switch question is likewise no longer blocked on this: the split was never
-            wrong on the region this emulator implements.
+            **PAL is in as of 2026-08-07, and the EU cartridge no longer wobbles.** Run with
+            `--pal`, rows 186-200 are identical across six consecutive frames where NTSC timing
+            moved them sixteen pixels. The mechanism is right there in the write dots:
+            `$2001 = $00` lands at dot 284 rather than 235 — hblank rather than the visible line —
+            so the CPU's interrupt jitter is still there, still 0-3 cycles, and paints nothing.
+            The diagnosis is confirmed by construction rather than by argument.
+
+            Implemented: `region::Region`, and a `DotClock` carrying 3.2 as sixteen dots per five
+            cycles rather than rounding — the fifth cycle really does get a fourth dot and a game
+            counting cycles can see it. The PPU's frame length (312 lines) and the odd-frame dot
+            skip, which is NTSC-only. The region read from the iNES header, with an override for
+            the cartridges that lie about it: this one claims NTSC in byte 9.
+
+            **NTSC is unchanged by construction, not by luck.** The per-access clock became "all
+            but one of the cycle's dots before the access, one after", which for three dots is
+            exactly the 2-and-1 it always was. 528 tests, nestest 8991, baselines MATCH and every
+            timing suite unmoved.
+
+            **Not yet done: the PAL APU.** Its frame counter runs on different periods and its DMC
+            and noise tables differ, so PAL audio is still NTSC audio. Self-contained, and the
+            next piece.
 
       Also waiting on the same switch: a transparent pixel should show the backdrop as it stands at
       that dot rather than the colour the frame was cleared to. `emit_pixel` does it; the per-line
