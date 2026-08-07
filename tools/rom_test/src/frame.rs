@@ -87,18 +87,35 @@ pub fn into_a_level(system: &mut NesSystem) {
     run(system, 180);
 }
 
-pub fn capture(
-    rom_path: &Path,
-    frames: usize,
-    state: Option<&Path>,
-    per_dot: bool,
-    into_level: bool,
-) -> Result<Capture> {
+/// What a capture should do beyond "run the ROM": which scene to reach, how to draw it, and which
+/// console to be. Grouped rather than passed as six positional flags, all of which are `bool`.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Options<'a> {
+    pub frames: usize,
+    /// Resume from a save state before running, to reach a scene inside a game.
+    pub state: Option<&'a Path>,
+    /// Draw from the per-dot path rather than the per-line one.
+    pub per_dot: bool,
+    /// Drive Super Mario Bros 3 into a level first.
+    pub into_level: bool,
+    /// Force PAL, for the cartridges whose header claims NTSC and lies.
+    pub force_pal: bool,
+}
+
+pub fn capture(rom_path: &Path, options: Options<'_>) -> Result<Capture> {
+    let Options { frames, state, per_dot, into_level, force_pal } = options;
     let rom = load_rom(rom_path)
         .map_err(|e| anyhow::anyhow!("{e}"))
         .with_context(|| format!("loading {}", rom_path.display()))?;
 
     let mut system = NesSystem::new();
+
+    // The header first, then the override. Byte 9's TV-system bit is right for most cartridges and
+    // wrong for a good many European ones — `super-mario-3-eu.nes` claims NTSC and is PAL — which
+    // is why reference emulators keep a database of cartridge hashes and why this takes a flag.
+    let region = if force_pal { rn_core::region::Region::Pal } else { rom.header.region };
+    system.set_region(region);
+
     system
         .load_rom(&rom)
         .map_err(|e| anyhow::anyhow!("{e}"))

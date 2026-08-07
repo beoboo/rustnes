@@ -180,6 +180,11 @@ impl PpuWrapper {
     }
 
     /// Get the control register value
+    /// Point this PPU at a console: NTSC or PAL. See [`Region`](crate::region::Region).
+    pub fn set_region(&self, region: crate::region::Region) {
+        self.ppu.borrow_mut().region = region;
+    }
+
     pub fn ctrl(&self) -> u8 {
         let ppu = self.ppu.borrow();
         ppu.ctrl
@@ -407,6 +412,10 @@ pub struct Ppu {
     frame_count: u64,         // Total frames rendered
     /// Set when vblank begins with NMI enabled; cleared when the system collects it.
     nmi_line: Cell<bool>,
+
+    /// Which console this is: NTSC or PAL. Decides the length of a frame and whether a dot is
+    /// skipped on odd frames; how many dots a CPU cycle is worth is the system clock's business.
+    region: crate::region::Region,
 
     /// Whether rendering is on, as the PPU's own timing sees it — one dot behind `mask`.
     ///
@@ -822,6 +831,7 @@ impl Ppu {
             write_toggle: Cell::new(false),
             frame_count: 0,
             nmi_line: Cell::new(false),
+            region: crate::region::Region::default(),
             rendering_enabled: Cell::new(false),
             io_latch: Cell::new(0),
             io_latch_refreshed: Cell::new([0; 8]),
@@ -883,7 +893,8 @@ impl Ppu {
         // advances across a line are undone by the restore at 257 — but leaves `v` holding the
         // wrong value for the whole line, which anything reading it partway down a frame sees.
         let rendering_now = (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0;
-        let on_a_rendered_line = (0..240).contains(&self.scanline) || self.scanline == 261;
+        let on_a_rendered_line =
+            (0..240).contains(&self.scanline) || self.scanline == self.region.pre_render_scanline();
 
         // Pixels are still put when rendering is off — that is *how* the screen goes blank, and
         // the blanking colour is not always the backdrop. What rendering off actually stops is
@@ -922,7 +933,7 @@ impl Ppu {
             }
 
             // The pre-render line reloads the vertical position across a range of dots, not one.
-            if self.scanline == 261 && (280..=304).contains(&self.cycle) {
+            if self.scanline == self.region.pre_render_scanline() && (280..=304).contains(&self.cycle) {
                 self.reload_vertical_scroll();
             }
 
@@ -964,7 +975,7 @@ impl Ppu {
                 // The PPU pulls /NMI low for as long as the flag and the enable bit are both set.
                 // Asserting the level is all it does; detecting the edge is the CPU's job.
                 self.nmi_line.set((self.ctrl & CTRL_NMI_ENABLE) != 0);
-            } else if self.scanline == 261 {
+            } else if self.scanline == self.region.pre_render_scanline() {
                 // The pre-render line clears vblank, along with the two flags that are per-frame
                 // results rather than running state.
                 self.status.set(
@@ -990,7 +1001,11 @@ impl Ppu {
         //
         // **It reads the delayed flag, not `mask`.** A $2001 write does not reach the rendering
         // hardware in the cycle that performs it; see [`rendering_enabled`](Self::rendering_enabled).
-        if self.scanline == 261 && self.cycle == 339 && self.odd_frame && self.rendering_enabled.get()
+        if self.region.skips_a_dot_on_odd_frames()
+            && self.scanline == self.region.pre_render_scanline()
+            && self.cycle == 339
+            && self.odd_frame
+            && self.rendering_enabled.get()
         {
             self.cycle = 340;
         }
@@ -1000,7 +1015,7 @@ impl Ppu {
             self.scanline += 1;
 
             // One frame is 262 scanlines (0-261)
-            if self.scanline > 261 {
+            if self.scanline > self.region.pre_render_scanline() {
                 self.scanline = 0;
                 self.frame_count += 1;
                 self.odd_frame = !self.odd_frame;
@@ -1041,7 +1056,7 @@ impl Ppu {
             }
 
             // Start of next frame
-            if self.scanline > 261 {
+            if self.scanline > self.region.pre_render_scanline() {
                 self.scanline = 0;
                 self.frame_count += 1;
                 log::debug!("New frame start (frame_count={})", self.frame_count);
@@ -2422,7 +2437,8 @@ impl Ppu {
         // sprite evaluation currently has on its bus. During the clear that is $FF for all 64
         // dots, which is the part of this a program can actually time against.
         let rendering = (self.mask & (MASK_SHOW_BACKGROUND | MASK_SHOW_SPRITES)) != 0;
-        let on_a_rendered_line = (0..240).contains(&self.scanline) || self.scanline == 261;
+        let on_a_rendered_line =
+            (0..240).contains(&self.scanline) || self.scanline == self.region.pre_render_scanline();
         if rendering && on_a_rendered_line && (1..=256).contains(&self.cycle) {
             return self.sprite_eval.bus;
         }

@@ -92,6 +92,11 @@ pub struct NesSystem {
     /// The APU component
     apu: ApuWrapper,
 
+    /// Turns a CPU cycle into PPU dots. One accumulator shared with the CPU's clock closure, so
+    /// PAL's sixteen-dots-per-five-cycles is carried across every cycle rather than restarting at
+    /// each one — see [`DotClock`](crate::region::DotClock).
+    clock_dots: Rc<RefCell<crate::region::DotClock>>,
+
     /// The get/put half of the APU's divider, mirrored for the DMA. See `ApuWrapper::is_odd_cycle`.
     odd_cycle: Rc<Cell<bool>>,
 
@@ -351,6 +356,7 @@ impl NesSystem {
         // the length of the *next* one the wrong way round half the time. That is what
         // `cpu_interrupts_v2/4-irq_and_dma` had been failing on, by a single row of its table.
         let odd_cycle = Rc::new(Cell::new(false));
+        let clock_dots = Rc::new(RefCell::new(crate::region::DotClock::new(crate::region::Region::default())));
         let dmc_tail_fetch_shared = Rc::new(Cell::new(false));
         dma.connect_cycle_parity(Rc::clone(&odd_cycle));
 
@@ -370,6 +376,7 @@ impl NesSystem {
             let mapper_slot = Rc::clone(&mapper);
             let lines = interrupts.clone();
             let odd_cycle = Rc::clone(&odd_cycle);
+            let clock_dots = Rc::clone(&clock_dots);
             #[cfg(test)]
             let forced_irq = Rc::clone(&forced_irq);
 
@@ -379,8 +386,11 @@ impl NesSystem {
                 // is the difference between an NMI being noticed by this cycle's poll or the next
                 // one's. Measured on `ppu_vbl_nmi/05-nmi_timing`: with all three dots ahead of the
                 // access, every transition in its table came out one line late.
+                // All but one of the cycle's dots run before the access and one after it. On NTSC
+                // that is the 2-and-1 this has always been; on PAL a cycle is worth three dots or
+                // four, and the extra one goes in front of the access with the others.
                 let dots = match phase {
-                    ClockPhase::BeforeAccess => 2,
+                    ClockPhase::BeforeAccess => clock_dots.borrow_mut().dots_for_this_cycle() - 1,
                     ClockPhase::AfterAccess => 1,
                 };
                 for _ in 0..dots {
@@ -498,6 +508,7 @@ impl NesSystem {
             ppu,
             apu,
             odd_cycle,
+            clock_dots: Rc::clone(&clock_dots),
             dmc_tail_fetch: dmc_tail_fetch_shared,
             dma,
             controller_handler,
@@ -529,6 +540,21 @@ impl NesSystem {
 
     pub fn apu(&self) -> ApuWrapper {
         self.apu.clone()
+    }
+
+    /// Point the whole machine at a console: NTSC or PAL.
+    ///
+    /// Both the PPU's frame shape and the rate the CPU's cycles are converted into dots have to
+    /// move together — a PAL frame is fifty scanlines longer *and* each cycle is worth 3.2 dots
+    /// rather than 3 — so this is the only way to set it.
+    pub fn set_region(&mut self, region: crate::region::Region) {
+        self.ppu.set_region(region);
+        *self.clock_dots.borrow_mut() = crate::region::DotClock::new(region);
+    }
+
+    /// Which console the machine is currently emulating.
+    pub fn region(&self) -> crate::region::Region {
+        self.clock_dots.borrow().region()
     }
 
     pub fn dma(&self) -> DmaControllerWrapper<CpuWrapper, PpuWrapper> {
@@ -602,11 +628,12 @@ impl NesSystem {
 
     /// Advance every component other than the CPU by one CPU cycle.
     ///
-    /// The PPU runs at three times the CPU's rate and the APU at the same rate, so one CPU cycle
-    /// is three PPU ticks and one APU tick. Interrupt lines are serviced here too, so they are
+    /// The PPU runs at three times the CPU's rate on NTSC and 3.2 times on PAL, and the APU at
+    /// the CPU's rate, so one CPU cycle is three or four PPU ticks and one APU tick. Interrupt lines are serviced here too, so they are
     /// noticed at cycle granularity rather than only between instructions.
     fn tick_cycle(&mut self) {
-        for _ in 0..3 {
+        let dots = self.clock_dots.borrow_mut().dots_for_this_cycle();
+        for _ in 0..dots {
             self.ppu.tick();
         }
         self.apu.tick();

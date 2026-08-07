@@ -7,4 +7,5 @@ pub mod helpers;
 pub mod input;
 pub mod memory;
 pub mod ppu;
+pub mod region;
 pub mod system;

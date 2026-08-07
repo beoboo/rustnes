@@ -49,6 +49,9 @@ pub struct INesHeader {
     pub battery: bool,       // Has battery-backed RAM
     pub trainer: bool,       // Has trainer
     pub four_screen: bool,   // Four-screen VRAM layout
+    /// What the header claims about the TV system, which is worth reading and worth not trusting:
+    /// plenty of European releases ship with this clear. See [`Region`](crate::region::Region).
+    pub region: crate::region::Region,
 }
 
 /// A loaded iNES ROM: its header plus both memory images.
@@ -200,6 +203,7 @@ fn parse_ines_header(header: &[u8; INES_HEADER_SIZE]) -> Result<INesHeader, RomL
     let mapper = mapper_high | mapper_low;
 
     Ok(INesHeader {
+        region: crate::region::Region::from_ines_header(header[9]),
         prg_rom_size,
         chr_rom_size,
         mapper,

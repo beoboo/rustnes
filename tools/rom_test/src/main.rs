@@ -92,6 +92,11 @@ enum Command {
         #[arg(long)]
         ascii: bool,
 
+        /// Run as a PAL console: 3.2 dots to a CPU cycle and 312 scanlines. The iNES header is
+        /// consulted first, but plenty of European releases claim NTSC in it.
+        #[arg(long)]
+        pal: bool,
+
         /// Resume from a save state before running, to reach a scene inside a game
         #[arg(long, value_name = "FILE")]
         state: Option<PathBuf>,
@@ -182,9 +187,18 @@ fn main() -> Result<()> {
         Command::Nestest { rom, log, limit } => run_nestest(&rom, &log, limit),
         Command::Run { rom, budget } => run_one(&rom, budget),
         Command::Cycles { rom, instructions } => cycles::report(&rom, instructions),
-        Command::Frame { rom, frames, out, ascii, state, per_dot, into_level } => {
-            run_frame(&rom, frames, out.as_deref(), ascii, state.as_deref(), per_dot, into_level)
-        },
+        Command::Frame { rom, frames, out, ascii, state, per_dot, into_level, pal } => run_frame(
+            &rom,
+            out.as_deref(),
+            ascii,
+            frame::Options {
+                frames,
+                state: state.as_deref(),
+                per_dot,
+                into_level,
+                force_pal: pal,
+            },
+        ),
         Command::Trace {
             rom,
             instructions,
@@ -305,13 +319,11 @@ fn run_one(rom: &Path, budget: usize) -> Result<()> {
 
 fn run_frame(
     rom: &Path,
-    frames: usize,
     out: Option<&Path>,
     ascii: bool,
-    state: Option<&Path>,
-    per_dot: bool,
-    into_level: bool,
+    options: frame::Options<'_>,
 ) -> Result<()> {
+    let (frames, state) = (options.frames, options.state);
     if missing(rom, "ROM") {
         return Ok(());
     }
@@ -320,7 +332,7 @@ fn run_frame(
     }
 
     println!("Running {} for {frames} frames\n", rom.display());
-    let capture = frame::capture(rom, frames, state, per_dot, into_level)?;
+    let capture = frame::capture(rom, options)?;
 
     if let Some(reason) = &capture.stopped {
         println!("  WARNING  {reason}");

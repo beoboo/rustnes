@@ -140,7 +140,7 @@ fn render(baseline: &Baseline, roms: &Path) -> Result<Option<Vec<u8>>> {
         }
     }
 
-    let capture = crate::frame::capture(&rom, baseline.frames, state.as_deref(), false, false)?;
+    let capture = crate::frame::capture(&rom, crate::frame::Options { frames: baseline.frames, state: state.as_deref(), ..Default::default() })?;
     Ok(Some(capture.pixels))
 }
 
