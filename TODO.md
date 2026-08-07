@@ -1512,15 +1512,17 @@ cropping already exist and this is the piece between them.
 - [ ] Benchmark the chosen path and confirm it does not cost frames on a 60Hz budget
 
 ### [CPU] Advanced Instructions [T9]
-- [ ] Implement remaining status flag changes (CLD, CLI, CLV, SED, SEI)
-- [ ] Implement remaining branches (BCC, BCS, BMI, BVC, BVS)
-- [ ] Implement register transfers (TAX, TAY, TXA, TYA)
-- [ ] Implement stack operations (TSX, TXS, PHA, PHP, PLA, PLP)
-- [ ] Implement increment/decrement (INC, INX, INY, DEC, DEX, DEY)
-- [ ] Implement shifts/rotates (ASL, LSR, ROL, ROR)
-- [ ] Implement compare operations (CPX, CPY)
-- [ ] Implement logical operations (EOR, ORA)
-- [ ] Write tests for all instructions
+- [x] Every one of these — flags, branches, transfers, stack, increments, shifts, compares,
+      logical operations and their tests — has been done for a long time, and this list sat open
+      the whole while. Re-measured 2026-08-07: **nestest 8991/8991**, `instr_test-v5` 18/18,
+      `instr_misc` 5/5, `instr_timing` 3/3, `nes_instr_test` 11/11, `branch_timing_tests` 3/3.
+      Those suites do not pass with `CLD` missing.
+
+      Left ticked rather than deleted as a specimen. Nine unticked boxes claiming the CPU could not
+      branch or push, in a file whose own header warns that its numbers are claims until re-run —
+      and every one of them was read past, repeatedly, by people who then quoted this file. A
+      checklist that is not re-measured does not merely go stale; it actively misinforms, because
+      its format promises a status it is no longer reporting.
 
 ### [PPU] Background Rendering [T9]
 - [ ] Implement name table handling
