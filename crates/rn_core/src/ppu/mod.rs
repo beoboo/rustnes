@@ -2446,9 +2446,11 @@ impl Ppu {
         static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         if *TRACE.get_or_init(|| std::env::var_os("RN_2007_TRACE").is_some()) {
             eprintln!(
-                "R2007 v={:04X} buf={:02X}",
+                "R2007 v={:04X} buf={:02X} sl={} dot={}",
                 self.ppu_addr.get() & 0x3FFF,
-                self.read_buffer.get()
+                self.read_buffer.get(),
+                self.scanline,
+                self.cycle
             );
         }
         // The address register is fifteen bits and the bus is fourteen, so what the PPU is actually

@@ -1294,13 +1294,33 @@ Measured for the first time, and three of them were already passing:
       `$32` is the high nibble of `$33` with the low nibble of `$22` — and `22 33 44 55 66` is
       the second read being dropped outright.
 
-      **What blocks it is that the fix cannot be a rule about consecutive reads**, because
-      `dma_2007_read` has consecutive `$2007` reads too and needs each one to advance fully. The
-      two ROMs differ only in which PPU dots their reads land on, which is exactly what both
-      headers mean by "depends on CPU-PPU synchronization". Fixing it means modelling the VRAM
-      fetch's latency in dots so the outcome falls out of alignment — a real piece of PPU work,
-      and one neither reference emulator has done: tetanes prints our exact wrong line, CRC
-      included. Worth doing on its own terms, not as a one-line special case.
+      **Measured 2026-08-07, and the "different dots" guess above is wrong.** The `$2007` ledger
+      records the scanline and dot of every read, and the two ROMs turn out to present *identical*
+      conditions:
+
+      ```
+      double_2007_read  scanline 242, dots 113 and 116   3 dots apart, rendering off
+      dma_2007_read     scanline 229, dots 278, 281, 284 3 dots apart, rendering off
+      ```
+
+      Consecutive CPU cycles, three dots apart, rendering off, in both. Yet hardware advances the
+      buffer fully in `dma_2007_read` — its accepted `33 44` needs three full advances, and a
+      stale second read would print `11 22`, which is what its *unhalted* rows print — and does
+      not in `double_2007_read`. So the discriminator is neither the spacing, nor rendering, nor
+      "a repeat is stale". Both hypotheses this entry has carried are refuted by the other ROM.
+
+      **The power-on alignment was tried too, and cannot matter yet.** Sweeping the extra
+      startup dot over 0, 1 and 2 changes neither ROM's output, and the reason is structural
+      rather than a measurement: `read_data` is atomic here — it returns the buffer and refills it
+      in the same instant — so there is no interval for a phase to fall inside. No alignment can
+      produce staleness until the fetch has a duration. That also means the "depends on CPU-PPU
+      synchronization at reset" in both headers cannot be reproduced at all in the current model,
+      which is the more useful way to state what is missing.
+
+      So this is genuinely blocked, and now with evidence rather than an assumption: the rule that
+      separates these two ROMs is something neither this emulator nor the reference models, and
+      tetanes prints our exact wrong line, CRC included. It needs an emulator that passes it, or
+      hardware. Not another hypothesis.
 
 - [x] sprdma_and_dmc_dma — 2/2, from 0/2, closed 2026-08-06 in the sitting after the ledger work
       above, with the same instruments. Three mechanisms, each measured before written:
