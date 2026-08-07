@@ -140,11 +140,20 @@ Housekeeping the plan depends on: the stray empty `book.toml` at the repository 
 
 Not chapter one first. In this order:
 
-**Step 1 — Harvest the war stories.** Before anything else, because this material is *decaying*:
-TODO.md is 2,389 lines in which six claims were found wrong in two days. Convert each resolved
-accuracy bug into a `book/field-notes/` file — symptom, wrong hypotheses, the measurement that
-settled it, the fix, what it cost. Roughly twenty exist. This is a week of work, it needs no
-decisions, and it is the only step where delay loses material outright.
+**Step 1 — Harvest the war stories. Started 2026-08-07; seven of about twenty written.** Before
+anything else, because this material is *decaying*: TODO.md is 2,389 lines in which six claims were
+found wrong in two days. Each resolved accuracy bug becomes a `book/field-notes/` file — symptom,
+wrong hypotheses, the measurement that settled it, the fix, what it cost.
+
+Written so far: the Super Mario Bros 3 split turning out to be a PAL cartridge; CHR ROM being
+writable; the DMC counter that went below zero; the halted processor that keeps driving its
+address; the screen that was never drawn; comparing two emulators through a video filter; and the
+input route that never reached the level it claimed to. Every code quotation in them has been
+checked against the commit it came from rather than reconstructed.
+
+Still to write: the DMC DMA's missing clock, the sprite DMA collision and the grid phase, the
+baseline that lived in `/tmp`, the false failure read off a screen, the unofficial NOPs that were
+doing nothing, and the `BRK` that switched the machine off.
 
 **Step 2 — Prove the pipeline on one vertical slice.** Pick a single code-heavy chapter — chapter 4,
 the bus, is a good size — and take it all the way: code in `book/code/simple/`, snippets extracted,
