@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 744 130" role="img">
+<rect x="20" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="40.0" y="50" text-anchor="middle" font-family="monospace" font-size="12" fill="#888888">4E</text>
+<text x="40.0" y="66" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#888888">N</text>
+<text x="40.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">0</text>
+<rect x="64" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="84.0" y="50" text-anchor="middle" font-family="monospace" font-size="12" fill="#888888">45</text>
+<text x="84.0" y="66" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#888888">E</text>
+<text x="84.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">1</text>
+<rect x="108" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="128.0" y="50" text-anchor="middle" font-family="monospace" font-size="12" fill="#888888">53</text>
+<text x="128.0" y="66" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#888888">S</text>
+<text x="128.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">2</text>
+<rect x="152" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="172.0" y="50" text-anchor="middle" font-family="monospace" font-size="12" fill="#888888">1A</text>
+<text x="172.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">3</text>
+<rect x="196" y="30" width="40" height="44" rx="4" fill="#c95f5f22" stroke="#c95f5f" stroke-width="1.2"/>
+<text x="216.0" y="66" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#c95f5f">PRG</text>
+<text x="216.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">4</text>
+<rect x="240" y="30" width="40" height="44" rx="4" fill="#c95f5f22" stroke="#c95f5f" stroke-width="1.2"/>
+<text x="260.0" y="66" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#c95f5f">CHR</text>
+<text x="260.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">5</text>
+<rect x="284" y="30" width="40" height="44" rx="4" fill="#c95f5f22" stroke="#c95f5f" stroke-width="1.2"/>
+<text x="304.0" y="66" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#c95f5f">6</text>
+<text x="304.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">6</text>
+<rect x="328" y="30" width="40" height="44" rx="4" fill="#c95f5f22" stroke="#c95f5f" stroke-width="1.2"/>
+<text x="348.0" y="66" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#c95f5f">7</text>
+<text x="348.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">7</text>
+<rect x="372" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="392.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">8</text>
+<rect x="416" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="436.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">9</text>
+<rect x="460" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="480.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">10</text>
+<rect x="504" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="524.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">11</text>
+<rect x="548" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="568.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">12</text>
+<rect x="592" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="612.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">13</text>
+<rect x="636" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="656.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">14</text>
+<rect x="680" y="30" width="40" height="44" rx="4" fill="#88888822" stroke="#888888" stroke-width="1.2"/>
+<text x="700.0" y="22" text-anchor="middle" font-family="monospace" font-size="9" fill="#888888">15</text>
+<path d="M20 86 v6 H192 v-6" fill="none" stroke="#888888" stroke-width="1.2"/>
+<text x="106.0" y="108" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#888888">always these four bytes</text>
+<path d="M196 86 v6 H236 v-6" fill="none" stroke="#c95f5f" stroke-width="1.2"/>
+<text x="216.0" y="108" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#c95f5f">PRG size (16 KiB units)</text>
+<path d="M240 86 v6 H280 v-6" fill="none" stroke="#c95f5f" stroke-width="1.2"/>
+<text x="260.0" y="108" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#c95f5f">CHR size (8 KiB units)</text>
+<path d="M284 86 v6 H368 v-6" fill="none" stroke="#c95f5f" stroke-width="1.2"/>
+<text x="326.0" y="108" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#c95f5f">flags — mapper number, split in halves</text>
+<path d="M372 86 v6 H720 v-6" fill="none" stroke="#888888" stroke-width="1.2"/>
+<text x="546.0" y="108" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#888888">mostly unused</text>
+</svg>

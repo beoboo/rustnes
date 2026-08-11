@@ -6,7 +6,7 @@ wishlist, moved here because that file had become half task list and half labora
 was serving neither well. [TODO.md](TODO.md) is now the live list; [IDEAS.md](IDEAS.md) took the
 someday-maybe.
 
-**This is the raw material for the book's Field Notes** (`book/field-notes/`). Nothing here is a
+Nothing here is a
 task — the ticked boxes are finished work, kept because the *diagnosis* is the valuable part and it
 is not recoverable from the code. The code only ever shows the answer, never the three wrong ones
 that came first.
@@ -44,7 +44,6 @@ and several were found wrong within days of being recorded. Re-run before quotin
 - [x] Create README.md
 - [x] Set up GitHub repository
 - [x] Create initial documentation structure
-- [x] Set up book framework with mdBook
 - [x] Configure CI/CD pipeline [T9] — `.github/workflows/ci.yml`
 - [ ] Add benchmark infrastructure [T9]
 - [ ] Set up WebAssembly build infrastructure [T10]

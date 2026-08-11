@@ -1,1 +1,0 @@
-# Full Background Rendering

@@ -1,0 +1,950 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Backgrounds - Build Your Own NES Emulator</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A step-by-step book that teaches you to build a NES emulator in Rust, from an empty directory to a machine that plays real games — and then proves it is right.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-c4048b1e.svg">
+        <link rel="shortcut icon" href="../favicon-7b40db04.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom-cfb8ced7.css">
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-c426faa9.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-b0b29c0c.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Build Your Own NES Emulator</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/beoboo/rustnes3" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="backgrounds"><a class="header" href="#backgrounds">Backgrounds</a></h1>
+<p>Chase has been asking <em>“TV, are you ready?”</em> since chapter 11. This is the chapter where
+we answer — and it’s the biggest one in the book, because answering takes everything at
+once: the PPU gets memory, registers, and an interrupt, the frame gets a loop, and at
+the end <strong>a real game paints its own title screen inside your window</strong>. Fair warning:
+this chapter is also home to the best bug in the book so far. You’ll build the code
+that survives it, and the war story waits at the end.</p>
+<h2 id="the-map-of-the-screen"><a class="header" href="#the-map-of-the-screen">The map of the screen</a></h2>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="../img/nametable.svg" alt="One nametable"><span class="img-wrapper"><img src="../img/nametable.svg" alt="One nametable"></span></label></p>
+<p>The album (chapter 13) holds the stickers; the <strong>nametable</strong> says where they go. It
+lives in the PPU’s own RAM at <code>$2000</code>, and reading one is dead simple: byte number
+<code>row × 32 + col</code> holds the tile number for that cell. No x, no y, no colors — those 960
+bytes plus a 64-byte tail of <em>attributes</em> (a puzzle saved for the end of this chapter)
+describe one entire screen in exactly 1 KiB.</p>
+<h2 id="two-rooms-four-doors"><a class="header" href="#two-rooms-four-doors">Two rooms, four doors</a></h2>
+<p>Here’s a subtlety we cannot skip — I know, because I tried. The PPU’s address space has
+<em>four</em> nametable slots — <code>$2000</code>, <code>$2400</code>, <code>$2800</code>, <code>$2C00</code> — but the console contains
+RAM for <strong>two</strong>. The cartridge’s board wires the four doors onto the two rooms, and a
+bit in the iNES header (byte 6, bit 0) says which way: <strong>vertical mirroring</strong> pairs
+<code>$2000</code> with <code>$2800</code>; <strong>horizontal</strong> pairs <code>$2000</code> with <code>$2400</code>. Why two arrangements?
+Scrolling — a game scrolls smoothly along one axis by treating two rooms as one tall or
+one wide picture. Our games don’t scroll yet, but the wiring matters <em>today</em>, and the
+war story below is about exactly that.</p>
+<p>The header bit is sitting in byte 6, which chapter 10 already parses. Add the field to
+the <code>Cartridge</code> struct, under <code>mapper</code>:</p>
+<p><strong><code>src/cartridge.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    /// Which cartridge board ("mapper") the game expects. Number 0 is
+</span><span class="boring">    /// NROM, the simplest: two ROMs, no tricks.
+</span><span class="boring">    pub mapper: u8,
+</span>
+    /// How the board wires the picture chip's two rooms of name RAM:
+    /// stacked side by side (vertical mirroring) or one above the
+    /// other (horizontal).
+    pub vertical_mirroring: bool,
+<span class="boring">}
+</span><span class="boring">
+</span><span class="boring">impl Cartridge {</span></code></pre>
+<p>Read it, right after the mapper line in <code>load</code>:</p>
+<p><strong><code>src/cartridge.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">// The mapper number arrives split in half: its low four bits
+</span><span class="boring">// ride in the top of byte 6, its high four bits in byte 7.
+</span><span class="boring">let mapper = (bytes[7] &amp; 0xF0) | (bytes[6] &gt;&gt; 4);
+</span>
+// Byte 6's lowest bit: how the board wires the name RAM.
+let vertical_mirroring = bytes[6] &amp; 0b0000_0001 != 0;
+<span class="boring">
+</span><span class="boring">// Some old files carry a 512-byte "trainer" before the ROMs —
+</span><span class="boring">// a relic of 1990s copying hardware. Step politely over it.</span></code></pre>
+<p>Ship it out in the struct literal:</p>
+<p><strong><code>src/cartridge.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">        prg_rom: bytes[start..start + prg_size].to_vec(),
+</span><span class="boring">        chr_rom: bytes[start + prg_size..start + prg_size + chr_size].to_vec(),
+</span><span class="boring">        mapper,
+</span>        vertical_mirroring,
+<span class="boring">    })
+</span><span class="boring">}</span></code></pre>
+<p>And give the robots’ <code>test_cartridge</code> a default, under <code>mapper: 0</code>:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">        prg_rom: prg,
+</span><span class="boring">        chr_rom: Vec::new(),
+</span><span class="boring">        mapper: 0,
+</span>        vertical_mirroring: false,
+<span class="boring">    }
+</span><span class="boring">}</span></code></pre>
+<h2 id="the-artist-gets-a-body"><a class="header" href="#the-artist-gets-a-body">The artist gets a body</a></h2>
+<p>Two chapters of freeloading in <code>main.rs</code> end now: the PPU becomes a real device. In
+<code>ppu.rs</code>, above the system palette:</p>
+<p><strong><code>src/ppu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    pixels
+</span><span class="boring">}
+</span><span class="boring">
+</span>use std::cell::Cell;
+
+/// The picture chip's own state: its private memory and the handful of
+/// registers the CPU can reach through the bus.
+///
+/// Two fields wear a `Cell` — a box Rust lets us change even through a
+/// shared reference. It exists for exactly our situation: hardware that
+/// changes state when it is merely LOOKED AT.
+pub struct Ppu {
+    /// The nametables' RAM: 2 KiB on the console's board.
+    pub vram: [u8; 2048],
+
+    /// The eight palettes — 32 bytes the games fill at boot.
+    pub palette_ram: [u8; 32],
+
+    /// PPUCTRL, as last written: a byte of settings.
+    pub ctrl: u8,
+
+    /// Whether the PPU is in its vertical-blank rest period.
+    pub vblank: Cell&lt;bool&gt;,
+
+    /// Where in PPU memory the next data access will land. A `Cell`,
+    /// because READS move it too.
+    address: Cell&lt;u16&gt;,
+
+    /// The one-byte waiting room for PPUDATA reads: what a read hands
+    /// back is the byte fetched by the PREVIOUS read.
+    read_buffer: Cell&lt;u8&gt;,
+
+    /// The address arrives through an 8-bit register in two knocks;
+    /// this remembers whether the SECOND knock is next.
+    expecting_low: Cell&lt;bool&gt;,
+
+    /// How this cartridge's board arranges the four nametable names
+    /// over the two real rooms of VRAM.
+    vertical_mirroring: bool,
+}
+
+impl Ppu {
+    /// A powered-on PPU: memory blank, registers zero, wired the way
+    /// the cartridge's board dictates.
+    pub fn new(vertical_mirroring: bool) -&gt; Ppu {
+        Ppu {
+            vram: [0; 2048],
+            palette_ram: [0; 32],
+            ctrl: 0,
+            vblank: Cell::new(false),
+            address: Cell::new(0),
+            read_buffer: Cell::new(0),
+            expecting_low: Cell::new(false),
+            vertical_mirroring,
+        }
+    }
+
+    /// Fold a nametable address ($2000-$2FFF and its echo) onto the two
+    /// real 1 KiB rooms. Four names, two rooms: VERTICAL mirroring puts
+    /// the rooms side by side ($2000/$2800 share, $2400/$2C00 share);
+    /// HORIZONTAL stacks them ($2000/$2400 share, $2800/$2C00 share).
+    fn mirror(&amp;self, address: u16) -&gt; usize {
+        let index = address as usize &amp; 0x0FFF; // within the 4 KiB window
+        let name = index / 0x400; // which of the four names, 0..=3
+        let room = if self.vertical_mirroring {
+            name &amp; 1
+        } else {
+            name / 2
+        };
+        room * 0x400 + (index &amp; 0x3FF)
+    }
+}
+<span class="boring">
+</span><span class="boring">/// The NES's whole crayon box: the 64 colors it can ever show, as RGB.
+</span><span class="boring">///</span></code></pre>
+<p>Two things to notice. The <code>mirror</code> function is the two-rooms-four-doors fold, four lines
+of arithmetic. And two fields wear a <code>Cell</code> — keep an eye on them; two sections from
+now, reading is going to start touching. Wire the new device onto the bus: the import,
+under the cartridge’s —</p>
+<p><strong><code>src/bus.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">//! The bus — the wiring that decides which chip answers each address.
+</span><span class="boring">
+</span><span class="boring">use crate::cartridge::Cartridge;
+</span>use crate::ppu::Ppu;
+<span class="boring">
+</span><span class="boring">/// Everything on the far side of the CPU's read and write lines.
+</span><span class="boring">pub struct Bus {</span></code></pre>
+<p>— the field, under <code>cartridge</code> —</p>
+<p><strong><code>src/bus.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    /// The game, occupying the top half of the address space.
+</span><span class="boring">    pub cartridge: Cartridge,
+</span>
+    /// The picture chip, reachable through its eight registers.
+    pub ppu: Ppu,
+<span class="boring">}
+</span><span class="boring">
+</span><span class="boring">impl Bus {</span></code></pre>
+<p>— and its construction, which must sit <strong>above</strong> <code>cartridge,</code> in the literal:</p>
+<p><strong><code>src/bus.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">pub fn new(cartridge: Cartridge) -&gt; Bus {
+</span><span class="boring">    Bus {
+</span><span class="boring">        ram: [0; 2048],
+</span>        // Built before `cartridge` moves in, since it reads from it.
+        ppu: Ppu::new(cartridge.vertical_mirroring),
+<span class="boring">        cartridge,
+</span><span class="boring">    }
+</span><span class="boring">}</span></code></pre>
+<p>Order matters here, and the compiler will tell you so: a struct literal evaluates top
+to bottom, so if <code>cartridge,</code> comes first, it <em>moves</em> into the struct — and the next
+line gets <code>use of moved value: cartridge</code>. Put the reader before the mover.</p>
+<h2 id="two-knocks-then-data"><a class="header" href="#two-knocks-then-data">Two knocks, then data</a></h2>
+<p>How does a CPU with 8-bit registers hand the PPU a 16-bit address? In two knocks.
+<code>$2006</code> takes the address’s big half, then its little half; <code>$2007</code> then delivers data
+to wherever it points — and here’s the elegant part, the address <em>walks forward on its
+own</em> after every byte. A game sets the address once and streams a whole screen through
+one register. Add both to the <code>impl</code>, after <code>mirror</code>:</p>
+<p><strong><code>src/ppu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    };
+</span><span class="boring">    room * 0x400 + (index &amp; 0x3FF)
+</span><span class="boring">}
+</span>
+/// A write to PPUADDR ($2006): half of an address — big half on the
+/// first knock, little half on the second.
+pub fn write_address(&amp;mut self, value: u8) {
+    let address = self.address.get();
+    if self.expecting_low.get() {
+        self.address.set((address &amp; 0xFF00) | value as u16);
+    } else {
+        self.address.set((address &amp; 0x00FF) | ((value as u16) &lt;&lt; 8));
+    }
+    self.expecting_low.set(!self.expecting_low.get());
+}
+
+/// A write to PPUDATA ($2007): one byte into PPU memory, wherever
+/// the address points — which then walks forward on its own.
+pub fn write_data(&amp;mut self, value: u8) {
+    let address = self.address.get() &amp; 0x3FFF;
+    match address {
+        // Pattern tables are the cartridge's ROM: writes bounce off.
+        0x0000..=0x1FFF =&gt; {}
+
+        // The nametables' two rooms, found through the board's
+        // mirroring arrangement.
+        0x2000..=0x3EFF =&gt; self.vram[self.mirror(address)] = value,
+
+        // The palettes' 32 bytes.
+        _ =&gt; self.palette_ram[address as usize &amp; 0x001F] = value,
+    }
+
+    self.step_address();
+}
+
+/// The auto-step every PPUDATA access ends with: +1 normally, +32 —
+/// one screen-row down — when PPUCTRL asks for column order.
+fn step_address(&amp;self) {
+    let step = if self.ctrl &amp; 0b0000_0100 != 0 { 32 } else { 1 };
+    self.address.set(self.address.get().wrapping_add(step));
+}</code></pre>
+<p>The auto-step has two sizes — +1 for writing rows, +32 (one screen-row!) for writing
+columns — chosen by a PPUCTRL bit. And now open the bus’s front door: in <code>write</code>’s
+<code>match</code>, after the RAM arm:</p>
+<p><strong><code>src/bus.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">pub fn write(&amp;mut self, address: u16, value: u8) {
+</span><span class="boring">    match address {
+</span><span class="boring">        0x0000..=0x1FFF =&gt; self.ram[address as usize % 2048] = value,
+</span>
+        // The picture chip's registers, for the writes games lean
+        // on: settings, the address, the data.
+        0x2000..=0x3FFF =&gt; match address &amp; 0x0007 {
+            0x0000 =&gt; self.ppu.ctrl = value,
+            0x0006 =&gt; self.ppu.write_address(value),
+            0x0007 =&gt; self.ppu.write_data(value),
+            // Mask, scroll, sprite registers: wired in the
+            // chapters that need them.
+            _ =&gt; {}
+        },
+<span class="boring">
+</span><span class="boring">        // Writes to ROM change nothing. The clue is in the name.
+</span><span class="boring">        0x8000..=0xFFFF =&gt; {}</span></code></pre>
+<p>Every register echoes every 8 bytes all the way up to <code>$3FFF</code> — the same
+cheap address decoding as the RAM echoes, on the other chip.</p>
+<h2 id="reading-is-touching"><a class="header" href="#reading-is-touching">Reading is touching</a></h2>
+<p><code>$2002</code>, PPUSTATUS, the register Chase has been polling for four chapters. Its top bit
+answers “is it vblank?” — and the act of reading <strong>changes the machine</strong>: the flag
+clears, and the two-knock address register resets to expect a first knock. That’s no quirk
+to smooth over — games build on it: read <code>$2002</code>, then knock twice, and the knock order
+is guaranteed. Add it after <code>write_data</code>:</p>
+<p><strong><code>src/ppu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    let step = if self.ctrl &amp; 0b0000_0100 != 0 { 32 } else { 1 };
+</span><span class="boring">    self.address.set(self.address.get().wrapping_add(step));
+</span><span class="boring">}
+</span>
+/// A read of PPUSTATUS ($2002): reports vblank in the top bit — and
+/// the act of looking clears the flag AND resets the address
+/// register to expect a first knock. Reading, here, is touching —
+/// which is why those two fields live in `Cell`s.
+pub fn read_status(&amp;self) -&gt; u8 {
+    let status = (self.vblank.get() as u8) &lt;&lt; 7;
+    self.vblank.set(false);
+    self.expecting_low.set(false);
+    status
+}</code></pre>
+<p><em>This</em> is why those fields wear <code>Cell</code>s: in Rust, reading goes through <code>&amp;self</code> — a
+shared, read-only reference — and a plain <code>bool</code> behind <code>&amp;self</code> cannot change. <code>Cell</code>
+is the standard library’s little box for exactly this: a value that may change even
+when only looked at. Hardware that mutates on read is the textbook case. (In Part II, open bus
+forces every bus read to become mutable, and the <code>Cell</code>s retire.)</p>
+<p>And <code>$2007</code> answers reads too — with two twists of its own. The byte a read returns is
+<em>stale</em>: it arrives one read late, through a little waiting room. Stranger: the read
+<strong>steps the address forward</strong>, exactly like a write. Real palette loaders exploit that
+step — Chase’s hops over the three addresses it wants left alone by reading <code>$2007</code>
+three times and throwing the bytes away. Miss this and you’ll meet the bug that ate
+Chase’s A: every color lands one slot early, palette 3 slides into black, and the title
+greets you as “CH SE”. After <code>read_status</code>:</p>
+<p><strong><code>src/ppu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">        self.expecting_low.set(false);
+</span><span class="boring">        status
+</span><span class="boring">    }
+</span>
+    /// A read of PPUDATA ($2007). The byte is the small part — it
+    /// arrives one read LATE, through the waiting room. The important
+    /// part is that reading walks the address forward exactly like
+    /// writing, and games lean on that to step past addresses without
+    /// disturbing them.
+    pub fn read_data(&amp;self) -&gt; u8 {
+        let address = self.address.get() &amp; 0x3FFF;
+        let value = self.read_buffer.get();
+
+        self.read_buffer.set(match address {
+            // Pattern tables live on the cartridge — not wired from
+            // this side of the chip yet.
+            0x0000..=0x1FFF =&gt; 0,
+            0x2000..=0x3EFF =&gt; self.vram[self.mirror(address)],
+            _ =&gt; self.palette_ram[address as usize &amp; 0x001F],
+        });
+
+        self.step_address();
+        value
+    }
+<span class="boring">}
+</span><span class="boring">
+</span><span class="boring">/// The NES's whole crayon box: the 64 colors it can ever show, as RGB.</span></code></pre>
+<p>The bus’s read side, replacing the <code>$2000..=$3FFF</code> stub:</p>
+<p><strong><code>src/bus.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">// The cartridge's program ROM.
+</span><span class="boring">0x8000..=0xFFFF =&gt; self.cartridge.read_prg(address),
+</span><span class="boring">
+</span>// The picture chip's eight registers, echoed every eight
+// bytes to the top of the range. Two answer reads — and
+// both change state when looked at.
+0x2000..=0x3FFF =&gt; match address &amp; 0x0007 {
+    0x0002 =&gt; self.ppu.read_status(),
+    0x0007 =&gt; self.ppu.read_data(),
+    _ =&gt; 0,
+},
+<span class="boring">
+</span><span class="boring">// Sound and input. Also nobody.
+</span><span class="boring">0x4000..=0x401F =&gt; 0,</span></code></pre>
+<h2 id="the-tap-on-the-shoulder"><a class="header" href="#the-tap-on-the-shoulder">The tap on the shoulder</a></h2>
+<p>There are two ways to know it’s vblank. Chase’s boot showed the first: stand at the
+door and knock — poll <code>$2002</code> until the answer changes. But polling costs the whole
+frame standing there, so once a game is running it uses the second way: hang a
+do-come-wake-me sign — bit 7 of PPUCTRL — and go to sleep. Watch either of our games
+past its boot: it blacks its palettes, writes <code>$80</code> to PPUCTRL, and settles into a
+three-instruction nap, waiting for a counter that only a visitor can increment. That
+visitor is the <strong>NMI</strong> — the Non-Maskable Interrupt — vblank arriving not as an answer
+but as a tap on the shoulder. No tap, no title. (Chapter 18 will pin the tap’s timing
+to the cycle; today it just has to arrive.)</p>
+<p>The mechanics are chapter 8 plus chapter 12: push where we were, push the notes, follow
+the vector at <code>$FFFA</code> — and the handler’s exit is RTI, the instruction nestest forced us
+to build early. Everything connects. In <code>cpu.rs</code>, after <code>update_zero_and_negative</code>:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">        self.status &amp;= !FLAG_NEGATIVE;
+</span><span class="boring">    }
+</span><span class="boring">}
+</span>
+/// The Non-Maskable Interrupt — the tap on the CPU's shoulder that
+/// no flag can refuse. Note where we were and the notes themselves
+/// (ghost bit 4 stays CLEAR: hardware knocked, not BRK), hang the
+/// do-not-disturb sign, and follow the NMI vector at $FFFA.
+pub fn nmi(&amp;mut self) {
+    self.push_word(self.pc);
+    self.push((self.status | 0b0010_0000) &amp; !0b0001_0000);
+    self.status |= FLAG_INTERRUPT_DISABLE;
+    self.pc = self.read_word(0xFFFA);
+}
+<span class="boring">
+</span><span class="boring">/// Every official opcode's name and total length in bytes — the
+</span><span class="boring">/// decoder ring for the diary. `None` means unofficial.</span></code></pre>
+<h2 id="a-first-frame-loop"><a class="header" href="#a-first-frame-loop">A first frame loop</a></h2>
+<p>Time to retire the album viewer — the game is about to paint for itself. <strong>Delete</strong>
+<code>draw_pattern_tables</code> (the whole function), the <code>SAMPLE_PALETTES</code> table, and the
+Space-cycling block in the window loop. Restore the import to its chapter-2 self —
+replace the <code>use minifb</code> line:</p>
+<p><strong><code>src/main.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">// The picture chip.
+</span><span class="boring">mod ppu;
+</span><span class="boring">
+</span>use minifb::{Key, Scale, Window, WindowOptions};
+<span class="boring">use cpu::Cpu;
+</span><span class="boring">use cartridge::Cartridge;</span></code></pre>
+<p>The machine needs to be steppable now — replace the <code>let machine</code> line:</p>
+<p><strong><code>src/main.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">// One path on the command line boots a machine — and now we KEEP it.
+</span><span class="boring">// Two paths run the grader instead.
+</span><span class="boring">let args: Vec&lt;String&gt; = std::env::args().collect();
+</span>let mut machine = match args.len() {
+<span class="boring">    2 =&gt; Some(boot_rom(&amp;args[1])),
+</span><span class="boring">    3 =&gt; {
+</span><span class="boring">        nestest_diff(&amp;args[1], &amp;args[2]);</span></code></pre>
+<p>Replace the whole album-or-test-pattern <code>match</code> — the pre-loop draw now only covers the
+no-cartridge case:</p>
+<p><strong><code>src/main.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">// 0 means black, so right now this is a picture of nothing.
+</span><span class="boring">let mut buffer = vec![0u32; WIDTH * HEIGHT];
+</span><span class="boring">
+</span>// No machine? The test pattern still earns its keep. With one, the
+// window loop below runs the game and draws what IT painted.
+if machine.is_none() {
+    draw_test_pattern(&amp;mut buffer);
+    draw_tile_grid(&amp;mut buffer);
+}
+<span class="boring">
+</span><span class="boring">// Ask the operating system for a window. `Scale::X2` doubles every pixel,
+</span><span class="boring">// because 256x240 is tiny on a modern screen.</span></code></pre>
+<p>And the heart: one trip around the window loop becomes one frame. At the top of the
+<code>while</code>, where the palette-cycling was:</p>
+<p><strong><code>src/main.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">// Show the buffer, over and over, until the window is closed
+</span><span class="boring">// or Esc is pressed.
+</span><span class="boring">while window.is_open() &amp;&amp; !window.is_key_down(Key::Escape) {
+</span>    // One trip around this loop is one frame: the game computes
+    // while the "beam" draws, rests briefly in vblank, and then we
+    // paint what it described. The instruction counts are a crude
+    // stand-in for real timing — chapter 18 earns the real thing.
+    if let Some(cpu) = &amp;mut machine {
+        for _ in 0..10_000 {
+            cpu.step();
+        }
+        cpu.bus.ppu.vblank.set(true);
+        // A game that armed PPUCTRL bit 7 gets vblank hand-delivered:
+        // the tap on the shoulder. (Its handler ends in RTI — which
+        // chapter 12's grader made us build. Everything connects.)
+        if cpu.bus.ppu.ctrl &amp; 0b1000_0000 != 0 {
+            cpu.nmi();
+        }
+        for _ in 0..1_000 {
+            cpu.step();
+        }
+        render_background(cpu, &amp;mut buffer);
+    }
+<span class="boring">
+</span><span class="boring">    window
+</span><span class="boring">        .update_with_buffer(&amp;buffer, WIDTH, HEIGHT)</span></code></pre>
+<p>No pretending: 10,000 and 1,000 instructions are a <em>crude sketch</em> of a frame — real
+frames are measured in cycles, and chapter 18 does it right. But crude
+time is still time: run this and the machine now has a heartbeat, sixty-ish beats a
+second, NMI included.</p>
+<h2 id="drawing-the-map"><a class="header" href="#drawing-the-map">Drawing the map</a></h2>
+<p>What the game writes, we now paint. At the bottom of <code>main.rs</code>:</p>
+<p><strong><code>src/main.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    cpu
+</span><span class="boring">}
+</span><span class="boring">
+</span>
+/// Paint the background the game described: the nametable says which
+/// tile goes in each of the 30 rows of 32 cells; PPUCTRL says which
+/// pattern table backgrounds shop from.
+fn render_background(cpu: &amp;Cpu, buffer: &amp;mut [u32]) {
+    let ppu = &amp;cpu.bus.ppu;
+    let chr = &amp;cpu.bus.cartridge.chr_rom;
+
+    // PPUCTRL bit 4: which half of the album holds background tiles.
+    let table = if ppu.ctrl &amp; 0b0001_0000 != 0 { 256 } else { 0 };
+
+    for row in 0..30 {
+        for col in 0..32 {
+            let tile = ppu.vram[row * 32 + col] as usize;
+            let pixels = ppu::decode_tile(chr, table + tile);
+            // Every tile borrows palette 1, for now. (Why not 0? Games
+            // often keep palette 0 dark for backdrops — Chase does.)
+            let palette = [
+                ppu.palette_ram[0],
+                ppu.palette_ram[5],
+                ppu.palette_ram[6],
+                ppu.palette_ram[7],
+            ];
+
+            for y in 0..8 {
+                for x in 0..8 {
+                    let crayon = palette[pixels[y][x] as usize];
+                    let color = ppu::SYSTEM_PALETTE[crayon as usize];
+                    buffer[(row * 8 + y) * WIDTH + col * 8 + x] = color;
+                }
+            }
+        }
+    }
+}</code></pre>
+<p>For the first run, every tile borrows the game’s palette 1 — one of the four hands it
+dealt into palette RAM. (Why not hand 0? Games often keep it dark, for backdrops —
+Chase does.) <code>cargo run roms/Chase.nes</code>: <strong>the title screen.</strong> CHASE in big block
+letters, PRESS START beneath, assembled from album tiles by the game’s own code,
+running on your CPU, through your bus, into your PPU — every tile dressed in the same
+cyans, because we handed every tile the same crayons. It sits eight pixels left of
+where the author wanted it (a scroll nudge we don’t honor until chapter 24), and at
+the bottom it signs itself: <strong>PD2012 SHIRU</strong>. Public domain, declared by the title
+itself — Lan Master says PD2011 — so our screenshots ride free.</p>
+<h2 id="crayons-by-neighborhood"><a class="header" href="#crayons-by-neighborhood">Crayons by neighborhood</a></h2>
+<p>Now the wrong colors. Which of the four background palettes does a tile use? The
+answer is the nametable’s 64-byte tail, and it’s the strangest packing on the console:</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="../img/attributes.svg" alt="One attribute byte’s territory"><span class="img-wrapper"><img src="../img/attributes.svg" alt="One attribute byte’s territory"></span></label></p>
+<p>Not per tile — per <em>neighborhood</em>. One byte governs a 4×4-tile block, two bits per
+2×2-tile quadrant. (Why so coarse? Bytes. Per-tile palettes would cost another 960;
+this costs 64. The visible consequence: color boundaries in NES backgrounds happen on
+16-pixel grid lines, and once you see it you’ll see it in every game forever.) The
+lookup, at the bottom of <code>main.rs</code>:</p>
+<p><strong><code>src/main.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">        }
+</span><span class="boring">    }
+</span><span class="boring">}
+</span>
+/// Which four crayons a background tile paints with: the attribute
+/// table's two bits pick one of the four background palettes, and
+/// crayon 0 is always the shared backdrop color.
+fn background_palette(ppu: &amp;ppu::Ppu, row: usize, col: usize) -&gt; [u8; 4] {
+    // One attribute byte governs a 4x4-tile block; within it, two bits
+    // per 2x2-tile quadrant.
+    let attribute = ppu.vram[0x3C0 + (row / 4) * 8 + col / 4];
+    let shift = ((row % 4) / 2) * 4 + ((col % 4) / 2) * 2;
+    let which = ((attribute &gt;&gt; shift) &amp; 0b11) as usize;
+
+    [
+        ppu.palette_ram[0], // the backdrop, everyone's crayon 0
+        ppu.palette_ram[which * 4 + 1],
+        ppu.palette_ram[which * 4 + 2],
+        ppu.palette_ram[which * 4 + 3],
+    ]
+}
+<span class="boring">
+</span><span class="boring">/// Run nestest in automation mode and grade our CPU against a golden
+</span><span class="boring">/// log, line by line. The first difference is the truth.</span></code></pre>
+<p>And swap it in — replace the palette-0 block inside <code>render_background</code>:</p>
+<p><strong><code>src/main.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">for col in 0..32 {
+</span><span class="boring">    let tile = ppu.vram[row * 32 + col] as usize;
+</span><span class="boring">    let pixels = ppu::decode_tile(chr, table + tile);
+</span>    let palette = background_palette(ppu, row, col);
+<span class="boring">
+</span><span class="boring">    for y in 0..8 {
+</span><span class="boring">        for x in 0..8 {</span></code></pre>
+<p>Run again: the neighborhoods dress themselves. C and E keep their cyans, H and S turn
+violet, and the A goes hot pink — the logo exactly as its author colored it. There it
+is, end to end: nametable to tile, attribute to palette, palette to crayon, crayon to
+pixel.</p>
+<h2 id="did-it-work"><a class="header" href="#did-it-work">Did it work?</a></h2>
+<p>Ten new robots — six for the registers, two for the mirror’s two arrangements, two for
+the read that touches — in <code>ppu.rs</code> after the palette tests:</p>
+<p><strong><code>src/ppu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">            assert_eq!(color &gt;&gt; 24, 0);
+</span><span class="boring">        }
+</span><span class="boring">    }
+</span>
+    #[test]
+    fn the_address_arrives_big_half_first() {
+        let mut ppu = Ppu::new(false);
+        ppu.write_address(0x23);
+        ppu.write_address(0x45);
+        ppu.write_data(0x99);
+        assert_eq!(ppu.vram[0x0345], 0x99); // $2345 &amp; $07FF
+    }
+
+    #[test]
+    fn data_writes_walk_forward_on_their_own() {
+        let mut ppu = Ppu::new(false);
+        ppu.write_address(0x20);
+        ppu.write_address(0x00);
+        ppu.write_data(0x11);
+        ppu.write_data(0x22);
+        assert_eq!(ppu.vram[0], 0x11);
+        assert_eq!(ppu.vram[1], 0x22);
+    }
+
+    #[test]
+    fn ctrl_can_make_the_walk_go_by_rows() {
+        let mut ppu = Ppu::new(false);
+        ppu.ctrl = 0b0000_0100; // column order: step by 32
+        ppu.write_address(0x20);
+        ppu.write_address(0x00);
+        ppu.write_data(0x11);
+        ppu.write_data(0x22);
+        assert_eq!(ppu.vram[32], 0x22); // one screen-row down
+    }
+
+    #[test]
+    fn palette_writes_land_in_the_palette() {
+        let mut ppu = Ppu::new(false);
+        ppu.write_address(0x3F);
+        ppu.write_address(0x01);
+        ppu.write_data(0x16);
+        assert_eq!(ppu.palette_ram[1], 0x16);
+    }
+
+    #[test]
+    fn looking_at_status_clears_the_flag() {
+        let ppu = Ppu::new(false);
+        ppu.vblank.set(true);
+        assert_eq!(ppu.read_status() &amp; 0x80, 0x80);
+        assert_eq!(ppu.read_status() &amp; 0x80, 0); // looking took it
+    }
+
+    #[test]
+    fn horizontal_mirroring_keeps_2800_out_of_2000() {
+        // Chase's exact accident: write a title byte at $2086, then
+        // clear $2886 (nametable C). On a horizontal board those are
+        // different rooms — the title must survive.
+        let mut ppu = Ppu::new(false);
+        ppu.write_address(0x20);
+        ppu.write_address(0x86);
+        ppu.write_data(0x40);
+        ppu.write_address(0x28);
+        ppu.write_address(0x86);
+        ppu.write_data(0x00);
+        assert_eq!(ppu.vram[0x086], 0x40); // the title byte, alive
+        assert_eq!(ppu.vram[0x486], 0x00); // the other room, cleared
+    }
+
+    #[test]
+    fn vertical_mirroring_shares_the_other_way() {
+        // On a vertical board, $2000 and $2800 ARE the same room.
+        let mut ppu = Ppu::new(true);
+        ppu.write_address(0x20);
+        ppu.write_address(0x86);
+        ppu.write_data(0x40);
+        ppu.write_address(0x28);
+        ppu.write_address(0x86);
+        ppu.write_data(0x77);
+        assert_eq!(ppu.vram[0x086], 0x77); // same room: overwritten
+    }
+
+    #[test]
+    fn reading_data_walks_the_address_too() {
+        // The trick real palette loaders use: READ $2007 and discard
+        // the byte, just to step past an address without touching it.
+        let mut ppu = Ppu::new(false);
+        ppu.write_address(0x3F);
+        ppu.write_address(0x00);
+        ppu.write_data(0x11); // lands at $3F00
+        ppu.read_data(); // a footstep past $3F01, touching nothing
+        ppu.write_data(0x33); // must land at $3F02
+        assert_eq!(ppu.palette_ram[0], 0x11);
+        assert_eq!(ppu.palette_ram[1], 0x00); // undisturbed
+        assert_eq!(ppu.palette_ram[2], 0x33);
+    }
+
+    #[test]
+    fn data_reads_arrive_one_read_late() {
+        let mut ppu = Ppu::new(false);
+        ppu.write_address(0x20);
+        ppu.write_address(0x00);
+        ppu.write_data(0x55);
+
+        ppu.write_address(0x20);
+        ppu.write_address(0x00);
+        assert_eq!(ppu.read_data(), 0x00); // the stale waiting room
+        assert_eq!(ppu.read_data(), 0x55); // yesterday's byte, today
+    }
+
+    #[test]
+    fn looking_at_status_also_resets_the_two_knocks() {
+        // A game half-through an address read $2002: the next knock
+        // must count as a FIRST knock again.
+        let mut ppu = Ppu::new(false);
+        ppu.write_address(0x3F); // first knock of an abandoned address
+        ppu.read_status();
+        ppu.write_address(0x20); // a fresh first knock: the big half
+        ppu.write_address(0x08);
+        ppu.write_data(0x77);
+        assert_eq!(ppu.vram[8], 0x77);
+    }
+<span class="boring">}</span></code></pre>
+<p>And in <code>cpu.rs</code>, after the ghost-bits test, the interrupt’s round trip:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    assert_eq!(cpu.pc, 0x800B); // the BRK at $800A fetched, stopped
+</span><span class="boring">    assert!(cpu.status &amp; FLAG_ZERO != 0); // the pulled Z came back
+</span><span class="boring">}
+</span>
+#[test]
+fn nmi_taps_the_shoulder_and_rti_returns() {
+    // A handler at $8005 that just RTIs; the NMI vector points at
+    // it; main is an INX. Tap mid-program: the frame must survive.
+    let mut cartridge = test_cartridge(&amp;[0xE8, 0xE8, 0xE8, 0xE8, 0x00, 0x40]);
+    cartridge.prg_rom[0x3FFA] = 0x05; // NMI vector: $8005...
+    cartridge.prg_rom[0x3FFB] = 0x80; // ...where the RTI waits
+    let mut cpu = Cpu::new(cartridge);
+    cpu.reset();
+
+    cpu.step(); // one INX
+    cpu.nmi();
+    assert_eq!(cpu.pc, 0x8005); // in the handler
+
+    cpu.step(); // the RTI
+    assert_eq!(cpu.pc, 0x8001); // back exactly where we were
+    while cpu.step() {}
+    assert_eq!(cpu.x, 4); // no INX lost along the way
+}
+<span class="boring">
+</span><span class="boring">#[test]
+</span><span class="boring">fn nestest_matches_the_golden_log() {</span></code></pre>
+<p><code>cargo test</code>: seventy-five green.</p>
+<blockquote>
+<p><strong>Try it</strong></p>
+<ul>
+<li>Boot Lan Master: full title, logo, menu, cursor — and find where its colors sit on
+the 16-pixel attribute grid.</li>
+<li>In <code>render_background</code>, ignore the attribute and force palette 2. Games look
+fascinating in the wrong clothes.</li>
+<li>Press nothing for a while on Chase’s title. The game is waiting for START — and
+<code>$4016</code> always answers zero. The controller is the very next chapter, and now you know exactly
+why it’s needed.</li>
+</ul>
+</blockquote>
+<blockquote>
+<p><strong>For the curious</strong></p>
+<p>The war story, as promised — in two acts, because this chapter’s code got caught
+twice, both times by Chase.</p>
+<p><strong>Act one: the vanishing title.</strong> The first version of this code shrugged mirroring
+off with a comment — “the difference matters once things scroll” — and folded all
+four doors onto one room. The screen came out black. The hunt: palettes written (so
+the register plumbing worked), VRAM empty (so what erased it?), a byte-watch on one
+title cell — written at frame 6, zeroed five thousand instructions later. By the
+game. On purpose. Chase draws its title into <code>$2000</code>, then tidily clears <code>$2800</code> —
+a <em>different room</em> on its horizontal board, the same room in the shortcut. The game
+was innocent; the simplification was the vandal — and the lesson is that a “safe”
+simplification is only safe until the first real program disagrees.</p>
+<p><strong>Act two: the eaten A.</strong> Mirroring fixed, the title appeared — reading “CH SE”.
+The A’s tiles were present, wearing palette 3; palette 3 held black; the game’s own
+source says it should hold pinks. The decisive tool was a <em>different emulator</em>: a
+known-good one showed the full CHASE, proving the fault ours. Spying on the palette
+writes showed the stream arriving compacted — and disassembling the loader found the
+smoking gun, <code>LDA $2007</code>, a READ, sitting between the palettes: the address-stepping
+trick from “Reading is touching”. This act’s lesson: when your machine misbehaves,
+comparing against a machine that <em>doesn’t</em> is the fastest flashlight there is.
+Part III is that flashlight, industrialized.</p>
+</blockquote>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../part1/ch14-colors.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../part1/ch16-controllers.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../part1/ch14-colors.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../part1/ch16-controllers.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

@@ -1,14 +1,10 @@
 # TODO
 
-**The book is the deliverable; the emulator is the vehicle.** The plan is
-[BOOK_PLAN.md](BOOK_PLAN.md), and it is where the real work is now.
-
 This file is the *live* list and nothing else. Two things used to live here and have moved, because
 mixing them made both useless:
 
 - **[docs/research-log.md](docs/research-log.md)** — how each accuracy bug was found and fixed.
   Finished work, kept because the diagnosis is the valuable part and the code only shows the answer.
-  It is the raw material for the book's [Field Notes](book/field-notes/).
 - **[IDEAS.md](IDEAS.md)** — someday-maybe. Roughly 240 unticked boxes of netplay, WebAssembly,
   shaders and audio visualisation, none of it planned, all of it making the project read as 57%
   finished when every conformance suite that has a verdict already passes.
@@ -73,8 +69,8 @@ sprdma_and_dmc_dma 2/2                      blargg_nes_cpu_test5 2/2
 Recorded so they stop being rediscovered as bugs:
 
 - **MMC5, VRC2/4 (mapper 22), NROM-368, BNROM.** Unimplemented, so `exram`, `mmc5test`,
-  `m22chrbankingtest`, `nrom368/fail368` and `240pee-bnrom` cannot run. Nothing needs them, and the
-  book's mapper chapter covers NROM, UxROM, CNROM, MMC1, MMC3 and AxROM — all implemented.
+  `m22chrbankingtest`, `nrom368/fail368` and `240pee-bnrom` cannot run. Nothing needs them;
+  NROM, UxROM, CNROM, MMC1, MMC3 and AxROM are all implemented.
 - **The paddle controller**, so `PaddleTest3` and `vaus-test` cannot run.
 - **MMC6** (`mmc3_test`/`mmc3_test_2` 5/6) and **MMC3 revision A** (`mmc3_irq_tests` 5/6) are
   different chips, not faults in the MMC3 that is here.
@@ -83,12 +79,3 @@ Recorded so they stop being rediscovered as bugs:
   reference's. The nes-test-roms repository's own `status.txt` marks all four `???? Not sure yet`.
 - **`read_joy3/test_buttons`** wants a human to press buttons. **`count_errors`** and
   `count_errors_fast` *count* rather than judge, and the reference emulators log conflicts too.
-
-## What the book needs from the emulator
-
-Nothing outstanding. Both items [BOOK_PLAN.md](BOOK_PLAN.md) named as chapter blockers — a measured
-palette table and PAL — are done. Every mapper, register, channel and timing behaviour the
-twenty-six chapters describe is implemented and covered by a passing suite.
-
-The bar for future emulator work is therefore: **a fix worth a Field Note is worth doing; polish no
-chapter will ever mention is not.**

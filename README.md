@@ -3,13 +3,6 @@
 A Nintendo Entertainment System emulator written in Rust, built test-first, with every subsystem
 inspectable live through a debugger UI while it runs.
 
-**A book teaching how to build one is the point of the project**, in the spirit of *Crafting
-Interpreters*. The emulator is the vehicle. It is no longer deferred and is no longer going to be
-reverse-engineered out of the finished code — see [BOOK_PLAN.md](BOOK_PLAN.md) for why that failed
-and what replaces it.
-
-- **[BOOK_PLAN.md](BOOK_PLAN.md)** — the book: thesis, structure, production pipeline, sequencing
-- **[book/field-notes/](book/field-notes/)** — one real debugging story each, the book's best material
 - **[TODO.md](TODO.md)** — the live task list, and only that
 - **[docs/research-log.md](docs/research-log.md)** — how every accuracy bug was found and fixed
 - **[IDEAS.md](IDEAS.md)** — someday-maybe, explicitly not planned
@@ -55,7 +48,6 @@ tools/
   nes_debugger/     The main application — full dockable debugger workspace
   waveform_player/  Standalone oscillator + waveform-visualizer playground (no emulation)
 asm/           6502 test programs, including one per APU channel
-book/          mdBook sources
 docs/          Requirements, references, development guide
 ```
 
@@ -175,18 +167,6 @@ The same measurements run as tests in `crates/rn_core/tests/audio_pipeline.rs`.
   and the APU's frame IRQ (both maintained correctly) have nothing to assert.
 - The PPU never raises its vblank flag, so every demo in [asm/](asm/) spins forever in
   `WaitForVBlank` without reaching its initialisation code.
-
-## Book
-
-**The book is the point of this project**; the emulator is the vehicle. The plan is
-[BOOK_PLAN.md](BOOK_PLAN.md).
-
-Everything currently under [book/src](book/src) is being **rewritten from scratch** and should not
-be read as a draft. The approach it came from — defer the text, then reverse-engineer it from the
-finished emulator — produced 4,412 words across 47 files, 39 of them a bare heading, and nothing at
-all in the 335 commits since March 2025. What replaces it: the book gets its own code in
-`book/code/`, written in book order, and the emulator in [crates/](crates) becomes the reference
-implementation that code is checked against.
 
 ## License
 

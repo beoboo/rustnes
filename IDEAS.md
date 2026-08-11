@@ -4,7 +4,7 @@ Things that have been written down and are **not planned work**. They were mixed
 checkboxes, where roughly 240 unticked boxes made the project look 57% finished when the emulator
 had in fact passed every conformance suite that has a verdict to give.
 
-None of this is needed by the book, which is the project's deliverable. Kept because some of it is
+Kept because some of it is
 genuinely good, and deleting ideas is a different decision from not doing them now.
 
 ## MILESTONE 11: Web Integration [T11]

@@ -1,0 +1,663 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Many ways to find a number - Build Your Own NES Emulator</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A step-by-step book that teaches you to build a NES emulator in Rust, from an empty directory to a machine that plays real games — and then proves it is right.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-c4048b1e.svg">
+        <link rel="shortcut icon" href="../favicon-7b40db04.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom-cfb8ced7.css">
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-c426faa9.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-b0b29c0c.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Build Your Own NES Emulator</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/beoboo/rustnes3" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="many-ways-to-find-a-number"><a class="header" href="#many-ways-to-find-a-number">Many ways to find a number</a></h1>
+<p><code>LDA #10</code> puts ten into A. Lovely — if the program already knows it wants ten. But games
+mostly want numbers that <em>live</em> somewhere: the hero’s health, the current score, which
+door is locked. Those sit in memory, at addresses, and instructions need ways of saying
+<strong>where to look</strong>.</p>
+<p>The 6502 has eight ways, called <em>addressing modes</em>, and LDA speaks all of them. Today we
+build all eight — once, in one place — and by the end, a value will leave A, hide in
+memory, and come back on command.</p>
+<h2 id="one-instruction-many-flavors"><a class="header" href="#one-instruction-many-flavors">One instruction, many flavors</a></h2>
+<p>“LDA”, it turns out, is not one opcode. Each flavor gets its own:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>opcode</th><th>written as</th><th>where the value lives</th></tr>
+</thead>
+<tbody>
+<tr><td><code>A9</code></td><td><code>LDA #42</code></td><td>right after the opcode</td></tr>
+<tr><td><code>A5</code></td><td><code>LDA $10</code></td><td>at address $0010</td></tr>
+<tr><td><code>AD</code></td><td><code>LDA $0234</code></td><td>at address $0234</td></tr>
+</tbody>
+</table>
+</div>
+<p>…and five more we’ll meet in a minute. The CPU never guesses: the opcode itself says
+which finding-method to use. Our <code>step</code> function will do the same — but if we wrote the
+finding-code eight times inside LDA, we’d have to write it eight times <em>again</em> for STA,
+and for ADC in chapter 7, and on and on. The 6502 reuses these modes everywhere, so we
+will too: one function that answers one question — <em>where?</em></p>
+<h2 id="naming-the-flavors"><a class="header" href="#naming-the-flavors">Naming the flavors</a></h2>
+<p>A fixed menu of choices is exactly what Rust’s <em>enum</em> is for. Add this to <code>cpu.rs</code>, right
+after the flag constants:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust">/// The ways an instruction can say WHERE its value lives.
+/// (`Clone, Copy` lets us hand modes around as freely as numbers.)
+#[derive(Clone, Copy)]
+pub enum AddressingMode {
+    /// The value sits right after the opcode, in the program itself.
+    Immediate,
+}</code></pre>
+<p>One entry so far — <code>Immediate</code>, the flavor we already know. The menu grows as this
+chapter goes.</p>
+<p>Now the question-answerer. It returns the <em>address</em> where the value waits, and moves PC
+past whatever bytes the mode used. Into the <code>impl Cpu</code> block, after <code>reset</code>:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    // where its program begins. The CPU's first act is to read it.
+</span><span class="boring">    self.pc = self.read_word(0xFFFC);
+</span><span class="boring">}
+</span>
+/// Where does this instruction's value live? Every addressing mode
+/// answers differently. This function does the finding, and moves PC
+/// past whatever bytes the mode used up.
+fn operand_address(&amp;mut self, mode: AddressingMode) -&gt; u16 {
+    match mode {
+        // The value's address IS where PC points. Note it, step past.
+        AddressingMode::Immediate =&gt; {
+            let address = self.pc;
+            self.pc = self.pc.wrapping_add(1);
+            address
+        }
+    }
+}
+<span class="boring">
+</span><span class="boring">/// Run ONE instruction: fetch it, decode it, execute it.
+</span><span class="boring">/// Returns `false` when the program says stop, `true` otherwise.</span></code></pre>
+<p>Look at the Immediate arm closely — it’s slightly sneaky. The value sits right where PC
+points, so its address… <em>is</em> PC. We note the address, hop over the value, done. Even
+“the value is right here” is just an address.</p>
+<h2 id="the-fast-lane"><a class="header" href="#the-fast-lane">The fast lane</a></h2>
+<p>The first 256 addresses — $0000 to $00FF — are called the <strong>zero page</strong>, and the 6502
+treats them as its favorite shelf. Naming one takes a single byte instead of two, which
+makes the instruction shorter and, on real hardware, faster. 6502 programmers guard
+their zero page like treasure.</p>
+<p>Two new menu entries — add them to the enum, under <code>Immediate</code>:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">pub enum AddressingMode {
+</span><span class="boring">    /// The value sits right after the opcode, in the program itself.
+</span><span class="boring">    Immediate,
+</span>    /// One byte names an address in the first 256 — the "zero page".
+    ZeroPage,
+    /// Zero page, then add X.
+    ZeroPageX,</code></pre>
+<p>And their finding-code, in <code>operand_address</code>, after the Immediate arm:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    self.pc = self.pc.wrapping_add(1);
+</span><span class="boring">    address
+</span><span class="boring">}
+</span>// One byte, naming one of the first 256 addresses.
+AddressingMode::ZeroPage =&gt; {
+    let address = self.read(self.pc) as u16;
+    self.pc = self.pc.wrapping_add(1);
+    address
+}
+// Zero page plus X — and the sum wraps WITHIN the page:
+// $FF + 2 lands on $01, never on $101.
+AddressingMode::ZeroPageX =&gt; {
+    let base = self.read(self.pc);
+    self.pc = self.pc.wrapping_add(1);
+    base.wrapping_add(self.x) as u16
+}</code></pre>
+<p><code>ZeroPageX</code> is the list-reading flavor: the program names a starting spot, X picks which
+entry. And note its little rule: base plus X <em>wraps within the page</em> — $FF + 2 lands on
+$01, never $101. The zero page is a circle, not a line. Our test will prove it.</p>
+<p>(There’s a Y twin, <code>ZeroPage,Y</code>. Exactly one instruction uses it, and it arrives in
+chapter 9 — no point stocking a shelf nobody shops from yet.)</p>
+<h2 id="anywhere-at-all"><a class="header" href="#anywhere-at-all">Anywhere at all</a></h2>
+<p>For everywhere else there’s <strong>absolute</strong> mode: a full two-byte address, little end first —
+your <code>read_word</code> from chapter 4 has been waiting for this moment. Three menu entries:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">ZeroPage,
+</span><span class="boring">/// Zero page, then add X.
+</span><span class="boring">ZeroPageX,
+</span>/// A full two-byte address. Anywhere in memory.
+Absolute,
+/// Absolute, then add X.
+AbsoluteX,
+/// Absolute, then add Y.
+AbsoluteY,</code></pre>
+<p>And their arms:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    self.pc = self.pc.wrapping_add(1);
+</span><span class="boring">    base.wrapping_add(self.x) as u16
+</span><span class="boring">}
+</span>// Two bytes, little end first — a full address.
+AddressingMode::Absolute =&gt; {
+    let address = self.read_word(self.pc);
+    self.pc = self.pc.wrapping_add(2);
+    address
+}
+// Absolute plus X: perfect for "element X of a list".
+AddressingMode::AbsoluteX =&gt; {
+    let base = self.read_word(self.pc);
+    self.pc = self.pc.wrapping_add(2);
+    base.wrapping_add(self.x as u16)
+}
+// The same, with Y.
+AddressingMode::AbsoluteY =&gt; {
+    let base = self.read_word(self.pc);
+    self.pc = self.pc.wrapping_add(2);
+    base.wrapping_add(self.y as u16)
+}</code></pre>
+<p><code>Absolute,X</code> and <code>Absolute,Y</code> are how games walk through lists anywhere in memory:
+“the table starts at $0200; give me entry X.” When a game draws a row of enemies,
+something very like this is running.</p>
+<h2 id="follow-the-pointer"><a class="header" href="#follow-the-pointer">Follow the pointer</a></h2>
+<p>Now the strangest and most powerful flavor. Sometimes a program can’t say the address in
+advance, because <em>the address itself is data</em> — computed while the game runs, stored in
+memory like any other value. A stored address has a name: a <strong>pointer</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="../img/indirect-mode.svg" alt="LDA ($20),Y"><span class="img-wrapper"><img src="../img/indirect-mode.svg" alt="LDA ($20),Y"></span></label></p>
+<p>The parentheses say everything: <em>don’t stop at $20 — follow what you find there.</em>
+And here’s why that changes everything: the pointer is two bytes of ordinary, writable
+memory. The program can re-aim it while running — at this level’s map now, at the next
+level’s later — and the same LDA serves both without changing a single instruction.
+Every “current thing” a game has (current level, current song, current enemy list) is
+somewhere downstream of a pointer like this one.</p>
+<p>Last two menu entries:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    AbsoluteX,
+</span><span class="boring">    /// Absolute, then add Y.
+</span><span class="boring">    AbsoluteY,
+</span>    /// ($xx,X): add X to a zero-page spot; a POINTER waits there.
+    IndirectX,
+    /// ($xx),Y: a pointer waits at a zero-page spot; add Y afterwards.
+    IndirectY,
+<span class="boring">}</span></code></pre>
+<p>And their arms — each one is just moves you already know, chained:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">            self.pc = self.pc.wrapping_add(2);
+</span><span class="boring">            base.wrapping_add(self.y as u16)
+</span><span class="boring">        }
+</span>        // ($xx,X): add X to the zero-page spot, THEN follow the
+        // pointer stored there.
+        AddressingMode::IndirectX =&gt; {
+            let base = self.read(self.pc);
+            self.pc = self.pc.wrapping_add(1);
+            let pointer = base.wrapping_add(self.x) as u16;
+            self.read_word(pointer)
+        }
+        // ($xx),Y: follow the pointer at the zero-page spot, THEN
+        // add Y to wherever it led.
+        AddressingMode::IndirectY =&gt; {
+            let base = self.read(self.pc) as u16;
+            self.pc = self.pc.wrapping_add(1);
+            self.read_word(base).wrapping_add(self.y as u16)
+        }
+<span class="boring">    }
+</span><span class="boring">}</span></code></pre>
+<p>The difference between the two is <em>when</em> the register joins in. <code>($xx,X)</code>: add X first,
+then follow. <code>($xx),Y</code>: follow first, then add Y. The second one is everywhere in real
+games — “the current level’s data, entry Y” — and the first is its rare cousin. If this
+section needed two reads, that’s normal. It’s the hardest idea in the chapter, and it’s
+downhill from here.</p>
+<h2 id="rewiring-lda"><a class="header" href="#rewiring-lda">Rewiring LDA</a></h2>
+<p>Time to spend all this. First, a small ceremony: <strong>delete the old LDA arm</strong> — the whole
+<code>0xA9 =&gt; { ... }</code> block in <code>step</code>, from chapter 5, flag-note line and all. It served
+well for one chapter. This is the first time the book replaces code you typed, and it
+won’t be the last; building software means outgrowing your own earlier work, on purpose,
+without sentimentality.</p>
+<p>In its place, LDA becomes a one-liner per flavor. First the worker — into the <code>impl</code>
+block, right after <code>step</code>:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    true
+</span><span class="boring">}
+</span>
+/// LDA, any flavor: find the value, load it into A, take notes.
+fn lda(&amp;mut self, mode: AddressingMode) {
+    let address = self.operand_address(mode);
+    self.a = self.read(address);
+    self.update_zero_and_negative(self.a);
+}</code></pre>
+<p>Find, load, take notes: the same three moves as always, but the <em>finding</em> is delegated.
+Now the new arms, where the old LDA arm used to be:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">// DECODE and EXECUTE: recognize the opcode, do what it says.
+</span><span class="boring">match opcode {
+</span>    // LDA, in every flavor the 6502 sells it.
+    0xA9 =&gt; self.lda(AddressingMode::Immediate),
+    0xA5 =&gt; self.lda(AddressingMode::ZeroPage),
+    0xB5 =&gt; self.lda(AddressingMode::ZeroPageX),
+    0xAD =&gt; self.lda(AddressingMode::Absolute),
+    0xBD =&gt; self.lda(AddressingMode::AbsoluteX),
+    0xB9 =&gt; self.lda(AddressingMode::AbsoluteY),
+    0xA1 =&gt; self.lda(AddressingMode::IndirectX),
+    0xB1 =&gt; self.lda(AddressingMode::IndirectY),</code></pre>
+<p>Eight flavors, eight lines. And since storing is loading’s mirror, A’s way <em>back</em> to
+memory costs almost nothing now. The worker — right after <code>lda</code>:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">    self.a = self.read(address);
+</span><span class="boring">    self.update_zero_and_negative(self.a);
+</span><span class="boring">}
+</span>
+/// STA, any flavor: find the address, store A there.
+/// No flags — storing changes memory, not the CPU's mood.
+fn sta(&amp;mut self, mode: AddressingMode) {
+    let address = self.operand_address(mode);
+    self.write(address, self.a);
+}
+<span class="boring">
+</span><span class="boring">/// Almost every instruction ends the same way: the CPU looks at the
+</span><span class="boring">/// value it just produced and updates two flags about it.</span></code></pre>
+<p>STA takes no notes — storing changes memory, not the CPU’s mood — and has no Immediate
+flavor: “store into the program itself” is not a thing the 6502 sells. Its arms, under
+LDA’s:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">0xA1 =&gt; self.lda(AddressingMode::IndirectX),
+</span><span class="boring">0xB1 =&gt; self.lda(AddressingMode::IndirectY),
+</span><span class="boring">
+</span>// STA — STore A into memory. Same flavors, minus Immediate:
+// "store into the program itself" is not a thing the 6502 sells.
+0x85 =&gt; self.sta(AddressingMode::ZeroPage),
+0x95 =&gt; self.sta(AddressingMode::ZeroPageX),
+0x8D =&gt; self.sta(AddressingMode::Absolute),
+0x9D =&gt; self.sta(AddressingMode::AbsoluteX),
+0x99 =&gt; self.sta(AddressingMode::AbsoluteY),
+0x81 =&gt; self.sta(AddressingMode::IndirectX),
+0x91 =&gt; self.sta(AddressingMode::IndirectY),
+
+<span class="boring">// TAX — Transfer A to X. A keeps its value; X gets a copy.
+</span><span class="boring">0xAA =&gt; {
+</span><span class="boring">    self.x = self.a;</span></code></pre>
+<p>Two instructions, fifteen opcodes, one <code>operand_address</code>. That’s the payoff of building
+the modes once: every load-and-store instruction from now on is a couple of lines.</p>
+<h2 id="a-round-trip-through-memory"><a class="header" href="#a-round-trip-through-memory">A round trip through memory</a></h2>
+<p>The demo program deserves an upgrade. Replace the comment table and the <code>program</code> line
+inside <code>cpu_demo</code> (in <code>main.rs</code>) with:</p>
+<p><strong><code>src/main.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">/// Load a little machine-code program, wake the CPU, run it to the end,
+</span><span class="boring">/// and print every pocket after every instruction.
+</span><span class="boring">fn cpu_demo() {
+</span>    // A value takes a round trip through memory: into address $0010,
+    // then A is wiped clean, then the value comes back.
+    //
+    // bytes    meaning
+    // A9 2A    LDA #42    put 42 into A
+    // 85 10    STA $10    store A at address $0010
+    // A9 00    LDA #0     wipe A clean
+    // A5 10    LDA $10    bring the 42 back
+    // 00       BRK        stop
+    let program = [0xA9, 0x2A, 0x85, 0x10, 0xA9, 0x00, 0xA5, 0x10, 0x00];
+<span class="boring">
+</span><span class="boring">    let mut cpu = Cpu::new();</span></code></pre>
+<p><code>cargo run</code>:</p>
+<pre><code class="language-text">  pc     a  x  y
+  ---------------
+  8002   2A 00 00
+  8004   2A 00 00
+  8006   00 00 00
+  8008   2A 00 00
+  8009   2A 00 00
+  (BRK: the program is done)
+</code></pre>
+<p>Watch A’s column: <code>2A</code> (42 arrives), <code>2A</code> (stored — A keeps its copy), <code>00</code> (wiped
+clean), <code>2A</code> — <em>back from the dead</em>. The value survived outside the CPU, in memory, and
+LDA’s zero-page flavor fetched it home. Every game you’ve ever played is this trick,
+performed a few million times per second.</p>
+<h2 id="did-it-work"><a class="header" href="#did-it-work">Did it work?</a></h2>
+<p>The modes need something to find, so the robots get a new helper that <em>plants</em> values in
+memory before running. Add these inside the <code>tests</code> module, after the chapter 5 tests:</p>
+<p><strong><code>src/cpu.rs</code></strong></p>
+<pre><code class="language-rust"><span class="boring">        assert_eq!(cpu.x, 0);
+</span><span class="boring">        assert!(cpu.status &amp; FLAG_ZERO != 0);
+</span><span class="boring">    }
+</span>
+    /// Like `run_program`, but first plant some values in memory —
+    /// the addressing modes need something to find.
+    fn run_program_with(program: &amp;[u8], plants: &amp;[(u16, u8)]) -&gt; Cpu {
+        let mut cpu = Cpu::new();
+        for (i, byte) in program.iter().enumerate() {
+            cpu.write(0x8000 + i as u16, *byte);
+        }
+        for (address, value) in plants {
+            cpu.write(*address, *value);
+        }
+        cpu.write(0xFFFC, 0x00);
+        cpu.write(0xFFFD, 0x80);
+        cpu.reset();
+
+        while cpu.step() {}
+        cpu
+    }
+
+    #[test]
+    fn lda_zero_page_reads_from_the_first_page() {
+        // LDA $10 — the byte planted at $0010 lands in A.
+        let cpu = run_program_with(&amp;[0xA5, 0x10, 0x00], &amp;[(0x0010, 0x2A)]);
+        assert_eq!(cpu.a, 0x2A);
+    }
+
+    #[test]
+    fn lda_zero_page_x_wraps_inside_the_page() {
+        // X = 2 (via TAX), then LDA $FF,X — $FF + 2 wraps to $01.
+        let cpu = run_program_with(&amp;[0xA9, 0x02, 0xAA, 0xB5, 0xFF, 0x00], &amp;[(0x0001, 0x77)]);
+        assert_eq!(cpu.a, 0x77);
+    }
+
+    #[test]
+    fn lda_absolute_reads_anywhere() {
+        // LDA $0234.
+        let cpu = run_program_with(&amp;[0xAD, 0x34, 0x02, 0x00], &amp;[(0x0234, 0x55)]);
+        assert_eq!(cpu.a, 0x55);
+    }
+
+    #[test]
+    fn lda_absolute_x_adds_x() {
+        // A = X = 5 via TAX, then LDA $0200,X reads $0205.
+        let cpu = run_program_with(
+            &amp;[0xA9, 0x05, 0xAA, 0xBD, 0x00, 0x02, 0x00],
+            &amp;[(0x0205, 0x11)],
+        );
+        assert_eq!(cpu.a, 0x11);
+    }
+
+    #[test]
+    fn lda_absolute_y_adds_y() {
+        // The test sets Y by hand — robots may reach anywhere.
+        let mut cpu = Cpu::new();
+        for (i, byte) in [0xB9, 0x00, 0x02, 0x00].iter().enumerate() {
+            cpu.write(0x8000 + i as u16, *byte);
+        }
+        cpu.write(0x0205, 0x66);
+        cpu.write(0xFFFC, 0x00);
+        cpu.write(0xFFFD, 0x80);
+        cpu.reset();
+        cpu.y = 5;
+        while cpu.step() {}
+        assert_eq!(cpu.a, 0x66);
+    }
+
+    #[test]
+    fn lda_indirect_x_adds_x_then_follows_the_pointer() {
+        // X = 4 via TAX; ($1C,X) means the pointer waits at $20,
+        // and the pointer says $0300.
+        let cpu = run_program_with(
+            &amp;[0xA9, 0x04, 0xAA, 0xA1, 0x1C, 0x00],
+            &amp;[(0x0020, 0x00), (0x0021, 0x03), (0x0300, 0x88)],
+        );
+        assert_eq!(cpu.a, 0x88);
+    }
+
+    #[test]
+    fn lda_indirect_y_follows_the_pointer_then_adds_y() {
+        // The pointer at $20/$21 says $0300; Y adds 4; $0304 holds the prize.
+        let mut cpu = Cpu::new();
+        for (i, byte) in [0xB1, 0x20, 0x00].iter().enumerate() {
+            cpu.write(0x8000 + i as u16, *byte);
+        }
+        cpu.write(0x0020, 0x00); // pointer, little end
+        cpu.write(0x0021, 0x03); // pointer, big end
+        cpu.write(0x0304, 0x99);
+        cpu.write(0xFFFC, 0x00);
+        cpu.write(0xFFFD, 0x80);
+        cpu.reset();
+        cpu.y = 4;
+        while cpu.step() {}
+        assert_eq!(cpu.a, 0x99);
+    }
+
+    #[test]
+    fn sta_stores_a_into_memory() {
+        // LDA #$42, STA $0250.
+        let cpu = run_program(&amp;[0xA9, 0x42, 0x8D, 0x50, 0x02, 0x00]);
+        assert_eq!(cpu.read(0x0250), 0x42);
+    }
+<span class="boring">}</span></code></pre>
+<p>Two tests do something new: they set <code>cpu.y</code> by hand, because no instruction can load Y
+until chapter 9. That’s allowed — tests may reach into places programs can’t. Robots
+have long arms.</p>
+<p><code>cargo test</code>: seventeen green.</p>
+<blockquote>
+<p><strong>Try it</strong></p>
+<ul>
+<li>Write a demo program that copies a value from $10 to $11 without A ever holding it
+at the end. (Hint: LDA $10, STA $11, LDA #0.)</li>
+<li>Point LDA at the reset vector itself: <code>LDA $FFFC</code> (absolute). What lands in A, and
+why did you already know?</li>
+<li>Add a test: STA’s zero page,X flavor should wrap at the page edge just like LDA’s.</li>
+</ul>
+</blockquote>
+<blockquote>
+<p><strong>For the curious</strong></p>
+<p>Why is zero page genuinely faster on the real chip? Because every byte of an
+instruction takes one clock tick to fetch. <code>LDA $10</code> is two bytes; <code>LDA $0010</code> written
+absolutely is three. Same address, one tick slower — and in a game drawing 60 pictures
+a second, ticks are money. Memory is sliced into 256-byte <em>pages</em> ($0000–$00FF is page
+zero, $0100–$01FF page one, and so on); crossing from one page to another mid-count
+has its own costs, which becomes a whole story in Part II.</p>
+</blockquote>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../part1/ch05-fetch-decode-execute.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../part1/ch07-doing-math-and-making-choices.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../part1/ch05-fetch-decode-execute.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../part1/ch07-doing-math-and-making-choices.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

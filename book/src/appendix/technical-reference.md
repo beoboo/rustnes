@@ -1,1 +1,0 @@
-# Appendix: NES Technical Reference
