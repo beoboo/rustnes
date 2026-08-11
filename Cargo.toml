@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/rn_audio",
     "crates/rn_core",
     "crates/rn_input",
     "crates/rn_ui", 

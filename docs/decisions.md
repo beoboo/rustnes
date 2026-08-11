@@ -40,9 +40,12 @@ Design decisions that came out of completed plans, kept after the plans themselv
 - **Timing questions are measured, not argued**: instrument the clock, record which dot raised
   the line, line it up against the test's table.
 
-## Conformance (the standing rules; the how-to lives in [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md))
+## Conformance (the standing rules)
 
-- **Test ROMs are never committed.** The runner takes a path, skips cleanly when ROMs are
-  absent, and CI stays green without them.
+- **Test ROMs are never committed** — they are freely distributed but not licensed for
+  redistribution. The runner takes a path, skips cleanly when ROMs are absent, and CI stays
+  green without them. The suites come from the community's
+  [nes-test-roms](https://github.com/christopherpow/nes-test-roms) collection; nestest and its
+  golden log from the NESdev wiki.
 - **End-to-end ROMs outrank unit tests** for accuracy claims; numbers in docs are claims until
   re-run ([TODO.md](TODO.md) keeps the measured table).

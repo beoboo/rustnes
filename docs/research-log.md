@@ -3,7 +3,7 @@
 The record of how this emulator was made accurate: what each community test ROM turned out to
 measure, what was wrong, and how it was found. This is the whole of the old TODO.md apart from its
 wishlist, moved here because that file had become half task list and half laboratory notebook and
-was serving neither well. [TODO.md](TODO.md) is now the live list; [IDEAS.md](IDEAS.md) took the
+was serving neither well. [TODO.md](TODO.md) is now the live list; [ideas.md](ideas.md) took the
 someday-maybe.
 
 Nothing here is a
@@ -503,7 +503,7 @@ and several were found wrong within days of being recorded. Re-run before quotin
 - [x] Which length counters a reset leaves enabled: all of them. A reset clears `$4015` and nothing
       else, so `$4000-$4013` and everything derived from them survive
 - [ ] Drop the `objc2` `relax-sign-encoding` workaround in the root Cargo.toml once eframe/winit
-      move to objc2 0.6+ (the relax-sign-encoding decision, recorded in DECISIONS.md)
+      move to objc2 0.6+ (the relax-sign-encoding decision, recorded in decisions.md)
 
 ### [APU] Advanced Audio Features [T7]
 - [x] Implement length counters for sound duration
@@ -530,7 +530,7 @@ and several were found wrong within days of being recorded. Re-run before quotin
 The community's test ROMs are the independent check on everything built so far. Commercial and test
 ROMs cannot be committed here, so `tools/rom_test` skips cleanly without them and the unit tests
 synthesise their own iNES images. Full rationale and ROM list in
-[CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md).
+the retired conformance plan (git history; the standing rules live in [decisions.md](decisions.md)).
 
 ### [Cartridge] PRG-ROM loading [T8]
 - [x] Return PRG-ROM from the loader instead of skipping past it to the CHR data
@@ -960,7 +960,7 @@ Measured for the first time, and three of them were already passing:
       6502 cycle runs on past its access, so the poll belongs one dot later, at the cycle's end.
       Two dots before the access and one after, with the lines read at the end of the second.
       Full account in the retired CYCLE_ACCURACY.md (git history; decisions distilled in
-      [DECISIONS.md](DECISIONS.md)), including the measurement that found
+      [decisions.md](decisions.md)), including the measurement that found
       the dot, and how the same dot turned out to be behind `ADDRESS_BUS_LEAD_DOTS` — a constant
       that existed only to cancel it, now deleted.
 
@@ -1584,7 +1584,7 @@ its own. Both are substantial and each deserves its own sitting; the groundwork 
 already in place.
 
 ### [CPU] Per-cycle state machine
-Design and ordering per the retired CYCLE_ACCURACY.md (git history; decisions in [DECISIONS.md](DECISIONS.md)), written after checking the hardware
+Design and ordering per the retired CYCLE_ACCURACY.md (git history; decisions in [decisions.md](decisions.md)), written after checking the hardware
 documentation rather than attempting a fourth time from intuition.
 
 Today an instruction is one indivisible step: it runs to completion and the rest of the system is
@@ -2246,7 +2246,7 @@ Two failure modes in one number, both worth recognising elsewhere:
   The percentages below sat unchallenged for months, and one of the tracks it reported as unfinished
   had had its work land long before.
 
-The metric is gone; the list it counted is in [IDEAS.md](IDEAS.md), unticked and clearly labelled
+The metric is gone; the list it counted is in [ideas.md](ideas.md), unticked and clearly labelled
 as not planned.
 
 ```
@@ -2261,9 +2261,9 @@ line carries a track tag.
 - Track 3 (Basic Sprite Rendering): 100% complete (73/73 tasks)
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
 - Track 5 (Input Controllers): 92% complete (35/38 tasks) - Controller input is fully implemented with keyboard mapping support; what remains is the D-pad movement demo ROM
-- Track 6 (Basic Sound Output): 100% complete (48/48 tasks) - APU registers, pulse channel, volume/mute controls, and audio output through CPAL. The output pipeline was rebuilt (resampling, non-linear mixing, APU clock divider, audio-clock pacing) — decisions in [DECISIONS.md](DECISIONS.md)
+- Track 6 (Basic Sound Output): 100% complete (48/48 tasks) - APU registers, pulse channel, volume/mute controls, and audio output through CPAL. The output pipeline was rebuilt (resampling, non-linear mixing, APU clock divider, audio-clock pacing) — decisions in [decisions.md](decisions.md)
 - Track 7 (Complete Audio System): 76% complete (44/58 tasks) - All audio channels implemented (pulse, triangle, noise, DMC) with hardware non-linear mixing, output filters, envelope generators, sweep units and length counters, and the frame IRQ, 5-step mode and DMC bus reads are all done. What remains is $4017 write and reset timing, and the per-channel test ROMs
-- Track 8 (Conformance & Test ROMs): 72% complete (23/32 tasks) - PRG-ROM loading, the headless runner and the official instruction set are done; the suites that still fail are mostly waiting on the two rewrites at the end of this file. See [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)
+- Track 8 (Conformance & Test ROMs): 72% complete (23/32 tasks) - PRG-ROM loading, the headless runner and the official instruction set are done; the suites that still fail are mostly waiting on the two rewrites at the end of this file. The standing rules live in [decisions.md](decisions.md)
 - Track 9 (Mappers & Cartridges): 83% complete (10/12 tasks) - NROM, MMC1, UxROM, MMC3 (with A12 timing) and AxROM, saved and restored with snapshots. CNROM, MMC2 and Color Dreams are unstarted and unneeded so far
 - Track 10 (Full Desktop System): 4% complete (3/74 tasks) - Commercial ROMs, save states and fullscreen work; the bulk of the count is the CPU/PPU/debugger sections filed here, much of which is implemented but tracked in earlier milestones' boxes
 - Track 11 (Web Integration): 0% complete (0/41 tasks)

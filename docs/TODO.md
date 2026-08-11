@@ -5,7 +5,7 @@ mixing them made both useless:
 
 - **[research-log.md](research-log.md)** — how each accuracy bug was found and fixed.
   Finished work, kept because the diagnosis is the valuable part and the code only shows the answer.
-- **[IDEAS.md](IDEAS.md)** — someday-maybe. Roughly 240 unticked boxes of netplay, WebAssembly,
+- **[ideas.md](ideas.md)** — someday-maybe. Roughly 240 unticked boxes of netplay, WebAssembly,
   shaders and audio visualisation, none of it planned, all of it making the project read as 57%
   finished when every conformance suite that has a verdict already passes.
 

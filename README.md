@@ -1,57 +1,53 @@
 # RustNES
 
-A Nintendo Entertainment System emulator written in Rust, built test-first, with every subsystem
-inspectable live through a debugger UI while it runs.
+A Nintendo Entertainment System emulator in Rust that you can **watch working**: every subsystem
+inspectable live in a dockable debugger while a game runs, and every subsystem measurable
+headless when you'd rather have numbers than impressions.
 
-- **[TODO.md](docs/TODO.md)** — the live task list, and only that
-- **[docs/research-log.md](docs/research-log.md)** — how every accuracy bug was found and fixed
-- **[IDEAS.md](docs/IDEAS.md)** — someday-maybe, explicitly not planned
-- **[DECISIONS.md](docs/DECISIONS.md)** — design decisions distilled from retired plans
-- **[CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md)** — validating against the NES test ROMs (done)
+**It plays.** Donkey Kong and Super Mario Bros 3 boot and play, on NTSC and PAL — and every
+community conformance suite with a verdict to give passes: nestest's 8991 instructions against
+the golden log, blargg's instruction, timing, interrupt and reset suites, the PPU
+vblank/NMI/sprite suites, the APU suites. The measured table lives in
+[docs/TODO.md](docs/TODO.md), kept honest by re-running rather than remembering, alongside the
+short list of open dot-level residuals — each with a current hypothesis, because "it's probably
+timing" is not a bug report.
 
-## Status
+## What's inside
 
 | Subsystem | State |
 | --- | --- |
-| 6502 CPU | Working — **nestest passes 8991/8991**; 231 of 256 opcodes; NMI/IRQ at instruction granularity |
-| Memory / bus | Working — address decoding, component attachment, region map |
-| DMA | Working — OAM DMA controller with cycle stealing |
-| Input | Working — controllers, remappable key profiles |
-| PPU | Working — scanline rendering, scrolling, mirroring, sprites, sprite-zero hit, mask features; not cycle-accurate *within* a scanline |
-| Cartridge | Mappers 0, 1, 2, 4 and 7 (NROM, MMC1, UxROM, MMC3, AxROM), including MMC3's scanline IRQ |
-| APU | Working — all five channels, hardware non-linear mixing, resampling, output filters |
-| Debugger UI | Working — dockable egui workspace with per-subsystem widgets |
-
-**Commercial games run.** Donkey Kong (NROM) and Super Mario Bros 3 (MMC3) both boot and are
-playable, and every conformance suite with a verdict to give passes — nestest's 8991 instructions
-against the golden log, blargg's instruction, timing, interrupt and reset suites, the PPU
-vblank/NMI/sprite suites and the APU suites, on NTSC and PAL. The measured table, kept honest by
-re-running rather than remembering, lives in [docs/TODO.md](docs/TODO.md), along with the short
-list of open dot-level residuals and the current hypothesis for each. How validation works is
-[docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md).
+| 6502 CPU | All 256 opcodes, official and unofficial — nestest passes 8991/8991. Interrupt lines sampled per cycle at the cycle's true phase: CLI latency, branch delays and BRK hijacking all behave |
+| PPU | Scanline renderer: scrolling, mirroring, sprites, sprite-zero hit, sprite overflow, mask features, per-scanline sprite evaluation |
+| APU | All five channels through the hardware's own non-linear mixer, decimated and filtered like the console, paced by the sound card |
+| Cartridge | NROM, MMC1, UxROM, MMC3 (scanline IRQ included), AxROM |
+| DMA | OAM DMA with cycle stealing |
+| Input | Two controllers, remappable profiles, two keyboard layouts live at once |
+| Debugger | Dockable egui workspace: CPU, PPU, memory, pattern tables, disassembly, DMA, controllers, audio, waveform |
 
 ## Repository layout
 
 ```
 crates/
-  rn_core/     Emulator core: cpu, ppu, apu, memory, cartridge, dma, input, system bus
-  rn_audio/    Host audio backend: cpal output, ring buffer, channel, multiplexer, test oscillator
+  rn_core/     The emulator: cpu, ppu, apu, memory, cartridge, dma, input, system bus
+  rn_audio/    Host audio: cpal output, ring buffer, multiplexer, test oscillator
   rn_input/    Controller profiles and key mapping
-  rn_ui/       egui widgets: cpu, ppu, memory, pattern table, disasm, audio, waveform, ...
+  rn_ui/       egui widgets for every subsystem
 tools/
-  apu_probe/        Headless audio harness — run a program, measure/save what the APU produced
-  rom_test/         Headless NES test-ROM runner (nestest log-diff, blargg $6000 protocol,
-                    frame capture to PPM/ASCII)
+  nes_debugger/     The main application — the full dockable workspace
+  rom_test/         Headless test-ROM runner: nestest log-diff, blargg's $6000 protocol,
+                    screen reading, frame capture, committed frame baselines
+  apu_probe/        Headless audio harness — run a program, measure what the APU produced
   nes_asm/          Command-line 6502 assembler
-  nes_debugger/     The main application — full dockable debugger workspace
-  waveform_player/  Standalone oscillator + waveform-visualizer playground (no emulation)
+  waveform_player/  Oscillator + waveform playground, no emulation involved
+  nesref/           Reference-emulator comparison shims (excluded from the workspace;
+                    needs an external checkout — see its README)
 asm/           6502 test programs, including one per APU channel
-docs/          Requirements, references, development guide
+docs/          The task list, the research log, the decisions
 ```
 
-`rn_core` has no dependency on any host graphics or audio library. It exposes narrow traits
-(`Addressable` for the bus, `SampleProducer`/`SampleConsumer` for audio) that the outer crates
-implement, which is what keeps the core testable in isolation and portable to WebAssembly later.
+`rn_core` knows nothing about the host: no graphics, no audio, no windowing. It exposes narrow
+traits (`Addressable` for the bus, `SampleProducer`/`SampleConsumer` for audio) that the outer
+crates implement — which is what keeps the core testable in isolation.
 
 ## Building and running
 
@@ -59,29 +55,34 @@ implement, which is what keeps the core testable in isolation and portable to We
 cargo build --workspace
 cargo test  --workspace
 
-cargo run -p nes_debugger                                # main debugger
-cargo run -p nes_debugger -- asm/simple_tone_test.asm    # load assembly on startup
-cargo run -p nes_debugger -- game.nes                    # or an iNES ROM
+cargo run -p nes_debugger                                # the debugger
+cargo run -p nes_debugger -- game.nes                    # ...straight into an iNES ROM
+cargo run -p nes_debugger -- asm/simple_tone_test.asm    # ...or a 6502 source file
 cargo run -p nes_asm -- asm/basic_tone_test.asm          # assemble from the command line
-cargo run -p waveform_player                             # audio playground, no emulator involved
-
-cargo run -p apu_probe -- list                           # built-in audio test programs
-cargo run -p apu_probe -- check                          # measure them all, pass/fail
-cargo run -p apu_probe -- run pulse --out /tmp/a.wav     # capture one to a WAV
+cargo run -p waveform_player                             # audio playground
 
 cargo run -p rom_test -- nestest roms/nestest.nes roms/nestest.log
 cargo run -p rom_test -- suite roms/                     # every .nes under a directory
 cargo run -p rom_test -- frame game.nes --ascii          # what the PPU drew, in the terminal
+cargo run -p rom_test -- frame game.nes --press start@130 --out shot.ppm
+
+cargo run -p apu_probe -- check                          # measure every audio test program
+cargo run -p apu_probe -- run pulse --out /tmp/a.wav     # capture one to a WAV
 ```
 
-Test ROMs are not distributed here (see [CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md)); `rom_test`
-skips cleanly with a message when they are absent, so a fresh checkout stays green.
+Test ROMs are not distributed here — they're freely available (the community's
+[nes-test-roms](https://github.com/christopherpow/nes-test-roms) collection; nestest and its
+golden log from the NESdev wiki) but not licensed for redistribution. `rom_test` skips cleanly
+when they're absent, so a fresh checkout stays green.
 
-In the debugger: **Assemble** builds the source in the Assembly tab into system memory, **Run**
-starts continuous execution (and starts the audio stream), **Step** advances one instruction,
-**Next Frame** advances one video frame.
+## The debugger
 
-Controller 1 accepts both common layouts at once, and the Controller tab lists the live mapping:
+**Assemble** builds the Assembly tab's source into memory, **Run** starts continuous execution
+(and the audio stream), **Step** advances one instruction, **Next Frame** one video frame. The
+dock rearranges freely; tabs cover CPU, PPU, memory, pattern tables, DMA, controllers,
+disassembly, audio controls and the output waveform.
+
+Controller 1 accepts both common layouts at once; the Controller tab shows the live mapping:
 
 | Button | Keys |
 | --- | --- |
@@ -89,24 +90,14 @@ Controller 1 accepts both common layouts at once, and the Controller tab lists t
 | A | `Z` or `K` |
 | B | `X` or `L` |
 | Start | `Enter` or `Space` |
-| Select | `Tab` or `Right Shift` | The dock can be rearranged freely; tabs cover CPU, PPU,
-memory, pattern tables, DMA, controller, disassembly, audio controls and the output waveform.
+| Select | `Tab` or `Right Shift` |
 
-## Test programs
+## Audio you can measure
 
-[asm/](asm/) holds 6502 sources used as end-to-end tests, written for this project's assembler
-syntax (segments `STARTUP` and `CHARS`). They cover pixel output, pattern tables, sprites,
-animation, controller input, and one program per APU channel — `pulse_channel_test.asm`,
-`simple_triangle_test.asm`, `noise_channel_test.asm`, `dmc_channel_test.asm`.
-
-## Audio
-
-The audio path was rebuilt; the decisions that survived the rebuild are in
-[docs/DECISIONS.md](docs/DECISIONS.md), and the research log tells what was broken and how it
-was found.
+The signal path, per CPU cycle:
 
 ```
-Apu::tick (per CPU cycle)
+Apu::tick
   |-- APU divider: pulse + noise at CPU/2, triangle at CPU rate
   |-- non-linear mixer (NESdev lookup tables) -> 0.0..=1.0
   |-- decimate to the device's real sample rate, averaging the discarded cycles
@@ -115,31 +106,16 @@ Apu::tick (per CPU cycle)
                   `-> bounded channel --> waveform widget
 ```
 
-The sound card is the master clock: emulation runs however many cycles are needed to refill the
-ring buffer to ~50%, so production cannot drift from consumption. Buffer fill level, underruns and
-dropped samples are shown in the debugger's Audio tab.
+The sound card is the master clock: emulation runs exactly as many cycles as it takes to keep
+the ring buffer half full, so production cannot drift from consumption. Fill level, underruns
+and dropped samples are live in the debugger's Audio tab.
 
-`rn_core` still knows nothing about the host — `rn_audio` implements two traits and everything
-else is behind them.
-
-### Measuring it
-
-`apu_probe` runs a program with no window and no sound card, captures exactly what the APU
-produced, and measures it. Every audio defect this project has had was a property of the signal —
-wrong sample rate, wrong pitch, DC offset instead of a waveform, amplitude an order of magnitude
-too low — and each shows up as a number here, where in the GUI they all just sound "broken".
+Audio bugs are properties of the *signal* — wrong pitch, DC offset, an amplitude an order of
+magnitude off — and in a GUI they all just sound "broken". So `apu_probe` runs a program with no
+window and no sound card, and turns the output into numbers:
 
 ```
 $ cargo run -p apu_probe -- run pulse
-
-Capture
-  samples          95999
-  rate error       0.00%  (expected 96000 samples)
-
-Level
-  peak             0.1239
-  dc offset        -0.00000
-  clipped samples  0
 
 Pitch
   zero crossings   438.7 Hz
@@ -148,24 +124,24 @@ Pitch
   ratio            1.000x   OK
 ```
 
-Pitch is measured two independent ways — zero crossings and a DFT scan — so agreement is evidence
-the reading is real. A wrong ratio is named rather than just flagged: `2.000x` prints "ONE OCTAVE
-SHARP (clocked at CPU rate, not APU rate?)". `--out file.wav` saves the capture for listening or
-for an external analyser.
+Pitch is measured two independent ways — zero crossings and a DFT scan — so agreement is
+evidence the reading is real. A wrong ratio is *named*, not just flagged: `2.000x` prints
+"ONE OCTAVE SHARP (clocked at CPU rate, not APU rate?)". The same measurements run as tests in
+`crates/rn_core/tests/audio_pipeline.rs`.
 
-The same measurements run as tests in `crates/rn_core/tests/audio_pipeline.rs`.
+## Test programs
 
-## Known gaps outside audio
+[asm/](asm/) holds 6502 sources used as end-to-end tests, written for this project's assembler.
+They cover pixel output, pattern tables, sprites, animation, controller input, and one program
+per APU channel.
 
-- `src/main.rs` at the repository root is orphaned — the root `Cargo.toml` is a pure workspace
-  manifest with no `[package]`, so that file is never compiled. It predates the split into crates.
-- `crates/rn_audio` is missing from the `members` list in the root `Cargo.toml`. It is pulled in
-  anyway as a path dependency of the tools, but should be listed explicitly.
-- Mapper support beyond the raw iNES header parse is not implemented.
-- The CPU has no interrupt delivery: NMI, IRQ and `RTI` are all absent, so the PPU's vblank NMI
-  and the APU's frame IRQ (both maintained correctly) have nothing to assert.
-- The PPU never raises its vblank flag, so every demo in [asm/](asm/) spins forever in
-  `WaitForVBlank` without reaching its initialisation code.
+## More to read
+
+- **[docs/TODO.md](docs/TODO.md)** — the live list: measured results, open items, hypotheses
+- **[docs/research-log.md](docs/research-log.md)** — how each accuracy bug was found; the
+  diagnoses are the part the code can't show
+- **[docs/decisions.md](docs/decisions.md)** — the design decisions, in one place
+- **[docs/ideas.md](docs/ideas.md)** — someday-maybe, explicitly not planned
 
 ## License
 
