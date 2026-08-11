@@ -23,13 +23,12 @@ inspectable live through a debugger UI while it runs.
 | Debugger UI | Working — dockable egui workspace with per-subsystem widgets |
 
 **Commercial games run.** Donkey Kong (NROM) and Super Mario Bros 3 (MMC3) both boot and are
-playable. `nestest` passes all 8991 instructions against its golden log, blargg's `instr_test-v5`
-passes 16/16 both official and unofficial, and `apu_test` passes 8/8.
-
-The one remaining structural gap is **cycle-level accuracy**: interrupts are serviced between
-instructions and the PPU renders whole scanlines, so anything measuring *when* something happens
-within an instruction or a scanline is approximated. See [CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md)
-for exactly which test ROMs that affects.
+playable, and every conformance suite with a verdict to give passes — nestest's 8991 instructions
+against the golden log, blargg's instruction, timing, interrupt and reset suites, the PPU
+vblank/NMI/sprite suites and the APU suites, on NTSC and PAL. The measured table, kept honest by
+re-running rather than remembering, lives in [docs/TODO.md](docs/TODO.md), along with the short
+list of open dot-level residuals and the current hypothesis for each. How validation works is
+[docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md).
 
 ## Repository layout
 

@@ -2271,3 +2271,23 @@ line carries a track tag.
 **Total Progress: 408/710 tasks complete (57.5%)** 🚀
 
 ```
+
+## What the conformance ROMs found
+
+Bugs the community test ROMs caught that no unit test could see — each channel or opcode behaved
+correctly in isolation while the assembled machine did not (salvaged from the conformance plan's
+campaign notes):
+
+
+1. **Zero-page wrap in indexed indirect.** `LDA ($FF,X)` read its pointer from `$00FF`/`$0100`
+   instead of `$00FF`/`$0000`.
+2. **ASL and LSR ignored their addressing mode when writing back**, always storing to the
+   accumulator — so `LSR $78` corrupted A and left memory untouched.
+3. **23 official opcodes were unregistered** — mostly the indirect forms of the arithmetic group.
+4. **The APU panicked on writes to unused registers** (`$4009`, `$400D`), taking the whole emulator
+   down. blargg's suite does this, so it could not even start.
+5. **`$4017` writes never reached the APU.** It is a direction-split register — writes set the
+   frame counter, reads return controller 2 — and the bus mapped one component per address, so the
+   controller swallowed both halves. Programs therefore could not inhibit the frame IRQ, and
+   `apu_test`'s `2-len_table` failed because the frame counter could not be configured at all.
+   Fixed by adding `Addressable::handles_write`, which defaults to `handles_address`.

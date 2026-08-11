@@ -1,5 +1,9 @@
 # Building a per-cycle CPU
 
+> **Status: landed.** The design below was implemented; `cpu_interrupts_v2` passes 6/6 and
+> `branch_timing` 3/3 — see [TODO.md](TODO.md) for the measured suite table. Kept as the design
+> record, because three intuition-first attempts failed and this document is why the fourth didn't.
+
 Three attempts at cycle-accurate interrupt timing have been reverted. This document is the result
 of stopping to check how it is actually done, rather than attempting a fourth from intuition.
 
