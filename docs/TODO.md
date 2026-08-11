@@ -3,7 +3,7 @@
 This file is the *live* list and nothing else. Two things used to live here and have moved, because
 mixing them made both useless:
 
-- **[docs/research-log.md](docs/research-log.md)** — how each accuracy bug was found and fixed.
+- **[research-log.md](research-log.md)** — how each accuracy bug was found and fixed.
   Finished work, kept because the diagnosis is the valuable part and the code only shows the answer.
 - **[IDEAS.md](IDEAS.md)** — someday-maybe. Roughly 240 unticked boxes of netplay, WebAssembly,
   shaders and audio visualisation, none of it planned, all of it making the project read as 57%

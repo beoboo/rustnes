@@ -1,8 +1,0 @@
-## General rules
-
-- Read the @docs/requirements.md
-- Read the @docs/development-guide.txt
-- Use the links provided in @docs/references.md as primary references
-- Follow the user’s requirements carefully & to the letter, in particular what's under the @PLAN.md and @TODO.md.
-- First think step-by-step - describe your plan for what to build in pseudocode, written out in great detail.
-- Ask for confirmation, then write code!

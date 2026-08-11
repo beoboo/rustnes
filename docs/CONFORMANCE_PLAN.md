@@ -1,8 +1,8 @@
 # Conformance Plan 🎯
 
 How this emulator gets validated against the NES test ROMs the community uses, and what has to
-exist first. Companion to [PLAN.md](PLAN.md) and [TODO.md](TODO.md); the same shape as
-[AUDIO_PLAN.md](AUDIO_PLAN.md), which is now largely done.
+exist first. Companion to [TODO.md](TODO.md); the same shape as [AUDIO_PLAN.md](AUDIO_PLAN.md),
+which is now largely done.
 
 > **nestest passes in full: all 8991 instructions match the golden log**, official and unofficial
 > opcodes alike. blargg's `instr_test-v5` passes both `official_only` and `all_instrs` (16/16

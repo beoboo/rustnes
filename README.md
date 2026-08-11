@@ -3,12 +3,11 @@
 A Nintendo Entertainment System emulator written in Rust, built test-first, with every subsystem
 inspectable live through a debugger UI while it runs.
 
-- **[TODO.md](TODO.md)** — the live task list, and only that
+- **[TODO.md](docs/TODO.md)** — the live task list, and only that
 - **[docs/research-log.md](docs/research-log.md)** — how every accuracy bug was found and fixed
-- **[IDEAS.md](IDEAS.md)** — someday-maybe, explicitly not planned
-- **[PLAN.md](PLAN.md)** — project vision, learning tracks, phases, milestones, success criteria
-- **[AUDIO_PLAN.md](AUDIO_PLAN.md)** — diagnosis and repair of the audio pipeline (done)
-- **[CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)** — validating against the NES test ROMs (done)
+- **[IDEAS.md](docs/IDEAS.md)** — someday-maybe, explicitly not planned
+- **[AUDIO_PLAN.md](docs/AUDIO_PLAN.md)** — diagnosis and repair of the audio pipeline (done)
+- **[CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md)** — validating against the NES test ROMs (done)
 
 ## Status
 
@@ -29,7 +28,7 @@ passes 16/16 both official and unofficial, and `apu_test` passes 8/8.
 
 The one remaining structural gap is **cycle-level accuracy**: interrupts are serviced between
 instructions and the PPU renders whole scanlines, so anything measuring *when* something happens
-within an instruction or a scanline is approximated. See [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)
+within an instruction or a scanline is approximated. See [CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md)
 for exactly which test ROMs that affects.
 
 ## Repository layout
@@ -76,7 +75,7 @@ cargo run -p rom_test -- suite roms/                     # every .nes under a di
 cargo run -p rom_test -- frame game.nes --ascii          # what the PPU drew, in the terminal
 ```
 
-Test ROMs are not distributed here (see [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)); `rom_test`
+Test ROMs are not distributed here (see [CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md)); `rom_test`
 skips cleanly with a message when they are absent, so a fresh checkout stays green.
 
 In the debugger: **Assemble** builds the source in the Assembly tab into system memory, **Run**
@@ -103,7 +102,7 @@ animation, controller input, and one program per APU channel — `pulse_channel_
 
 ## Audio
 
-The audio path was rebuilt; **[AUDIO_PLAN.md](AUDIO_PLAN.md)** has the full diagnosis of what was
+The audio path was rebuilt; **[AUDIO_PLAN.md](docs/AUDIO_PLAN.md)** has the full diagnosis of what was
 wrong, what changed, and what is left.
 
 ```

@@ -3,7 +3,7 @@
 > **Status: Stages A–F implemented.** 265 tests pass, including end-to-end regression tests for
 > each of the five blocking defects, and the debugger runs.
 
-Companion to [PLAN.md](PLAN.md) and [TODO.md](TODO.md), scoped to one thing: getting the APU to
+Companion to [TODO.md](TODO.md), scoped to one thing: getting the APU to
 produce correct, listenable audio. Tracks 6 and 7 are marked 100% complete in
 [TODO.md](TODO.md), and per-task that is nearly true — the registers, channel state machines and
 cpal backend really were built. What was never built is the layer that joins them, so the boxes are
