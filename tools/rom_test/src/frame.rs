@@ -100,10 +100,33 @@ pub struct Options<'a> {
     pub into_level: bool,
     /// Force PAL, for the cartridges whose header claims NTSC and lies.
     pub force_pal: bool,
+    /// Buttons to tap on controller 1, as (button, frame) pairs: held for ten frames from the
+    /// given frame. Enough to press Start through a menu without a save state.
+    pub presses: &'a [(ControllerButton, u64)],
+}
+
+/// Parse a `--press` argument of the form `start@130` into a button and a frame number.
+pub fn parse_press(spec: &str) -> Result<(ControllerButton, u64)> {
+    let (name, frame) = spec
+        .split_once('@')
+        .with_context(|| format!("--press wants BUTTON@FRAME, got {spec:?}"))?;
+    let button = match name.to_ascii_lowercase().as_str() {
+        "a" => ControllerButton::A,
+        "b" => ControllerButton::B,
+        "select" => ControllerButton::Select,
+        "start" => ControllerButton::Start,
+        "up" => ControllerButton::Up,
+        "down" => ControllerButton::Down,
+        "left" => ControllerButton::Left,
+        "right" => ControllerButton::Right,
+        other => bail!("unknown button {other:?}"),
+    };
+    let frame = frame.parse().with_context(|| format!("bad frame number in {spec:?}"))?;
+    Ok((button, frame))
 }
 
 pub fn capture(rom_path: &Path, options: Options<'_>) -> Result<Capture> {
-    let Options { frames, state, per_dot, into_level, force_pal } = options;
+    let Options { frames, state, per_dot, into_level, force_pal, presses } = options;
     let rom = load_rom(rom_path)
         .map_err(|e| anyhow::anyhow!("{e}"))
         .with_context(|| format!("loading {}", rom_path.display()))?;
@@ -139,12 +162,27 @@ pub fn capture(rom_path: &Path, options: Options<'_>) -> Result<Capture> {
         system.ppu().set_per_dot_pixels(true);
     }
 
+    // Taps are timed in video frames, not cycles, so they land on the same frame every run.
+    for &(button, at) in presses {
+        let mut tapped = ControllerState::new();
+        tapped.set_button(button, true);
+        for (until, controller) in [(at, None), (at + 10, Some(tapped))] {
+            if let Some(state) = controller {
+                system.set_controller1_state(state);
+            }
+            while system.ppu().frame_count() < until && system.step().is_ok() {}
+        }
+        system.set_controller1_state(ControllerState::new());
+    }
+
     let target = (CYCLES_PER_FRAME * frames as f64) as u64;
     let mut cycles = 0u64;
     let mut instructions = 0usize;
     let mut stopped = None;
 
-    while cycles < target {
+    // With presses, `frames` counts from power-on so taps and capture share one timeline;
+    // without, the historical cycle budget is kept so existing baselines stay bit-identical.
+    while if presses.is_empty() { cycles < target } else { system.ppu().frame_count() < frames as u64 } {
         match system.step() {
             Ok(step_cycles) => {
                 cycles += step_cycles.max(1) as u64;

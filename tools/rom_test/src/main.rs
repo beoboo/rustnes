@@ -108,6 +108,11 @@ enum Command {
         /// Press Start into a Super Mario Bros 3 level first, matching `nesref --into-level`
         #[arg(long)]
         into_level: bool,
+
+        /// Tap a button on controller 1: BUTTON@FRAME, e.g. `start@130`. Held ten frames;
+        /// repeatable. With presses, --frames counts from power-on
+        #[arg(long, value_name = "BUTTON@FRAME")]
+        press: Vec<String>,
     },
 
     /// Print one line per instruction, for diffing against another emulator
@@ -187,18 +192,25 @@ fn main() -> Result<()> {
         Command::Nestest { rom, log, limit } => run_nestest(&rom, &log, limit),
         Command::Run { rom, budget } => run_one(&rom, budget),
         Command::Cycles { rom, instructions } => cycles::report(&rom, instructions),
-        Command::Frame { rom, frames, out, ascii, state, per_dot, into_level, pal } => run_frame(
-            &rom,
-            out.as_deref(),
-            ascii,
-            frame::Options {
-                frames,
-                state: state.as_deref(),
-                per_dot,
-                into_level,
-                force_pal: pal,
-            },
-        ),
+        Command::Frame { rom, frames, out, ascii, state, per_dot, into_level, pal, press } => {
+            let presses = press
+                .iter()
+                .map(|spec| frame::parse_press(spec))
+                .collect::<Result<Vec<_>>>()?;
+            run_frame(
+                &rom,
+                out.as_deref(),
+                ascii,
+                frame::Options {
+                    frames,
+                    state: state.as_deref(),
+                    per_dot,
+                    into_level,
+                    force_pal: pal,
+                    presses: &presses,
+                },
+            )
+        },
         Command::Trace {
             rom,
             instructions,
