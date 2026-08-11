@@ -503,7 +503,7 @@ and several were found wrong within days of being recorded. Re-run before quotin
 - [x] Which length counters a reset leaves enabled: all of them. A reset clears `$4015` and nothing
       else, so `$4000-$4013` and everything derived from them survive
 - [ ] Drop the `objc2` `relax-sign-encoding` workaround in the root Cargo.toml once eframe/winit
-      move to objc2 0.6+ (see AUDIO_PLAN.md section 4)
+      move to objc2 0.6+ (the relax-sign-encoding decision, recorded in DECISIONS.md)
 
 ### [APU] Advanced Audio Features [T7]
 - [x] Implement length counters for sound duration
@@ -959,7 +959,8 @@ Measured for the first time, and three of them were already passing:
       performed the bus access, so the interrupt lines were read at the instant of the access. A
       6502 cycle runs on past its access, so the poll belongs one dot later, at the cycle's end.
       Two dots before the access and one after, with the lines read at the end of the second.
-      Full account in [CYCLE_ACCURACY.md](CYCLE_ACCURACY.md), including the measurement that found
+      Full account in the retired CYCLE_ACCURACY.md (git history; decisions distilled in
+      [DECISIONS.md](DECISIONS.md)), including the measurement that found
       the dot, and how the same dot turned out to be behind `ADDRESS_BUS_LEAD_DOTS` — a constant
       that existed only to cancel it, now deleted.
 
@@ -1080,7 +1081,7 @@ Measured for the first time, and three of them were already passing:
       fold its own timing into the measurement.
 
       `3-nmi_and_irq` is closer but not
-      `2-nmi_and_brk` passes, which is the test CYCLE_ACCURACY.md records as having hung on two
+      `2-nmi_and_brk` passes, which is the test the cycle-accuracy design record noted as having hung on two
       previous attempts at interrupt timing; it was the BRK halt above, not the interrupt work.
       **The combined `cpu_interrupts.nes` now says "All 5 tests passed."** `4-nmi_and_dma` has no
       ROM in this checkout — only its source — so the five singles that exist are the whole suite.
@@ -1583,7 +1584,7 @@ its own. Both are substantial and each deserves its own sitting; the groundwork 
 already in place.
 
 ### [CPU] Per-cycle state machine
-Design and ordering in [CYCLE_ACCURACY.md](CYCLE_ACCURACY.md), written after checking the hardware
+Design and ordering per the retired CYCLE_ACCURACY.md (git history; decisions in [DECISIONS.md](DECISIONS.md)), written after checking the hardware
 documentation rather than attempting a fourth time from intuition.
 
 Today an instruction is one indivisible step: it runs to completion and the rest of the system is
@@ -2260,7 +2261,7 @@ line carries a track tag.
 - Track 3 (Basic Sprite Rendering): 100% complete (73/73 tasks)
 - Track 4 (Animated Sprites): 100% complete (47/47 tasks)
 - Track 5 (Input Controllers): 92% complete (35/38 tasks) - Controller input is fully implemented with keyboard mapping support; what remains is the D-pad movement demo ROM
-- Track 6 (Basic Sound Output): 100% complete (48/48 tasks) - APU registers, pulse channel, volume/mute controls, and audio output through CPAL. The output pipeline was rebuilt (resampling, non-linear mixing, APU clock divider, audio-clock pacing) — see [AUDIO_PLAN.md](AUDIO_PLAN.md)
+- Track 6 (Basic Sound Output): 100% complete (48/48 tasks) - APU registers, pulse channel, volume/mute controls, and audio output through CPAL. The output pipeline was rebuilt (resampling, non-linear mixing, APU clock divider, audio-clock pacing) — decisions in [DECISIONS.md](DECISIONS.md)
 - Track 7 (Complete Audio System): 76% complete (44/58 tasks) - All audio channels implemented (pulse, triangle, noise, DMC) with hardware non-linear mixing, output filters, envelope generators, sweep units and length counters, and the frame IRQ, 5-step mode and DMC bus reads are all done. What remains is $4017 write and reset timing, and the per-channel test ROMs
 - Track 8 (Conformance & Test ROMs): 72% complete (23/32 tasks) - PRG-ROM loading, the headless runner and the official instruction set are done; the suites that still fail are mostly waiting on the two rewrites at the end of this file. See [CONFORMANCE_PLAN.md](CONFORMANCE_PLAN.md)
 - Track 9 (Mappers & Cartridges): 83% complete (10/12 tasks) - NROM, MMC1, UxROM, MMC3 (with A12 timing) and AxROM, saved and restored with snapshots. CNROM, MMC2 and Color Dreams are unstarted and unneeded so far

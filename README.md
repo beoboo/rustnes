@@ -6,7 +6,7 @@ inspectable live through a debugger UI while it runs.
 - **[TODO.md](docs/TODO.md)** — the live task list, and only that
 - **[docs/research-log.md](docs/research-log.md)** — how every accuracy bug was found and fixed
 - **[IDEAS.md](docs/IDEAS.md)** — someday-maybe, explicitly not planned
-- **[AUDIO_PLAN.md](docs/AUDIO_PLAN.md)** — diagnosis and repair of the audio pipeline (done)
+- **[DECISIONS.md](docs/DECISIONS.md)** — design decisions distilled from retired plans
 - **[CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md)** — validating against the NES test ROMs (done)
 
 ## Status
@@ -101,8 +101,9 @@ animation, controller input, and one program per APU channel — `pulse_channel_
 
 ## Audio
 
-The audio path was rebuilt; **[AUDIO_PLAN.md](docs/AUDIO_PLAN.md)** has the full diagnosis of what was
-wrong, what changed, and what is left.
+The audio path was rebuilt; the decisions that survived the rebuild are in
+[docs/DECISIONS.md](docs/DECISIONS.md), and the research log tells what was broken and how it
+was found.
 
 ```
 Apu::tick (per CPU cycle)
